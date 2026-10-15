@@ -36,6 +36,7 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { onSyncComplete } from '../../services/vessel/SyncService';
@@ -127,6 +128,14 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const [loadError, setLoadError] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    // Reorder mode (132-B20): the items' arrows, 44 pt each, come out only
+    // here, from the ⋮'s Reorder items, and go away with Done.
+    const [reordering, setReordering] = useState(false);
+    /** What the last move did, for VoiceOver: the item and its new place. */
+    const [moveNote, setMoveNote] = useState('');
+    /** The arrow pressed last, refocused once the list has redrawn. */
+    const moveFocusRef = useRef<{ id: string; direction: 'up' | 'down' } | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
     // A checklist that still has items waits for one question before it goes.
     const [deleteAsk, setDeleteAsk] = useState<{
         scope: AuthIdentityScope;
@@ -154,7 +163,17 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const [abandonAsk, setAbandonAsk] = useState(false);
     const [completing, setCompleting] = useState(false);
     const runTitleId = useId();
+    const typeLabelId = useId();
+    const headingFieldId = useId();
+    const pageActionsMenuId = useId();
     const pageActionsButtonRef = useRef<HTMLButtonElement>(null);
+    // Diary's menu (132-B20): named a menu with its state, focus goes into it,
+    // the arrows move through it and Escape closes it.
+    const closePageActions = useCallback(() => setHeaderMenuOpen(false), []);
+    const pageActionsMenuRef = useMenuNavigation<HTMLDivElement>(headerMenuOpen, {
+        triggerRef: pageActionsButtonRef,
+        onClose: closePageActions,
+    });
     const runCloseButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
     /** A Complete in flight: a double tap saved the run, and every repair, twice. */
@@ -281,6 +300,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             setLoading(true);
             setSearchQuery('');
             setHeaderMenuOpen(false);
+            setReordering(false);
+            setMoveNote('');
             setDeleteAsk(null);
             setShowForm(false);
             setEditEntry(null);
@@ -381,6 +402,37 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     );
 
     const totalDetails = useMemo(() => visibleEntries.filter((e) => e.type === 'detail').length, [visibleEntries]);
+
+    // Reorder mode is offered while some checklist has two items to swap, and
+    // leaves by itself when none has (deleted on another device meanwhile).
+    const canReorder = useMemo(() => grouped.some((g) => g.items.length > 1), [grouped]);
+    useEffect(() => {
+        if (reordering && !canReorder && !loading) setReordering(false);
+    }, [reordering, canReorder, loading]);
+    // After a move, the arrow that made it has the focus again; at the end of
+    // its list (the arrow now disabled) the other one does.
+    useEffect(() => {
+        const moved = moveFocusRef.current;
+        const list = listRef.current;
+        if (!moved || !list) return;
+        moveFocusRef.current = null;
+        const arrow = (direction: string) =>
+            list.querySelector<HTMLButtonElement>(`[data-move="${moved.id}:${direction}"]`);
+        const pressed = arrow(moved.direction);
+        const target = pressed && !pressed.disabled ? pressed : arrow(moved.direction === 'up' ? 'down' : 'up');
+        if (target && document.activeElement !== target) target.focus({ preventScroll: false });
+    }, [entries]);
+    const startReorder = useCallback(() => {
+        setHeaderMenuOpen(false);
+        setSearchQuery('');
+        setMoveNote('');
+        setReordering(true);
+    }, []);
+    const finishReorder = useCallback(() => {
+        setReordering(false);
+        setMoveNote('');
+        pageActionsButtonRef.current?.focus();
+    }, []);
 
     // ── Form handlers ──
     const resetForm = () => {
@@ -496,6 +548,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 if (!currentOperation(scope)) return;
                 await LocalChecklistService.update(itemB.id, { order: itemA.order });
                 if (!currentOperation(scope)) return;
+                // The arrow pressed keeps the focus as the list redraws, and
+                // VoiceOver hears where the item went (132-B20).
+                moveFocusRef.current = { id: itemA.id, direction };
+                setMoveNote(`${itemA.text} moved to ${targetIndex + 1} of ${groupItems.length}`);
                 loadEntries();
             } catch (e) {
                 log.error('Failed to reorder:', e);
@@ -708,12 +764,12 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             'Pre‑departure & passage lists'
                         )
                     }
-                    // The menu's one action is Past runs (132-B16; Run moved onto
-                    // each checklist), so the ⋮ waits for a completed run instead
-                    // of opening onto an empty sheet (UX scorecard run 8), as the
-                    // Diary's waits for its own.
+                    // Past runs (132-B16; Run moved onto each checklist) and
+                    // Reorder items (132-B20). The ⋮ waits until one of them has
+                    // something to do, instead of opening onto an empty sheet (UX
+                    // scorecard run 8), as the Diary's waits for its own.
                     action={
-                        runs.length > 0 ? (
+                        runs.length > 0 || canReorder ? (
                             <div className="relative">
                                 <button
                                     type="button"
@@ -721,6 +777,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
                                     className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                     aria-label="Page actions"
+                                    aria-expanded={headerMenuOpen}
+                                    aria-haspopup="menu"
+                                    aria-controls={headerMenuOpen ? pageActionsMenuId : undefined}
                                 >
                                     <svg
                                         aria-hidden="true"
@@ -735,29 +794,70 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </button>
                                 {headerMenuOpen && (
                                     <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                            <button
-                                                type="button"
-                                                onClick={openPastRuns}
-                                                className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
-                                            >
-                                                <svg
-                                                    aria-hidden="true"
-                                                    className="w-4 h-4 text-emerald-400"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2}
+                                        <div
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            className="fixed inset-0 z-40"
+                                            onClick={closePageActions}
+                                        />
+                                        <div
+                                            ref={pageActionsMenuRef}
+                                            id={pageActionsMenuId}
+                                            role="menu"
+                                            aria-label="Checklist actions"
+                                            className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                        >
+                                            {canReorder && (
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={startReorder}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
                                                 >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                                                    />
-                                                </svg>
-                                                Past runs
-                                            </button>
+                                                    <svg
+                                                        aria-hidden="true"
+                                                        className="w-4 h-4 text-sky-400"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                        strokeWidth={2}
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"
+                                                        />
+                                                    </svg>
+                                                    Reorder items
+                                                </button>
+                                            )}
+                                            {canReorder && runs.length > 0 && (
+                                                <div role="separator" className="border-t border-white/5" />
+                                            )}
+                                            {runs.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={openPastRuns}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
+                                                >
+                                                    <svg
+                                                        aria-hidden="true"
+                                                        className="w-4 h-4 text-emerald-400"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                        strokeWidth={2}
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                        />
+                                                    </svg>
+                                                    Past runs
+                                                </button>
+                                            )}
                                         </div>
                                     </>
                                 )}
@@ -766,9 +866,30 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     }
                 />
 
+                {/* Reorder mode (132-B20): what it is for, and Done, where the
+                    search was. Every item shows, a search's filter put away. */}
+                {reordering && (
+                    <div className="shrink-0 px-4 pb-3 flex items-center gap-3">
+                        <p className="flex-1 min-w-0 text-xs font-semibold text-gray-300">
+                            Move items with the arrows, then tap Done.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={finishReorder}
+                            className="shrink-0 min-h-[44px] px-5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sm font-black text-sky-300 hover:bg-sky-500/30 active:scale-95 transition-all"
+                        >
+                            Done
+                        </button>
+                    </div>
+                )}
+                {/* Each move said once, for VoiceOver. Always mounted, so the text change is heard. */}
+                <p className="sr-only" role="status" aria-live="polite">
+                    {moveNote}
+                </p>
+
                 {/* Search — only once there is something to search (UX scorecard
                     run 7: a live field sat over an empty list). */}
-                {(visibleEntries.length > 0 || searchQuery) && (
+                {!reordering && (visibleEntries.length > 0 || searchQuery) && (
                     <div className="shrink-0 px-4 pb-3">
                         <input
                             type="text"
@@ -782,7 +903,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 )}
 
                 {/* Checklist entries (scrollable, grouped) */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-4">
+                <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-4">
                     {loading ? (
                         <div className="space-y-3">
                             <ShimmerBlock variant="list" rows={3} />
@@ -832,6 +953,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     onRun={
                                         runnable.has(group.heading.id) ? () => startRun(group.heading.id) : undefined
                                     }
+                                    reordering={reordering}
                                 />
                                 <div className="space-y-1.5 mt-1.5">
                                     {group.items.map((item, idx) => (
@@ -840,6 +962,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                             entry={item}
                                             onEdit={() => openEditForm(item)}
                                             onDelete={() => handleDelete(item.id)}
+                                            reordering={reordering}
                                             onMoveUp={() => handleMoveItem(group.items, idx, 'up')}
                                             onMoveDown={() => handleMoveItem(group.items, idx, 'down')}
                                             isFirst={idx === 0}
@@ -898,13 +1021,18 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                   : 'Add to checklists'
                         }
                     >
-                        {/* Type toggle — Heading or Detail */}
+                        {/* Type toggle — Heading or Detail. A named group (132-B20):
+                            its 'Type' was a label tied to nothing, so VoiceOver
+                            heard two buttons with no question over them. */}
                         {!editEntry && (
                             <div className="mb-4">
-                                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
+                                <p
+                                    id={typeLabelId}
+                                    className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2"
+                                >
                                     Type
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
+                                </p>
+                                <div role="group" aria-labelledby={typeLabelId} className="grid grid-cols-2 gap-2">
                                     <button
                                         aria-pressed={formType === 'heading'}
                                         onClick={() => setFormType('heading')}
@@ -974,13 +1102,18 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         {/* Heading dropdown (for details only) */}
                         {formType === 'detail' && headings.length > 0 && (
                             <div className="mb-3">
-                                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5">
+                                {/* Tied to its select (132-B20): it was a 'pop-up button' with no name. */}
+                                <label
+                                    htmlFor={headingFieldId}
+                                    className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5"
+                                >
                                     Under checklist
                                 </label>
                                 <select
+                                    id={headingFieldId}
                                     value={formHeadingId}
                                     onChange={(e) => setFormHeadingId(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-hidden focus:border-sky-500/30 appearance-none"
+                                    className="w-full min-h-[44px] bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-hidden focus:border-sky-500/30 appearance-none"
                                 >
                                     {headings.map((h) => (
                                         <option key={h.id} value={h.id} className="bg-slate-800">

@@ -24,7 +24,9 @@ import {
  *    keyboard up the field being typed in shows above the button;
  *  - the six categories are the Stores grid: three across, two rows, every
  *    label whole at 320 px ('Electronics' ran out of its pill);
- *  - the notes are folded away until asked for, and open when there are some.
+ *  - the notes are folded away until asked for, and open when there are some;
+ *  - each item's own page shows its whole name, the long ones on three lines
+ *    at most, and Edit in the header (132-B20).
  */
 
 for (const size of SIZES) {
@@ -81,6 +83,79 @@ for (const size of SIZES) {
         await expectSheetFits(page, sheet, save, size, 'Edit equipment');
         await expectCategoryGrid(sheet.getByRole('group', { name: 'Equipment category' }), 6, 'the categories');
         await expect(sheet.getByLabel('Notes (optional)')).toHaveValue(/Oil and filter every 150 h/);
+        expect(errors).toEqual([]);
+    });
+
+    // The item's own page is on PageHeader (132-B20): its name whole as the
+    // h1, Edit the one 44 pt control in the header, and no floating Edit over
+    // the page's last rows, which now scroll clear of the tab bar.
+    test(`Equipment at ${size.name}: the item's page has its name whole and Edit in the header`, async ({ page }) => {
+        const errors = await openBinder(page, 'equipment', size);
+        await page.getByRole('button', { name: 'Options for Main engine' }).click({ timeout: 25_000 });
+        await page.getByRole('button', { name: 'View details for Main engine' }).click();
+        await expect(page.getByRole('heading', { level: 1, name: 'Main engine' })).toBeVisible();
+        await expectHeaderWhole(page, size);
+
+        const edit = page.locator('[data-page-header]').getByRole('button', { name: 'Edit equipment' });
+        const box = (await edit.boundingBox())!;
+        expect(box.width, 'Edit is 44 pt wide').toBeGreaterThanOrEqual(43.5);
+        expect(box.height, 'Edit is 44 pt tall').toBeGreaterThanOrEqual(43.5);
+        await expect(page.getByRole('button', { name: 'Edit equipment' })).toHaveCount(1);
+
+        // Scrolled to its end, the last row ends above the tab bar, reached by a tap.
+        const last = page.getByRole('button', { name: 'Delete Main engine' });
+        await last.evaluate((button) => button.closest('.overflow-y-auto')!.scrollTo({ top: 1e6 }));
+        await expect
+            .poll(() =>
+                last.evaluate((button) => {
+                    const r = button.getBoundingClientRect();
+                    const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect().top;
+                    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                    return r.bottom <= nav + 0.5 && !!hit && (hit === button || button.contains(hit));
+                }),
+            )
+            .toBe(true);
+        await edit.click();
+        await expect(page.getByRole('dialog', { name: 'Edit equipment' })).toBeVisible();
+        await expectNothingSideways(page);
+        expect(errors).toEqual([]);
+    });
+
+    // Every item's name whole on its own page, the long ones too (132-B20
+    // review): clamped to two lines, 'Watermaker, high-pressure pump and
+    // pre-filters' lost two lines and 'Autopilot drive, below-deck hydraulic
+    // ram' three, at every size. Unclamped and beside '‹ EQUIPMENT', the
+    // autopilot took six lines; the type steps down and the parent's name
+    // gives the name room, so none takes more than three.
+    test(`Equipment at ${size.name}: every item's page shows its whole name, on three lines at most`, async ({
+        page,
+    }) => {
+        const errors = await openBinder(page, 'equipment', size);
+        await expect(page.getByRole('heading', { level: 1, name: 'Equipment' })).toBeVisible({ timeout: 25_000 });
+        const names = await page
+            .locator('[aria-label^="Options for "]')
+            .evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')!.slice('Options for '.length)));
+        expect(names).toEqual(
+            expect.arrayContaining([
+                'Main engine',
+                'Autopilot drive, below-deck hydraulic ram',
+                'Watermaker, high-pressure pump and pre-filters',
+            ]),
+        );
+        for (const name of names) {
+            await page.getByRole('button', { name: `Options for ${name}`, exact: true }).click();
+            await page.getByRole('button', { name: `View details for ${name}`, exact: true }).click();
+            const h1 = page.locator('[data-page-header]').getByRole('heading', { level: 1, name, exact: true });
+            await expect(h1).toBeVisible();
+            await expectHeaderWhole(page, size);
+            const lines = await h1.evaluate((el) =>
+                Math.round(el.clientHeight / parseFloat(getComputedStyle(el).lineHeight)),
+            );
+            expect(lines, `"${name}" at ${size.name}: its lines`).toBeLessThanOrEqual(3);
+            await page.getByRole('button', { name: 'Back to equipment list' }).click();
+            await expect(page.getByRole('heading', { level: 1, name: 'Equipment' })).toBeVisible();
+        }
+        await expectNothingSideways(page);
         expect(errors).toEqual([]);
     });
 }

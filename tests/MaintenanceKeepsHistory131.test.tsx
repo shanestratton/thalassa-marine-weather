@@ -198,7 +198,7 @@ describe('before the push: 126-B7a, unchanged', () => {
         await waitFor(() => expect(screen.queryByText('Raw-water impeller')).not.toBeInTheDocument());
 
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         await waitFor(() => expect(exportServiceHistory).toHaveBeenCalledTimes(1));
         const [records] = vi.mocked(exportServiceHistory).mock.calls[0];
         expect(records.map((h) => h.id)).toEqual(['h-rig']);
@@ -277,7 +277,7 @@ describe('once the probe sees task_title: the records stay', () => {
 
         // Inside the Undo window: printed as they will be.
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         await waitFor(() => expect(exportServiceHistory).toHaveBeenCalledTimes(1));
         const titles = (call: number) => {
             const [records, tasks] = vi.mocked(exportServiceHistory).mock.calls[call];
@@ -299,7 +299,7 @@ describe('once the probe sees task_title: the records stay', () => {
         render(<MaintenanceHub onBack={vi.fn()} />);
         await screen.findByText('Rig inspection');
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         await waitFor(() => expect(exportServiceHistory).toHaveBeenCalledTimes(2));
         expect(titles(1)).toHaveLength(4);
         expect(titles(1)).toEqual(expect.arrayContaining([['h-2', 'Raw-water impeller (task removed)']]));

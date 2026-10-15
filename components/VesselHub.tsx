@@ -75,7 +75,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
-import { BackButton } from './ui/BackButton';
+import { PageHeader } from './ui/PageHeader';
 import { PUBLIC_BETA_ACCESS, TIER_INFO } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
@@ -117,6 +117,13 @@ const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 // (2026-10-13), in the app's one card hue (styles/card-hue.css) in this same
 // sky: the hue sets it apart from the box, and no new colour joins the page.
 const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
+/**
+ * A row's small status words when something is past due ('2 overdue', '1
+ * expired'): red-400, 6.8:1 on the hub's glass (132-B20). The red-500 they
+ * wore measured 5.0:1, and 4.7:1 under a pressed row: a hair over the 4.5:1
+ * floor for 12 px text. The icons and badges keep their own reds.
+ */
+const HUB_DANGER_TEXT = '#f87171';
 /** The NMEA Gateway row's value colour, by the boat link's tone (the same palette it always used). */
 const HUB_TONE_COLOUR: Record<Tone, string> = {
     green: '#6ee7b7',
@@ -713,19 +720,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     backgroundColor: 'var(--vessel-surface-bg, transparent)',
                 }}
             >
-                <div className="vessel-binder-header flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
-                    <BackButton
-                        onClick={() => {
+                {/* The house header (132-B20): PageHeader's chevron, h1
+                    and toast anchor, as every page the binder opens has. It
+                    was a hand-built copy of the same row. The wrapper carries
+                    the tightening for short screens and split panes
+                    (styles/menu-page-fit.css). */}
+                <div className="vessel-binder-header shrink-0">
+                    <PageHeader
+                        title="Boat Binder"
+                        onBack={() => {
                             triggerHaptic('light');
                             setBinderOpen(false);
                         }}
-                        label="Back to Vessel"
-                        className="shrink-0"
+                        backLabel="Back to Vessel"
                     />
-                    {/* The binder is its own screen, so its title is the page's
-                        h1 (it was a span, leaving the screen with no heading).
-                        Same classes, so it looks exactly as before. */}
-                    <h1 className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</h1>
                 </div>
                 <div className="vessel-binder-port flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
                     {/* The Passage subgroup is gone (Shane 2026-09-02, binder
@@ -792,7 +800,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             }
                             label="Maintenance"
                             status={overdueCount > 0 ? `${overdueCount} overdue` : 'Tasks & expiry'}
-                            statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
+                            statusColor={overdueCount > 0 ? HUB_DANGER_TEXT : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('maintenance');
@@ -809,7 +817,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             }
                             label="Documents"
                             status={documentsDue ?? 'Legal papers'}
-                            statusColor={expiredDocsCount > 0 ? '#ef4444' : documentsDue ? '#f59e0b' : '#94a3b8'}
+                            statusColor={expiredDocsCount > 0 ? HUB_DANGER_TEXT : documentsDue ? '#f59e0b' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('documents');
@@ -1500,7 +1508,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             icon={<BinderIcon color={HUB_ACCENT} />}
                             label="Boat Binder"
                             status={binderDue?.status ?? 'Inventory & reference'}
-                            statusColor={binderDue ? (binderDue.urgent ? '#ef4444' : '#f59e0b') : '#94a3b8'}
+                            statusColor={binderDue ? (binderDue.urgent ? HUB_DANGER_TEXT : '#f59e0b') : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 // The hub port remounts at the top on the way back.

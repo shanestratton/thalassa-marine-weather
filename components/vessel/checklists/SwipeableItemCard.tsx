@@ -4,7 +4,7 @@
  * Extracted from ChecklistsPage to reduce component size.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { ChecklistEntry } from '../../../services/vessel/LocalChecklistService';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
@@ -17,11 +17,20 @@ interface SwipeableItemCardProps {
     itemCount?: number;
     /** A checklist with items runs on its own (132-B16, CHK-03). */
     onRun?: () => void;
+    /**
+     * The page's Reorder mode (132-B20): an item shows its two 44 pt arrows
+     * and nothing else to press; no swipe, no Edit, no Run.
+     */
+    reordering?: boolean;
     onMoveUp?: () => void;
     onMoveDown?: () => void;
     isFirst?: boolean;
     isLast?: boolean;
 }
+
+/** An item's arrow in Reorder mode: 44 px square at every root size (132-B20). */
+const MOVE_BUTTON =
+    'flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-300 transition-colors hover:bg-white/10 active:scale-90 disabled:opacity-30 disabled:active:scale-100';
 
 export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
     entry,
@@ -30,6 +39,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
     isHeading,
     itemCount,
     onRun,
+    reordering = false,
     onMoveUp,
     onMoveDown,
     isFirst,
@@ -38,7 +48,11 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
-    const revealed = swipeOffset > 0;
+    const revealed = swipeOffset > 0 && !reordering;
+    // A row swiped open when Reorder starts closes, so Done never brings back a Delete.
+    useEffect(() => {
+        if (reordering) resetSwipe();
+    }, [reordering, resetSwipe]);
     const confirmDelete = () => {
         resetSwipe();
         onDelete();
@@ -81,10 +95,10 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} border rounded-xl overflow-hidden bg-white/3 ${
                     isHeading ? 'border-emerald-500/20' : 'border-white/6 ml-4'
                 }`}
-                style={{ transform: `translateX(-${swipeOffset}px)` }}
-                ref={ref}
+                style={{ transform: `translateX(-${reordering ? 0 : swipeOffset}px)` }}
+                ref={reordering ? undefined : ref}
                 onClick={() => {
-                    if (swipeOffset === 0) onEdit();
+                    if (swipeOffset === 0 && !reordering) onEdit();
                 }}
             >
                 <div className="flex items-center gap-3 p-3">
@@ -114,62 +128,75 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                         </>
                     ) : (
                         <>
-                            {/* Move up/down buttons */}
-                            <div className="flex flex-col gap-0.5 shrink-0">
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onMoveUp?.();
-                                    }}
-                                    disabled={isFirst}
-                                    className={`w-11 h-8 flex items-center justify-center rounded-sm transition-colors ${isFirst ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
-                                    aria-label="Move up"
-                                >
-                                    <svg
-                                        className="w-3.5 h-3.5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M4.5 15.75l7.5-7.5 7.5 7.5"
-                                        />
-                                    </svg>
-                                </button>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onMoveDown?.();
-                                    }}
-                                    disabled={isLast}
-                                    className={`w-11 h-8 flex items-center justify-center rounded-sm transition-colors ${isLast ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
-                                    aria-label="Move down"
-                                >
-                                    <svg
-                                        className="w-3.5 h-3.5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-                                        />
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="w-5 h-5 rounded-full border-2 border-white/20 shrink-0" />
+                            {/* The arrows live in Reorder mode (132-B20): two
+                                32 px arrows on every item, beside a 44 pt Edit,
+                                were small targets in the way of a tap. */}
+                            <div
+                                aria-hidden="true"
+                                className="w-5 h-5 rounded-full border-2 border-white/20 shrink-0"
+                            />
                             <span className="text-sm text-white/80 font-medium flex-1 min-w-0 truncate">
                                 {entry.text}
                             </span>
+                            {reordering && (
+                                <>
+                                    <button
+                                        type="button"
+                                        data-move={`${entry.id}:up`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onMoveUp?.();
+                                        }}
+                                        disabled={isFirst}
+                                        className={MOVE_BUTTON}
+                                        aria-label={`Move ${entry.text} up`}
+                                    >
+                                        <svg
+                                            aria-hidden="true"
+                                            className="w-4 h-4"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M4.5 15.75l7.5-7.5 7.5 7.5"
+                                            />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        data-move={`${entry.id}:down`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onMoveDown?.();
+                                        }}
+                                        disabled={isLast}
+                                        className={MOVE_BUTTON}
+                                        aria-label={`Move ${entry.text} down`}
+                                    >
+                                        <svg
+                                            aria-hidden="true"
+                                            className="w-4 h-4"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                            />
+                                        </svg>
+                                    </button>
+                                </>
+                            )}
                         </>
                     )}
-                    {isHeading && onRun && (
+                    {isHeading && onRun && !reordering && (
                         <button
                             type="button"
                             onClick={(e) => {
@@ -199,28 +226,32 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                             Run
                         </button>
                     )}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onEdit();
-                        }}
-                        className="shrink-0 min-h-11 min-w-11 rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
-                        aria-label={`Edit checklist item: ${entry.text}`}
-                    >
-                        <svg
-                            className="w-3.5 h-3.5 text-slate-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
+                    {!reordering && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onEdit();
+                            }}
+                            className="shrink-0 min-h-[44px] min-w-[44px] rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
+                            aria-label={`Edit checklist item: ${entry.text}`}
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
-                            />
-                        </svg>
-                    </button>
+                            <svg
+                                aria-hidden="true"
+                                className="w-3.5 h-3.5 text-slate-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                />
+                            </svg>
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

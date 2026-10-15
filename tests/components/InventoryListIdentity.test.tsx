@@ -327,7 +327,7 @@ describe("Ship's Stores: Share or save", () => {
         render(<InventoryList onBack={vi.fn()} />);
         await screen.findByText('Private A stores');
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save stores list' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save stores list' }));
         return screen.getByRole('region', { name: 'Share or save stores list' });
     }
 
@@ -335,8 +335,10 @@ describe("Ship's Stores: Share or save", () => {
         render(<InventoryList onBack={vi.fn()} />);
         await screen.findByText('Private A stores');
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        expect(screen.getByRole('button', { name: 'Share or save stores list' })).toBeEnabled();
-        expect(screen.queryByRole('button', { name: /Download/ })).not.toBeInTheDocument();
+        // One menu item in the ⋮, Diary's menu (132-B20).
+        expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+        expect(screen.getByRole('menuitem', { name: 'Share or save stores list' })).toBeEnabled();
+        expect(screen.queryByRole('menuitem', { name: /Download/ })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /^Share stores list/ })).not.toBeInTheDocument();
     });
 

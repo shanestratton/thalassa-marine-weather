@@ -64,6 +64,30 @@ for (const size of SIZES) {
         });
         expect(m.searchBelowHours, 'the search sits under the engine-hours row').toBe(true);
         expect(m.firstShows, `the first task's name shows whole (list ${m.list} px)`).toBe(true);
+
+        // The status chips are one wrapping row under the header, the page's
+        // full width (132-B20): in the title's column at 320 x 568 they stood
+        // one to a line, five lines, and the header was 193 px.
+        const head = await page.evaluate(() => {
+            const header = document.querySelector('[data-page-header]')!.getBoundingClientRect();
+            const chips = document.querySelector('[data-testid="maintenance-status-chips"]')!;
+            const rects = [...chips.children].map((chip) => chip.getBoundingClientRect());
+            return {
+                header: Math.round(header.height),
+                chips: rects.length,
+                rows: new Set(rects.map((r) => Math.round(r.top))).size,
+                headerToChipsEnd: Math.round(chips.getBoundingClientRect().bottom - header.top),
+                outside: !chips.closest('[data-page-header]'),
+            };
+        });
+        test.info().annotations.push({
+            type: 'header',
+            description: `${head.header} px header, then ${head.chips} chips on ${head.rows} rows: ${head.headerToChipsEnd} px from the header's top to the chips' end at ${size.name}`,
+        });
+        expect(head.outside, 'the chips sit under the header, not in its title column').toBe(true);
+        expect(head.chips, 'every chip is there').toBeGreaterThanOrEqual(4);
+        expect(head.rows, `the chips wrap onto ${head.rows} rows`).toBeLessThanOrEqual(2);
+        expect(head.headerToChipsEnd, 'the header and its chips together').toBeLessThan(150);
         await expectNothingSideways(page);
         expect(errors).toEqual([]);
     });

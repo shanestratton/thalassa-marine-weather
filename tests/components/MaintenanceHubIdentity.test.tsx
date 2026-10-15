@@ -313,7 +313,7 @@ describe('MaintenanceHub identity isolation', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
         // Named by its visible words (UX scorecard run 7: label in name).
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() =>
             expect(mocks.exportChecklist).toHaveBeenCalledWith(
                 [expect.objectContaining({ id: 'a-task' })],
@@ -341,7 +341,7 @@ describe('MaintenanceHub identity isolation', () => {
         const accountBLoad = deferred<MaintenanceTask[]>();
         mocks.getTasks.mockReturnValueOnce(accountBLoad.promise);
         act(() => setAuthIdentityScope('account-b'));
-        expect(screen.queryByRole('button', { name: 'Share or save blank checklist' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('menuitem', { name: 'Share or save blank checklist' })).not.toBeInTheDocument();
         expect(mocks.exportChecklist).not.toHaveBeenCalled();
         accountBLoad.resolve([]);
         await act(async () => accountBLoad.promise);
@@ -469,11 +469,11 @@ describe('R&M: Share or save', () => {
         crewOnSharedMaintenance('Wind Dancer');
         await openMenu();
         expect(screen.getByText(/Shared from Wind Dancer/)).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledTimes(1));
         expect(mocks.exportChecklist.mock.calls[0][2]).toBe('Wind Dancer');
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         await waitFor(() => expect(mocks.exportHistory).toHaveBeenCalledTimes(1));
         expect(mocks.exportHistory.mock.calls[0][2]).toBe('Wind Dancer');
     });
@@ -481,16 +481,16 @@ describe('R&M: Share or save', () => {
     it("prints no name when the skipper's boat has none, rather than the crew member's", async () => {
         crewOnSharedMaintenance(null);
         await openMenu();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledTimes(1));
         expect(mocks.exportChecklist.mock.calls[0][2]).toBe('');
     });
 
     it('offers one row per PDF and no Export PDF sheet', async () => {
         await openMenu();
-        expect(screen.getByRole('button', { name: 'Share or save blank checklist' })).toBeEnabled();
-        expect(screen.getByRole('button', { name: 'Share or save service history' })).toBeEnabled();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        expect(screen.getByRole('menuitem', { name: 'Share or save blank checklist' })).toBeEnabled();
+        expect(screen.getByRole('menuitem', { name: 'Share or save service history' })).toBeEnabled();
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledTimes(1));
         expect(screen.queryByRole('region', { name: 'Export PDF' })).not.toBeInTheDocument();
         const source = readFileSync(join(process.cwd(), 'components/vessel/MaintenanceHub.tsx'), 'utf8');
@@ -503,7 +503,7 @@ describe('R&M: Share or save', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Delete Second A task' }));
         await waitFor(() => expect(screen.queryByText('Second A task')).not.toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         await waitFor(() => expect(mocks.exportHistory).toHaveBeenCalledTimes(1));
         const [records, titles, vessel] = mocks.exportHistory.mock.calls[0];
         expect(records.map((entry: MaintenanceHistory) => entry.id)).toEqual(['r1']);
@@ -511,7 +511,7 @@ describe('R&M: Share or save', () => {
         expect(vessel).toBe('Account A Vessel');
         // The checklist leaves it out too.
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledTimes(1));
         expect(mocks.exportChecklist.mock.calls[0][0].map((entry: MaintenanceTask) => entry.id)).toEqual(['a-task']);
     });
@@ -520,10 +520,10 @@ describe('R&M: Share or save', () => {
         mocks.exportChecklist.mockResolvedValue('empty');
         mocks.exportHistory.mockResolvedValue('empty');
         await openMenu();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith('No active tasks to put on a checklist yet.'));
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         await waitFor(() =>
             expect(mocks.toastInfo).toHaveBeenCalledWith('No services logged yet, so there is no history to share.'),
         );
@@ -533,24 +533,24 @@ describe('R&M: Share or save', () => {
         const exported = deferred<string>();
         mocks.exportChecklist.mockReturnValue(exported.promise);
         await openMenu();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        expect(screen.getByRole('button', { name: 'Share or save blank checklist' })).toBeDisabled();
-        expect(screen.getByRole('button', { name: 'Share or save service history' })).toBeDisabled();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        expect(screen.getByRole('menuitem', { name: 'Share or save blank checklist' })).toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: 'Share or save service history' })).toBeDisabled();
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save service history' }));
         expect(mocks.exportChecklist).toHaveBeenCalledTimes(1);
         expect(mocks.exportHistory).not.toHaveBeenCalled();
         await act(async () => exported.resolve('shared'));
-        expect(screen.getByRole('button', { name: 'Share or save service history' })).toBeEnabled();
+        expect(screen.getByRole('menuitem', { name: 'Share or save service history' })).toBeEnabled();
     });
 
     it('says downloaded only on a download, and owns up to a failure', async () => {
         mocks.exportChecklist.mockResolvedValueOnce('downloaded').mockRejectedValueOnce(new Error('no canvas'));
         await openMenu();
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith('PDF downloaded'));
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save blank checklist' }));
         await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('Could not make the PDF. Try again.'));
     });
 });

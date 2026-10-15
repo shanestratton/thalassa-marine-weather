@@ -11,6 +11,7 @@ import { triggerHaptic } from '../../../utils/system';
 import { DocumentSyncService } from '../../../services/vessel/DocumentSyncService';
 import { CheckIcon, XIcon } from '../../icons/UIIcons';
 import { formatDisplayDate } from '../../../utils/displayDate';
+import { PageHeader } from '../../ui/PageHeader';
 import { CATEGORY_ICONS, FALLBACK_CATEGORY_ICON, warrantyInForce } from './SwipeableEquipmentCard';
 
 const log = createLogger('EquipmentDetail');
@@ -47,41 +48,56 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             <div className="flex flex-col h-full">
-                {/* Header */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
+                {/* The house header (132-B20): the item's name is the page's
+                    h1 under the Equipment crumb, and Edit is the one 44 pt
+                    control in its action slot, where the other binder pages
+                    keep theirs. The name was an h2 with no h1 above it, and
+                    Edit a 56 px button floating over the page's last rows.
+                    The name is the page's point, so it takes every line it
+                    needs (wrapTitle), as the h2 did: the house header's two
+                    lines cut the long ones short. */}
+                <PageHeader
+                    title={item.equipment_name}
+                    wrapTitle
+                    subtitle={
+                        <p className="flex items-center gap-1.5 text-label text-gray-400 font-bold uppercase tracking-widest">
+                            <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
+                            {item.category}
+                        </p>
+                    }
+                    onBack={onBack}
+                    breadcrumbs={['Equipment', item.equipment_name]}
+                    backLabel="Back to equipment list"
+                    action={
                         <button
-                            onClick={onBack}
-                            className="hit-target-44 p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                            aria-label="Back to equipment list"
+                            type="button"
+                            onClick={onEdit}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                            aria-label="Edit equipment"
                         >
                             <svg
-                                className="w-5 h-5 text-gray-400"
+                                aria-hidden="true"
+                                className="w-5 h-5 text-sky-400"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
                                 strokeWidth={2}
                             >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                />
                             </svg>
                         </button>
-                        <div className="flex-1">
-                            <h2 className="text-lg font-black text-white">{item.equipment_name}</h2>
-                            <p className="flex items-center gap-1.5 text-label text-gray-400 font-bold uppercase tracking-widest">
-                                <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
-                                {item.category}
-                            </p>
-                        </div>
-                    </div>
-                </div>
+                    }
+                />
 
-                {/* Scrollable content. The bottom padding clears the tab bar
-                    AND the 56px Edit FAB pinned over this same corner —
-                    without it the last child (Delete Equipment) sat under
-                    both. Matches the tab-bar clearance used across the app. */}
+                {/* Scrollable content, its last row (Delete equipment) clear
+                    of the tab bar: the extra 5rem for the Edit FAB went with it. */}
                 <div
                     className="flex-1 overflow-y-auto px-4 min-h-0 space-y-3"
-                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 5rem)' }}
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 1rem)' }}
                 >
                     {/* Specs card */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
@@ -167,7 +183,9 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                     <CheckIcon className="h-4 w-4 shrink-0" />
                                     Active
                                 </p>
-                                <p className="text-label text-emerald-400/70 font-bold mt-1">
+                                {/* Full-strength ink on both small date lines (132-B20):
+                                    the expired one, red-400 at 70%, read 3.8:1 on its card. */}
+                                <p className="text-label text-emerald-400 font-bold mt-1">
                                     Expires {formatDisplayDate(item.warranty_expiry, { weekday: false })}
                                 </p>
                             </>
@@ -178,7 +196,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                     <XIcon className="h-4 w-4 shrink-0" />
                                     Expired
                                 </p>
-                                <p className="text-label text-red-400/70 font-bold mt-1">
+                                <p className="text-label text-red-400 font-bold mt-1">
                                     Expired {formatDisplayDate(item.warranty_expiry, { weekday: false })}
                                 </p>
                             </>
@@ -231,27 +249,6 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                         </button>
                     )}
                 </div>
-
-                {/* Edit FAB */}
-                <button
-                    onClick={onEdit}
-                    className="fixed bottom-24 right-6 w-14 h-14 bg-sky-500 rounded-full flex items-center justify-center shadow-lg shadow-sky-500/30 hover:bg-sky-400 transition-all active:scale-90 z-50"
-                    aria-label="Edit equipment"
-                >
-                    <svg
-                        className="w-6 h-6 text-white"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                        />
-                    </svg>
-                </button>
             </div>
         </div>
     );
