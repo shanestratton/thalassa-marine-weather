@@ -629,33 +629,39 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }, [sheetTask, engineHours, sheetNotes, loadTasks, sharedBinder, undoLog]);
 
     // ── Mark a repair fixed (132-B15): it leaves the list for Fixed ──
+    // From its sheet, with what was done in the notes; or offered instead of
+    // deleting an open repair that has service records, which keeps them.
+    const markRepairFixed = useCallback(
+        async (task: MaintenanceTask, identity: AuthIdentityScope, notes: string | null) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            setSheetSaving(true);
+            try {
+                triggerHaptic('medium');
+                const logged = await MaintenanceService.markFixed(task.id, notes);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                setSheetTask(null);
+                setSheetNotes('');
+                await loadTasks(identity, true);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                const message = `“${task.title}” fixed. It's under Fixed.`;
+                // As a logged service: Undo deletes the record, so crew get none.
+                if (sharedBinder) toast.success(message);
+                else toast.success(message, { label: 'Undo', onClick: () => void undoLog(logged, identity, true) });
+            } catch (e) {
+                log.error('Failed to mark the repair fixed:', e);
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    toast.error(e instanceof SharedBinderReadOnlyError ? e.message : 'Could not mark it fixed');
+                }
+            } finally {
+                if (isAuthIdentityScopeCurrent(identity)) setSheetSaving(false);
+            }
+        },
+        [loadTasks, sharedBinder, undoLog],
+    );
     const handleMarkFixed = useCallback(async () => {
         if (!sheetTask) return;
-        const { identity, task } = sheetTask;
-        const notesSnapshot = sheetNotes.trim() || null;
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        setSheetSaving(true);
-        try {
-            triggerHaptic('medium');
-            const logged = await MaintenanceService.markFixed(task.id, notesSnapshot);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            setSheetTask(null);
-            setSheetNotes('');
-            await loadTasks(identity, true);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            const message = `“${task.title}” fixed. It's under Fixed.`;
-            // As a logged service: Undo deletes the record, so crew get none.
-            if (sharedBinder) toast.success(message);
-            else toast.success(message, { label: 'Undo', onClick: () => void undoLog(logged, identity, true) });
-        } catch (e) {
-            log.error('Failed to mark the repair fixed:', e);
-            if (isAuthIdentityScopeCurrent(identity)) {
-                toast.error(e instanceof SharedBinderReadOnlyError ? e.message : 'Could not mark it fixed');
-            }
-        } finally {
-            if (isAuthIdentityScopeCurrent(identity)) setSheetSaving(false);
-        }
-    }, [sheetTask, sheetNotes, loadTasks, sharedBinder, undoLog]);
+        await markRepairFixed(sheetTask.task, sheetTask.identity, sheetNotes.trim() || null);
+    }, [sheetTask, sheetNotes, markRepairFixed]);
 
     // ── Pause / Resume (126-B7a) ──
     const setTaskPaused = useCallback(
@@ -860,8 +866,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             triggerHaptic('medium');
             setSheetTask(null);
             // When a task has records, ask first, and offer Pause instead
-            // (126-B7a): until the server keeps them (131-B7) they go with
-            // it (MAINT-02). A record waiting out its own Undo is already gone.
+            // (126-B7a), or Mark fixed for an open repair (132-B15): until
+            // the server keeps them (131-B7) they go with it (MAINT-02). A
+            // record waiting out its own Undo is already gone.
             const records = MaintenanceService.getHistory(task.id).filter(
                 (record) => !recordHiddenIds.has(record.id),
             ).length;
@@ -1584,8 +1591,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* Delete a task with service records? Pause is the gentler way
-                out, and the prominent one (126-B7a). A paused task is only
-                asked about its records, which stay once the server keeps
+                out, and the prominent one (126-B7a). A repair is never paused
+                (132-B15): an open one is offered Mark fixed instead, which
+                keeps its records too. A paused task, or a fixed repair, is
+                only asked about its records, which stay once the server keeps
                 them (131-B7) and go with it until then. */}
             {deleteAsk && (
                 <ConfirmDialog
@@ -1600,16 +1609,23 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     cancelLabel="Keep"
                     destructive
                     alternative={
-                        // A repair is never paused (132-B15): it is fixed, or deleted.
-                        deleteAsk.task.is_active && deleteAsk.task.category !== 'Repair'
-                            ? {
-                                  label: 'Pause instead',
-                                  onSelect: () => {
-                                      setDeleteAsk(null);
-                                      void setTaskPaused(deleteAsk.task, deleteAsk.identity, true);
-                                  },
-                              }
-                            : undefined
+                        !deleteAsk.task.is_active
+                            ? undefined
+                            : deleteAsk.task.category === 'Repair'
+                              ? {
+                                    label: 'Mark fixed instead',
+                                    onSelect: () => {
+                                        setDeleteAsk(null);
+                                        void markRepairFixed(deleteAsk.task, deleteAsk.identity, null);
+                                    },
+                                }
+                              : {
+                                    label: 'Pause instead',
+                                    onSelect: () => {
+                                        setDeleteAsk(null);
+                                        void setTaskPaused(deleteAsk.task, deleteAsk.identity, true);
+                                    },
+                                }
                     }
                     onConfirm={() => {
                         setDeleteAsk(null);

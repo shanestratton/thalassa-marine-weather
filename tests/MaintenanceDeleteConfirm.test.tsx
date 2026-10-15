@@ -7,8 +7,9 @@
  * The server's maintenance_history.task_id is ON DELETE CASCADE, so one swipe
  * took the task's whole service ledger with it, on every device, behind a
  * toast that said only '"X" deleted'. Now a task with records asks: Pause
- * instead (the prominent choice), Delete task and records, or Keep. A task
- * with no records still goes at once with its five-second Undo (126-B10a).
+ * instead (the prominent choice), Delete task and records, or Keep. An open
+ * repair, never paused (132-B15), is offered Mark fixed instead. A task with
+ * no records still goes at once with its five-second Undo (126-B10a).
  *
  * BinderLiveSync.test.tsx's harness: the real LocalDatabase (Filesystem is
  * the global mock) under the real LocalMaintenanceService and the real page;
@@ -248,23 +249,68 @@ describe('deleting a task with service records asks first', () => {
         expect(screen.getByText('"Rig inspection" deleted')).toBeInTheDocument();
     });
 
-    // A repair is fixed or deleted, never paused (132-B15).
-    it('a repair with records asks too, without offering Pause', async () => {
+    // A repair is fixed or deleted, never paused (132-B15), so an open one
+    // with records is offered Mark fixed instead: the gentler way out still
+    // comes first, and keeps its records. A repair logged under 126-131 (a
+    // daily task then) needs fixing again on 132, records and all.
+    it('an open repair with records offers Mark fixed instead: no delete, records kept, under Fixed (1)', async () => {
         await openKestrelBinder();
         await mergePulledRecords('maintenance_tasks', [
             task('t-impeller', 'Raw-water impeller', {
                 category: 'Repair',
                 interval_value: null,
+                last_completed: '2026-08-01T09:30:00.000Z',
                 updated_at: '2026-10-10T02:00:00.000Z',
             }),
         ]);
-        render(<MaintenanceHub onBack={vi.fn()} />);
+        const markFixed = vi.spyOn(LocalMaintenanceService, 'markFixed');
+        const deleteTask = vi.spyOn(LocalMaintenanceService, 'deleteTask');
+        const { unmount } = render(<MaintenanceHub onBack={vi.fn()} />);
         await screen.findByText('Raw-water impeller');
 
         swipeDelete('Raw-water impeller');
 
         const dialog = await screen.findByRole('dialog', { name: 'Delete “Raw-water impeller”?' });
         expect(dialog).toHaveTextContent('Its 3 service records go with it, on every device.');
+        expect(within(dialog).queryByRole('button', { name: 'Pause instead' })).not.toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: 'Delete task and records' })).toBeInTheDocument();
+        await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Keep' })).toHaveFocus());
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Mark fixed instead' }));
+
+        await waitFor(() => expect(markFixed).toHaveBeenCalledWith('t-impeller', null));
+        expect(await screen.findByRole('button', { name: 'Fixed (1)' })).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.queryByText('Raw-water impeller')).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(toast.success).toHaveBeenCalledWith(
+            "“Raw-water impeller” fixed. It's under Fixed.",
+            expect.objectContaining({ label: 'Undo' }),
+        );
+        // Its three records, and the fix.
+        expect(LocalMaintenanceService.getHistory('t-impeller')).toHaveLength(4);
+
+        unmount();
+        expect(deleteTask).not.toHaveBeenCalled();
+        expect(taskDeletes()).toEqual([]);
+    });
+
+    it('a fixed repair with records asks too, without offering to fix it again', async () => {
+        await openKestrelBinder();
+        await mergePulledRecords('maintenance_tasks', [
+            task('t-impeller', 'Raw-water impeller', {
+                category: 'Repair',
+                interval_value: null,
+                is_active: false,
+                last_completed: '2026-08-01T09:30:00.000Z',
+                updated_at: '2026-10-10T02:00:00.000Z',
+            }),
+        ]);
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Fixed (1)' }));
+
+        swipeDelete('Raw-water impeller');
+
+        const dialog = await screen.findByRole('dialog', { name: 'Delete “Raw-water impeller”?' });
+        expect(within(dialog).queryByRole('button', { name: 'Mark fixed instead' })).not.toBeInTheDocument();
         expect(within(dialog).queryByRole('button', { name: 'Pause instead' })).not.toBeInTheDocument();
         expect(within(dialog).getByRole('button', { name: 'Delete task and records' })).toBeInTheDocument();
     });
