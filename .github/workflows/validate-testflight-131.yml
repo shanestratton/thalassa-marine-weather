@@ -4,7 +4,7 @@ name: Thalassa 131 full release validation
 # This exact candidate is build 131: the shipped 130 plus the 131 packages.
 on:
     push:
-        branches: ['claude/testflight-131-validation-1-2026-10-15']
+        branches: ['claude/testflight-131-validation-2-2026-10-15']
         paths: ['.github/workflows/validate-testflight-131.yml']
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    CANDIDATE_SHA: 'b91c8f08508e864ce78cf1977a7ad9e490cd7982'
+    CANDIDATE_SHA: '3fcbcead875a6c202a01ac4eb46aa55cf58cf07e'
     CI: 'true'
     HUSKY: '0'
     NODE_OPTIONS: --max-old-space-size=4096
@@ -41,7 +41,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 'b91c8f08508e864ce78cf1977a7ad9e490cd7982'
+                  ref: '3fcbcead875a6c202a01ac4eb46aa55cf58cf07e'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -67,7 +67,7 @@ jobs:
             - run: npm run check:beta:source
             - name: All unit tests with coverage
               if: matrix.suite == 'unit-coverage'
-              run: npx vitest run --reporter=verbose --coverage
+              run: npx vitest run --reporter=dot --reporter=github-actions --coverage
             - name: Build production app for both browser engines
               if: matrix.suite == 'two-browser-e2e'
               run: |
@@ -120,7 +120,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 'b91c8f08508e864ce78cf1977a7ad9e490cd7982'
+                  ref: '3fcbcead875a6c202a01ac4eb46aa55cf58cf07e'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -213,7 +213,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 'b91c8f08508e864ce78cf1977a7ad9e490cd7982'
+                  ref: '3fcbcead875a6c202a01ac4eb46aa55cf58cf07e'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
