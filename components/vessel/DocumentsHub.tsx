@@ -30,7 +30,7 @@ import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
-import { DocumentForm, CATEGORIES, CREW_IDS_CATEGORY } from './documents/DocumentForm';
+import { DocumentForm, DocumentFormSave, CATEGORIES, CREW_IDS_CATEGORY } from './documents/DocumentForm';
 import { docCacheFileName, docFileExtension } from './documents/docFiles';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
@@ -461,11 +461,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         );
     }, [dataScopeKey, documents, hiddenIds, sharedBinder]);
     // Memoised: this ran a toLowerCase() per document per render, and the
-    // search box re-renders the hub on every keystroke.
+    // search box re-renders the hub on every keystroke. The notes are searched
+    // too (132-B19): a policy number or an agent's name lives there.
     const filtered = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return visibleDocuments;
-        return visibleDocuments.filter((d) => d.document_name.toLowerCase().includes(q));
+        return visibleDocuments.filter(
+            (d) => d.document_name.toLowerCase().includes(q) || (d.notes ?? '').toLowerCase().includes(q),
+        );
     }, [visibleDocuments, searchQuery]);
 
     // Group by category, sorted alphabetically within each group
@@ -927,7 +930,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             aria-label="Search documents"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search documents…"
+                            placeholder="Search documents and notes…"
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
                         />
                     </div>
@@ -1040,9 +1043,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             resetForm();
                         }}
                         title={editDoc ? 'Edit document' : 'Add document'}
+                        footer={
+                            <DocumentFormSave
+                                isEdit={!!editDoc}
+                                formName={formName}
+                                fileBusy={fileState === 'reading'}
+                                onSave={handleSave}
+                            />
+                        }
                     >
                         <DocumentForm
-                            isEdit={!!editDoc}
                             formName={formName}
                             formCategory={formCategory}
                             formIssueDate={formIssueDate}
@@ -1061,7 +1071,6 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 setFormFileName(null);
                                 setFileState('idle');
                             }}
-                            onSave={handleSave}
                             allowAttach={!sharedBinder}
                             crewView={sharedBinder}
                             fileBusy={fileState === 'reading'}

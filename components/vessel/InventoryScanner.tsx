@@ -166,7 +166,32 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
     // ── Add item form via ModalSheet (keyboard-aware) ──
     if (!found) {
         return (
-            <ModalSheet isOpen={true} onClose={onClose} title={box ? `Add to ${box.name}` : 'Add item'} zIndex="z-2000">
+            <ModalSheet
+                isOpen={true}
+                onClose={onClose}
+                title={box ? `Add to ${box.name}` : 'Add item'}
+                zIndex="z-2000"
+                // Cancel and Add item stay on screen below the five-row grid and the fields (132-B19).
+                footer={
+                    <div className="flex gap-3">
+                        <button
+                            aria-label="Cancel adding item"
+                            onClick={onClose}
+                            className="flex-1 min-h-[44px] py-2.5 bg-white/5 text-gray-300 rounded-xl text-sm font-bold"
+                        >
+                            Cancel
+                        </button>
+                        <Button
+                            variant="primary"
+                            onClick={handleSaveNew}
+                            disabled={!newItem.item_name.trim() || saving}
+                            className="flex-1"
+                        >
+                            {saving ? 'Adding…' : 'Add item'}
+                        </Button>
+                    </div>
+                }
+            >
                 <div className="space-y-2">
                     {/* Category — first */}
                     <div>
@@ -334,25 +359,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         value={newItem.expiry_date}
                         onChange={(v) => setNewItem((prev) => ({ ...prev, expiry_date: v }))}
                     />
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 mt-3">
-                    <button
-                        aria-label="Cancel adding item"
-                        onClick={onClose}
-                        className="flex-1 min-h-[44px] py-2.5 bg-white/5 text-gray-300 rounded-xl text-sm font-bold"
-                    >
-                        Cancel
-                    </button>
-                    <Button
-                        variant="primary"
-                        onClick={handleSaveNew}
-                        disabled={!newItem.item_name.trim() || saving}
-                        className="flex-1"
-                    >
-                        {saving ? 'Adding…' : 'Add item'}
-                    </Button>
                 </div>
             </ModalSheet>
         );

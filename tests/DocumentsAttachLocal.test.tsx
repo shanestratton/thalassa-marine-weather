@@ -246,6 +246,8 @@ describe('Documents: attaching a file', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Edit Ship radio licence' }));
         const sheet = screen.getByRole('dialog', { name: 'Edit document' });
+        // No notes yet: the field is folded away until asked for (132-B19).
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Add notes' }));
         fireEvent.change(within(sheet).getByLabelText(/Notes/), { target: { value: 'Callsign renewed in Nouméa' } });
         await act(async () => {
             fireEvent.click(within(sheet).getByRole('button', { name: 'Save changes' }));

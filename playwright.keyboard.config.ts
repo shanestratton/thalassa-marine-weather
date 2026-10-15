@@ -187,6 +187,18 @@ export default defineConfig({
         // each row's currency, 44 pt ticks and no clipped names; the Recipe editor and Cooking
         // Mode on screen, at 375 × 667, 320 × 568 and 390 × 844 in wide fonts (e2e/fixtures/galley-layout.tsx).
         'galley-layout.spec.ts',
+        // Binder sheets fit one screen (132-B19): every Boat Binder page and its Add and Edit
+        // sheets at 375 × 667, 320 × 568 and 390 × 844 in wide fonts, under the real header and
+        // tab bar; each sheet's Save on screen while its fields scroll, its categories on the
+        // Stores grid (e2e/fixtures/binder-sheets.tsx, browser-tests/helpers/binderLayout.ts).
+        'equipment-layout.spec.ts',
+        'documents-sheet-layout.spec.ts',
+        'maintenance-layout.spec.ts',
+        'stores-layout.spec.ts',
+        'checklists-layout.spec.ts',
+        // The Stores category grid: fifteen in three columns and five rows at 320 to 430 px
+        // (e2e/fixtures/stores-category-grid.tsx). Its own config was never run by CI (132-B19).
+        'stores-category-grid-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

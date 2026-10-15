@@ -191,6 +191,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     } | null>(null);
     const [showPaused, setShowPaused] = useState(false);
     const [showFixed, setShowFixed] = useState(false);
+    // A search over the tasks (132-B19): the suggested schedule alone is 40.
+    const [searchQuery, setSearchQuery] = useState('');
     // Whether a deleted task's records stay (131-B7): only once the held
     // migration's column has been seen; until then they go with it, and the
     // question says so (126-B7a).
@@ -499,15 +501,30 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const pausedTasks = useMemo(() => inactiveTasks.filter((task) => !isFixedRepair(task)), [inactiveTasks]);
     const fixedRepairs = useMemo(() => inactiveTasks.filter(isFixedRepair), [inactiveTasks]);
 
+    // What the search finds (132-B19): a task's name, its notes or its
+    // category ('rigging'), in every group, Paused and Fixed too. The counts
+    // in the header stay the whole list's.
+    const query = searchQuery.trim().toLowerCase();
+    const matches = useCallback(
+        (task: TaskWithStatus) =>
+            !query ||
+            task.title.toLowerCase().includes(query) ||
+            (task.description ?? '').toLowerCase().includes(query) ||
+            task.category.toLowerCase().includes(query),
+        [query],
+    );
+    const foundPaused = useMemo(() => pausedTasks.filter(matches), [pausedTasks, matches]);
+    const foundFixed = useMemo(() => fixedRepairs.filter(matches), [fixedRepairs, matches]);
+
     // Group tasks by category for rendering
     const groupedTasks = useMemo(() => {
         const groups: { category: MaintenanceCategory; tasks: TaskWithStatus[] }[] = [];
         for (const cat of CATEGORY_ORDER) {
-            const catTasks = tasksWithStatus.filter((t) => t.category === cat);
+            const catTasks = tasksWithStatus.filter((t) => t.category === cat && matches(t));
             if (catTasks.length > 0) groups.push({ category: cat, tasks: catTasks });
         }
         return groups;
-    }, [tasksWithStatus]);
+    }, [tasksWithStatus, matches]);
 
     // The 40 suggested tasks are seeded with due dates counted from the day
     // they were added. Until the skipper logs a service, say so, rather than
@@ -831,6 +848,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setDeleteAsk(null);
                 setShowPaused(false);
                 setShowFixed(false);
+                setSearchQuery('');
                 setSheetNotes('');
                 setSheetSaving(false);
                 resetForm();
@@ -1310,6 +1328,21 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     )}
                 </div>
 
+                {/* ═══ SEARCH (132-B19) ═══ as its sibling pages have it: only
+                    once there is something to search. */}
+                {(visibleTasks.length > 0 || searchQuery) && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <input
+                            type="text"
+                            aria-label="Search maintenance tasks"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search tasks and notes…"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
+
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
@@ -1323,7 +1356,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
                             {bringingInCopy(binder)}
                         </p>
-                    ) : groupedTasks.length === 0 && pausedTasks.length === 0 && fixedRepairs.length === 0 ? (
+                    ) : !query && groupedTasks.length === 0 && pausedTasks.length === 0 && fixedRepairs.length === 0 ? (
                         <EmptyState
                             icon={
                                 <svg
@@ -1343,9 +1376,30 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             title="No maintenance tasks"
                             subtitle="Set up service intervals for your engine, rigging and safety gear. Tap Add task below to add one."
                         />
+                    ) : query && groupedTasks.length === 0 && foundPaused.length === 0 && foundFixed.length === 0 ? (
+                        <EmptyState
+                            icon={
+                                <svg
+                                    className="w-8 h-8"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                                    />
+                                </svg>
+                            }
+                            title="No tasks match"
+                            subtitle="Try a different search term."
+                            className="py-16"
+                        />
                     ) : (
                         <>
-                            {showSuggestedNote && (
+                            {showSuggestedNote && !query && (
                                 // Two lines, not three (UX scorecard run 9); the caveat
                                 // itself is unchanged.
                                 <p className="text-xs text-gray-400 px-1">
@@ -1367,41 +1421,48 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 );
                             })}
                             {/* Paused tasks (126-B7a): at the bottom, collapsed,
-                                out of every due count. */}
-                            {pausedTasks.length > 0 && (
+                                out of every due count. A search opens it on
+                                what it finds there (132-B19). */}
+                            {foundPaused.length > 0 && (
                                 <div>
                                     <button
                                         type="button"
-                                        aria-expanded={showPaused}
+                                        aria-expanded={showPaused || !!query}
                                         onClick={() => setShowPaused((open) => !open)}
+                                        disabled={!!query}
                                         className="flex min-h-[44px] w-full items-center gap-2 text-left"
                                     >
                                         <span className={GROUP_LABEL}>Paused</span>{' '}
-                                        <span className={GROUP_COUNT}>({pausedTasks.length})</span>
+                                        <span className={GROUP_COUNT}>({foundPaused.length})</span>
                                         <ChevronRightIcon
-                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showPaused ? '-rotate-90' : 'rotate-90'}`}
+                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showPaused || query ? '-rotate-90' : 'rotate-90'}`}
                                         />
                                     </button>
-                                    {showPaused && <div className="space-y-2">{pausedTasks.map(taskCard)}</div>}
+                                    {(showPaused || !!query) && (
+                                        <div className="space-y-2">{foundPaused.map(taskCard)}</div>
+                                    )}
                                 </div>
                             )}
                             {/* Repairs marked fixed (132-B15): last, collapsed, out of
                                 every count, each with its record in the history. */}
-                            {fixedRepairs.length > 0 && (
+                            {foundFixed.length > 0 && (
                                 <div>
                                     <button
                                         type="button"
-                                        aria-expanded={showFixed}
+                                        aria-expanded={showFixed || !!query}
                                         onClick={() => setShowFixed((open) => !open)}
+                                        disabled={!!query}
                                         className="flex min-h-[44px] w-full items-center gap-2 text-left"
                                     >
                                         <span className={GROUP_LABEL}>Fixed</span>{' '}
-                                        <span className={GROUP_COUNT}>({fixedRepairs.length})</span>
+                                        <span className={GROUP_COUNT}>({foundFixed.length})</span>
                                         <ChevronRightIcon
-                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showFixed ? '-rotate-90' : 'rotate-90'}`}
+                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showFixed || query ? '-rotate-90' : 'rotate-90'}`}
                                         />
                                     </button>
-                                    {showFixed && <div className="space-y-2">{fixedRepairs.map(taskCard)}</div>}
+                                    {(showFixed || !!query) && (
+                                        <div className="space-y-2">{foundFixed.map(taskCard)}</div>
+                                    )}
                                 </div>
                             )}
                         </>
