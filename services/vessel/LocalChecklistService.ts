@@ -26,6 +26,13 @@ export type RunItemStatus = 'unchecked' | 'pass' | 'fail';
 export interface ChecklistRunItem {
     entry_id: string;
     heading: string;
+    /**
+     * The checklist the item was run under (132-B16), so Past runs can say
+     * when each list was last done. Kept inside the run's items JSON: the
+     * checklist_runs table has no column for it. Runs saved before 132 have
+     * none, and Past runs matches them up by item and name instead.
+     */
+    heading_id?: string | null;
     text: string;
     status: RunItemStatus;
     flagged_rm: boolean;

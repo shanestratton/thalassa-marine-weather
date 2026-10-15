@@ -63,6 +63,7 @@ vi.mock('../services/vessel/DocumentSyncService', () => ({
 vi.mock('../services/vessel/LocalChecklistService', () => ({
     LocalChecklistService: {
         getAll: vi.fn(() => mocks.checklistRows),
+        getRuns: vi.fn(() => []),
         create: vi.fn().mockResolvedValue({ id: 'checklist-new' }),
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue(undefined),
@@ -144,6 +145,8 @@ const checklistA = [
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // A checklist run in progress is kept here (132-B16).
+    localStorage.clear();
     setAuthIdentityScope('account-a');
     mocks.equipmentRows = [equipmentA];
     mocks.documentRows = [documentA];
@@ -209,8 +212,7 @@ describe('vessel office identity boundary', () => {
         render(<ChecklistsPage onBack={vi.fn()} />);
         expect(await screen.findByText('A private bilge check')).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Run checklist inspection' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Run A private departure' }));
         fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
         await waitFor(() => expect(mocks.checklistSaveRun).toHaveBeenCalledOnce());
 
@@ -224,5 +226,35 @@ describe('vessel office identity boundary', () => {
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
         expect(mocks.toastError).not.toHaveBeenCalledWith(expect.stringContaining('Checklist complete'));
         expect(mocks.maintenanceCreate).not.toHaveBeenCalled();
+        // A's run was saved, so A's copy on the phone is gone too (132-B16), and B never had one.
+        expect(localStorage.getItem('thalassa_checklist_run_draft_v1::user%3Aaccount-a')).toBeNull();
+        expect(screen.queryByRole('dialog', { name: 'Run checklist' })).not.toBeInTheDocument();
+    });
+
+    it("keeps A's unfinished run on the phone for A, never shows it to B, and brings it back to A (132-B16)", async () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        expect(await screen.findByText('A private bilge check')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Run A private departure' }));
+        fireEvent.click(
+            screen.getByRole('button', { name: 'A private bilge check: not checked. Change status to passed' }),
+        );
+
+        mocks.checklistRows = [];
+        act(() => setAuthIdentityScope('account-b'));
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(screen.queryByRole('dialog', { name: 'Run checklist' })).not.toBeInTheDocument();
+        expect(screen.queryByText('A private bilge check')).not.toBeInTheDocument();
+
+        mocks.checklistRows = checklistA;
+        act(() => setAuthIdentityScope('account-a'));
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(screen.getByRole('dialog', { name: 'Run checklist' })).toBeInTheDocument();
+        expect(
+            screen.getByRole('button', { name: 'A private bilge check: passed. Change status to failed' }),
+        ).toBeInTheDocument();
     });
 });
