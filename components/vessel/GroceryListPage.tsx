@@ -1,11 +1,19 @@
 /**
  * GroceryListPage — Full-page shopping list accessible from the Galley.
  *
- * Shows all shopping items grouped by Market Zone (🥩 Butcher, 🥬 Produce, etc.)
- * Tap to mark as purchased → auto-inserts into Ship's Stores + immediate sync.
- * Price tracking for voyage budget.
+ * Shows all shopping items grouped by aisle (Butcher, Produce…), each with its
+ * line icon. Tap to mark as purchased → auto-inserts into Ship's Stores +
+ * immediate sync. Prices are kept in each row's own currency for the voyage
+ * budget.
  *
  * "Check off items as you walk the aisles — your crew sees updates instantly."
+ *
+ * The clean-up (132-B17, Shane 2026-10-15: "definitely needs a good clean
+ * up"): Ship's Stores' recipe (components/vessel/InventoryList) for the
+ * header, cards, group headings and the Add item bar; clear of the status bar
+ * and the home indicator (GAL-10); prices in each row's currency, written the
+ * phone's way, and quick picks from the shops this phone has used (GAL-09); a
+ * list that cannot be read says so, apart from an empty one.
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -13,7 +21,7 @@ import {
     markPurchased,
     unmarkPurchased,
     addManualItem,
-    getVoyageBudget,
+    recentRetailers,
     type ShoppingItem,
     type ShoppingListSummary,
     type MarketZone,
@@ -22,6 +30,9 @@ import { toPurchasable } from '../../services/PurchaseUnits';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
+import { LoadErrorState } from '../ui/LoadErrorState';
+import { OfflineBadge } from '../ui/OfflineBadge';
+import { TapToAction } from '../ui/TapToAction';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -33,11 +44,12 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 
-import { ZONE_EMOJI } from '../chat/galleyTokens';
+import { groceryZoneIcon } from './groceryZoneIcons';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, SKIPPER_BOAT_FALLBACK } from './SharedBinderLine';
-import { CartIcon, CheckCircleIcon, CheckIcon, ClipboardIcon, ClockIcon } from '../Icons';
+import { CartIcon, CheckCircleIcon, CheckIcon, ClipboardIcon, ClockIcon, XIcon } from '../Icons';
 import { createLogger, getErrorMessage } from '../../utils/createLogger';
+import { currencyName, currencySymbol, formatMoney, formatSpend, spendByCurrency } from '../../utils/money';
 
 // A device-log trace for each failure the page shows (GAL-13): a reason and
 // the error message, never an item name or id.
@@ -65,6 +77,15 @@ const ALL_ZONES: MarketZone[] = [
 
 const FILTERS = ['remaining', 'purchased', 'all'] as const;
 
+/**
+ * The page covers the whole screen, the app's header and tab bar included, so
+ * it clears the status bar and the Dynamic Island itself (GAL-10): with the
+ * header's own 1rem, its top sits where App's header starts, max(1rem, inset).
+ */
+const SAFE_TOP = 'max(0px, calc(env(safe-area-inset-top) - 1rem))';
+/** Its last row clears the home indicator (GAL-10); no tab bar shows under it. */
+const SAFE_BOTTOM = 'max(0.75rem, env(safe-area-inset-bottom))';
+
 function formatQuantity(quantity: number): string {
     return quantity.toLocaleString(undefined, {
         maximumFractionDigits: 8,
@@ -85,6 +106,17 @@ function purchaseQuantityLabel(item: ShoppingItem): { primary: string; required:
               primary: required,
               required: null,
           };
+}
+
+/** The day it was bought, plainly: '10 Oct', with the year once it is not this one. */
+function boughtDay(iso: string): string {
+    const day = new Date(iso);
+    if (Number.isNaN(day.getTime())) return '';
+    return day.toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        ...(day.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }),
+    });
 }
 
 export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passageStatus, accessLoaded = true }) => {
@@ -112,11 +144,19 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
     const [loadedDataScopeKey, setLoadedDataScopeKey] = useState<string | null>(null);
     const [filter, setFilter] = useState<'all' | 'remaining' | 'purchased'>('remaining');
     const [purchasingId, setPurchasingId] = useState<string | null>(null);
+    /** What a purchase, undo or add could not do. */
     const [pageError, setPageError] = useState<string | null>(null);
+    /**
+     * The list could not be read (132-B17): with nothing on screen yet, the
+     * house LoadErrorState, never the empty list's words.
+     */
+    const [loadError, setLoadError] = useState(false);
     /** A quiet word after a tick in a shared galley that left Ship's Stores alone. */
     const [storesNote, setStoresNote] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [focusRequest, setFocusRequest] = useState(0);
+    /** The shops this phone's purchases name, for the price sheet's quick picks (GAL-09). */
+    const [recentShops, setRecentShops] = useState<string[]>([]);
 
     // Price input modal state
     const [priceItem, setPriceItem] = useState<ShoppingItem | null>(null);
@@ -136,18 +176,18 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
     const [addError, setAddError] = useState<string | null>(null);
     const [addQuantityInvalid, setAddQuantityInvalid] = useState(false);
     const addNameRef = useRef<HTMLInputElement>(null);
-    const addButtonRef = useRef<HTMLButtonElement>(null);
+    /** Holds the Add item bar: TapToAction takes no ref, and focus returns to its button. */
+    const addBarRef = useRef<HTMLDivElement>(null);
     const listPanelRef = useRef<HTMLDivElement>(null);
     const focusListAfterMutationRef = useRef(false);
 
-    // Budget summary
-    const [budget, setBudget] = useState<{ total: number; byZone: Record<string, number> } | null>(null);
     const stateOwnsRenderedScope = loadedDataScopeKey === dataScopeKey && renderIdentityScope.userId === currentUserId;
     const visibleSummary = stateOwnsRenderedScope ? summary : null;
-    const visibleBudget = stateOwnsRenderedScope ? budget : null;
     const visiblePageError = stateOwnsRenderedScope ? pageError : null;
+    const visibleLoadError = stateOwnsRenderedScope && loadError;
     const visibleStoresNote = stateOwnsRenderedScope ? storesNote : null;
     const visibleIsLoading = stateOwnsRenderedScope ? isLoading : true;
+    const visibleRecentShops = stateOwnsRenderedScope ? recentShops : [];
     const permissionsLoadedForScope = stateOwnsRenderedScope && permissions.loaded;
     const canManageShoppingList =
         permissionsLoadedForScope &&
@@ -171,20 +211,13 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             const s = getShoppingList(scopeVoyageId, scopeOwnerUserId);
             if (!operationIsCurrent(operationScope, operationDataScopeKey)) return;
             setSummary(s);
-            setBudget(null);
-
-            if (scopeVoyageId) {
-                const b = getVoyageBudget(scopeVoyageId);
-                const byZoneMap: Record<string, number> = {};
-                for (const z of b.byZone) byZoneMap[z.zone] = z.spent;
-                setBudget({ total: b.totalSpent, byZone: byZoneMap });
-            }
+            setLoadError(false);
             setPageError(null);
             setLoadedDataScopeKey(operationDataScopeKey);
         } catch (error) {
             log.warn('galley: load-list', getErrorMessage(error));
             if (operationIsCurrent(operationScope, operationDataScopeKey)) {
-                setPageError('The shopping list could not be loaded. Please try again.');
+                setLoadError(true);
                 setLoadedDataScopeKey(operationDataScopeKey);
             }
         } finally {
@@ -192,7 +225,19 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                 setIsLoading(false);
             }
         }
+        // The quick picks on their own: a failure here costs the chips, never the list.
+        try {
+            const shops = recentRetailers();
+            if (operationIsCurrent(operationScope, operationDataScopeKey)) setRecentShops(shops);
+        } catch (error) {
+            log.warn('galley: recent-shops', getErrorMessage(error));
+        }
     }, [currentUserId, dataScopeKey, operationIsCurrent, scopeOwnerUserId, scopeVoyageId]);
+
+    const retryLoad = useCallback(() => {
+        setIsLoading(true);
+        loadList();
+    }, [loadList]);
 
     // The grocery list kept with no passage is the galley's: the skipper's
     // while they share their galley (ShoppingListService filters and stamps).
@@ -209,9 +254,10 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
     useEffect(() => {
         setLoadedDataScopeKey(null);
         setSummary(null);
-        setBudget(null);
         setPageError(null);
+        setLoadError(false);
         setStoresNote(null);
+        setRecentShops([]);
         setIsLoading(true);
         setPurchasingId(null);
         setPriceItem(null);
@@ -257,6 +303,21 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         }
         return labels;
     }, [filteredZones]);
+
+    // What was spent, per currency (GAL-09): rows in two currencies are never
+    // added together, and the voyage's spend by aisle comes from the same rows.
+    const spent = useMemo(
+        () => spendByCurrency(visibleSummary?.zones.flatMap((zone) => zone.items) ?? []),
+        [visibleSummary],
+    );
+    const spentByZone = useMemo(
+        () =>
+            (visibleSummary?.zones ?? [])
+                .map((zone) => ({ zone: zone.zone, spend: spendByCurrency(zone.items) }))
+                .filter((entry) => entry.spend.length > 0)
+                .sort((a, b) => b.spend[0].total - a.spend[0].total),
+        [visibleSummary],
+    );
 
     const handleFilterKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
         let nextIndex: number | null = null;
@@ -313,6 +374,13 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         resetAddDialog();
     }, [isAdding, resetAddDialog]);
 
+    const openAddDialog = useCallback(() => {
+        if (!canManageShoppingList) return;
+        setAddError(null);
+        setAddQuantityInvalid(false);
+        setShowAddForm(true);
+    }, [canManageShoppingList]);
+
     useEffect(() => {
         if (permissionsLoadedForScope && permissions.canEditStores) return;
         resetPriceDialog();
@@ -341,7 +409,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         const nextItem = listPanelRef.current?.querySelector<HTMLButtonElement>(
             '[data-grocery-item-action]:not([disabled])',
         );
-        (nextItem ?? addButtonRef.current)?.focus();
+        (nextItem ?? addBarRef.current?.querySelector<HTMLButtonElement>('button'))?.focus();
     }, [focusRequest]);
 
     // Confirm purchase with optional price + store
@@ -558,6 +626,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         scopeVoyageId,
     ]);
 
+    const purchaseControlsDisabled = !!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores;
+
     return (
         <div
             ref={pageDialogRef}
@@ -565,26 +635,55 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             aria-modal="true"
             aria-label="Shopping list"
             className="fixed inset-0 z-1100 bg-slate-950 overflow-hidden slide-up-enter"
+            style={{ paddingTop: SAFE_TOP }}
         >
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Grocery list"
                     onBack={onBack}
-                    breadcrumbs={['Galley', 'Grocery list']}
-                    status={scopeVoyageId === null ? <SharedBinderLine register="galley" source={galley} /> : undefined}
+                    // Its place in the app, as its binder siblings show theirs:
+                    // Boat Binder › Galley, and Back goes to the Galley.
+                    breadcrumbs={['Boat Binder', 'Galley', 'Grocery list']}
+                    status={
+                        <>
+                            <OfflineBadge />
+                            {scopeVoyageId === null && <SharedBinderLine register="galley" source={galley} />}
+                        </>
+                    }
                     subtitle={
                         visibleSummary ? (
+                            // Ship's Stores' bold tracked count. Each count is one
+                            // unbreakable unit and the '·' binds to the one before
+                            // it, so a wrap never starts a line with it.
                             <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                                {visibleSummary.remaining} remaining · {visibleSummary.purchased} purchased
-                                {visibleSummary.totalCost > 0 && (
-                                    <span className="text-emerald-400"> · ${visibleSummary.totalCost.toFixed(2)}</span>
+                                <span className="whitespace-nowrap tabular-nums">
+                                    {visibleSummary.remaining} to buy&nbsp;·
+                                </span>{' '}
+                                <span className="whitespace-nowrap tabular-nums">
+                                    {visibleSummary.purchased} bought
+                                    {spent.length > 0 && <>&nbsp;·</>}
+                                </span>
+                                {spent.length > 0 && (
+                                    <>
+                                        {' '}
+                                        {/* Each amount whole; the line may break between currencies. */}
+                                        <span className="tabular-nums text-emerald-400">
+                                            {spent.map((entry, i) => (
+                                                <React.Fragment key={entry.currency}>
+                                                    {i > 0 && ' + '}
+                                                    <span className="whitespace-nowrap">
+                                                        {formatMoney(entry.total, entry.currency)}
+                                                    </span>
+                                                </React.Fragment>
+                                            ))}{' '}
+                                            spent
+                                        </span>
+                                    </>
                                 )}
                             </p>
                         ) : visibleIsLoading ? (
-                            <p className="text-label text-gray-400">Loading…</p>
-                        ) : (
-                            <p className="text-label text-red-300">Unavailable</p>
-                        )
+                            <p className="text-label text-gray-400 font-bold uppercase tracking-widest">Loading…</p>
+                        ) : undefined
                     }
                 />
 
@@ -613,7 +712,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     : 'text-gray-400 hover:text-gray-200'
                             }`}
                         >
-                            <span className="inline-flex items-center justify-center gap-1.5">
+                            <span className="inline-flex items-center justify-center gap-1.5 tabular-nums">
                                 {f === 'remaining' ? (
                                     <>
                                         <CartIcon className="h-3.5 w-3.5 shrink-0" />
@@ -634,6 +733,26 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                         </button>
                     ))}
                 </div>
+
+                {visibleSummary && visibleLoadError && (
+                    // A reload that failed with the list already on screen: the
+                    // list stays, and says it may be behind.
+                    <div
+                        role="alert"
+                        className="mx-4 mt-3 flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 py-1 pl-3 pr-1 text-xs font-semibold text-red-200"
+                    >
+                        <span className="min-w-0 flex-1">
+                            The grocery list could not be refreshed, so it may be out of date.
+                        </span>
+                        <button
+                            type="button"
+                            onClick={retryLoad}
+                            className="min-h-[44px] shrink-0 rounded-lg px-3 font-bold text-red-100 hover:bg-red-500/10"
+                        >
+                            Try again
+                        </button>
+                    </div>
+                )}
 
                 {visiblePageError && (
                     <div
@@ -675,51 +794,33 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     </div>
                 ) : null}
 
-                {/* Item list */}
+                {/* Item list: Ship's Stores' scroller, group headings and cards */}
                 <div
                     ref={listPanelRef}
                     id="grocery-filter-panel"
                     role="tabpanel"
                     aria-labelledby={`grocery-filter-${filter}`}
-                    className="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0 no-scrollbar"
+                    className="flex-1 overflow-y-auto px-4 pt-3 pb-4 min-h-0 space-y-4 no-scrollbar"
                 >
                     {!visibleSummary ? (
                         visibleIsLoading ? (
-                            <div role="status" className="py-16 text-center text-xs font-semibold text-gray-400">
-                                Loading shopping list…
+                            <div role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                                Loading the grocery list…
                             </div>
                         ) : (
-                            <EmptyState
-                                title="Shopping List Unavailable"
-                                subtitle="Your saved list could not be read from this device."
-                                actionLabel="Try Again"
-                                onAction={() => {
-                                    setIsLoading(true);
-                                    loadList();
-                                }}
-                                className="py-16"
+                            // Not the empty list's words: nothing says the list is
+                            // empty when it could not be read (132-B17).
+                            <LoadErrorState
+                                what="the grocery list"
+                                onRetry={retryLoad}
+                                description="This is a loading problem, not an empty list. Nothing has been removed. Try again."
                             />
                         )
                     ) : visibleSummary.total === 0 ? (
                         <EmptyState
-                            icon={
-                                <svg
-                                    className="w-8 h-8"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
-                                    aria-hidden="true"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z"
-                                    />
-                                </svg>
-                            }
+                            icon={<CartIcon className="h-8 w-8" />}
                             title="No grocery items yet"
-                            subtitle="Use the + button, or add missing ingredients from the Meal Calendar"
+                            subtitle="Tap Add item below, or add missing ingredients from the Meal Calendar."
                             className="py-16"
                         />
                     ) : filteredZones.length === 0 ? (
@@ -734,215 +835,219 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             className="py-16"
                         />
                     ) : (
-                        filteredZones.map((zone) => (
-                            <div key={zone.zone}>
-                                {/* Zone header */}
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-sm">{ZONE_EMOJI[zone.zone] || '🛒'}</span>
-                                    <span className="text-label font-black text-gray-400 uppercase tracking-widest">
-                                        {zone.zone}
-                                    </span>
-                                    <span className="text-micro text-gray-500 font-bold">({zone.items.length})</span>
-                                </div>
+                        filteredZones.map((zone) => {
+                            const ZoneIcon = groceryZoneIcon(zone.zone);
+                            const headingId = `grocery-zone-${zone.zone.replace(/\s+/g, '-').toLowerCase()}`;
+                            return (
+                                <section key={zone.zone} aria-labelledby={headingId}>
+                                    {/* The aisle: its line icon, name and count, as Stores' categories */}
+                                    <h2 id={headingId} className="flex items-center gap-2 mb-2">
+                                        <ZoneIcon className="h-4 w-4 shrink-0 text-gray-400" />
+                                        <span className="text-label font-black text-gray-400 uppercase tracking-widest">
+                                            {zone.zone}
+                                        </span>
+                                        <span className="text-micro text-gray-400 font-bold tabular-nums">
+                                            ({zone.items.length})
+                                        </span>
+                                    </h2>
 
-                                {/* Items */}
-                                <div className="space-y-1.5">
-                                    {zone.items.map((item) => {
-                                        const purchaseQuantity =
-                                            purchaseLabels.get(item.id) ?? purchaseQuantityLabel(item);
-                                        const isPurchasing = purchasingId === item.id;
+                                    <ul className="space-y-2">
+                                        {zone.items.map((item) => {
+                                            const purchaseQuantity =
+                                                purchaseLabels.get(item.id) ?? purchaseQuantityLabel(item);
+                                            const isPurchasing = purchasingId === item.id;
+                                            const hasCost =
+                                                typeof item.actual_cost === 'number' &&
+                                                Number.isFinite(item.actual_cost);
 
-                                        return (
-                                            <div
-                                                key={item.id}
-                                                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                                                    item.purchased
-                                                        ? 'bg-emerald-500/4 border-emerald-500/10 opacity-60'
-                                                        : 'bg-white/2 border-white/6'
-                                                }`}
-                                            >
-                                                {/* Checkbox */}
-                                                <button
-                                                    type="button"
-                                                    data-grocery-item-action
-                                                    onClick={() =>
-                                                        item.purchased ? handleUntick(item) : handleCheckbox(item)
-                                                    }
-                                                    disabled={
-                                                        !!purchasingId ||
-                                                        !permissionsLoadedForScope ||
-                                                        !permissions.canEditStores
-                                                    }
-                                                    aria-describedby={
-                                                        !permissionsLoadedForScope || !permissions.canEditStores
-                                                            ? 'grocery-permission-note'
-                                                            : undefined
-                                                    }
-                                                    className={`hit-target-44 w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                                            return (
+                                                <li
+                                                    key={item.id}
+                                                    className={`flex items-center gap-2 rounded-lg border py-1 pl-1 pr-3 transition-colors ${
                                                         item.purchased
-                                                            ? 'bg-emerald-500 border-emerald-500'
-                                                            : isPurchasing
-                                                              ? 'border-amber-400 animate-pulse'
-                                                              : 'border-gray-600 hover:border-emerald-400'
+                                                            ? 'bg-emerald-500/5 border-emerald-500/10'
+                                                            : 'bg-slate-800/40 border-white/5'
                                                     }`}
-                                                    aria-label={
-                                                        item.purchased
-                                                            ? `Undo ${item.ingredient_name}`
-                                                            : `Mark ${item.ingredient_name} as purchased`
-                                                    }
                                                 >
-                                                    {item.purchased && (
-                                                        <svg
-                                                            className="w-3.5 h-3.5 text-black"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                            strokeWidth={3}
+                                                    {/* The tick: a whole 44 pt button around its box */}
+                                                    <button
+                                                        type="button"
+                                                        data-grocery-item-action
+                                                        onClick={() =>
+                                                            item.purchased ? handleUntick(item) : handleCheckbox(item)
+                                                        }
+                                                        disabled={purchaseControlsDisabled}
+                                                        aria-describedby={
+                                                            !permissionsLoadedForScope || !permissions.canEditStores
+                                                                ? 'grocery-permission-note'
+                                                                : undefined
+                                                        }
+                                                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-transform active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
+                                                        aria-label={
+                                                            item.purchased
+                                                                ? `Undo ${item.ingredient_name}`
+                                                                : `Mark ${item.ingredient_name} as purchased`
+                                                        }
+                                                    >
+                                                        <span
                                                             aria-hidden="true"
+                                                            className={`flex h-6 w-6 items-center justify-center rounded-md border-2 transition-colors ${
+                                                                item.purchased
+                                                                    ? 'bg-emerald-500 border-emerald-500 text-slate-950'
+                                                                    : isPurchasing
+                                                                      ? 'border-amber-400 animate-pulse'
+                                                                      : 'border-gray-500'
+                                                            }`}
                                                         >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M4.5 12.75l6 6 9-13.5"
-                                                            />
-                                                        </svg>
-                                                    )}
-                                                    {isPurchasing && <ClockIcon className="h-3 w-3 text-gray-400" />}
-                                                </button>
+                                                            {item.purchased && <CheckIcon className="h-3.5 w-3.5" />}
+                                                            {isPurchasing && (
+                                                                <ClockIcon className="h-3 w-3 text-gray-400" />
+                                                            )}
+                                                        </span>
+                                                    </button>
 
-                                                {/* Name + purchase info */}
-                                                <div className="flex-1 min-w-0">
-                                                    <p
-                                                        className={`text-xs font-bold truncate ${
-                                                            item.purchased ? 'text-gray-500 line-through' : 'text-white'
-                                                        }`}
-                                                    >
-                                                        {item.ingredient_name}
-                                                    </p>
-                                                    {item.purchased && item.purchased_at && (
-                                                        <p className="flex items-center gap-1 text-[11px] text-emerald-400/80">
-                                                            <CheckIcon className="h-3 w-3 shrink-0" />
-                                                            {new Date(item.purchased_at).toLocaleDateString()}
-                                                            {item.purchase_retailer
-                                                                ? ` · ${item.purchase_retailer}`
-                                                                : ''}
-                                                            {item.actual_cost
-                                                                ? ` · $${item.actual_cost.toFixed(2)}`
-                                                                : ''}
+                                                    {/* Name + purchase info: wraps, never clipped */}
+                                                    <div className="min-w-0 flex-1 py-1.5">
+                                                        <p
+                                                            className={`text-sm font-bold [overflow-wrap:anywhere] ${
+                                                                item.purchased
+                                                                    ? 'text-gray-400 line-through'
+                                                                    : 'text-white'
+                                                            }`}
+                                                        >
+                                                            {item.ingredient_name}
                                                         </p>
-                                                    )}
-                                                </div>
+                                                        {item.purchased && item.purchased_at && (
+                                                            <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-label text-emerald-300/90">
+                                                                <CheckIcon className="h-3 w-3 shrink-0" />
+                                                                <span>{boughtDay(item.purchased_at)}</span>
+                                                                {item.purchase_retailer && (
+                                                                    <span className="[overflow-wrap:anywhere]">
+                                                                        · {item.purchase_retailer}
+                                                                    </span>
+                                                                )}
+                                                                {hasCost && (
+                                                                    <span className="whitespace-nowrap tabular-nums">
+                                                                        ·{' '}
+                                                                        {formatMoney(item.actual_cost!, item.currency)}
+                                                                    </span>
+                                                                )}
+                                                            </p>
+                                                        )}
+                                                    </div>
 
-                                                {/* Purchase quantity */}
-                                                <div className="text-right shrink-0">
-                                                    <span
-                                                        className={`text-[11px] font-bold tabular-nums ${item.purchased ? 'text-gray-500' : 'text-emerald-400'}`}
-                                                    >
-                                                        {purchaseQuantity.primary}
-                                                    </span>
-                                                    {purchaseQuantity.required && (
-                                                        <p className="text-[11px] text-gray-500 line-through tabular-nums">
-                                                            {purchaseQuantity.required}
+                                                    {/* What to buy, and what the meals need when that differs */}
+                                                    <div className="max-w-[45%] shrink-0 text-right">
+                                                        <p
+                                                            className={`text-sm font-black tabular-nums ${
+                                                                item.purchased ? 'text-gray-400' : 'text-emerald-300'
+                                                            }`}
+                                                        >
+                                                            {purchaseQuantity.primary}
                                                         </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                                        {purchaseQuantity.required && (
+                                                            <p className="text-label text-gray-400 tabular-nums">
+                                                                need {purchaseQuantity.required}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                </section>
+                            );
+                        })
+                    )}
+
+                    {/* Voyage spend, per aisle, at the end of the list: it scrolls
+                        with the list instead of taking a phone's height from it. */}
+                    {visibleSummary && scopeVoyageId && spent.length > 0 && (
+                        <section
+                            aria-labelledby="grocery-voyage-spend"
+                            className="rounded-lg border border-emerald-500/15 bg-emerald-500/5 p-3"
+                        >
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                                <h2
+                                    id="grocery-voyage-spend"
+                                    className="text-label font-black uppercase tracking-widest text-emerald-400"
+                                >
+                                    Voyage spend
+                                </h2>
+                                <p className="text-sm font-black tabular-nums text-emerald-300">{formatSpend(spent)}</p>
                             </div>
-                        ))
+                            <ul className="mt-2 space-y-1">
+                                {spentByZone.map(({ zone, spend }) => {
+                                    const ZoneIcon = groceryZoneIcon(zone);
+                                    return (
+                                        <li key={zone} className="flex items-center gap-2 text-label text-gray-400">
+                                            <ZoneIcon className="h-3.5 w-3.5 shrink-0" />
+                                            <span className="min-w-0 flex-1">{zone}</span>
+                                            <span className="text-right font-bold tabular-nums text-gray-300">
+                                                {formatSpend(spend)}
+                                            </span>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </section>
                     )}
                 </div>
 
-                {/* ═══ Voyage Budget Summary ═══ */}
-                {visibleBudget && visibleBudget.total > 0 && (
-                    <div className="shrink-0 mx-4 mb-3 p-3 rounded-xl bg-linear-to-r from-emerald-500/6 to-teal-500/4 border border-emerald-500/10">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
-                                Voyage spend
-                            </span>
-                            <span className="text-sm font-black text-emerald-400 tabular-nums">
-                                ${visibleBudget.total.toFixed(2)}
-                            </span>
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1">
-                            {Object.entries(visibleBudget.byZone)
-                                .filter(([, v]) => v > 0)
-                                .sort(([, a], [, b]) => b - a)
-                                .map(([zone, cost]) => (
-                                    <span key={zone} className="text-[11px] text-gray-500">
-                                        {ZONE_EMOJI[zone as MarketZone] || '🛒'} {zone}:{' '}
-                                        <span className="text-gray-400 font-bold">${cost.toFixed(2)}</span>
-                                    </span>
-                                ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Progress bar at bottom */}
-                {visibleSummary && visibleSummary.total > 0 && (
+                {/* Progress and Add item, Ship's Stores' bottom bar in place of a
+                    floating button that sat over the list's last row. */}
+                {visibleSummary && (
                     <div
-                        className="shrink-0 px-4 py-3 border-t border-white/6 bg-slate-950"
-                        style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                        className="shrink-0 space-y-3 border-t border-white/6 bg-slate-950 px-4 pt-3"
+                        style={{ paddingBottom: SAFE_BOTTOM }}
                     >
-                        {/* pr-20 keeps the tally clear of the Add-item FAB,
-                            which is fixed over the right end of this row. */}
-                        <div className="flex items-center gap-3 pr-20">
-                            <div
-                                className="flex-1 h-2 bg-white/6 rounded-full overflow-hidden"
-                                role="progressbar"
-                                aria-label="Shopping progress"
-                                aria-valuemin={0}
-                                aria-valuemax={visibleSummary.total}
-                                aria-valuenow={visibleSummary.purchased}
-                                aria-valuetext={`${visibleSummary.purchased} of ${visibleSummary.total} items purchased`}
-                            >
+                        {visibleSummary.total > 0 && (
+                            <div className="flex items-center gap-3">
                                 <div
-                                    className="h-full bg-linear-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
-                                    style={{
-                                        width: `${Math.round(
-                                            (visibleSummary.purchased / visibleSummary.total) * 100,
-                                        )}%`,
-                                    }}
-                                />
+                                    className="flex-1 h-2 bg-white/6 rounded-full overflow-hidden"
+                                    role="progressbar"
+                                    aria-label="Shopping progress"
+                                    aria-valuemin={0}
+                                    aria-valuemax={visibleSummary.total}
+                                    aria-valuenow={visibleSummary.purchased}
+                                    aria-valuetext={`${visibleSummary.purchased} of ${visibleSummary.total} items purchased`}
+                                >
+                                    <div
+                                        className="h-full bg-linear-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
+                                        style={{
+                                            width: `${Math.round(
+                                                (visibleSummary.purchased / visibleSummary.total) * 100,
+                                            )}%`,
+                                        }}
+                                    />
+                                </div>
+                                <span className="text-label font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                                    {visibleSummary.purchased}/{visibleSummary.total}
+                                </span>
                             </div>
-                            <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
-                                {visibleSummary.purchased}/{visibleSummary.total}
-                            </span>
+                        )}
+                        <div ref={addBarRef}>
+                            <TapToAction
+                                label="Add item"
+                                icon={
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2.5}
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                }
+                                onConfirm={openAddDialog}
+                                disabled={!!purchasingId || !canManageShoppingList}
+                                theme="emerald"
+                            />
                         </div>
                     </div>
                 )}
             </div>
-
-            {/* ═══ Add Item FAB ═══ */}
-            {visibleSummary && (
-                <button
-                    ref={addButtonRef}
-                    type="button"
-                    onClick={() => {
-                        if (!canManageShoppingList) return;
-                        setAddError(null);
-                        setAddQuantityInvalid(false);
-                        setShowAddForm(true);
-                    }}
-                    disabled={!!purchasingId || !canManageShoppingList}
-                    aria-describedby={!canManageShoppingList ? 'grocery-permission-note' : undefined}
-                    className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-1130 w-14 h-14 rounded-2xl bg-linear-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/30 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
-                    aria-label="Add item to shopping list"
-                >
-                    <svg
-                        className="w-7 h-7 text-white"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2.5}
-                        aria-hidden="true"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                </button>
-            )}
 
             {/* ═══ Price Input Modal ═══ */}
             {stateOwnsRenderedScope && priceItem && (
@@ -972,37 +1077,34 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
                             aria-label={`Cancel marking ${priceItem.ingredient_name} as purchased`}
                         >
-                            <svg
-                                className="w-5 h-5 text-gray-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                                aria-hidden="true"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+                            <XIcon className="w-5 h-5 text-gray-400" />
                         </button>
                         <h3 id="grocery-purchase-title" className="text-sm font-black text-white mb-1 pr-10">
                             Mark as purchased
                         </h3>
-                        <p id="grocery-purchase-item" className="text-[11px] text-gray-400 mb-4">
+                        <p id="grocery-purchase-item" className="text-xs text-gray-400 mb-4 [overflow-wrap:anywhere]">
                             {priceItem.ingredient_name}
                         </p>
-                        <p className="mb-4 rounded-lg border border-emerald-500/15 bg-emerald-500/6 px-3 py-2 text-[11px] text-emerald-200">
+                        <p className="mb-4 rounded-lg border border-emerald-500/15 bg-emerald-500/6 px-3 py-2 text-xs text-emerald-200">
                             Adds {(purchaseLabels.get(priceItem.id) ?? purchaseQuantityLabel(priceItem)).primary} to
                             Ship&apos;s Stores.
                         </p>
 
-                        {/* Price input */}
+                        {/* Price, in the row's own currency: a stored row keeps
+                            the one it was added in (GAL-09). */}
                         <label
                             htmlFor="grocery-purchase-price"
-                            className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                            className="text-[11px] font-bold text-gray-400 uppercase tracking-widest"
                         >
                             Price (optional)
                         </label>
                         <div className="flex items-center gap-2 mt-1 mb-4">
-                            <span className="text-lg font-bold text-gray-500">$</span>
+                            <span aria-hidden="true" className="text-lg font-bold text-gray-400">
+                                {currencySymbol(priceItem.currency)}
+                            </span>
+                            <span id="grocery-purchase-currency" className="sr-only">
+                                In {currencyName(priceItem.currency)}
+                            </span>
                             <input
                                 id="grocery-purchase-price"
                                 ref={priceInputRef}
@@ -1019,50 +1121,58 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     }
                                 }}
                                 onKeyDown={(e) => e.key === 'Enter' && handleConfirmPurchase()}
-                                disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
+                                disabled={purchaseControlsDisabled}
                                 aria-invalid={priceInvalid}
-                                aria-describedby={priceError ? 'grocery-purchase-error' : undefined}
+                                aria-describedby={
+                                    priceError
+                                        ? 'grocery-purchase-currency grocery-purchase-error'
+                                        : 'grocery-purchase-currency'
+                                }
                                 placeholder="0.00"
-                                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold tabular-nums outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
+                                className="min-w-0 flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold tabular-nums outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-500"
                             />
                         </div>
 
-                        {/* Retailer name */}
+                        {/* The shop, with quick picks from the shops used lately */}
                         <label
                             htmlFor="grocery-purchase-store"
-                            className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                            className="text-[11px] font-bold text-gray-400 uppercase tracking-widest"
                         >
-                            Retailer (optional)
+                            Shop (optional)
                         </label>
                         <input
                             id="grocery-purchase-store"
                             type="text"
                             value={storeName}
                             onChange={(e) => setStoreName(e.target.value)}
-                            disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
+                            disabled={purchaseControlsDisabled}
                             placeholder="Where did you buy it?"
-                            className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
+                            className={`w-full mt-1 ${visibleRecentShops.length > 0 ? '' : 'mb-4'} bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-500`}
                         />
-                        <div className="flex flex-wrap gap-1.5 mt-2 mb-4">
-                            {['Coles', 'Woolworths', 'Aldi', 'IGA', 'Markets'].map((s) => (
-                                <button
-                                    key={s}
-                                    type="button"
-                                    onClick={() => setStoreName(s)}
-                                    disabled={
-                                        !!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores
-                                    }
-                                    aria-pressed={storeName === s}
-                                    className={`min-h-[44px] px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
-                                        storeName === s
-                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                            : 'bg-white/4 text-gray-500 border border-white/6 hover:text-gray-300'
-                                    }`}
-                                >
-                                    {s}
-                                </button>
-                            ))}
-                        </div>
+                        {visibleRecentShops.length > 0 && (
+                            <div
+                                className="flex flex-wrap gap-1.5 mt-2 mb-4"
+                                role="group"
+                                aria-label="Shops used lately"
+                            >
+                                {visibleRecentShops.map((shop) => (
+                                    <button
+                                        key={shop}
+                                        type="button"
+                                        onClick={() => setStoreName(shop)}
+                                        disabled={purchaseControlsDisabled}
+                                        aria-pressed={storeName === shop}
+                                        className={`min-h-[44px] max-w-full px-3 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 [overflow-wrap:anywhere] ${
+                                            storeName === shop
+                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                : 'bg-white/4 text-gray-300 border border-white/6 hover:text-white'
+                                        }`}
+                                    >
+                                        {shop}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
                         {priceError && (
                             <p
@@ -1079,7 +1189,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             <button
                                 type="button"
                                 onClick={handleSkipPrice}
-                                disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
+                                disabled={purchaseControlsDisabled}
                                 aria-label={`Skip price and mark ${priceItem.ingredient_name} as purchased`}
                                 className="flex-1 min-h-[44px] py-3 rounded-xl bg-white/5 border border-white/8 text-sm font-bold text-gray-300 active:scale-[0.97] disabled:opacity-40"
                             >
@@ -1088,7 +1198,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             <button
                                 type="button"
                                 onClick={handleConfirmPurchase}
-                                disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
+                                disabled={purchaseControlsDisabled}
                                 aria-label={`Confirm purchase of ${priceItem.ingredient_name}`}
                                 className="flex-1 min-h-[44px] py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-sm font-black text-white active:scale-[0.97] disabled:opacity-40"
                             >
@@ -1126,16 +1236,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
                             aria-label="Cancel adding grocery item"
                         >
-                            <svg
-                                className="w-5 h-5 text-gray-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                                aria-hidden="true"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+                            <XIcon className="w-5 h-5 text-gray-400" />
                         </button>
                         <h3 id="grocery-add-title" className="text-sm font-black text-white mb-4 pr-10">
                             Add to shopping list
@@ -1144,7 +1245,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                         {/* Item name */}
                         <label
                             htmlFor="grocery-add-name"
-                            className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                            className="text-[11px] font-bold text-gray-400 uppercase tracking-widest"
                         >
                             Item name
                         </label>
@@ -1157,17 +1258,17 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
                             disabled={isAdding || !canManageShoppingList}
                             placeholder="Shampoo, dish soap, shackle pins…"
-                            className="w-full mt-1 mb-3 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
+                            className="w-full mt-1 mb-3 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-500"
                         />
 
-                        {/* Qty + Unit row */}
+                        {/* Quantity + Unit row */}
                         <div className="flex gap-2 mb-3">
-                            <div className="flex-1">
+                            <div className="min-w-0 flex-1">
                                 <label
                                     htmlFor="grocery-add-quantity"
-                                    className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-widest"
                                 >
-                                    Qty
+                                    Quantity
                                 </label>
                                 <input
                                     id="grocery-add-quantity"
@@ -1186,13 +1287,13 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     disabled={isAdding || !canManageShoppingList}
                                     aria-invalid={addQuantityInvalid}
                                     aria-describedby={addQuantityInvalid ? 'grocery-add-error' : undefined}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-bold tabular-nums outline-hidden focus:border-emerald-500/50"
+                                    className="w-full min-h-[44px] mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-bold tabular-nums outline-hidden focus:border-emerald-500/50"
                                 />
                             </div>
-                            <div className="flex-1">
+                            <div className="min-w-0 flex-1">
                                 <label
                                     htmlFor="grocery-add-unit"
-                                    className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-widest"
                                 >
                                     Unit
                                 </label>
@@ -1201,7 +1302,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     value={addUnit}
                                     onChange={(e) => setAddUnit(e.target.value)}
                                     disabled={isAdding || !canManageShoppingList}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm outline-hidden focus:border-emerald-500/50 appearance-none"
+                                    className="thalassa-select w-full min-h-[44px] mt-1 bg-black/40 border border-white/10 rounded-xl pl-3 pr-9 py-2.5 text-white text-sm outline-hidden focus:border-emerald-500/50 appearance-none"
                                 >
                                     <option value="each">each</option>
                                     <option value="pack">pack</option>
@@ -1218,28 +1319,32 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             </div>
                         </div>
 
-                        {/* Zone picker */}
+                        {/* Aisle picker: the same line icons as the list's headings */}
                         <fieldset>
-                            <legend className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
-                                Aisle / Zone
+                            <legend className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                                Aisle
                             </legend>
                             <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
-                                {ALL_ZONES.map((z) => (
-                                    <button
-                                        key={z}
-                                        type="button"
-                                        onClick={() => setAddZone(z)}
-                                        disabled={isAdding || !canManageShoppingList}
-                                        aria-pressed={addZone === z}
-                                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
-                                            addZone === z
-                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                : 'bg-white/4 text-gray-500 border border-white/6 hover:text-gray-300'
-                                        }`}
-                                    >
-                                        {ZONE_EMOJI[z]} {z}
-                                    </button>
-                                ))}
+                                {ALL_ZONES.map((z) => {
+                                    const ZoneIcon = groceryZoneIcon(z);
+                                    return (
+                                        <button
+                                            key={z}
+                                            type="button"
+                                            onClick={() => setAddZone(z)}
+                                            disabled={isAdding || !canManageShoppingList}
+                                            aria-pressed={addZone === z}
+                                            className={`inline-flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                                                addZone === z
+                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                    : 'bg-white/4 text-gray-300 border border-white/6 hover:text-white'
+                                            }`}
+                                        >
+                                            <ZoneIcon className="h-3.5 w-3.5 shrink-0" />
+                                            {z}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </fieldset>
 

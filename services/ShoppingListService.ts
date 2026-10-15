@@ -27,6 +27,7 @@ import { triggerHaptic } from '../utils/system';
 import { convertQuantity, toPurchasable } from './PurchaseUnits';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 import { GROCERY_BOUGHT_PREFIX, GROCERY_RETAINED_PREFIX } from './vessel/storesProvenance';
+import { groceryCurrency } from './galley/groceryCurrency';
 import { createLogger, getErrorMessage } from '../utils/createLogger';
 
 const log = createLogger('Galley');
@@ -93,6 +94,14 @@ export interface ShoppingListSummary {
 
 // ── Market Zone Detection ──────────────────────────────────────────────────
 
+/**
+ * The words that put an item in an aisle, matched as whole words, singular or
+ * plural (132-B17, binder audit GAL-15). A bare substring sent 'Extra virgin
+ * olive oil' to the Bottle Shop ('gin'), breadcrumbs too ('rum'), eggplant to
+ * Dairy ('egg') and toilet roll to the Bakery ('roll'). The longest word that
+ * matches wins, so 'Methylated spirits' is fuel, not a spirit; a tie goes to
+ * the aisle listed first.
+ */
 const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
     Butcher: [
         'beef',
@@ -134,6 +143,7 @@ const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
         'lime',
         'lemon',
         'apple',
+        'pineapple',
         'banana',
         'orange',
         'mango',
@@ -144,6 +154,13 @@ const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
         'coriander',
         'ginger',
         'chilli',
+        'eggplant',
+        'aubergine',
+        'zucchini',
+        'cucumber',
+        'pumpkin',
+        'cabbage',
+        'celery',
     ],
     'Bottle Shop': [
         'wine',
@@ -161,12 +178,12 @@ const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
         'liqueur',
         'bourbon',
     ],
-    Bakery: ['bread', 'roll', 'baguette', 'croissant', 'flour', 'yeast', 'pastry'],
+    Bakery: ['bread', 'breadcrumb', 'roll', 'bun', 'baguette', 'croissant', 'flour', 'yeast', 'pastry'],
     Dairy: ['milk', 'cheese', 'butter', 'cream', 'yoghurt', 'yogurt', 'egg'],
     Chandlery: [
         'rope',
         'shackle',
-        'block',
+        'snatch block',
         'sail',
         'tape',
         'epoxy',
@@ -178,14 +195,17 @@ const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
         'zinc',
         'anode',
         'fuse',
+        'white spirit',
+        'fishing',
     ],
-    'Fuel Dock': ['diesel', 'petrol', 'gas', 'propane', 'lpg', 'fuel'],
+    'Fuel Dock': ['diesel', 'petrol', 'gas', 'propane', 'lpg', 'fuel', 'methylated', 'metho'],
     Pharmacy: [
         'paracetamol',
         'ibuprofen',
         'bandage',
         'antiseptic',
         'sunscreen',
+        'zinc cream',
         'seasick',
         'dramamine',
         'antihistamine',
@@ -193,15 +213,80 @@ const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
     General: [],
 };
 
-function detectMarketZone(ingredientName: string): MarketZone {
-    const lower = ingredientName.toLowerCase();
-    for (const [zone, keywords] of Object.entries(ZONE_KEYWORDS) as [MarketZone, string[]][]) {
-        if (zone === 'General') continue;
-        for (const kw of keywords) {
-            if (lower.includes(kw)) return zone;
+/**
+ * Pantry and household things whose names carry another aisle's word:
+ * peanut butter is not dairy, fish sauce is not at the butcher, a toilet roll
+ * is not bread. Checked before the aisles.
+ */
+const GENERAL_PHRASES = [
+    'peanut butter',
+    'coconut milk',
+    'coconut cream',
+    'cream of tartar',
+    'black pepper',
+    'stock',
+    'sauce',
+    'vinegar',
+    'powder',
+    'tinned',
+    'canned',
+    'noodle',
+    'ginger beer',
+    'toilet roll',
+    'toilet paper',
+    'kitchen roll',
+    'paper towel',
+    'coffee filter',
+];
+
+/** A name's words, lower case and without accents: 'Jalapeño chillies' → ['jalapeno', 'chillies']. */
+function nameWords(name: string): string[] {
+    return name
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean);
+}
+
+/** One word against a keyword's word, in either number: egg/eggs, tomato/tomatoes, berry/berries. */
+function sameWord(word: string, keyword: string): boolean {
+    return (
+        word === keyword ||
+        word === `${keyword}s` ||
+        word === `${keyword}es` ||
+        (keyword.endsWith('y') && word === `${keyword.slice(0, -1)}ies`)
+    );
+}
+
+/** Whether the words hold the phrase, word for word, the last word in either number. */
+function holdsPhrase(words: string[], phrase: string): boolean {
+    const wanted = phrase.split(' ');
+    for (let start = 0; start + wanted.length <= words.length; start++) {
+        if (
+            wanted.every((part, i) =>
+                i === wanted.length - 1 ? sameWord(words[start + i], part) : words[start + i] === part,
+            )
+        ) {
+            return true;
         }
     }
-    return 'General';
+    return false;
+}
+
+/** The aisle an item is found in, from its name; General when nothing says. */
+export function detectMarketZone(ingredientName: string): MarketZone {
+    const words = nameWords(ingredientName);
+    if (GENERAL_PHRASES.some((phrase) => holdsPhrase(words, phrase))) return 'General';
+    let best: { zone: MarketZone; length: number } | null = null;
+    for (const [zone, keywords] of Object.entries(ZONE_KEYWORDS) as [MarketZone, string[]][]) {
+        for (const keyword of keywords) {
+            if (keyword.length > (best?.length ?? 0) && holdsPhrase(words, keyword)) {
+                best = { zone, length: keyword.length };
+            }
+        }
+    }
+    return best?.zone ?? 'General';
 }
 
 // ── Service ────────────────────────────────────────────────────────────────
@@ -651,6 +736,7 @@ export async function generateShoppingList(
 ): Promise<ShoppingItem[]> {
     const now = new Date().toISOString();
     const items: ShoppingItem[] = [];
+    const currency = groceryCurrency();
 
     for (const sf of shortfalls) {
         if (sf.status !== 'needed' || sf.shortfall_qty <= 0) continue;
@@ -663,7 +749,7 @@ export async function generateShoppingList(
             unit: sf.unit,
             market_zone: detectMarketZone(sf.ingredient_name),
             actual_cost: null,
-            currency: 'AUD',
+            currency,
             purchased: false,
             purchased_at: null,
             purchase_retailer: null,
@@ -699,6 +785,7 @@ export async function bulkAddToShoppingList(
     let count = 0;
     const galleyList = inGalleyList(voyageId);
     const owner = galleyItemOwner(voyageId, ownerUserId);
+    const currency = groceryCurrency();
 
     for (const ing of ingredients) {
         if (ing.totalQty <= 0) continue;
@@ -728,7 +815,7 @@ export async function bulkAddToShoppingList(
                 unit: ing.unit,
                 market_zone: detectMarketZone(ing.name),
                 actual_cost: null,
-                currency: 'AUD',
+                currency,
                 purchased: false,
                 purchased_at: null,
                 purchase_retailer: null,
@@ -944,7 +1031,8 @@ export async function addManualItem(opts: ManualItemOptions & { atLeast?: boolea
         unit,
         market_zone: opts.zone || detectMarketZone(name),
         actual_cost: null,
-        currency: 'AUD',
+        // The chosen currency, or the phone region's (132-B17): every row was 'AUD'.
+        currency: groceryCurrency(),
         purchased: false,
         purchased_at: null,
         purchase_retailer: null,
@@ -1147,9 +1235,32 @@ export function getShoppingList(voyageId?: string | null, ownerUserId?: string |
         purchased: purchased.length,
         remaining: items.length - purchased.length,
         totalCost: Math.round(totalCost * 100) / 100,
-        currency: items[0]?.currency || 'AUD',
+        currency: items[0]?.currency || groceryCurrency(),
         zones,
     };
+}
+
+/**
+ * The shops this phone's purchases name, the latest first, one per shop in
+ * its latest spelling: the Grocery list's quick picks (132-B17, binder audit
+ * GAL-09). They were Coles, Woolworths, Aldi and IGA for every sailor, in
+ * Tonga too. None until a purchase names a shop.
+ */
+export function recentRetailers(limit = 5): string[] {
+    const bought = query<ShoppingItem>(TABLE, (i) => i.purchased && !!i.purchase_retailer?.trim()).sort((a, b) =>
+        (b.purchased_at ?? '').localeCompare(a.purchased_at ?? ''),
+    );
+    const seen = new Set<string>();
+    const shops: string[] = [];
+    for (const item of bought) {
+        const shop = item.purchase_retailer!.trim().replace(/\s+/g, ' ');
+        const key = shop.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        shops.push(shop);
+        if (shops.length >= limit) break;
+    }
+    return shops;
 }
 
 /**
@@ -1185,7 +1296,7 @@ export function getVoyageBudget(voyageId: string): {
     return {
         totalSpent: Math.round(total * 100) / 100,
         itemCount: items.length,
-        currency: items[0]?.currency || 'AUD',
+        currency: items[0]?.currency || groceryCurrency(),
         byZone: Array.from(byZone.entries()).map(([zone, spent]) => ({
             zone,
             spent: Math.round(spent * 100) / 100,

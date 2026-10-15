@@ -19,6 +19,11 @@ import { createLogger, getErrorMessage } from '../../utils/createLogger';
 // and the error message, never the meal's title.
 const log = createLogger('Galley');
 
+/** Cooking Mode covers the whole phone: its title and close clear the status bar (132-B17, GAL-10). */
+const SAFE_TOP = 'max(1.25rem, env(safe-area-inset-top))';
+/** And its last row, Complete & Subtract or the last step, clears the home indicator. */
+const SAFE_BOTTOM = 'max(1rem, env(safe-area-inset-bottom))';
+
 interface GalleyCookingModeProps {
     meal: MealPlan;
     onClose: () => void;
@@ -229,15 +234,20 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             aria-busy={workflowBusy}
             className="fixed inset-0 z-1100 bg-[#0a0e14] text-white flex flex-col"
         >
-            {/* ── Header ── */}
-            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/10">
-                <div>
+            {/* ── Header ── clear of the status bar and the Dynamic Island: the
+                screen is the whole phone's (132-B17, GAL-10). */}
+            <div
+                className="px-5 pb-3 flex items-center justify-between gap-3 border-b border-white/10"
+                style={{ paddingTop: SAFE_TOP }}
+            >
+                {/* min-w-0: a long meal name wraps instead of pushing Close off the screen. */}
+                <div className="min-w-0 flex-1">
                     <h2 id={titleId} className="text-lg font-bold text-amber-300 uppercase tracking-widest">
                         🍳 Cooking Mode
                     </h2>
-                    <p className="text-sm text-gray-400 mt-0.5">{meal.title}</p>
+                    <p className="text-sm text-gray-400 mt-0.5 [overflow-wrap:anywhere]">{meal.title}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-3">
                     <span className="text-xs text-gray-500">{meal.servings_planned} serves</span>
                     <button
                         ref={closeButtonRef}
@@ -297,8 +307,12 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                 </div>
             )}
 
-            {/* ── Steps ── */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+            {/* ── Steps ── the last one scrolls clear of the home indicator
+                when no completion panel sits under it (GAL-10). */}
+            <div
+                className="flex-1 overflow-y-auto px-5 pt-4 space-y-3"
+                style={{ paddingBottom: showComplete ? '1rem' : SAFE_BOTTOM }}
+            >
                 {actionError && (
                     <p
                         role="alert"
@@ -377,7 +391,11 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
 
             {/* ── Completion Panel ── */}
             {showComplete && (
-                <div className="px-5 py-4 border-t border-white/10 bg-emerald-500/5 space-y-3 animate-in slide-in-from-bottom duration-300">
+                // Complete & Subtract sits above the home indicator, not on it (GAL-10).
+                <div
+                    className="px-5 pt-4 border-t border-white/10 bg-emerald-500/5 space-y-3 animate-in slide-in-from-bottom duration-300"
+                    style={{ paddingBottom: SAFE_BOTTOM }}
+                >
                     <h3 className="text-sm font-bold text-emerald-300 uppercase tracking-widest flex items-center gap-2">
                         ✅ Ready to Serve
                     </h3>

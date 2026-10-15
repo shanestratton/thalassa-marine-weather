@@ -295,6 +295,15 @@ export interface UserSettings {
      */
     glassBesideChartAtStart?: boolean;
     /**
+     * Settings → Preferences → Currency (build 132, 132-B17): the ISO 4217
+     * code new Grocery list rows and their prices go in ('AUD', 'XPF').
+     * Unset or null = the phone's region's currency, else the Australian
+     * dollar (utils/money resolveCurrency); "Follow this phone" writes null so
+     * the cloud patch carries the key. Rows already saved keep their own
+     * currency; nothing is converted.
+     */
+    currency?: string | null;
+    /**
      * Whether this account's paired Pi holds licensed (protected) charts
      * (127-DESKMAP C1). One boolean: no count, no ids, no positions. Written by
      * the phone aboard when it registers the Pi's chart index (127-C-c) and

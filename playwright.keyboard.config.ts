@@ -182,6 +182,11 @@ export default defineConfig({
         // centred above the tab bar, and its day names never touch whatever hour it opens at
         // (e2e/fixtures/meteogram.tsx).
         'meteogram-layout.spec.ts',
+        // The Galley fits every phone (132-B17, GAL-17): Active meals Today and Next first under
+        // plain dates; the Grocery list clear of the status bar and the home indicator, prices in
+        // each row's currency, 44 pt ticks and no clipped names; the Recipe editor and Cooking
+        // Mode on screen, at 375 × 667, 320 × 568 and 390 × 844 in wide fonts (e2e/fixtures/galley-layout.tsx).
+        'galley-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
