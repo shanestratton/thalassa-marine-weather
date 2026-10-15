@@ -576,6 +576,90 @@ describe('importGPXVoyage', () => {
         vi.unstubAllGlobals();
     });
 
+    // 132-B21: a long import shows progress and can be cancelled.
+    const manyEntries = (n: number) =>
+        Array.from({ length: n }, (_, i) => ({
+            latitude: -27.47 + i * 1e-4,
+            longitude: 153.02,
+            timestamp: new Date(Date.UTC(2025, 0, 1, 0, 0, i)).toISOString(),
+        }));
+
+    it('reports progress after each saved chunk (132-B21)', async () => {
+        mockAuthUser('user-1');
+        setupChainedQuery(null);
+        const onProgress = vi.fn();
+
+        const result = await importGPXVoyage(manyEntries(250), { voyageId: 'progress-voyage', onProgress });
+
+        expect(result).toEqual({ voyageId: 'progress-voyage', savedCount: 250 });
+        expect(onProgress.mock.calls).toEqual([
+            [100, 250],
+            [200, 250],
+            [250, 250],
+        ]);
+    });
+
+    it('saves nothing when cancelled before it starts (132-B21)', async () => {
+        mockAuthUser('user-1');
+        const chain = setupChainedQuery(null);
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(importGPXVoyage(manyEntries(3), { signal: controller.signal })).rejects.toThrow(
+            'Import cancelled',
+        );
+        expect(chain.upsert).not.toHaveBeenCalled();
+        expect(mockRecreateVoyageWithFence).not.toHaveBeenCalled();
+    });
+
+    it('stops between chunks when cancelled, failing inside the voyage fence so it rolls back (132-B21)', async () => {
+        mockAuthUser('user-1');
+        const chain = setupChainedQuery(null);
+        const controller = new AbortController();
+
+        await expect(
+            importGPXVoyage(manyEntries(250), {
+                voyageId: 'cancel-voyage',
+                signal: controller.signal,
+                onProgress: () => controller.abort(),
+            }),
+        ).rejects.toThrow('Import cancelled');
+        expect(chain.upsert).toHaveBeenCalledTimes(1);
+        // The throw comes out of the fenced save, the path that deletes partial rows.
+        expect(mockRecreateVoyageWithFence).toHaveBeenCalledWith(
+            'cancel-voyage',
+            expect.anything(),
+            expect.any(Function),
+        );
+    });
+
+    it('aborts the chunk in flight and reports a cancel, not a database error (132-B21)', async () => {
+        mockAuthUser('user-1');
+        let chunkSignal: AbortSignal | undefined;
+        const chain = {
+            upsert: vi.fn().mockReturnThis(),
+            abortSignal: vi.fn(function (this: unknown, signal: AbortSignal) {
+                chunkSignal = signal;
+                return this;
+            }),
+            then: (onFulfilled: (value: { data: null; error: { message: string } }) => unknown) =>
+                new Promise((resolve) => {
+                    chunkSignal!.addEventListener('abort', () =>
+                        resolve(onFulfilled({ data: null, error: { message: 'AbortError: signal is aborted' } })),
+                    );
+                }),
+        };
+        mockFrom.mockReturnValue(chain as never);
+        const controller = new AbortController();
+
+        const pending = importGPXVoyage(manyEntries(3), { signal: controller.signal });
+        await vi.waitFor(() => expect(chain.abortSignal).toHaveBeenCalled());
+        controller.abort();
+
+        await expect(pending).rejects.toThrow('Import cancelled');
+        expect(chunkSignal?.aborted).toBe(true);
+    });
+
     it('rejects unsafe caller-supplied voyage ids', async () => {
         mockAuthUser('user-1');
         setupChainedQuery(null);
