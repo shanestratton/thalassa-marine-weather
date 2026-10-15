@@ -74,7 +74,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
     /** A scanned code: the item it is already on, or the Barcode field. */
     const take = async (result: BarcodeScan) => {
-        if (!result.code) {
+        if (result.code === null) {
             setScanProblem(result.problem);
             return;
         }

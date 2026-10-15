@@ -835,7 +835,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         setEditScanProblem(null);
                                         const result = await scanBarcode();
                                         if (!isAuthIdentityScopeCurrent(identity)) return;
-                                        if (result.code) {
+                                        if (result.code !== null) {
                                             setEditBarcode(result.code);
                                             triggerHaptic('medium');
                                         } else {
