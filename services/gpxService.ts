@@ -214,10 +214,19 @@ function anyDepthText(el: Element, localName: string): string | undefined {
     return el.getElementsByTagNameNS('*', localName)[0]?.textContent?.trim() || undefined;
 }
 
-/** A GPX <time> in ms, or null when it is missing or unreadable. */
+/** A date and clock time with no Z or ±hh:mm after it, as some loggers write: 2026-08-01T10:00:00. */
+const ZONELESS_DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/i;
+
+/**
+ * A GPX <time> in ms, or null when it is missing or unreadable. GPX times are
+ * UTC. JavaScript reads a time with no zone as the phone's own clock, which
+ * logged every point of such a file 10 hours early on a Brisbane phone, so a
+ * zoneless time is read as UTC, as the Ship's Log database read it before 132-B21.
+ */
 function parseGpxTime(text: string | undefined): number | null {
     if (!text) return null;
-    const ms = Date.parse(text);
+    const utc = ZONELESS_DATE_TIME.test(text) ? `${text.slice(0, 10)}T${text.slice(11)}Z` : text;
+    const ms = Date.parse(utc);
     return Number.isFinite(ms) ? ms : null;
 }
 
@@ -356,13 +365,15 @@ function thinTrack(
 /**
  * Parse a GPX file's tracks and waypoints for the Ship's Log (132-B21).
  *
- * - Times are the file's own. An untimed point is placed between its timed
- *   neighbours (see placeTrackTimes) and never gets a speed; an untimed
- *   waypoint is logged when the track passed closest to it.
+ * - Times are the file's own, and UTC when the file gives no zone. An untimed
+ *   point is placed between its timed neighbours (see placeTrackTimes) and
+ *   never gets a speed; an untimed waypoint is logged when the track passed
+ *   closest to it.
  * - Each <trkseg> starts fresh: the gap to the next segment, or the next
  *   <trk>, is not distance sailed and makes no speed.
  * - Distance runs through the recorded-voyage gate (distanceAccrual), so GPS
- *   jitter at anchor adds nothing here either. Speed still uses the raw leg.
+ *   jitter at anchor adds nothing here either; a sparse track's legs still
+ *   all count (see the loop below). Speed still uses the raw leg.
  * - Longitudes fold into −180…180 and the bounds handle the 180° line.
  * - `maxTrackPoints` thins a long track after distance and times are known.
  */
@@ -443,12 +454,27 @@ export function parseGPXTrack(
     if (flat.length > 0 && firstTimeMs === null) fallbackUsed = true;
 
     // Distance, speed and the entry for every track point, segment by segment.
+    // The recorded-voyage gate decides what is movement. A fix it holds as a
+    // candidate (the first beyond the gate after a standstill) counts from the
+    // anchor to itself once the next fix confirms it, or when its segment
+    // ends with no next fix to confirm it. The gate alone measures a confirmed
+    // move straight from the anchor to the confirming fix and drops a candidate
+    // left at the end: a few metres on a recorded voyage, but a 2-point,
+    // 24 NM track read 0 NM and a sparse dogleg lost its corner.
     const gateM = distanceAccrualGateM(null);
     const trackEntries: Partial<ShipLogEntry>[] = [];
     const cumulativeNM: number[] = [];
     const segmentStarts: number[] = [];
     let cumulative = 0;
     let k = 0;
+    /** The leg from the anchor to a candidate, counted on the candidate's own entry. */
+    const settleCandidate = (index: number, anchor: GeoPoint, candidate: GeoPoint) => {
+        const legNM = haversineNM(anchor.latitude, anchor.longitude, candidate.latitude, candidate.longitude);
+        cumulative += legNM;
+        trackEntries[index].distanceNM = round2(legNM);
+        trackEntries[index].cumulativeDistanceNM = round2(cumulative);
+        cumulativeNM[index] = cumulative;
+    };
     for (const segment of segments) {
         segmentStarts.push(trackEntries.length);
         let carry: (AccrualCarry & GeoPoint) | null = null;
@@ -456,7 +482,15 @@ export function parseGPXTrack(
         for (const p of segment) {
             const fix = { latitude: p.lat, longitude: p.lon };
             const accrual: AccrualResult = carry ? accrueDistance(carry, fix, gateM) : freshAccrual(fix, cumulative);
-            cumulative = accrual.cumulativeDistanceNM;
+            let accruedNM = accrual.accruedNM;
+            const candidate = carry?.moveCandidate;
+            if (carry && candidate && accrual.moving) {
+                // Confirmed: the candidate (the previous fix) sailed from the
+                // anchor, and this fix sailed on from the candidate.
+                settleCandidate(trackEntries.length - 1, carry.accrualAnchor ?? carry, candidate);
+                accruedNM = haversineNM(candidate.latitude, candidate.longitude, fix.latitude, fix.longitude);
+            }
+            cumulative += accruedNM;
             carry = { ...fix, ...accrualFields(accrual), cumulativeDistanceNM: cumulative };
 
             // A speed only between two points the file timed, in one segment.
@@ -472,7 +506,7 @@ export function parseGPXTrack(
                 latitude: p.lat,
                 longitude: p.lon,
                 positionFormatted: formatDMS(p.lat, p.lon),
-                distanceNM: round2(accrual.accruedNM),
+                distanceNM: round2(accruedNM),
                 cumulativeDistanceNM: round2(cumulative),
                 speedKts: speedKts !== undefined ? Math.round(speedKts * 10) / 10 : undefined,
                 courseDeg: p.courseDeg,
@@ -483,6 +517,10 @@ export function parseGPXTrack(
             cumulativeNM.push(cumulative);
             prev = p;
             k++;
+        }
+        // The segment ends on a candidate: no next fix will confirm it, so its leg counts.
+        if (carry?.moveCandidate) {
+            settleCandidate(trackEntries.length - 1, carry.accrualAnchor ?? carry, carry.moveCandidate);
         }
     }
 

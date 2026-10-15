@@ -99,6 +99,15 @@ describe('save failures (132-B21)', () => {
         expect(classifyImportSaveFailure(undefined, true)).toBe('unknown');
     });
 
+    it("doesn't call an offline skipper signed out", () => {
+        // Offline with an hour-old token, the refresh fails, the session reads
+        // empty and the import says 'Login required'. He is still signed in.
+        expect(kind('Login required to import tracks', false)).toBe('offline');
+        expect(kind('Account changed during import', false)).toBe('offline');
+        // Online, it is what it says.
+        expect(kind('Login required to import tracks', true)).toBe('signed-out');
+    });
+
     it('gives every failure a reason and the Retry it offers', () => {
         for (const failure of ['signed-out', 'offline', 'timed-out', 'account-changed', 'unknown'] as const) {
             expect(importSaveFailureMessage(failure)).toMatch(/Retry/);

@@ -212,6 +212,16 @@ describe('GPX import page (132-B21)', () => {
         expect(within(alert).getByText(/No internet connection, so the voyage couldn't be saved/)).toBeTruthy();
     });
 
+    it("says offline, not signed out, when an offline token refresh reads as 'Login required'", async () => {
+        vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        mocks.importGPXVoyage.mockRejectedValueOnce(new Error('Login required to import tracks'));
+        await pick(SMALL);
+        fireEvent.click(await screen.findByRole('button', { name: /Import to Ship's Log/ }));
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText(/No internet connection, so the voyage couldn't be saved/)).toBeTruthy();
+        expect(within(alert).queryByText(/signed out/)).toBeNull();
+    });
+
     it('says when the save timed out', async () => {
         mocks.importGPXVoyage.mockRejectedValueOnce(new Error('Import timed out at entry 200'));
         await pick(SMALL);

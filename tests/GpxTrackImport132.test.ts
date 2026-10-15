@@ -71,6 +71,37 @@ function gatedDistanceNM(pts: Pt[]): number {
 
 const track = (entries: Partial<ShipLogEntry>[]) => entries.filter((e) => e.entryType === 'auto');
 const ms = (e: Partial<ShipLogEntry>) => Date.parse(e.timestamp as string);
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** The raw great-circle length of a run of positions. */
+function pathNM(pts: Pt[]): number {
+    let nm = 0;
+    for (let i = 1; i < pts.length; i++) nm += calculateDistance(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon);
+    return nm;
+}
+
+/** A position `nm` east of `p`, at `p`'s latitude. */
+const eastOf = (p: Pt, nm: number): Pt => ({
+    lat: p.lat,
+    lon: +(p.lon + nm / (60 * Math.cos((p.lat * Math.PI) / 180))).toFixed(7),
+});
+/** A position `nm` north of `p`. */
+const northOf = (p: Pt, nm: number): Pt => ({ lat: +(p.lat + nm / 60).toFixed(7), lon: p.lon });
+
+/**
+ * Run `fn` on a phone set to `tz`. Node re-reads process.env.TZ when it is
+ * assigned, so a UTC machine still exercises the phone-zone bug.
+ */
+function onPhoneClock<T>(tz: string, fn: () => T): T {
+    const was = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+        return fn();
+    } finally {
+        if (was === undefined) delete process.env.TZ;
+        else process.env.TZ = was;
+    }
+}
 
 // Saturday out of Manly, Sunday back from Tangalooma: two segments, the boat
 // at anchor overnight 13 NM from where Saturday's segment began.
@@ -187,6 +218,56 @@ describe('true times (132-B21)', () => {
         expect(parsed.entries).toHaveLength(3);
     });
 
+    it('reads a <time> with no zone as UTC, as GPX means it, whatever zone the phone is in', () => {
+        // Some loggers leave the Z off. JavaScript reads such a time on the
+        // phone's own clock, which put every point 10 hours early in Brisbane.
+        const file = gpx(
+            '<wpt lat="-27.45" lon="153.2"><time>2026-08-01 10:30:00</time><name>Buoy</name></wpt>' +
+                trk(
+                    'No zone',
+                    seg([
+                        { lat: -27.4, lon: 153.2, time: '2026-08-01T10:00:00' },
+                        { lat: -27.5, lon: 153.2, time: '2026-08-01T11:00:00.500' },
+                        { lat: -27.6, lon: 153.2, time: '2026-08-01T22:00:00+10:00' }, // an offset still counts
+                    ]),
+                ),
+        );
+        // A file with no track times, dated only by its zoneless <metadata><time>.
+        const undated = gpx(
+            trk(
+                'Undated',
+                seg([
+                    { lat: -27.4, lon: 153.2 },
+                    { lat: -27.41, lon: 153.2 },
+                ]),
+            ),
+            { metaTime: '2026-03-14T02:00:00' },
+        );
+
+        for (const tz of ['Australia/Brisbane', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
+            onPhoneClock(tz, () => {
+                // The zone really is the phone's: JavaScript alone reads 10:00 as local.
+                expect(Date.parse('2026-08-01T10:00:00'), tz).not.toBe(Date.UTC(2026, 7, 1, 10));
+
+                const parsed = parseGPXTrack(file);
+                expect(parsed.firstTimeMs, tz).toBe(Date.UTC(2026, 7, 1, 10));
+                expect(parsed.untimedTrackPoints, tz).toBe(0);
+                const entries = track(parsed.entries);
+                expect(entries.map((e) => e.timestamp)).toEqual([
+                    '2026-08-01T10:00:00.000Z',
+                    '2026-08-01T11:00:00.500Z',
+                    '2026-08-01T12:00:00.000Z',
+                ]);
+                const buoy = parsed.entries.find((e) => e.waypointName === 'Buoy')!;
+                expect(buoy.timestamp, tz).toBe('2026-08-01T10:30:00.000Z');
+
+                const fallback = parseGPXTrack(undated, { nowMs: Date.parse('2026-10-15T00:00:00Z') });
+                expect(fallback.fallbackDate, tz).toEqual({ source: 'file', timeMs: Date.UTC(2026, 2, 14, 2) });
+                expect(fallback.entries[0].timestamp, tz).toBe('2026-03-14T02:00:00.000Z');
+            });
+        }
+    });
+
     it("reads the point's own <time>, not one inside <extensions>", () => {
         const file = gpx(
             `<trk><trkseg>
@@ -243,6 +324,81 @@ describe('segments and distance (132-B21)', () => {
 
         const parsed = parseGPXTrack(gpx(trk('At anchor', seg(pts))));
         expect(parsed.totalDistanceNM).toBe(0);
+    });
+
+    it('counts a 2-point track: its one leg has no next fix to confirm it, and still counts', () => {
+        // 24 NM due north in 4 hours.
+        const pts: Pt[] = [
+            { lat: -27.4, lon: 153.2, time: '2026-08-01T00:00:00Z' },
+            { ...northOf({ lat: -27.4, lon: 153.2 }, 24), time: '2026-08-01T04:00:00Z' },
+        ];
+        const legNM = pathNM(pts);
+        expect(legNM).toBeCloseTo(24, 1);
+
+        const parsed = parseGPXTrack(gpx(trk('Two points', seg(pts))));
+        expect(parsed.totalDistanceNM).toBeCloseTo(legNM, 9);
+        const [first, last] = track(parsed.entries);
+        expect(first.distanceNM).toBe(0);
+        expect(last.distanceNM).toBe(round2(legNM));
+        expect(last.cumulativeDistanceNM).toBe(round2(legNM));
+        expect(last.speedKts).toBe(6);
+        // The gate alone dropped it: 0 NM at 6 kn.
+        expect(gatedDistanceNM(pts)).toBe(0);
+    });
+
+    it('measures a dogleg along both legs, not straight across the corner', () => {
+        // 16 NM east, then 16 NM north, two hours each.
+        const a: Pt = { lat: -27.4, lon: 153.2, time: '2026-08-01T00:00:00Z' };
+        const b: Pt = { ...eastOf(a, 16), time: '2026-08-01T02:00:00Z' };
+        const c: Pt = { ...northOf(b, 16), time: '2026-08-01T04:00:00Z' };
+        const parsed = parseGPXTrack(gpx(trk('Dogleg', seg([a, b, c]))));
+
+        expect(parsed.totalDistanceNM).toBeCloseTo(pathNM([a, b, c]), 9);
+        expect(parsed.totalDistanceNM).toBeGreaterThan(31.9);
+        expect(track(parsed.entries).map((e) => e.distanceNM)).toEqual([
+            0,
+            round2(pathNM([a, b])),
+            round2(pathNM([b, c])),
+        ]);
+        // The gate alone straightened the first leg: about 22.6 NM.
+        expect(gatedDistanceNM([a, b, c])).toBeLessThan(23);
+    });
+
+    it('counts every leg of a sparse 10-minute track, while a spike at the mooring still counts nothing', () => {
+        // A tracker logging every 10 minutes at 6 kn (1 NM a leg): half an hour
+        // on the mooring with one 100 m spike, east then north, half an hour
+        // stopped, and a last leg east as the file ends.
+        const mooring: Pt = { lat: -27.45, lon: 153.19 };
+        const p1 = eastOf(mooring, 1);
+        const p2 = northOf(p1, 1);
+        const p3 = northOf(p2, 1);
+        const p4 = eastOf(p3, 1);
+        const spike = eastOf(mooring, 0.054);
+        const positions = [mooring, mooring, mooring, spike, mooring, p1, p2, p3, p3, p3, p3, p4];
+        const pts = positions.map((p, i) => ({ ...p, time: iso('2026-08-01T00:00:00Z', i * 600) }));
+        const sailedNM = pathNM([mooring, p1, p2, p3, p4]);
+        expect(sailedNM).toBeCloseTo(4, 1);
+
+        const file = gpx(trk('Tracker', seg(pts)));
+        const parsed = parseGPXTrack(file);
+        expect(parsed.totalDistanceNM).toBeCloseTo(sailedNM, 9);
+        const entries = track(parsed.entries);
+        expect(entries[3].distanceNM).toBe(0); // the spike
+        expect(entries[5].distanceNM).toBe(round2(pathNM([mooring, p1]))); // first leg off the mooring
+        expect(entries[11].distanceNM).toBe(round2(pathNM([p3, p4]))); // the last leg, after the stop
+        expect(entries[11].cumulativeDistanceNM).toBe(round2(sailedNM));
+        for (let i = 1; i < entries.length; i++) {
+            expect(entries[i].cumulativeDistanceNM!).toBeGreaterThanOrEqual(entries[i - 1].cumulativeDistanceNM!);
+        }
+        // The gate alone came up short by the corner and the last leg.
+        expect(gatedDistanceNM(pts)).toBeLessThan(sailedNM - 1.5);
+
+        // Thinned, the legs still add up to the whole.
+        const thinned = parseGPXTrack(file, { maxTrackPoints: 4 });
+        expect(thinned.savedTrackPoints).toBeLessThan(pts.length);
+        const legs = thinned.entries.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
+        expect(legs).toBeCloseTo(sailedNM, 1);
+        expect(thinned.entries[thinned.entries.length - 1].cumulativeDistanceNM).toBe(round2(sailedNM));
     });
 
     it('keeps the <speed> the file gives, in knots', () => {

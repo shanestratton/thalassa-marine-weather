@@ -83,13 +83,18 @@ export type ImportSaveFailure = 'signed-out' | 'offline' | 'timed-out' | 'accoun
  * The import's messages are its own (EntryCrud.importGPXVoyage); a fetch that
  * never left the phone reads 'Failed to fetch' in WebKit dev builds and
  * 'Load failed' on iOS.
+ *
+ * No connection is checked first, whatever the message. Offline with a
+ * sign-in token over an hour old, the token refresh fails, the session reads
+ * as empty and the import says 'Login required', though the skipper is still
+ * signed in everywhere else in the app.
  */
 export function classifyImportSaveFailure(err: unknown, online: boolean): ImportSaveFailure {
     const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-    if (/Login required/i.test(raw)) return 'signed-out';
-    if (/Account changed/i.test(raw)) return 'account-changed';
     if (!online || /Failed to fetch|Load failed|NetworkError|network connection|Database not available/i.test(raw))
         return 'offline';
+    if (/Login required/i.test(raw)) return 'signed-out';
+    if (/Account changed/i.test(raw)) return 'account-changed';
     if (/timed out|timeout/i.test(raw)) return 'timed-out';
     return 'unknown';
 }
