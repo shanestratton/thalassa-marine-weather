@@ -20,9 +20,32 @@ function walk(node, visit) {
     }
 }
 
-/** Only literal JSX className attributes from production application sources.
- * Multiline strings whose JSX whitespace normalizes differently simply miss
- * the lookup later and remain unchanged. */
+/** Literal class values only. Conditions, calls and template coercions keep
+ * their original evaluation; only their resulting string branches are shared. */
+function expressionStrings(node, add) {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) add(node.text);
+    else if (ts.isParenthesizedExpression(node)) expressionStrings(node.expression, add);
+    else if (ts.isConditionalExpression(node)) {
+        expressionStrings(node.whenTrue, add);
+        expressionStrings(node.whenFalse, add);
+    } else if (
+        ts.isBinaryExpression(node) &&
+        [
+            ts.SyntaxKind.PlusToken,
+            ts.SyntaxKind.AmpersandAmpersandToken,
+            ts.SyntaxKind.BarBarToken,
+            ts.SyntaxKind.QuestionQuestionToken,
+        ].includes(node.operatorToken.kind)
+    ) {
+        expressionStrings(node.left, add);
+        expressionStrings(node.right, add);
+    } else if (ts.isTemplateExpression(node)) {
+        for (const span of node.templateSpans) expressionStrings(span.expression, add);
+    }
+}
+
+/** Multiline JSX whitespace that normalizes differently misses the exact
+ * lookup and remains unchanged. Dynamic expressions are never evaluated here. */
 export function collectClassNames(root) {
     const counts = new Map();
     const files = ['App.tsx', ...fs.globSync(['components/**/*.tsx', 'pages/**/*.tsx'], { cwd: root })].sort();
@@ -38,14 +61,11 @@ export function collectClassNames(root) {
             ts.ScriptKind.TSX,
         );
         const visit = (node) => {
-            if (
-                ts.isJsxAttribute(node) &&
-                node.name.getText(source) === 'className' &&
-                node.initializer &&
-                ts.isStringLiteral(node.initializer)
-            ) {
-                const value = node.initializer.text;
-                counts.set(value, (counts.get(value) ?? 0) + 1);
+            if (ts.isJsxAttribute(node) && node.name.getText(source) === 'className' && node.initializer) {
+                const add = (value) => counts.set(value, (counts.get(value) ?? 0) + 1);
+                if (ts.isStringLiteral(node.initializer)) add(node.initializer.text);
+                else if (ts.isJsxExpression(node.initializer) && node.initializer.expression)
+                    expressionStrings(node.initializer.expression, add);
             }
             ts.forEachChild(node, visit);
         };
@@ -153,21 +173,37 @@ export function shareLiteralClassNames(code, id, { root, values, parse }) {
     let prefix = '__thalassaClassNames';
     while (code.includes(prefix)) prefix += '_';
     let replacements = 0;
+    const replaced = new Set();
+    const shareValue = (value) => {
+        if (value.type === 'Literal' && typeof value.value === 'string') {
+            const index = indexes.get(value.value);
+            if (index === undefined || replaced.has(value.start)) return;
+            output.overwrite(value.start, value.end, `${prefix}[${index}]`);
+            replaced.add(value.start);
+            replacements++;
+        } else if (value.type === 'ConditionalExpression') {
+            shareValue(value.consequent);
+            shareValue(value.alternate);
+        } else if (
+            value.type === 'LogicalExpression' ||
+            (value.type === 'BinaryExpression' && value.operator === '+')
+        ) {
+            shareValue(value.left);
+            shareValue(value.right);
+        } else if (value.type === 'TemplateLiteral') {
+            for (const expression of value.expressions) shareValue(expression);
+        }
+    };
     walk(parse(code), (node) => {
         if (
             node.type !== 'Property' ||
             node.computed ||
             node.method ||
             node.kind !== 'init' ||
-            (node.key.name ?? node.key.value) !== 'className' ||
-            node.value.type !== 'Literal' ||
-            typeof node.value.value !== 'string'
+            (node.key.name ?? node.key.value) !== 'className'
         )
             return;
-        const index = indexes.get(node.value.value);
-        if (index === undefined) return;
-        output.overwrite(node.value.start, node.value.end, `${prefix}[${index}]`);
-        replacements++;
+        shareValue(node.value);
     });
     if (!replacements) return null;
     output.prepend(`import { values as ${prefix} } from '${MODULE}';\n`);
