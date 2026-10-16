@@ -46,6 +46,7 @@ import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { PlanSignOutButton } from './components/PlanSignOutButton';
 import { DraftConfirmModal } from './components/vessel/DraftConfirmModal';
 import { GlobalEngineHoursReviewGate } from './components/vessel/GlobalEngineHoursReviewGate';
+import { ShoreConsentHost } from './components/anchor-watch/ShoreConsentHost';
 import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
@@ -1136,6 +1137,7 @@ const App: React.FC = () => {
                 Not lazy: an ask must never wait on a chunk download. */}
             <DraftConfirmModal />
             <GlobalEngineHoursReviewGate />
+            <ShoreConsentHost />
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* Active-route status and stop controls live in SystemStatusButton
