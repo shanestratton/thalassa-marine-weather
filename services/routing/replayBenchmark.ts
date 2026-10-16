@@ -8,7 +8,7 @@ export interface ReplayPoint {
     lat: number;
     lon: number;
     at: string;
-    mode?: 'sail' | 'motor' | 'unknown';
+    mode?: 'sail' | 'motor' | 'engine-off' | 'unknown';
 }
 export interface ReplayWeather {
     source: 'wx-archive' | 'historical-forecast' | 'synthetic';
@@ -41,6 +41,26 @@ const stamp = (v: string) => Date.parse(v);
 const coordinate = (p: { lat: number; lon: number }) =>
     Number.isFinite(p.lat) && Math.abs(p.lat) <= 85 && Number.isFinite(p.lon) && Math.abs(p.lon) <= 180;
 const positive = (v: number) => Number.isFinite(v) && v > 0;
+
+/** Explicit caller policy, shared by every polar in a replay. Defaults retain
+ * the existing engine baseline; a private run may pass the planner's actual
+ * vessel policy without changing the engine or tuning its polars. */
+export function replayEngineConfig(value?: { minWindSpeed?: number; motoringSpeed?: number; timeStepHours?: number }) {
+    const minWindSpeed = value?.minWindSpeed ?? 4;
+    const motoringSpeed = value?.motoringSpeed ?? 5;
+    const timeStepHours = value?.timeStepHours ?? 6;
+    if (
+        !Number.isFinite(minWindSpeed) ||
+        minWindSpeed < 0 ||
+        minWindSpeed > 30 ||
+        !Number.isFinite(motoringSpeed) ||
+        motoringSpeed <= 0 ||
+        motoringSpeed > 40 ||
+        ![0.5, 1, 3, 6].includes(timeStepHours)
+    )
+        throw new Error('Invalid replay vessel or planner step settings.');
+    return { minWindSpeed, motoringSpeed, timeStepHours };
+}
 
 export function validateReplayLeg(leg: ReplayLeg): void {
     if (
@@ -204,7 +224,8 @@ export async function replayLeg(leg: ReplayLeg, execute: ReplayExecutor) {
     for (let i = 1; i < leg.track.length; i++) {
         const duration = (stamp(leg.track[i].at) - stamp(leg.track[i - 1].at)) / 3600000;
         if (leg.track[i - 1].mode === 'motor') actualMotorHours += duration;
-        else if (leg.track[i - 1].mode !== 'sail') unknownPropulsionHours += duration;
+        else if (leg.track[i - 1].mode !== 'sail' && leg.track[i - 1].mode !== 'engine-off')
+            unknownPropulsionHours += duration;
     }
     const variants = [];
     for (const polar of leg.polars) {

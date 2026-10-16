@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, statSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { replayLeg, type ReplayLeg } from '../services/routing/replayBenchmark';
+import { replayEngineConfig, replayLeg, type ReplayLeg } from '../services/routing/replayBenchmark';
 
 const repository = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const [inputArg, outputArg] = process.argv.slice(2);
@@ -19,21 +19,11 @@ if (statSync(input).size > 64 * 1024 * 1024) throw new Error('Replay input excee
 const data = JSON.parse(readFileSync(input, 'utf8')) as {
     schema: number;
     legs: ReplayLeg[];
-    engineConfig?: { minWindSpeed?: number; motoringSpeed?: number };
+    engineConfig?: { minWindSpeed?: number; motoringSpeed?: number; timeStepHours?: number };
 };
 if (data.schema !== 1 || !Array.isArray(data.legs) || !data.legs.length || data.legs.length > 100)
     throw new Error('Expected schema 1 and 1–100 private replay legs.');
-const minWindSpeed = data.engineConfig?.minWindSpeed ?? 4;
-const motoringSpeed = data.engineConfig?.motoringSpeed ?? 5;
-if (
-    !Number.isFinite(minWindSpeed) ||
-    minWindSpeed < 0 ||
-    minWindSpeed > 30 ||
-    !Number.isFinite(motoringSpeed) ||
-    motoringSpeed <= 0 ||
-    motoringSpeed > 40
-)
-    throw new Error('Invalid vessel motoring settings.');
+const engineConfig = replayEngineConfig(data.engineConfig);
 globalThis.fetch = async () => {
     throw new Error('Network access is disabled during offline replay.');
 };
@@ -59,8 +49,7 @@ try {
             await replayLeg(leg, async ({ origin, destination, departure, polar, wind }) => {
                 const result = await computeIsochrones(origin, destination, departure, polar, wind, {
                     useDepthPenalty: false,
-                    minWindSpeed,
-                    motoringSpeed,
+                    ...engineConfig,
                 });
                 if (!result) return null;
                 return {
@@ -79,7 +68,7 @@ try {
                 schema: 1,
                 createdAt: new Date().toISOString(),
                 scope: 'Offline weather/polar replay; no navigation-clearance proof; no tuning performed',
-                engineConfig: { minWindSpeed, motoringSpeed },
+                engineConfig,
                 reports,
             },
             null,

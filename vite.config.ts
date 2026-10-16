@@ -24,6 +24,8 @@ import {
 } from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
+import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
+import { shareSvgProps } from './scripts/share-svg-props.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 import { handler as handleNoaaChart } from './api/noaa-chart';
@@ -615,6 +617,8 @@ export default defineConfig(({ mode }) => {
             // log.info()/log.debug() are no-ops in production: their calls go,
             // arguments with side effects stay (129-10; tests/StripNoopLogs.test.ts).
             stripNoopLogs(__dirname),
+            pngInflateDedup(__dirname),
+            shareSvgProps(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),

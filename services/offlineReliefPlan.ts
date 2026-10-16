@@ -10,6 +10,8 @@ export const RELIEF_OFFLINE_LIMIT_TILES = 4096;
 export const RELIEF_TILE_MAX_BYTES = 256 * 1024;
 /** Matches the manually saved tile lane in public/sw.js. */
 export const RELIEF_WEB_CACHE = 'thalassa-v195-tiles';
+/** Local metadata belongs to the app origin, never a pretend remote tile. */
+export const RELIEF_WEB_MANIFEST_PATH = '/__thalassa-offline-relief-manifest-v1';
 export const RELIEF_OFFLINE_DIRECTORY = 'thalassa-offline-relief-v1';
 export interface ReliefTile {
     key: string;

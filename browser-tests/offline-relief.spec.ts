@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { RELIEF_WEB_CACHE } from '../services/offlineReliefPlan';
+import { RELIEF_WEB_CACHE, RELIEF_WEB_MANIFEST_PATH } from '../services/offlineReliefPlan';
 const servers: Server[] = [];
 test.afterEach(async () => {
     for (const server of servers.splice(0)) {
@@ -141,6 +141,10 @@ test('saved terrain renders after an offline cold restart through the real servi
                 navigator.serviceWorker.controller!.postMessage('offline-fault', [c.port2]);
             }),
     );
+    // Keep the persistent browser context alive while replacing the app's
+    // document/module process. The blank page has loaded no app or terrain;
+    // all networking is disabled before its first app navigation below.
+    const cold = await context.newPage();
     await page.close();
     await context.unrouteAll({ behavior: 'wait' });
     const before = tiles;
@@ -149,7 +153,6 @@ test('saved terrain renders after an offline cold restart through the real servi
         await new Promise<void>((resolve) => server.close(() => resolve()));
         servers.splice(servers.indexOf(server), 1);
     } else await context.setOffline(true);
-    const cold = await context.newPage();
     await cold.goto(origin + '/e2e/fixtures/offline-relief.html');
     await expect
         .poll(() => cold.evaluate(() => typeof (window as unknown as { __offlineRelief?: unknown }).__offlineRelief))
@@ -169,7 +172,14 @@ test('saved terrain renders after an offline cold restart through the real servi
             },
             { message: 'the saved public terrain is drawn after an actual cold offline render', timeout: 15000 },
         )
-        .toBe(true);
+        .toBe(true)
+        .catch(async (error) => {
+            await test.info().attach('offline-relief-failed-proof', {
+                body: JSON.stringify(proof ?? null),
+                contentType: 'application/json',
+            });
+            throw error;
+        });
     expect(proof).toMatchObject({ offline: browserName !== 'webkit', loaded: true });
     const pixel = (proof as { pixel: number[] }).pixel;
     expect(pixel[2]).toBeGreaterThan(2 * pixel[0] + 10);
@@ -192,7 +202,7 @@ test('saved terrain renders after an offline cold restart through the real servi
     );
     expect(
         keys
-            .filter((url) => !url.includes('__offline-relief-manifest'))
+            .filter((url) => new URL(url).pathname !== RELIEF_WEB_MANIFEST_PATH)
             .every((url) => url.startsWith('https://tiles.thalassatiles.com/v1/relief-')),
     ).toBe(true);
     // Mapbox may ask for finer, unsaved tiles before overzooming a saved parent.

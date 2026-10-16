@@ -8,6 +8,7 @@ import {
     RELIEF_OFFLINE_LIMIT_TILES,
     RELIEF_TILE_MAX_BYTES,
     RELIEF_WEB_CACHE,
+    RELIEF_WEB_MANIFEST_PATH,
     planReliefArea,
     readReliefBytes,
     reliefTile,
@@ -35,7 +36,8 @@ export interface ReliefProgress {
     message: string;
 }
 const MANIFEST = `${RELIEF_OFFLINE_DIRECTORY}/index.json`;
-const WEB_MANIFEST = 'https://tiles.thalassatiles.com/__offline-relief-manifest-v1';
+const WEB_MANIFEST = new URL(RELIEF_WEB_MANIFEST_PATH, globalThis.location.href).href;
+const LEGACY_WEB_MANIFEST = 'https://tiles.thalassatiles.com/__offline-relief-manifest-v1';
 let rows: SavedTile[] = [];
 let nativeRoot = '';
 let hydration: Promise<void> | undefined;
@@ -94,10 +96,22 @@ async function persist() {
     const data = JSON.stringify({ schema: 1, tiles: rows });
     if (native())
         await Filesystem.writeFile({ path: MANIFEST, directory: Directory.Data, encoding: Encoding.UTF8, data });
-    else
-        await (
-            await caches.open(RELIEF_WEB_CACHE)
-        ).put(WEB_MANIFEST, new Response(data, { headers: { 'content-type': 'application/json' } }));
+    else {
+        const cache = await caches.open(RELIEF_WEB_CACHE);
+        const write = () =>
+            cache.put(WEB_MANIFEST, new Response(data, { headers: { 'content-type': 'application/json' } }));
+        await write();
+        if (!(await cache.match(WEB_MANIFEST))) {
+            // WebKit can retain an indexed key whose body is unreadable: put
+            // resolves but subsequent reads still miss it. Repair only this
+            // exact metadata key, once, preserving every saved terrain entry.
+            await cache.delete(WEB_MANIFEST);
+            await write();
+            if (!(await cache.match(WEB_MANIFEST)))
+                throw new ReliefStorageError('Relief index could not be read back from offline storage.');
+        }
+        await cache.delete(LEGACY_WEB_MANIFEST).catch(() => undefined);
+    }
 }
 function serial<T>(job: () => Promise<T>): Promise<T> {
     const next = writes.catch(() => undefined).then(job);
@@ -144,7 +158,7 @@ export function hydrateRelief(): Promise<void> {
         } else {
             if (typeof caches === 'undefined') throw new Error('Offline browser storage is unavailable.');
             const cache = await caches.open(RELIEF_WEB_CACHE),
-                index = await cache.match(WEB_MANIFEST);
+                index = (await cache.match(WEB_MANIFEST)) ?? (await cache.match(LEGACY_WEB_MANIFEST));
             if (index) {
                 const text = await index.text();
                 if (text.length <= 1024 * 1024) {

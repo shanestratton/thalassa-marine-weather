@@ -68,7 +68,7 @@ function patternNames(pattern, out) {
 }
 
 /** How many times each name is declared anywhere in the module. */
-function bindingCounts(program) {
+export function bindingCounts(program) {
     const counts = new Map();
     const add = (names) => {
         for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
