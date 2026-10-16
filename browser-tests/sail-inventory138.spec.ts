@@ -34,6 +34,9 @@ for (const width of [300, 375]) {
         expect(value.sails[0].name).toBe('My explicitly entered sail');
         await page.getByRole('button', { name: 'Edit sails & crossovers' }).click();
         await expect(page.getByRole('dialog', { name: /Sails/ })).toBeVisible();
+        await page.evaluate(
+            () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+        );
         await page.screenshot({ path: test.info().outputPath('sail-editor.png') });
         await page.evaluate(() =>
             (window as unknown as { __sailInventory138: { switchBoat: () => void } }).__sailInventory138.switchBoat(),
