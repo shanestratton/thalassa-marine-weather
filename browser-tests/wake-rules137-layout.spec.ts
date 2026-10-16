@@ -132,6 +132,54 @@ for (const width of [300, 375])
             .toBeLessThanOrEqual(361);
         await bounded(dialog, width, 360);
         await expect(dialog.getByLabel('Minimum hold (s)')).toBeInViewport();
+        // The sheet's 200 ms max-height transition can finish before the
+        // shared keyboard guard's final 360 ms correction. Wait for actual
+        // field containment, not merely partial viewport intersection.
+        const keyboardSamples: Array<Record<string, number | boolean>> = [];
+        try {
+            await expect
+                .poll(
+                    async () => {
+                        const sample = await dialog.getByLabel('Minimum hold (s)').evaluate((element) => {
+                            const field = element.getBoundingClientRect();
+                            const body = element.closest<HTMLElement>('[data-modal-sheet-body]')!;
+                            const bodyBox = body.getBoundingClientRect();
+                            const footer = body
+                                .parentElement!.querySelector('[data-modal-sheet-footer]')!
+                                .getBoundingClientRect();
+                            const hit = document.elementFromPoint(
+                                field.x + field.width / 2,
+                                field.y + field.height / 2,
+                            );
+                            return {
+                                atMs: performance.now(),
+                                fieldTop: field.top,
+                                fieldBottom: field.bottom,
+                                bodyTop: bodyBox.top,
+                                bodyBottom: bodyBox.bottom,
+                                footerTop: footer.top,
+                                scrollTop: body.scrollTop,
+                                focused: document.activeElement === element,
+                                hittable: hit === element || element.contains(hit),
+                            };
+                        });
+                        keyboardSamples.push(sample);
+                        return (
+                            sample.focused &&
+                            sample.hittable &&
+                            sample.fieldTop >= sample.bodyTop &&
+                            sample.fieldBottom <= Math.min(sample.footerTop, sample.bodyBottom) + 1
+                        );
+                    },
+                    { timeout: 5000, message: 'The focused wake field settles inside the body above Save' },
+                )
+                .toBe(true);
+        } finally {
+            await info.attach('keyboard-field-readiness', {
+                body: JSON.stringify(keyboardSamples),
+                contentType: 'application/json',
+            });
+        }
         const input = (await dialog.getByLabel('Minimum hold (s)').boundingBox())!;
         const footer = (await dialog.locator('[data-modal-sheet-footer]').boundingBox())!;
         expect(input.y + input.height).toBeLessThanOrEqual(footer.y + 1);

@@ -1,11 +1,15 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { applyWideFonts } from '../e2e/helpers/wideFonts';
 
 const unexpectedByPage = new WeakMap<Page, string[]>();
+const errorsByPage = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
     const unexpected: string[] = [];
     unexpectedByPage.set(page, unexpected);
+    const errors: string[] = [];
+    errorsByPage.set(page, errors);
+    page.on('pageerror', (error) => errors.push(error.message));
     await applyWideFonts(page);
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
@@ -15,7 +19,72 @@ test.beforeEach(async ({ page }) => {
         return route.abort();
     });
 });
-test.afterEach(({ page }) => expect(unexpectedByPage.get(page)).toEqual([]));
+test.afterEach(({ page }) => {
+    expect(unexpectedByPage.get(page)).toEqual([]);
+    expect(errorsByPage.get(page)).toEqual([]);
+});
+
+/** Caption/font ResizeObservers and the canvas effect do not finish with DOM
+ * visibility. Require the original real-pixel threshold within a bounded paint
+ * interval and retain every sample, including a blank first paint on failure. */
+async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
+    const samples: Array<Record<string, number>> = [];
+    let actual = { curve: 0, axis: 0, visibleHeight: 0 };
+    try {
+        await expect
+            .poll(
+                async () => {
+                    const captionBox = (await caption.boundingBox())!;
+                    const sample = await canvas.evaluate((el: HTMLCanvasElement, captionBottom) => {
+                        const ctx = el.getContext('2d')!;
+                        const data = ctx.getImageData(0, 0, el.width, el.height).data;
+                        const axisTop = el.height - 14 * devicePixelRatio;
+                        const visibleTop = Math.ceil((captionBottom - el.getBoundingClientRect().y) * devicePixelRatio);
+                        let curve = 0,
+                            axis = 0;
+                        for (let y = Math.max(0, visibleTop); y < el.height; y++)
+                            for (let x = 0; x < el.width; x++) {
+                                const i = (y * el.width + x) * 4;
+                                if (
+                                    y < axisTop &&
+                                    data[i + 1] > 100 &&
+                                    (data[i] > data[i + 2] + 30 || data[i + 2] > data[i] + 30) &&
+                                    data[i + 3] > 128
+                                )
+                                    curve++;
+                                if (
+                                    y >= axisTop &&
+                                    data[i] > 100 &&
+                                    data[i + 1] > 100 &&
+                                    data[i + 2] > 100 &&
+                                    data[i + 3] > 150
+                                )
+                                    axis++;
+                            }
+                        const transform = ctx.getTransform();
+                        return {
+                            atMs: performance.now(),
+                            curve: curve / devicePixelRatio ** 2,
+                            axis: axis / devicePixelRatio ** 2,
+                            visibleHeight: (axisTop - visibleTop) / devicePixelRatio,
+                            width: el.width,
+                            height: el.height,
+                            scaleX: transform.a,
+                            scaleY: transform.d,
+                        };
+                    }, captionBox.y + captionBox.height);
+                    samples.push(sample);
+                    actual = sample;
+                    return sample.curve;
+                },
+                { timeout: 5000, message: 'The actual tide curve below the settled caption is painted' },
+            )
+            .toBeGreaterThan(100);
+        return actual;
+    } finally {
+        await info.attach('canvas-paint-readiness', { body: JSON.stringify(samples), contentType: 'application/json' });
+    }
+}
 
 for (const width of [300, 375, 430]) {
     for (const large of [false, true]) {
@@ -72,37 +141,7 @@ for (const width of [300, 375, 430]) {
             });
             expect(captionOverlap).toBe(false);
             expect(captionBox.y + captionBox.height).toBeLessThan(canvasBox!.y + canvasBox!.height - 14);
-            const pixels = await canvas.evaluate((el: HTMLCanvasElement, captionBottom) => {
-                const ctx = el.getContext('2d')!;
-                const data = ctx.getImageData(0, 0, el.width, el.height).data;
-                let curve = 0;
-                let axis = 0;
-                const axisTop = el.height - 14 * devicePixelRatio;
-                const firstVisibleRow = Math.ceil((captionBottom - el.getBoundingClientRect().y) * devicePixelRatio);
-                for (let y = Math.max(0, firstVisibleRow); y < el.height; y++) {
-                    for (let x = 0; x < el.width; x++) {
-                        const i = (y * el.width + x) * 4;
-                        // The stroke spans amber through cyan. Neutral grid,
-                        // axis text and translucent fill do not count.
-                        if (
-                            y < axisTop &&
-                            data[i + 1] > 100 &&
-                            (data[i] > data[i + 2] + 30 || data[i + 2] > data[i] + 30) &&
-                            data[i + 3] > 128
-                        )
-                            curve++;
-                        if (
-                            y >= axisTop &&
-                            data[i] > 100 &&
-                            data[i + 1] > 100 &&
-                            data[i + 2] > 100 &&
-                            data[i + 3] > 150
-                        )
-                            axis++;
-                    }
-                }
-                return { curve: curve / devicePixelRatio ** 2, axis: axis / devicePixelRatio ** 2 };
-            }, captionBox.y + captionBox.height);
+            const pixels = await drawnPixels(canvas, caption, info);
             expect(pixels.curve).toBeGreaterThan(100);
             expect(pixels.axis).toBeGreaterThan(30);
             await info.attach('actual-canvas-pixels', {
@@ -207,38 +246,7 @@ for (const width of [300, 375, 430]) {
                 expect(sourceBox.height).toBeGreaterThanOrEqual(44);
                 expect(await source.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
                 const canvas = page.getByTestId('tide-plot').locator('canvas');
-                const actual = await canvas.evaluate((el: HTMLCanvasElement, captionBottom) => {
-                    const ctx = el.getContext('2d')!;
-                    const data = ctx.getImageData(0, 0, el.width, el.height).data;
-                    const axisTop = el.height - 14 * devicePixelRatio;
-                    const visibleTop = Math.ceil((captionBottom - el.getBoundingClientRect().y) * devicePixelRatio);
-                    let curve = 0;
-                    let axis = 0;
-                    for (let y = Math.max(0, visibleTop); y < el.height; y++)
-                        for (let x = 0; x < el.width; x++) {
-                            const i = (y * el.width + x) * 4;
-                            if (
-                                y < axisTop &&
-                                data[i + 1] > 100 &&
-                                (data[i] > data[i + 2] + 30 || data[i + 2] > data[i] + 30) &&
-                                data[i + 3] > 128
-                            )
-                                curve++;
-                            if (
-                                y >= axisTop &&
-                                data[i] > 100 &&
-                                data[i + 1] > 100 &&
-                                data[i + 2] > 100 &&
-                                data[i + 3] > 150
-                            )
-                                axis++;
-                        }
-                    return {
-                        curve: curve / devicePixelRatio ** 2,
-                        axis: axis / devicePixelRatio ** 2,
-                        visibleHeight: (axisTop - visibleTop) / devicePixelRatio,
-                    };
-                }, layout.bottom);
+                const actual = await drawnPixels(canvas, header, info);
                 expect(actual.visibleHeight).toBeGreaterThan(10);
                 expect(actual.curve).toBeGreaterThan(100);
                 expect(actual.axis).toBeGreaterThan(30);
