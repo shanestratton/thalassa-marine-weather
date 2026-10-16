@@ -1,0 +1,81 @@
+name: Read-only build135 trial style readiness diagnosis
+on:
+    push:
+        branches: ['codex/diag-135-trial-style-linux']
+        paths: ['.github/workflows/diagnose-trial135-style.yml', 'ci/trial135/**']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-135-trial-style-diagnosis
+    cancel-in-progress: false
+jobs:
+    diagnose:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            VITE_APP_BUILD: '135'
+            VITE_MAPBOX_ACCESS_TOKEN: pk.fixture-not-a-real-token-for-browser-tests
+            VITE_SUPABASE_URL: https://fixture.supabase.co
+            VITE_SUPABASE_KEY: sb_publishable_fixture_browser_test
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: ${{ github.sha }}
+                  path: controls
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: af2ab4699c348a139d74eac7c6a7790ba7f14154
+                  path: source
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+                  cache-dependency-path: source/package-lock.json
+            - name: Verify exact unchanged source and controlled diagnostic inventory
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git -C source rev-parse HEAD)" = af2ab4699c348a139d74eac7c6a7790ba7f14154
+                  test "$(git -C controls rev-parse HEAD)" = "$GITHUB_SHA"
+                  test -z "$(git -C source status --porcelain)"
+                  git -C controls diff --name-only 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD > "$RUNNER_TEMP/inventory.txt"
+                  printf '%s\n' .github/workflows/diagnose-trial135-style.yml ci/trial135/config.ts ci/trial135/diagnostic.spec.ts | sort > "$RUNNER_TEMP/expected.txt"
+                  sort "$RUNNER_TEMP/inventory.txt" > "$RUNNER_TEMP/actual.txt"
+                  cmp "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/actual.txt"
+                  sha256sum controls/ci/trial135/config.ts controls/ci/trial135/diagnostic.spec.ts
+            - name: Install exact lockfile and WebKit only
+              working-directory: source
+              run: |
+                  set -euo pipefail
+                  npm ci
+                  npx playwright install --with-deps webkit
+            - name: Unchanged original cases with read-only diagnostic method wrapper
+              working-directory: source
+              run: |
+                  set -euo pipefail
+                  node node_modules/@playwright/test/cli.js test --config ../controls/ci/trial135/config.ts --grep 'Trial proposal stays isolated and usable at (1024.*split|390 light)$' --repeat-each=2
+            - name: Verify source remained unchanged
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git -C source rev-parse HEAD)" = af2ab4699c348a139d74eac7c6a7790ba7f14154
+                  test -z "$(git -C source status --porcelain)"
+            - name: Preserve diagnostic state, screenshots and traces regardless of result
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: trial135-style-diagnosis
+                  path: |
+                      diagnostic-results/
+                      diagnostic-report.json
+                  retention-days: 7
+                  if-no-files-found: error
