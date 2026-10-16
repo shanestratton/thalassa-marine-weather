@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { ONBOARDED_STORAGE } from './helpers/storageState';
+import { ENC_METADATA_PREFIX } from '../services/enc/types';
 
 test.use({
     // Service-worker fetches bypass page routes; never let a live tide
@@ -34,6 +35,7 @@ test.use({
 // The web's no-charts words (127-DESKMAP C2): a browser holds only the open
 // charts, and this fixture's account has no licensed charts aboard.
 const EMPTY_ENC_NOTICE = 'No chart for this area. Open charts (NOAA) show here in US waters.';
+/** Upstream availability is a challenge to the guard, never proof of the chart's datum. */
 type TideFixture = 'none' | 'available';
 /** A real long credit (Relief's, components/map/reliefBase.ts, as plain text):
  *  with the Anchorages credit it wraps the opened card to five lines in a
@@ -57,11 +59,10 @@ async function openEmptyChart(
     { longCredits = false, seaCredit = false }: { longCredits?: boolean; seaCredit?: boolean } = {},
 ) {
     const origin = new URL(baseURL).origin;
-    let tideResponses = 0;
     const tideAnchorSeconds = Math.floor(Date.now() / 1000);
     const errors: string[] = [];
     const styleRequests: string[] = [];
-    const glyphDiagnostics = { requests: [] as string[], errors: [] as string[] };
+    const glyphDiagnostics = { requests: [] as string[], errors: [] as string[], tideRequests: 0 };
     const recordError = (message: string) => {
         if (message.includes('requires a style "glyphs" property')) glyphDiagnostics.errors.push(message);
         if (errors.length < 40)
@@ -74,8 +75,10 @@ async function openEmptyChart(
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
         if (url.pathname === '/functions/v1/proxy-tides') {
-            // Exercise the real WorldTides → TideHeightService →
-            // TideOffsetService chain, including LAT and interpolation guards.
+            // Even a valid LAT provider response must not grant credit without
+            // matching chart proof. Count requests before fulfilling so an
+            // attempted fetch cannot hide behind a response race.
+            glyphDiagnostics.tideRequests += 1;
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -94,7 +97,6 @@ async function openEmptyChart(
                             : [],
                 }),
             });
-            tideResponses += 1;
         } else if (url.origin === origin) {
             await route.continue();
         } else if (url.hostname.endsWith('.mapbox.com') && /^\/styles\/v1\/[^/]+\/[^/]+\/?$/.test(url.pathname)) {
@@ -230,20 +232,19 @@ async function openEmptyChart(
         throw error;
     }
     if (tideFixture) {
-        await expect.poll(() => tideResponses, 'the real tide service must consume the fixture API').toBeGreaterThan(0);
+        const inventory = await page.evaluate(
+            (prefix) => JSON.parse(localStorage.getItem(`${prefix}.index`) ?? '[]'),
+            ENC_METADATA_PREFIX,
+        );
+        expect(inventory, 'the empty-chart fixture cannot prove any sounding datum').toEqual([]);
         const tideBadge = page.getByRole('button', {
             name: 'Live tide depth is on — tap to return to chart datum',
             exact: true,
         });
         const scrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
-        if (tideFixture === 'available') {
-            await expect(tideBadge).toContainText('Sydney Harbour');
-            await expect(tideBadge).toContainText('approx');
-            await expect(scrubber).toBeVisible();
-        } else {
-            await expect(tideBadge).toHaveText('CHART DATUM — tidal clearance unverified');
-            await expect(scrubber).toHaveCount(0);
-        }
+        await expect(tideBadge).toHaveText('CHART DATUM — tidal clearance unverified');
+        await expect(scrubber).toHaveCount(0);
+        expect(glyphDiagnostics.tideRequests, 'unknown chart datum must stop the live-depth fetch').toBe(0);
     }
     await page.evaluate(() => document.fonts.ready);
     return glyphDiagnostics;
@@ -464,7 +465,7 @@ const cases: {
 ];
 
 for (const size of cases) {
-    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide depth ${size.tide}` : ''}${size.wideFont ? ' wide fallback font' : ''}${size.navClosed ? ' nav closed' : ''}${size.anchorages ? ' anchorages' : ''}${size.zoomSteps ? ` zoom ${size.zoomSteps > 0 ? '+' : ''}${size.zoomSteps}` : ''}${size.longCredits ? ' long credits' : ''}${size.flipFrom ? ` from ${size.flipFrom.width}x${size.flipFrom.height}` : ''}`, async ({
+    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide requested, provider ${size.tide}` : ''}${size.wideFont ? ' wide fallback font' : ''}${size.navClosed ? ' nav closed' : ''}${size.anchorages ? ' anchorages' : ''}${size.zoomSteps ? ` zoom ${size.zoomSteps > 0 ? '+' : ''}${size.zoomSteps}` : ''}${size.longCredits ? ' long credits' : ''}${size.flipFrom ? ` from ${size.flipFrom.width}x${size.flipFrom.height}` : ''}`, async ({
         page,
         baseURL,
     }, testInfo) => {
@@ -722,19 +723,11 @@ for (const size of cases) {
                     expectApart(boxes['Anchorage chip'], tideBadgeBox, 'Anchorage chip overlaps the live tide badge');
                 await expectHitTarget(tideBadge);
                 const tideScrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
-                if (size.tide === 'available') {
-                    // The labels/padding share the higher-z panel with the
-                    // slider: its full box, not just the input, can cover the notice.
-                    const tidePanel = tideScrubber.locator('..');
-                    const tidePanelBox = await visibleBox(tidePanel, page);
-                    expectSeparate(warningBox, tidePanelBox, 'Full tide scrubber panel');
-                    expectApart(boxes['Layer key pill'], tidePanelBox, 'Layer key pill overlaps the tide scrubber');
-                    if (size.anchorages)
-                        expectApart(boxes['Anchorage chip'], tidePanelBox, 'Anchorage chip overlaps the tide scrubber');
-                    await expectHitTarget(tideScrubber);
-                } else {
-                    await expect(tideScrubber).toHaveCount(0);
-                }
+                // There is no chart datum proof in this fixture. Availability
+                // upstream cannot produce a height, station or scrubber here.
+                await expect(tideBadge).toHaveText('CHART DATUM — tidal clearance unverified');
+                await expect(tideScrubber).toHaveCount(0);
+                expect(glyphDiagnostics.tideRequests, `no live-depth fetch after ${stage}`).toBe(0);
             }
             for (const control of [locate, zoomIn, zoomOut, orient, mob, layers, attribution])
                 await expectHitTarget(control);
@@ -919,6 +912,13 @@ for (const size of cases) {
             body: JSON.stringify(glyphDiagnostics),
         });
         expect(glyphDiagnostics.errors, 'the fixture must support app-owned text symbol layers').toEqual([]);
+        if (size.tide) {
+            expect(
+                glyphDiagnostics.tideRequests,
+                'empty chart inventory must retain zero tide credit through the complete warning lifecycle',
+            ).toBe(0);
+            await expect(page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' })).toHaveCount(0);
+        }
     });
 }
 

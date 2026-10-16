@@ -354,7 +354,7 @@ describe('the departure planner never sweeps a plan whose tide gates stayed aboa
         expect(screen.queryByText(TIDE_GATES_ABOARD)).toBeNull();
     });
 
-    it('asks for the tide curve at the bucket centre, never at a charted shallow spot', async () => {
+    it('requests the whole-span bucket curve with local bounds for its datum proof', async () => {
         // The sweep waits for a confirmed draft in the settings store.
         await awaitSettingsLoaded();
         useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, vessel: VESSEL } });
@@ -369,7 +369,9 @@ describe('the departure planner never sweeps a plan whose tide gates stayed aboa
         );
         await waitFor(() => expect(m.tide).toHaveBeenCalled());
         const [, , , , opts] = m.tide.mock.calls[0];
-        expect(opts).toEqual({ days: 14 });
+        // The whole-span service normalizes the upstream request to its
+        // quarter-degree bucket; these bounds stay local to the datum proof.
+        expect(opts).toEqual({ days: 14, chartBounds: [166.41, -22.33, 166.45, -22.27] });
         await waitFor(() => expect(m.sweep).toHaveBeenCalled());
     });
 });

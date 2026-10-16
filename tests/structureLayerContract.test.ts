@@ -19,23 +19,29 @@ import { CLEARANCE_STRUCTURE_LAYERS } from '../services/routing/overheadClearanc
 import { ALWAYS_EMITTED_CLASSES, EXTRACTOR_SCHEMA, ROUTING_CLASSES } from '../tools/senc-extractor/src/s57Classes';
 import { ENC_ALWAYS_EMITTED_LAYERS, ENC_CONVERSION_SCHEMA } from '../pi-cache/src/encLayerContract';
 import { LOCAL_ENC_PACK_LAYER_NAMES, validateLocalEncPack } from '../services/enc/localEncPackImport';
+import { cellSoundingDatum } from '../services/enc/chartDatum';
 
 describe('the structure-layer contract', () => {
-    it('both pipelines always emit exactly the layers the lead review requires', () => {
+    it('both pipelines always emit the five required clearance layers plus datum coverage', () => {
         const required = [...LEAD_REQUIRED_STRUCTURE_LAYERS].sort();
-        expect([...ALWAYS_EMITTED_CLASSES].sort()).toEqual(required);
-        expect([...ENC_ALWAYS_EMITTED_LAYERS].sort()).toEqual(required);
+        expect(required).toEqual(['BRIDGE', 'CBLOHD', 'CONVYR', 'PIPOHD', 'PONTON']);
+        const complete = [...required, 'M_SDAT'].sort();
+        expect([...ALWAYS_EMITTED_CLASSES].sort()).toEqual(complete);
+        expect([...ENC_ALWAYS_EMITTED_LAYERS].sort()).toEqual(complete);
     });
 
-    // Round 2 (2026-09-30): the overhead conveyor joined before anything
-    // deployed, so the schema stays 2.
-    it('CONVYR (overhead conveyor) is in the contract everywhere; the schema stays 2', () => {
+    // Schema 3 adds sounding-datum extraction without weakening the schema-2 clearance contract.
+    it('schema 3 retains CONVYR everywhere and adds explicit sounding-datum coverage', () => {
         expect(ALWAYS_EMITTED_CLASSES.has('CONVYR')).toBe(true);
         expect(ENC_ALWAYS_EMITTED_LAYERS as readonly string[]).toContain('CONVYR');
         expect(LEAD_REQUIRED_STRUCTURE_LAYERS as readonly string[]).toContain('CONVYR');
         expect(CLEARANCE_STRUCTURE_LAYERS).toContain('CONVYR');
         expect(LOCAL_ENC_PACK_LAYER_NAMES.has('CONVYR')).toBe(true);
-        expect(EXTRACTOR_SCHEMA).toBe(2);
+        expect(ALWAYS_EMITTED_CLASSES.has('M_SDAT')).toBe(true);
+        expect(ENC_ALWAYS_EMITTED_LAYERS as readonly string[]).toContain('M_SDAT');
+        expect(LOCAL_ENC_PACK_LAYER_NAMES.has('M_SDAT')).toBe(true);
+        expect(ROUTING_CLASSES.has('M_SDAT')).toBe(true);
+        expect(EXTRACTOR_SCHEMA).toBe(3);
     });
 
     it('every layer the router reads for clearance is extracted', () => {
@@ -54,8 +60,8 @@ describe('the structure-layer contract', () => {
  * The PHONE is the third end of the contract (Phase 2a review, 2026-09-30).
  * Its import allowlist fails closed: one layer it does not know rejects the
  * whole cell ("unsupported chart layer; nothing was imported"). Once either
- * pipeline re-extracts at schema 2, every cell carries the four structure
- * layers — so a phone without them in its allowlist would reject every new
+ * pipeline re-extracts at schema 2, every cell carries the five structure
+ * layers; schema 3 additionally carries M_SDAT. A phone without these in its allowlist would reject every new
  * and updated chart (Notices to Mariners included), from the Pi, the cloud
  * and the personal library alike. NAVLNE missing from this list once blocked
  * 153 of Shane's cells.
@@ -101,24 +107,66 @@ describe('the phone accepts what the pipelines emit', () => {
         updateNumber: 1,
         issued: '2026-09-20',
         bbox: [153.05, -27.35, 153.25, -27.15] as [number, number, number, number],
-        extractorSchema: EXTRACTOR_SCHEMA,
+        // This is deliberately a genuine legacy fixture, independent of today's producer schema.
+        extractorSchema: 2,
         layers: { DEPARE: depare, ...layers },
     });
 
     it('a schema-2 cell that charts none of the five (empty collections) validates', () => {
-        const cell = schema2Cell({
-            BRIDGE: empty(),
-            PONTON: empty(),
-            CBLOHD: empty(),
-            PIPOHD: empty(),
-            CONVYR: empty(),
-        });
+        const cell = {
+            ...schema2Cell({
+                BRIDGE: empty(),
+                PONTON: empty(),
+                CBLOHD: empty(),
+                PIPOHD: empty(),
+                CONVYR: empty(),
+            }),
+            soundingDatum: 23,
+        };
         const out = validateLocalEncPack(cell).cells[0];
         // "Extracted, none charted" survives validation — the lead review
         // reads a missing key as "not extracted".
-        for (const layer of ALWAYS_EMITTED_CLASSES) {
+        for (const layer of LEAD_REQUIRED_STRUCTURE_LAYERS) {
             expect((out.layers as Record<string, unknown>)[layer], layer).toEqual(empty());
         }
+        expect(out.extractorSchema).toBe(2);
+        expect(out.layers.M_SDAT).toBeUndefined();
+        // An old cell cannot prove complete datum coverage, even if it carries a raw default.
+        expect(out.soundingDatum).toBe(23);
+        expect(cellSoundingDatum(out)).toBeNull();
+    });
+
+    it('a schema-3 empty datum layer proves extraction only when its raw sounding datum is known', () => {
+        const cell = {
+            ...schema2Cell(Object.fromEntries([...ALWAYS_EMITTED_CLASSES].map((layer) => [layer, empty()]))),
+            extractorSchema: 3,
+            soundingDatum: 23,
+            verticalDatum: 12,
+        };
+        const out = validateLocalEncPack(cell).cells[0];
+        for (const layer of ALWAYS_EMITTED_CLASSES)
+            expect((out.layers as Record<string, unknown>)[layer], layer).toEqual(empty());
+        expect(cellSoundingDatum(out)).toBe('LAT');
+        expect(cellSoundingDatum(validateLocalEncPack({ ...cell, soundingDatum: undefined }).cells[0])).toBeNull();
+    });
+
+    it('schema 3 never invents a missing datum layer or treats a conflicting local datum as whole-cell proof', () => {
+        const base = { ...schema2Cell({}), extractorSchema: 3, soundingDatum: 23 };
+        const missing = validateLocalEncPack(base).cells[0];
+        expect(missing.layers.M_SDAT).toBeUndefined();
+        expect(cellSoundingDatum(missing)).toBeNull();
+        const conflicting = validateLocalEncPack({
+            ...base,
+            layers: {
+                ...base.layers,
+                M_SDAT: {
+                    type: 'FeatureCollection',
+                    features: [{ ...depare.features[0], properties: { acronym: 'M_SDAT', rcid: 2, VERDAT: 12 } }],
+                },
+            },
+        }).cells[0];
+        expect(conflicting.layers.M_SDAT?.features[0].properties?.VERDAT).toBe(12);
+        expect(cellSoundingDatum(conflicting)).toBeNull();
     });
 
     it('a schema-2 cell with a charted bridge, pontoon, overhead cable, pipe and conveyor validates', () => {
