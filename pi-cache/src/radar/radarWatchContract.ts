@@ -26,7 +26,11 @@ export interface RadarWatchStatus {
     alarms: RadarWatchAlarm[];
     more: boolean;
     capacity: { sourceAt: number; acknowledged: boolean } | null;
-    push: { state: 'unavailable' | 'ready' | 'internet-off' | 'not-paired' | 'conflict'; checkedAt: number | null };
+    push: {
+        state: 'unavailable' | 'ready' | 'internet-off' | 'not-paired' | 'conflict';
+        checkedAt: number | null;
+        conflictRevision?: string;
+    };
 }
 export type RadarWatchCommand = {
     armed: boolean;
