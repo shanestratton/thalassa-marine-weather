@@ -26,6 +26,7 @@ import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { shareClassNames } from './scripts/share-class-names.mjs';
 import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
+import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
 import { shareSvgProps } from './scripts/share-svg-props.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
@@ -619,6 +620,7 @@ export default defineConfig(({ mode }) => {
             // arguments with side effects stay (129-10; tests/StripNoopLogs.test.ts).
             stripNoopLogs(__dirname),
             pngInflateDedup(__dirname),
+            jspdfPrimitives(__dirname),
             shareSvgProps(__dirname),
             shareClassNames(__dirname),
             mode === 'production' && releasePublicInputFence(),
