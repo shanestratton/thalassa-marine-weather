@@ -119,8 +119,9 @@ describe('⚡ Auto route', () => {
             setFixBusyLeg: vi.fn(),
             setAutoRouteDiag: vi.fn(),
             flashTraceFeedback: vi.fn(),
-            // MapHub hands over the profile as it was when ⚡ was drawn.
-            vessel: storeVessel(),
+            departureMs: Date.now(),
+            legEtaOffsetsMs: [0],
+            enabled: true,
         };
         const { result } = renderHook(() => useAutoRouteLeg(deps));
         return { run: result.current, deps };

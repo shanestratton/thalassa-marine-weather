@@ -61,6 +61,7 @@ vi.mock('../services/ShipLogService', () => ({
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { savePassagePlanToLogbook, savePassagePlanToLogbookWithLinks } from '../services/shiplog/PassagePlanSave';
+import { recoverRouteConstraints } from '../services/routing/routeConstraintNotes';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -101,6 +102,22 @@ afterEach(() => {
 });
 
 describe('PassagePlanSave persistence and identity ownership', () => {
+    it('persists exact geometry on the first line and canonical private constraints separately', async () => {
+        const routeConstraints = [{ lat: -27.3, lon: 153.2, name: 'User must-pass point' }];
+        const coords = [
+            [153.03, -27.47],
+            [153.2, -27.3],
+            [153.4, -27.16],
+        ];
+        await savePassagePlanToLogbook({
+            ...plan,
+            routeConstraints,
+            routeGeoJSON: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } },
+        });
+        const notes = mocks.upsert.mock.calls[0][0][0].notes;
+        expect(notes.split('\n')[0]).toBe('__route_geometry__::' + JSON.stringify(coords));
+        expect(recoverRouteConstraints(notes)).toEqual(routeConstraints);
+    });
     it('abandons A after a deferred duplicate lookup without saving in B', async () => {
         const lookup = deferred<{ routes: []; tracks: [] }>();
         mocks.fetchRoutes.mockReturnValueOnce(lookup.promise);

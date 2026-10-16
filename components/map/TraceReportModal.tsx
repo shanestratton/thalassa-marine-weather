@@ -31,6 +31,7 @@ import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
 // handler so it never weighs down the chart's initial bundle.
 
 const RouteMeteogram = React.lazy(() => import('../weather/RouteMeteogram'));
+const AlongRouteReport = React.lazy(() => import('./AlongRouteReport'));
 
 interface Props {
     open: boolean;
@@ -187,6 +188,7 @@ export const TraceReportModal: React.FC<Props> = ({
         onEscape: onClose,
     });
     const [showRouteWeather, setShowRouteWeather] = React.useState(false);
+    const [showAlongRoute, setShowAlongRoute] = React.useState(false);
     const [sampledWeather, setSampledWeather] = React.useState<RouteWeatherReport | null>(null);
     const vessel = useSettingsStore((state) => state.settings.vessel);
     const settings = useSettingsStore((state) => state.settings);
@@ -237,6 +239,7 @@ export const TraceReportModal: React.FC<Props> = ({
     React.useEffect(() => {
         if (!open) {
             setShowRouteWeather(false);
+            setShowAlongRoute(false);
             setSampledWeather(null);
         }
     }, [open]);
@@ -386,8 +389,8 @@ export const TraceReportModal: React.FC<Props> = ({
                 tabIndex={-1}
                 className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
             >
-                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
-                    <div className="min-w-0">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
+                    <div className="min-w-0 grow basis-40">
                         <h2
                             id="trace-report-title"
                             className="text-sm font-black uppercase tracking-widest text-amber-300"
@@ -398,7 +401,7 @@ export const TraceReportModal: React.FC<Props> = ({
                             <div className="truncate text-[13px] font-bold text-gray-100">{routeName}</div>
                         )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
                         <button
                             onClick={() => void onExportGpx()}
                             disabled={exporting || pins.length < 2 || !releaseGate.allowed}
@@ -471,6 +474,27 @@ export const TraceReportModal: React.FC<Props> = ({
                 ) : null}
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
                     <RouteEstimateSummary fuel={routeFuel} />
+                    {pins.length >= 2 &&
+                        (showAlongRoute ? (
+                            <React.Suspense
+                                fallback={<p className="text-xs text-slate-400">Opening route references…</p>}
+                            >
+                                <AlongRouteReport
+                                    pins={pins}
+                                    identity={weatherIdentity}
+                                    departureMs={etaDeparture}
+                                    cruisingSpeedKts={cruisingSpeedKts}
+                                />
+                            </React.Suspense>
+                        ) : (
+                            <button
+                                type="button"
+                                className="min-h-11 w-full rounded-xl border border-sky-400/20 bg-sky-500/10 px-3 text-xs font-bold text-sky-200"
+                                onClick={() => setShowAlongRoute(true)}
+                            >
+                                Along the route
+                            </button>
+                        ))}
                     {pins.length >= 2 &&
                         (showRouteWeather ? (
                             <React.Suspense fallback={<p className="text-xs text-slate-400">Opening route weather…</p>}>

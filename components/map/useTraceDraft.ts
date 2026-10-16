@@ -26,11 +26,9 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { copyTraceRoutePoints, reverseTraceRoutePoints } from '../../services/routing/traceRoutePoint';
 
-export interface TracePoint {
-    lat: number;
-    lon: number;
-}
+export type TracePoint = import('../../services/routing/traceRoutePoint').TraceRoutePoint;
 
 export interface TraceFramePoint extends TracePoint {
     name: string;
@@ -150,7 +148,17 @@ function readDraft(scope: AuthIdentityScope): TraceDraftData {
     const traceOrigin = readFramePoint(STORAGE_KEYS.origin, scope);
     const traceDest = readFramePoint(STORAGE_KEYS.destination, scope);
     return {
-        capturedCoords: Array.isArray(storedCoords) ? storedCoords.filter(isTracePoint) : [],
+        // Retain legacy plain-draft recovery. A versioned constraint/shape
+        // draft is indivisible: never discard a malformed point from it.
+        capturedCoords:
+            copyTraceRoutePoints(
+                Array.isArray(storedCoords) &&
+                    !storedCoords.some(
+                        (p) => p && typeof p === 'object' && ('constraint' in p || 'shape' in p || 'auto' in p),
+                    )
+                    ? storedCoords.filter(isTracePoint)
+                    : storedCoords,
+            ) ?? [],
         departureMs: Number.isFinite(departure) && departure > Date.now() - 3_600_000 ? departure : null,
         traceName: readRaw(STORAGE_KEYS.name, scope) ?? '',
         autoName: readRaw(STORAGE_KEYS.autoName, scope) ?? '',
@@ -311,7 +319,7 @@ export function useTraceDraft() {
             const autoName = reversedLegName(lastAutoNameRef.current);
             lastAutoNameRef.current = autoName;
             updateDraft((current) => {
-                const reversed = [...current.capturedCoords].reverse();
+                const reversed = reverseTraceRoutePoints(current.capturedCoords);
                 const end = reversed[reversed.length - 1];
                 const backToOriginal = activeReversalNote(current.capturedCoords, current.reversedFrom) !== null;
                 const label = sourceLabel?.trim() || stripRouteBadges(current.traceName) || 'the outbound line';
@@ -381,7 +389,7 @@ export function useTraceDraft() {
             lastAutoNameRef.current = autoName;
             updateDraft((current) => ({
                 ...current,
-                capturedCoords: next.points.map((point) => ({ lat: point.lat, lon: point.lon })),
+                capturedCoords: copyTraceRoutePoints(next.points) ?? [],
                 departureMs: options.keepDeparture ? current.departureMs : null,
                 traceName: next.name,
                 autoName,

@@ -642,11 +642,11 @@ describe('only the credits strip is cleared, never a copy in the layer key', () 
         }
     });
 
-    it('MapHub marks its lightning credit slot, which is what the strip measures', () => {
+    it('MapHub mounts one credit rollup, which is what the strip measures', () => {
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
-        expect(hub).toMatch(/data-testid="lightning-credit"[\s\S]{0,900}<BlitzortungAttribution visible compact \/>/);
+        expect(hub).toContain('<ObsCreditsRollup');
         const pane = readFileSync('components/passage/PassageHudPane.tsx', 'utf8');
-        expect(pane).toContain('[data-testid="lightning-credit"]');
+        expect(pane).toContain('[data-testid="obs-credits-rollup"]');
         expect(pane).not.toContain('[aria-label="Lightning data attribution and connection status"]');
     });
 });

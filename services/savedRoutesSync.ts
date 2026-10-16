@@ -33,6 +33,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 import { AUTOROUTING_PROPOSAL_MAX_POINTS, normaliseAutoroutingProposalEvidence } from './autoroutingProposalEvidence';
 import { chartFreeEvidence } from './chartFacts';
+import { copyTraceRoutePoints, decodeTraceRoutePoints, encodeTraceRoutePoint } from './routing/traceRoutePoint';
 
 const log = createLogger('savedRoutesSync');
 
@@ -316,9 +317,11 @@ export async function pushSavedRoute(
     const normalised = normaliseAutoroutingProposalEvidence(trace.proposalEvidence, trace.points);
     if (trace.proposalEvidence !== undefined && !normalised) return 'error';
     const proposalEvidence = normalised && chartFreeEvidence(normalised);
+    const points = copyTraceRoutePoints(trace.points);
+    if (!points) return 'error';
     const snapshot = {
         ...trace,
-        points: trace.points.map(({ lat, lon }) => ({ lat, lon })),
+        points,
         ...(proposalEvidence ? { proposalEvidence } : {}),
     };
     const verification = wireVerification(trace.verification, snapshot.points);
@@ -339,7 +342,7 @@ export async function pushSavedRoute(
         // RLS instead of silently defaulting the row to the next account.
         user_id: scope.userId,
         name: snapshot.name,
-        points: snapshot.points.map((p) => [p.lat, p.lon]),
+        points: snapshot.points.map(encodeTraceRoutePoint),
         created_at: snapshot.createdAt,
         updated_at: snapshot.updatedAt ?? new Date().toISOString(),
         trip_id: snapshot.tripId ?? null,
@@ -462,24 +465,8 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         const remote: SavedTrace[] = rows
             .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
             .map((r) => {
-                const rawPoints = r.points as unknown[];
-                if (
-                    rawPoints.length < 2 ||
-                    rawPoints.length > AUTOROUTING_PROPOSAL_MAX_POINTS ||
-                    ![...rawPoints].every(
-                        (p) =>
-                            Array.isArray(p) &&
-                            p.length === 2 &&
-                            typeof p[0] === 'number' &&
-                            typeof p[1] === 'number' &&
-                            Number.isFinite(p[0]) &&
-                            Number.isFinite(p[1]) &&
-                            Math.abs(p[0]) <= 90 &&
-                            Math.abs(p[1]) <= 180,
-                    )
-                )
-                    return null;
-                const points = (rawPoints as [number, number][]).map(([lat, lon]) => ({ lat, lon }) as TracePoint);
+                const points = decodeTraceRoutePoints(r.points);
+                if (!points) return null;
                 const evidenceValue = r.proposal_evidence ?? localById.get(r.id as string)?.proposalEvidence;
                 const normalised = normaliseAutoroutingProposalEvidence(evidenceValue, points);
                 if (evidenceValue !== undefined && evidenceValue !== null && !normalised) return null;

@@ -1,7 +1,6 @@
-# 137-03 / 137-04 — held weather watch
+# 137-03 / 137-04 — weather watch, activation held
 
-This packet prepares source; it does not enable a cron, acquire provider data,
-send a push, claim a locked-phone test or provision a provider account.
+The database groundwork is deployed at actual ledgers20261016191458 and20261016191504, with exact SQL bytes from the21-check real PostgreSQL proof. The source files now live under `supabase/migrations` with those ledger names. Five tables have RLS; profiles, registrations, positions and deliveries are empty. All four health rows have function/delivery version0, no entitlement lease and no heartbeat; no matching worker cron is active. Provider, worker and opt-in activation remains held.
 
 ## Current behavior
 

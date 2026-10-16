@@ -1,5 +1,7 @@
 # 137-07 — buddy boats, held source
 
+Live deployment requires the complete135 fleet AIS prerequisite, `supabase/migrations/20261016072703_ais_fleet_budget.sql`, plus its reviewed ingestor. A live metadata preflight found that it has not been deployed: `ais_fleet_control`, measured `position_at` and `data_source` are unavailable. The fixture models that prerequisite; it does not authorize adding two isolated columns. The complete migration also changes legacy merge/nearby permissions and budget behavior, so it remains held with the existing AIS display/transport rights review. No legacy `updated_at` value is backfilled as a measurement clock and no old row is labelled AISHub. Buddy SQL, producer and cron are undeployed.
+
 Targets has a lazy Follow action for real AIS vessel identities, including a
 proven AIS/radar association, and a Buddy boats list. Radar-only contacts and
 distress beacons cannot become invented MMSIs. The list is private to the

@@ -82,6 +82,8 @@ export interface Waypoint {
 }
 
 export interface VoyagePlan {
+    /** User-authored required points; null preserves an unreadable legacy/recovery hold. */
+    routeConstraints?: import('../services/routing/routeConstraints').RouteConstraintPoint[] | null;
     sailingStats?: import('../services/isochrone/routeStats').RouteSailingStats;
     routeFuel?: import('../services/isochrone/routeStats').RouteFuelEstimate;
     routeComfort?: import('../services/isochrone/routeComfort').RouteComfortSummary;

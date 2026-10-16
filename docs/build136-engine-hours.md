@@ -1,6 +1,6 @@
 # Confirmed voyage engine time
 
-This checkpoint connects explicit Log engine declarations and source-clock-qualified RPM to an ended-voyage review, plus the Engine Instrument Panel section. It has no deployment or native build-number change.
+This checkpoint connects explicit Log engine declarations and source-clock-qualified RPM to an ended-voyage review, plus the Engine Instrument Panel section. The owner-confirmed engine-hours backend is deployed; the app source targets native build136.
 
 The counter has no speed/polar heuristic. Time before a declaration or outside a measured RPM window stays unknown. A measured RPM sample can override a declaration only for13 seconds after its original sensor clock; repeated/late/future samples cannot renew it. Pausing or changing account retires the declaration and RPM evidence, keeping that gap unknown. Normal cold-start continuation preserves its explicit declaration. A backwards or implausible clock marks the counter for manual meter review. End freezes the counter once, after verified GPS teardown.
 
@@ -23,7 +23,7 @@ a maintenance-meter identity. Conflicting metric/RPM-source identities are refus
 The populated actual supplement/history/AIS/Edge round trip still fits40 keys and
 4KiB with this qualified format.
 
-`20261016102500_confirmed_voyage_engine_hours.sql` is not applied live. New receipt/carry tables permit only owner SELECT; mutations go through the authenticated, search-path-pinned RPC. The RPC contains its own `auth.uid()` boundary and updates that owner's existing meter only. No positions, chart data, voyage timestamps or provider credentials enter these tables.
+`20261016175740_confirmed_voyage_engine_hours.sql` was applied live under the recorded ledger version on16 October2026. Its exact SQL SHA-256 is ebc41e5df949e28881f4c4512b3ea7036b6af856764dc9e0badf2eaa661d1fff. Read-only postflight checks verified owner-only access, an empty receipt/carry ledger, and an unchanged existing meter. No live confirmation or meter update was invoked. New receipt/carry tables permit only owner SELECT; mutations go through the authenticated, search-path-pinned RPC. The RPC contains its own `auth.uid()` boundary and updates that owner's existing meter only. No positions, chart data, voyage timestamps or provider credentials enter these tables.
 
 Validation so far:
 

@@ -2,7 +2,7 @@
  * VesselTab — Vessel configuration: type, name, dimensions, performance, capacity.
  * Extracted from SettingsModal monolith (63 lines → standalone component).
  */
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import {
     FIELD_LABEL_CLASS,
@@ -18,7 +18,11 @@ import type { ComfortParams } from '../../types/settings';
 import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { saveIdentity } from '../../services/VesselIdentityService';
-import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../../services/authIdentityScope';
 import { vesselCrewAboard, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
 import { FLOAT_PLAN_ROLES } from '../../services/floatPlanCrew';
 import { ageOn, isBirthDate, localDay } from '../../services/crew/dateOfBirth';
@@ -39,6 +43,10 @@ import { ReleaseVesselDialog } from './ReleaseVesselDialog';
 import { ReleaseResultDialog, type ReleaseOutcome } from './ReleaseResultDialog';
 import { vesselWithSettingsDefaults } from '../../utils/defaultVessel';
 import { clampGpsToBowFt } from '../../utils/gpsAntenna';
+import MarineRadarEquipmentSection from './MarineRadarEquipmentSection';
+
+const SailInventoryEditor = React.lazy(() => import('./SailInventoryEditor'));
+const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 
 /**
  * The fleet store is deliberately read through this small compatibility
@@ -652,6 +660,12 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
     const fleetSurface = useSettingsStore((state) => state as unknown as FleetStoreSurface);
     const fleet = useMemo(() => fleetOptionsFromUnknown(fleetSurface.vesselFleet), [fleetSurface.vesselFleet]);
     const activeVesselId = firstString(fleetSurface.activeVesselId);
+    const sailOwner = useSyncExternalStore(subscribeSailOwner, getAuthIdentityScope, getAuthIdentityScope);
+    const sailEditorKey = `${sailOwner.key}:${sailOwner.generation}:${activeVesselId ?? 'local'}`;
+    const [sailEditorOpen, setSailEditorOpen] = useState<string | null>(null);
+    useEffect(() => {
+        setSailEditorOpen(null);
+    }, [sailEditorKey]);
     const activeFleetVessel =
         fleet.find((candidate) => candidate.id === activeVesselId) ?? (fleet.length === 1 ? fleet[0] : undefined);
     // The store projects the selected cloud boat into `settings` immediately
@@ -1334,9 +1348,9 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                 Their local edit buffers must never carry a half-typed value or a
                 display-unit conversion from one vessel into another.
 
-                Five groups, every one a shared Section (one heading style, one card
+                Six groups, every one a shared Section (one heading style, one card
                 width) with h3 sub-sections inside, in the order a skipper fills
-                them in: the boat, her safety kit, her hull, the limits the router
+                them in: the boat, her equipment, her safety kit, her hull, the limits the router
                 keeps, then tanks and crew. The hand-built blocks used to be inset
                 16 pt with a different coloured bar each (UX scorecard run 7). */}
             <React.Fragment key={`vessel-form-${selectedFleetId || 'legacy'}`}>
@@ -1464,6 +1478,19 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                     </SubSection>
                 </Section>
 
+                {!isObserver && (
+                    <Section title="Equipment">
+                        <MarineRadarEquipmentSection
+                            value={vessel?.marineRadar}
+                            vesselId={activeVesselId}
+                            onSave={(marineRadar) => {
+                                const patch = { marineRadar };
+                                if (updateActiveFleetProfile({ profile: patch })) return;
+                                saveLocally({ vessel: vesselWithDefaults(patch) });
+                            }}
+                        />
+                    </Section>
+                )}
                 {/* SAFETY & SAR — entered once here rather than per voyage, then
                     pulled into the float plan. Deliberately NOT shown on the
                     public tracking page: the beacon hex is a credential AMSA
@@ -1996,6 +2023,41 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
 
                 {/* The limits the passage planner keeps: the crew's comfort zone
                     and which ocean currents it routes on. */}
+                {vessel?.type === 'sail' && (
+                    <Section title="Sails">
+                        <p className="mb-3 text-sm text-gray-400">
+                            Your sail inventory, reef points and crossover plans for passage legs. No rig assumptions.
+                        </p>
+                        <button
+                            type="button"
+                            className="min-h-11 rounded-lg border border-sky-500/40 px-3 text-sm font-bold text-sky-200"
+                            onClick={() => setSailEditorOpen(sailEditorKey)}
+                        >
+                            Edit sails & crossovers
+                        </button>
+                        {sailEditorOpen === sailEditorKey && (
+                            <React.Suspense fallback={<p role="status">Opening sail editor…</p>}>
+                                <SailInventoryEditor
+                                    key={sailEditorKey}
+                                    value={vessel.sailInventory}
+                                    vesselName={vessel.name ?? 'This vessel'}
+                                    onClose={() => setSailEditorOpen(null)}
+                                    onSave={(sailInventory) => {
+                                        if (
+                                            !isAuthIdentityScopeCurrent(sailOwner) ||
+                                            (useSettingsStore.getState().activeVesselId ?? null) !==
+                                                (activeVesselId ?? null)
+                                        )
+                                            return;
+                                        const patch = { sailInventory };
+                                        if (updateActiveFleetProfile({ profile: patch })) return;
+                                        saveLocally({ vessel: vesselWithDefaults(patch) });
+                                    }}
+                                />
+                            </React.Suspense>
+                        )}
+                    </Section>
+                )}
                 <Section title="Routing limits">
                     <SubSection title="Comfort zone">
                         <div className="space-y-5">

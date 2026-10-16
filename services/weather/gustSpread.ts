@@ -6,7 +6,7 @@ export function gustSpread(block: SpreadBlock<AtmosVar>, start: number, end: num
     const peaks = block.models
         .filter((m) => !m.displayOnly && !m.id.startsWith('ukmo'))
         .flatMap((model) => {
-            const values = indices.map((i) => model.values.wind_gusts_10m[i]);
+            const values = indices.map((i) => model.values.wind_gusts_10m?.[i]);
             return values.every((v): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 325)
                 ? [Math.max(...values)]
                 : [];

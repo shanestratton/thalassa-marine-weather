@@ -22,6 +22,7 @@ const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
 import {
     computeRoute,
+    computeRouteFromPolyline,
     type RouteWaypoint,
     type RouteAnalysis,
     type RouteSegment,
@@ -79,6 +80,10 @@ import { CAUTION_WHY } from '../../services/engine/types';
 import { chartFitBearing } from './chartOrientation';
 import { useOffshoreComparison, type OffshoreComparisonInputs } from './useOffshoreComparison';
 import type { RouteHazardReport } from '../../services/enc/EncHazardReportService';
+import { readRouteReplan, cancelRouteReplan, setRouteReplan } from '../../services/routing/routeReplanSession';
+import { sampleWindGrid } from '../../services/weather/importedGribSample';
+import { useRouteReplanPreview, clearRouteReplanReference } from './useRouteReplanPreview';
+import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -94,7 +99,7 @@ function clearComfortZoneOverlay(map: mapboxgl.Map): void {
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
     arrival: { lat: number; lon: number; name: string } | null;
-    viaWaypoints: { lat: number; lon: number; name: string }[];
+    viaWaypoints: Array<RouteConstraintPoint & { name: string }>;
     departureTime: string;
     speed: number;
     routeAnalysis: RouteAnalysis | null;
@@ -230,9 +235,10 @@ function pushToPassageStore(
 export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
     const [departure, setDeparture] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const [arrival, setArrival] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [viaWaypoints, setViaWaypoints] = useState<{ lat: number; lon: number; name: string }[]>([]);
+    const [viaWaypoints, setViaWaypoints] = useState<Array<RouteConstraintPoint & { name: string }>>([]);
     const [departureTime, setDepartureTime] = useState('');
     const [speed, setSpeed] = useState(6);
+    const replanTokenRef = useRef<string | null>(peekPassageRequest()?.replanToken ?? null);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
     const [routeVerification, setRouteVerification] = useState<PassageRouteVerification>({
         status: 'idle',
@@ -257,8 +263,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [showPassage, setShowPassage] = useState(() => peekPassageRequest() !== null);
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
+    const routeConstraintsRef = useRef<RouteConstraintPoint[]>([]);
     const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
+    const livePassageInputs = useRef({ key: '', visible: false });
+    livePassageInputs.current = {
+        key: JSON.stringify([departure, arrival, viaWaypoints, departureTime, speed, showPassage]),
+        visible: showPassage,
+    };
+    const mounted = useRef(true);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
     const displayedRouteGeometryKeyRef = useRef<string | null>(null);
     const commitDisplayedRoute = useCallback(
         (
@@ -267,6 +286,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             status: Exclude<PassageRouteVerificationStatus, 'idle'>,
             reason?: string,
         ): void => {
+            const review = readRouteReplan();
+            if (
+                replanTokenRef.current &&
+                (review.base?.token !== replanTokenRef.current || !['computing', 'ready'].includes(review.phase))
+            )
+                return;
             const geometryKey = routeFeatureGeometryKey(features);
             const featureContractVerified =
                 features.length > 0 &&
@@ -324,6 +349,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 modelComparison.reset();
                 isoResultRef.current = null;
                 turnWaypointsRef.current = [];
+                routeConstraintsRef.current = [];
                 setDeparture(null);
                 setArrival(null);
                 setViaWaypoints([]);
@@ -337,6 +363,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 dispatchPassageNotice(null);
 
                 const map = mapRef.current;
+                clearRouteReplanReference(map);
                 const empty: GeoJSON.FeatureCollection = {
                     type: 'FeatureCollection',
                     features: [],
@@ -354,6 +381,22 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage mode activation (from Ship's Office / RoutePlanner → MAP tab) ──
     useEffect(() => {
         const handlePassageMode = (e: Event) => {
+            const request = (e as CustomEvent)?.detail;
+            replanTokenRef.current = typeof request?.replanToken === 'string' ? request.replanToken : null;
+            if (readRouteReplan().base && readRouteReplan().base?.token !== replanTokenRef.current)
+                setRouteReplan({ phase: 'idle', base: null, candidate: null, message: null });
+            setDepartureTime(
+                typeof request?.departureTime === 'string' && Number.isFinite(Date.parse(request.departureTime))
+                    ? request.departureTime
+                    : '',
+            );
+            if (
+                typeof request?.speed === 'number' &&
+                Number.isFinite(request.speed) &&
+                request.speed > 0 &&
+                request.speed <= 50
+            )
+                setSpeed(request.speed);
             setShowPassage(true);
 
             // ── Kill Follow Route layers IMMEDIATELY on passage activation ──
@@ -435,6 +478,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage Route Computation ──
     const computePassage = useCallback(async () => {
         if (!departure || !arrival) return;
+        const reviewedReplan = readRouteReplan();
+        const replanBase = replanTokenRef.current === reviewedReplan.base?.token ? reviewedReplan.base : null;
+        if (replanTokenRef.current && (!replanBase || reviewedReplan.phase !== 'computing')) return;
         const operationScope = getAuthIdentityScope();
         triggerHaptic('medium');
 
@@ -445,6 +491,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // Clear previous results immediately so stale data isn't displayed
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        routeConstraintsRef.current = [];
         PassageStore.clear(operationScope);
         setRouteAnalysis(null);
         setRouteVerification({ status: 'pending', geometryKey: null, reason: 'route computation in progress' });
@@ -483,6 +530,168 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             } catch {
                 /* */
             }
+        }
+
+        // A VIA request is one ordered cohort. The existing direct-route
+        // shortcuts must never return a route that silently drops those pins.
+        if (viaWaypoints.length) {
+            const settingsSnapshot = structuredClone(useSettingsStore.getState().settings);
+            const selectedBoat = useSettingsStore.getState().activeVesselId;
+            const selectedModel = WindStore.getState().model;
+            const inputKey = livePassageInputs.current.key;
+            const depIso = departureTime || new Date().toISOString();
+            const policyKey = isochroneRoutingContext(depIso, settingsSnapshot);
+            const current = () =>
+                computeGenRef.current === gen &&
+                mounted.current &&
+                livePassageInputs.current.key === inputKey &&
+                WindStore.getState().model === selectedModel &&
+                mapRef.current === map &&
+                getAuthIdentityScope().key === operationScope.key &&
+                getAuthIdentityScope().generation === operationScope.generation &&
+                useSettingsStore.getState().activeVesselId === selectedBoat &&
+                isochroneRoutingContext(depIso, useSettingsStore.getState().settings) === policyKey;
+            const preview: GeoJSON.Feature<GeoJSON.LineString> = {
+                type: 'Feature',
+                properties: { safety: 'unverified', verification: 'unverified', dashed: true },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [departure, ...viaWaypoints, arrival].map((p) => [p.lon, p.lat]),
+                },
+            };
+            commitDisplayedRoute(
+                map,
+                [preview],
+                'pending',
+                'ordered waypoint legs and final chart verification are running',
+            );
+            dispatchPassageNotice({
+                severity: 'info',
+                title: 'Checking every required waypoint…',
+                message: 'One bounded route job; every pin and the complete final line must pass verification.',
+            });
+            try {
+                const { computeConstrainedPassage } = await import('../../services/routing/constrainedPassage');
+                const route = await computeConstrainedPassage({
+                    origin: departure,
+                    destination: arrival,
+                    vias: viaWaypoints,
+                    departureTime: depIso,
+                    speed,
+                    settings: settingsSnapshot,
+                    model: selectedModel,
+                    privateWind: replanBase?.wind,
+                    deadlineMs: replanBase?.deadlineMs ?? Date.now() + 60000,
+                    stillCurrent: current,
+                    inshoreEvidence: (r) => ({
+                        masksVerified: !!inshoreSegmentStates(r),
+                        caveats: inshoreRouteCaveats({ ...r, nearShallow: nearShallowSummary(r.chartedShallowSpans) }),
+                    }),
+                });
+                if (!current()) return;
+                const base = computeRouteFromPolyline(route.result.routeCoordinates, {
+                    speed,
+                    departureTime: new Date(depIso),
+                });
+                const analysis = withRouteEstimates(
+                    {
+                        ...base,
+                        totalDistance: route.result.totalDistanceNM,
+                        estimatedDuration: route.result.totalDurationHours,
+                        arrivalTime: route.result.arrivalTime,
+                        averageSpeed:
+                            route.result.totalDurationHours > 0
+                                ? route.result.totalDistanceNM / route.result.totalDurationHours
+                                : speed,
+                    },
+                    route.result.sailingStats,
+                    settingsSnapshot.vessel,
+                    route.result.comfort,
+                );
+                setRouteAnalysis(analysis);
+                setRouteCaveats(route.result.environmentNotes ?? []);
+                setRoutingPolarLabel(route.polarLabel);
+                routeCellsRef.current = route.cells;
+                isoResultRef.current = route.result;
+                turnWaypointsRef.current = route.turns;
+                routeConstraintsRef.current = route.constraints;
+                commitDisplayedRoute(
+                    map,
+                    route.result.routeCoordinates.slice(1).map((point, i) => ({
+                        type: 'Feature',
+                        properties: {
+                            safety:
+                                route.result.shallowFlags[i] || route.result.shallowFlags[i + 1] ? 'danger' : 'safe',
+                            verification: 'verified',
+                        },
+                        geometry: { type: 'LineString', coordinates: [route.result.routeCoordinates[i], point] },
+                    })),
+                    'verified',
+                );
+                pushToPassageStore(
+                    route.result,
+                    route.turns,
+                    departure,
+                    arrival,
+                    analysis,
+                    depIso,
+                    speed,
+                    operationScope,
+                );
+                dispatchPassageNotice(null);
+                const source = map.getSource('waypoints') as mapboxgl.GeoJSONSource | undefined;
+                source?.setData({
+                    type: 'FeatureCollection',
+                    features: route.points.map((p, i) => ({
+                        type: 'Feature',
+                        properties: {
+                            name:
+                                p.name ??
+                                (i === 0 ? 'Departure' : i === route.points.length - 1 ? 'Arrival' : `VIA${i}`),
+                            color: i === 0 ? '#10b981' : i === route.points.length - 1 ? '#ef4444' : '#fbbf24',
+                        },
+                        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+                    })),
+                });
+            } catch (error) {
+                if (!current()) return;
+                isoResultRef.current = null;
+                turnWaypointsRef.current = [];
+                setRouteAnalysis(null);
+                PassageStore.clear(operationScope);
+                const reason =
+                    error instanceof Error ? error.message : 'The complete waypoint route could not be verified.';
+                commitDisplayedRoute(map, [preview], 'unverified', reason);
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Waypoint route not verified',
+                    message: reason + ' Every required point stays in the request; no direct shortcut was substituted.',
+                });
+            } finally {
+                if (
+                    !current() &&
+                    mounted.current &&
+                    computeGenRef.current === gen &&
+                    mapRef.current === map &&
+                    livePassageInputs.current.visible &&
+                    getAuthIdentityScope().key === operationScope.key &&
+                    getAuthIdentityScope().generation === operationScope.generation
+                ) {
+                    commitDisplayedRoute(
+                        map,
+                        [preview],
+                        'unverified',
+                        'The waypoint request changed. Compute it again before using the line.',
+                    );
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Waypoint request changed',
+                        message:
+                            'The previous job cannot apply to the changed points, clock, boat, model or policy. Compute the complete route again.',
+                    });
+                }
+            }
+            return;
         }
 
         // Forward bearing (needed for both short and long route paths)
@@ -2293,7 +2502,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
 
                 const windState = WindStore.getState();
-                let windGrid = windState.grid;
+                let windGrid = replanBase?.wind ?? windState.grid;
 
                 if (!windGrid && map) {
                     log.info('[Isochrone BG] Loading wind data...');
@@ -2316,7 +2525,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     windGrid.west <= routeMinLon - 5 &&
                     windGrid.east >= routeMaxLon + 5;
 
-                if (!gridCoversRoute) {
+                if (!gridCoversRoute && !replanBase) {
                     log.info('[Isochrone BG] Wind grid does not cover full route — fetching route-covering grid...');
                     try {
                         const supabaseUrl =
@@ -2415,7 +2624,19 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return;
                 }
 
-                const windField = createWindFieldFromGrid(windGrid);
+                const windField = replanBase
+                    ? {
+                          getWind: (lat: number, lon: number, hours: number) => {
+                              const value = sampleWindGrid(
+                                  windGrid!,
+                                  lat,
+                                  lon,
+                                  Date.parse(replanBase.departureTime) + hours * 3600000,
+                              );
+                              return value ? { speed: value.speedKts, direction: value.directionFromDeg } : null;
+                          },
+                      }
+                    : createWindFieldFromGrid(windGrid);
                 const polar = routingPolar.polar;
                 const depTimeStr = departureTime || new Date().toISOString();
 
@@ -2991,7 +3212,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
         }, 100);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [departure, arrival, departureTime, speed, showPassage]);
+    }, [departure, arrival, viaWaypoints, departureTime, speed, showPassage]);
 
     // Auto-compute when both points set + map ready
     useEffect(() => {
@@ -3033,6 +3254,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
     // Clear route
     const clearRoute = useCallback(() => {
+        replanTokenRef.current = null;
+        cancelRouteReplan();
         clearPassageRequest(); // don't resurrect a dismissed passage on the next MapHub mount
         setDeparture(null);
         setArrival(null);
@@ -3044,6 +3267,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setDepartureTime('');
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        routeConstraintsRef.current = [];
         computeGenRef.current++; // Invalidate any running computation
         modelComparison.reset();
         PassageStore.clear();
@@ -3073,6 +3297,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeVerification.status === 'verified' &&
         routeVerification.geometryKey !== null &&
         routeVerification.geometryKey === displayedRouteGeometryKeyRef.current;
+    const invalidateReplan = useCallback(() => {
+        computeGenRef.current++;
+    }, []);
+    useRouteReplanPreview({
+        mapRef,
+        mapReady,
+        tokenRef: replanTokenRef,
+        show: showPassage,
+        verified: routeActionsAvailable,
+        geometryKey: routeVerification.geometryKey,
+        departureTime,
+        speed,
+        result: isoResultRef,
+        turns: turnWaypointsRef,
+        caveats: routeCaveats,
+        cells: routeCellsRef,
+        invalidate: invalidateReplan,
+    });
 
     return {
         departure,
@@ -3099,6 +3341,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setShowPassage,
         isoResultRef,
         turnWaypointsRef,
+        routeConstraintsRef,
         computePassage,
         clearRoute,
     };

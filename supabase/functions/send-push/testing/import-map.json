@@ -1,0 +1,7 @@
+{
+    "imports": {
+        "https://deno.land/std@0.177.0/http/server.ts": "./dependencies.ts",
+        "https://esm.sh/@supabase/supabase-js@2": "./dependencies.ts",
+        "https://deno.land/std@0.177.0/encoding/base64url.ts": "./dependencies.ts"
+    }
+}

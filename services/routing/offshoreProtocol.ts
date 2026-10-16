@@ -4,6 +4,7 @@ import type { IsochroneConfig, IsochroneResult } from '../isochrone/types';
 import type { BathymetryGrid } from '../isochrone/publicBathymetry';
 import type { WindGrid } from '../weather/windGridEncoding';
 import type { IsochroneEnvironmentSnapshot } from './isochroneEnvironment';
+import { validateCurrentSeries } from '../weather/currentSeries';
 
 export interface OffshoreJob {
     origin: { lat: number; lon: number };
@@ -13,7 +14,7 @@ export interface OffshoreJob {
     wind: WindGrid;
     bathymetry: BathymetryGrid;
     environment: IsochroneEnvironmentSnapshot;
-    config: Omit<Partial<IsochroneConfig>, 'shouldContinue'>;
+    config: Omit<Partial<IsochroneConfig>, 'shouldContinue' | 'segmentAllowed'>;
     deadlineMs: number;
 }
 export interface OffshoreCandidate {
@@ -104,6 +105,11 @@ export function prepareOffshoreJob(input: OffshoreJob): OffshoreJob {
     const stepHours = w.stepHours ? axis(w.stepHours, 800) : undefined;
     assert(!stepHours || stepHours.length === w.totalHours, 'forecast step axis');
     assert(finite(e.departureMs), 'environment clock');
+    if (e.currentSeries) {
+        validateCurrentSeries(e.currentSeries);
+        assert(!e.currentVectors?.length, 'mixed snapshot/forecast current inputs');
+        assert(!e.currentComponents || ['ocean', 'ocean+tide'].includes(e.currentComponents), 'current components');
+    } else assert(!e.currentComponents, 'current components without forecast');
     assert(!e.currentVectors || e.currentVectors.length <= 200_000, 'current memory limit');
     assert(
         !e.waves ||
@@ -219,6 +225,47 @@ export function prepareOffshoreJob(input: OffshoreJob): OffshoreJob {
         },
         environment: {
             departureMs: e.departureMs,
+            ...(e.currentSeries
+                ? {
+                      // Rebuild public fields only: unknown chart/private properties never reach the Worker.
+                      currentSeries: {
+                          schema: 1 as const,
+                          model: e.currentSeries.model,
+                          dataset: e.currentSeries.dataset,
+                          generation: e.currentSeries.generation,
+                          sourceSha256: e.currentSeries.sourceSha256,
+                          runMs: e.currentSeries.runMs,
+                          expiresMs: e.currentSeries.expiresMs,
+                          units: e.currentSeries.units,
+                          vectorBasis: e.currentSeries.vectorBasis,
+                          depthM: e.currentSeries.depthM,
+                          tiles: e.currentSeries.tiles.map(
+                              ({ id, sourceSha256, north, south, west, east, width, height, ocean, tide }) => {
+                                  const planes = (part: typeof ocean) => ({
+                                      cadenceHours: part.cadenceHours,
+                                      times: [...part.times],
+                                      u: [...part.u],
+                                      v: [...part.v],
+                                      known: [...part.known],
+                                  });
+                                  return {
+                                      id,
+                                      sourceSha256,
+                                      north,
+                                      south,
+                                      west,
+                                      east,
+                                      width,
+                                      height,
+                                      ocean: planes(ocean),
+                                      ...(tide ? { tide: planes(tide) } : {}),
+                                  };
+                              },
+                          ),
+                      },
+                      currentComponents: e.currentComponents ?? ('ocean' as const),
+                  }
+                : {}),
             currentVectors:
                 e.currentVectors?.map(({ lat, lon, u, v, speedKts, directionDeg }) => ({
                     lat,

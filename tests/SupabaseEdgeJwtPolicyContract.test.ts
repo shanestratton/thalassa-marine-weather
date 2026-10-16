@@ -43,6 +43,10 @@ const FUNCTION_GUARDED_OFF = {
 
 /** Already true on both sides; kept explicit with a caller rationale. */
 const EXISTING_PROTECTED_FUNCTIONS = {
+    'morning-briefing': 'held weather work requires gateway JWT and exact service-role POST',
+    'nowcast-watch': 'held weather work requires gateway JWT and exact service-role POST',
+    'convective-watch': 'held weather work requires gateway JWT and exact service-role POST',
+    'overdue-watch': 'held overdue work requires gateway JWT and exact service-role POST',
     'crew-phone-verification':
         'signed-in Crew List identity challenge with a second user-session check inside the function',
     'crew-profile-publication': 'signed-in publication request; the function fetches canonical data itself',
@@ -56,6 +60,10 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 
 /** Callers that cannot present a Supabase JWT at all. Each function guards itself. */
 const CREDENTIALLESS_ALLOWLIST = {
+    'anchor-alert-messaging':
+        'explicit one-use recipient nonce POST, current-owner invitations and exact service-key work/proof actions',
+    'telegram-webhook':
+        'fixed provider webhook secret checked before body parsing; private sender and consent checks inside',
     'apple-server-notification': 'provider-signed Apple JWS webhook',
     'check-weather-alerts': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work',
     'cyclone-feed':
@@ -201,7 +209,7 @@ describe('Supabase Edge gateway JWT policy', () => {
         // so is official-alerts-watch (129-06), 19 → 20.
         // wx-publisher (134) is a separate producer identity: its exact 256-bit
         // token is verified inside the handler, never a credentialless DB path.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(21);
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(23);
     });
 
     it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {

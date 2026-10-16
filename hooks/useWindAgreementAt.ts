@@ -71,7 +71,7 @@ export function useWindAgreementAt(
                         .filter(
                             (m) =>
                                 m.values.wind_speed_10m.some((v) => v != null) ||
-                                m.values.wind_gusts_10m.some((v) => v != null),
+                                m.values.wind_gusts_10m?.some((v) => v != null),
                         )
                         .map((m) => m.provider);
                     verdicts = windAgreementByDay(atmos, resolveTimeZone(lat, lon)).map((v) => ({

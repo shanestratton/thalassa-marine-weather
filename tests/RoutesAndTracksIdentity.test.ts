@@ -21,6 +21,7 @@ vi.mock('../services/shiplog/VoyageSummary', () => ({
 }));
 vi.mock('../services/shiplog/PassagePlanSave', () => ({
     ROUTE_GEOMETRY_NOTES_PREFIX: '__route_geometry__::',
+    ROUTE_CAVEAT_LINE_PREFIX: '⚠ ',
 }));
 vi.mock('../services/routeAutoName', () => ({
     placeLabelFor: (...args: unknown[]) => mocks.placeLabelFor(...args),
@@ -28,6 +29,8 @@ vi.mock('../services/routeAutoName', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { routeConstraintNotes } from '../services/routing/routeConstraintNotes';
+import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import {
     fetchRoutesAndTracks,
     fetchSeaVoyageChoices,
@@ -83,6 +86,22 @@ beforeEach(() => {
 });
 
 describe('RoutesAndTracks identity isolation', () => {
+    it('restores constraints with the owning route and returns independent copies from the account cache', async () => {
+        const routeConstraints = [{ lat: -27.45, lon: 153.05, name: 'Required point' }];
+        const entries = plannedEntries('account-a', 'planned_a').map((e, i) => ({
+            ...e,
+            notes: i
+                ? undefined
+                : '__route_geometry__::[[153,-27.4],[153.05,-27.45],[153.1,-27.5]]\nSummary' +
+                  routeConstraintNotes(routeConstraints),
+        }));
+        mocks.getLogEntries.mockResolvedValue(entries);
+        const first = await fetchRoutesAndTracks(true);
+        expect(first.routes[0].routeConstraints).toEqual(routeConstraints);
+        expect(buildFollowRoutePlanFromRoute(first.routes[0])?.routeConstraints).toEqual(routeConstraints);
+        first.routes[0].routeConstraints![0].name = 'Mutated caller';
+        expect((await fetchRoutesAndTracks()).routes[0].routeConstraints).toEqual(routeConstraints);
+    });
     it('separates A/B inflight and cache state, and A finally cannot clear B', async () => {
         const cloudA = deferred<ReturnType<typeof plannedEntries>>();
         mocks.getLogEntries

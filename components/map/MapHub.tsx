@@ -17,7 +17,8 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
-import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from './creditsStrip';
+import { CREDITS_SLOT_PX } from './creditsStrip';
+import ObsCreditsRollup from './ObsCreditsRollup';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -75,7 +76,6 @@ import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { useSatelliteLayer } from './useSatelliteLayer';
-import { SatelliteIrCredit } from './SatelliteIrCredit';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 
 import {
@@ -235,6 +235,7 @@ import { useTracerGhostLanes } from './useTracerGhostLanes';
 import { useTracerSessionEffects } from './useTracerSessionEffects';
 import { useTracerFrameMarkers } from './useTracerFrameMarkers';
 import { useTracerPinMarkers } from './useTracerPinMarkers';
+import { useTracerConstraintMarks } from './useTracerConstraintMarks';
 import { useTracerTraceLayer } from './useTracerTraceLayer';
 import { usePassageRouterEvents } from './usePassageRouterEvents';
 import { usePiTileAutoCache } from './usePiTileAutoCache';
@@ -276,13 +277,6 @@ import { buildTacticalState } from './buildTacticalState';
 import { MapActionFabs } from './MapActionFabs';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 
-// Eager import — the chip doubles as the live diagnostic pill for the
-// lightning feed, so a lazy chunk that fails to load silently (and
-// leaves the user staring at an empty chart with no feedback) is the
-// exact failure mode we're trying to fix. Tiny component, not worth the
-// risk of a broken chunk hiding our debug surface.
-import { BlitzortungAttribution } from './BlitzortungAttribution';
-import { AisCoverageNotice } from './AisCoverageNotice';
 import { EncAttributionChip } from './EncAttributionChip';
 import { HazardReportPanel } from '../passage/HazardReportPanel';
 import { ThreatBanner } from './ThreatBanner';
@@ -1203,6 +1197,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         legAnchor,
         flashTraceFeedback,
     });
+    useTracerConstraintMarks(mapRef, coordCaptureMode, capturedCoords);
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
@@ -1963,7 +1958,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setFixBusyLeg,
         setAutoRouteDiag,
         flashTraceFeedback,
-        vessel: settings.vessel,
+        departureMs,
+        legEtaOffsetsMs,
+        enabled: coordCaptureMode,
     });
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
@@ -3032,7 +3029,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
                 // 40 m tolerance keeps every bend the engine chose while a
                 // 60-vertex line becomes ~15-25 editable pins, not pin soup.
-                const sparse = rdpTracePoints(pts, 40);
+                const sparse = rdpTracePoints(pts, 40).map((p, i, all) =>
+                    i > 0 && i < all.length - 1 ? { ...p, shape: true as const } : p,
+                );
                 // With pins down, sparse[0] duplicates the last pin — drop
                 // it. Frame-only (zero pins) keeps the origin as pin #1.
                 const add = capturedCoords.length > 0 ? sparse.slice(1) : sparse;
@@ -3988,19 +3987,17 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // Determine if tablet split-screen is active
     const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded && !pickerMode;
-    // Mirrors MapWeatherControls.showRainViewerAttribution: while the RainViewer
-    // pill occupies the credits strip's first slot, other credits stack below it.
+    // Obs shares one credit row. Embedded and planner surfaces retain their
+    // existing weather attribution controls. Both radar and forecast frames credit
+    // their actual provider.
+    const obsCreditsVisible = !pickerMode && !planningSurface && !embedded && !isPinView;
     const rainCreditShown =
         weather.activeLayers.has('rain') &&
         weather.rainReady &&
-        // Either kind of frame carries a credit in slot 0 (RainViewer for radar,
-        // Rainbow.ai for forecast — MapWeatherControls), so Copernicus stacks
-        // under both. Testing for 'radar' alone let the two overlap.
         !!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
-    // The wind model's licence credit on Obs whenever the field draws
-    // (127-DESKMAP-b; the desk shows it in its strip): after the radar and
-    // Copernicus credits, lightning and the satellite cloud under it.
+    // The rollup names the wind source only while its field draws. The desk
+    // retains its own model/licence strip.
     const obsWindCredit =
         ownshipStartup &&
         !mobActive &&
@@ -4969,6 +4966,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 selectedPin={selectedPin}
                                                 setSelectedPin={setSelectedPin}
                                                 pinCount={capturedCoords.length}
+                                                point={capturedCoords[selectedPin]}
+                                                previous={capturedCoords[selectedPin - 1]}
+                                                next={capturedCoords[selectedPin + 1]}
                                                 setCapturedCoords={setCapturedCoords}
                                                 legAnchor={legAnchor}
                                                 insertAfter={insertAfter}
@@ -5120,9 +5120,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {/* ⚡ routes the leg INTO the highlighted pin (tap a
                                                     pin first) via the real inshore engine — follows
                                                     deep water, never crosses land, breaks long runs
-                                                    into depth-checkable, tide-aware pins. No pin
-                                                    selected → the last leg. PARKED for now
-                                                    (AUTO_ROUTE_BUTTON_VISIBLE) — engine stays wired. */}
+                                                    into depth-checkable curve vertices. No pin
+                                                    selected → the last leg. The final edited line
+                                                    must pass the strict cold sweep before applying. */}
                                                 {AUTO_ROUTE_BUTTON_VISIBLE && (
                                                     <button
                                                         onClick={autoRouteLeg}
@@ -5470,15 +5470,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* Lightning legend pill — rendered OUTSIDE the AisLegend
-                    Suspense block. The eager-imported BlitzortungAttribution
-                    used to live inside that Suspense, which meant if any
-                    sibling lazy component (AisLegend, etc.) suspended, the
-                    fallback={null} would hide the entire block — including
-                    our chip. The chip then "disappeared" even though its
-                    own code was loaded and ready. Now it stands alone so
-                    it renders independently of any other component's
-                    loading state. */}
                 {/* Live-tide badge — the permanent, unmistakable "you are
                     NOT looking at chart datum" marker (design 2026-07-11).
                     Teal = live offset applied; amber = mode on but no tide
@@ -5683,74 +5674,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onShow={anchorageLayer.showAnchorage}
                 />
 
-                {/* Keep licence credit and feed status visible independently
-                    of the shared key's collapsed state. */}
-                {!pickerMode && !planningSurface && !embedded && !isPinView && browseLightningVisible && (
-                    <div
-                        // What the passage HUD clears: the chart key's own copy of this
-                        // chip (ObsLayerKey) carries the same label, low in its column.
-                        data-testid="lightning-credit"
-                        className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
-                        style={{
-                            top: creditsStripTop(
-                                creditStackPx({
-                                    rain: rainCreditShown,
-                                    cmems: cmemsAttributionLayers.length > 0,
-                                    wind: obsWindCredit,
-                                }),
-                            ),
-                        }}
-                    >
-                        <BlitzortungAttribution visible compact />
-                    </div>
-                )}
-                {obsWindCredit && (
-                    <div
-                        data-testid="wind-credit"
-                        // Cut out of the layer menu's scrim, like every licence credit.
-                        // Its look is index.css .thalassa-wind-credit (the radar pill's).
-                        data-map-credit
-                        className={`thalassa-wind-credit ${CREDITS_STRIP_POSITION_CLASS}`}
-                        style={{
-                            top: creditsStripTop(
-                                creditStackPx({ rain: rainCreditShown, cmems: cmemsAttributionLayers.length > 0 }),
-                            ),
-                        }}
-                    >
-                        {localWindSource(weather.windState) ?? windCreditLine(weather.windModel)}
-                    </div>
-                )}
-                {!pickerMode && !planningSurface && !embedded && !isPinView && satellite.status !== 'off' && (
-                    <SatelliteIrCredit
-                        state={satellite}
-                        top={creditsStripTop(
-                            creditStackPx({
-                                rain: rainCreditShown,
-                                cmems: cmemsAttributionLayers.length > 0,
-                                wind: obsWindCredit,
-                                lightning: browseLightningVisible,
-                            }),
-                        )}
-                        onTogglePlay={() => satellite.setPlaying(!satellite.playing)}
+                {obsCreditsVisible && (
+                    <ObsCreditsRollup
+                        rain={
+                            rainCreditShown
+                                ? (weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type ?? null)
+                                : null
+                        }
+                        wind={
+                            obsWindCredit
+                                ? (localWindSource(weather.windState) ?? windCreditLine(weather.windModel))
+                                : null
+                        }
+                        cmems={cmemsAttributionLayers}
+                        lightning={browseLightningVisible}
+                        satellite={satellite}
+                        onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
+                        ais={browseAisVisible}
                     />
-                )}
-
-                {!pickerMode && !planningSurface && !embedded && !isPinView && browseAisVisible && (
-                    <div
-                        className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)]`}
-                        style={{
-                            top: creditsStripTop(
-                                creditStackPx({
-                                    rain: rainCreditShown,
-                                    cmems: cmemsAttributionLayers.length > 0,
-                                    wind: obsWindCredit,
-                                    lightning: browseLightningVisible,
-                                }) + (satellite.status !== 'off' ? CREDITS_SLOT_PX : 0),
-                            ),
-                        }}
-                    >
-                        <AisCoverageNotice compact />
-                    </div>
                 )}
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
                 {/* Viewport-aware — only renders when ENC cells overlap the
@@ -5796,7 +5737,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
-                    {cmemsAttributionLayers.length > 0 && (
+                    {!obsCreditsVisible && cmemsAttributionLayers.length > 0 && (
                         <React.Suspense fallback={null}>
                             <CmemsAttribution
                                 layers={cmemsAttributionLayers}
@@ -6178,6 +6119,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <Suspense fallback={null}>
                         <MapWeatherControls
                             weather={weather}
+                            creditsInRollup={obsCreditsVisible}
                             chartPoint={{ lat: location.lat, lon: location.lon }}
                             cmemsLayerStates={cmemsLayerStates}
                             visible

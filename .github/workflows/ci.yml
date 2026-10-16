@@ -145,7 +145,13 @@ jobs:
 
             - name: Edge function behavior tests
               working-directory: supabase/functions
-              run: deno test */*_test.ts
+              run: |
+                  deno test */*_test.ts
+                  deno test --no-config --no-lock --no-remote --deny-net \
+                    --allow-read=send-push,_shared,../../utils \
+                    --import-map=send-push/testing/import-map.json \
+                    --allow-env=SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,APNS_KEY_ID,APNS_TEAM_ID,APNS_KEY_P8,APNS_PRODUCTION,APNS_CRITICAL_ALERTS_ENABLED,APNS_BUNDLE_ID \
+                    send-push/testing/handler.case.ts
 
             - name: Public marine catalogue pipeline regressions
               run: python3 -m unittest discover -s scripts/marine-catalogue -p 'test_*.py'

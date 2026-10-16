@@ -49,6 +49,7 @@
  */
 
 import { parseWeatherWatchNotice } from '../../../utils/weatherWatch.ts';
+import { parseOverdueNotice } from '../../../utils/overdueWatch.ts';
 import { RADAR_RELAY_CONTACT, RADAR_RELAY_EPISODE, RADAR_RELAY_KEY } from '../../../utils/radarRelayContract.ts';
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
 export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
@@ -102,6 +103,8 @@ export function getThreadId(type: string): string {
             return 'thalassa-weather';
         case 'buddy_notice':
             return 'thalassa-buddy';
+        case 'overdue_notice':
+            return 'thalassa-overdue';
         case 'hail':
             return 'thalassa-social';
         case 'collision_alarm':
@@ -145,6 +148,10 @@ const officialExpiry = (data: Record<string, unknown> | undefined): number =>
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
+    if (type === 'overdue_notice') {
+        const notice = parseOverdueNotice(data);
+        return notice ? `overdue:${notice.revision}` : null;
+    }
     if (
         type === 'buddy_notice' && typeof data.watch_id === 'string' &&
         /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(data.watch_id)
@@ -209,6 +216,10 @@ export function getApnsExpiration(
     const nowSeconds = Math.floor(nowMs / 1000);
     // Informational source facts must not wait at APNs and arrive as fresh news.
     if (type === 'buddy_notice') return '0';
+    if (type === 'overdue_notice') {
+        const notice = parseOverdueNotice(data, nowMs);
+        return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
+    }
     if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
         const notice = parseWeatherWatchNotice(data, nowMs);
         return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
@@ -251,6 +262,11 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'overdue_notice') {
+        const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+        return !Number.isFinite(created) || created > nowMs || nowMs - created >= 600_000 ||
+            parseOverdueNotice(data, nowMs) === null;
+    }
     if (type === 'buddy_notice') {
         const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
         return !Number.isFinite(created) || created > nowMs || nowMs - created >= 30 * 60_000;
@@ -310,6 +326,7 @@ export interface ApsInput {
  * nothing.
  */
 export function getInterruptionLevel(type: string, data: Record<string, unknown>): InterruptionLevel | undefined {
+    if (type === 'overdue_notice') return 'active';
     if (type === 'buddy_notice') return 'passive';
     if (type === 'wake_alarm') return 'time-sensitive'; // User-enabled preset; no Critical entitlement claim.
     // The quiet boat (129-08): the page goes at once, the all-clear as an ordinary alert.
@@ -337,9 +354,10 @@ export function buildAps(payload: ApsInput, criticalAlertsEntitled: boolean): Re
     }
 
     const sound = getAlertSound(payload.type);
-    if (payload.level) {
-        if (payload.level !== 'passive') aps.sound = sound;
-        aps['interruption-level'] = payload.level;
+    const level = payload.type === 'overdue_notice' ? 'active' : payload.level;
+    if (level) {
+        if (level !== 'passive') aps.sound = sound;
+        aps['interruption-level'] = level;
     } else if (payload.isCritical && criticalAlertsEntitled) {
         // Critical Alert — bypasses DND and silent mode (requires Apple entitlement)
         aps.sound = { critical: 1, name: sound, volume: 1.0 };

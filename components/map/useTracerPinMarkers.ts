@@ -72,13 +72,14 @@ import mapboxgl from 'mapbox-gl';
 import type { Dispatch, SetStateAction } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { snapTraceTapToLead, type TracerContext } from '../../services/routeTracer';
+import type { TraceRoutePoint } from '../../services/routing/traceRoutePoint';
 
 export interface TracerPinMarkerDeps {
     mapRef: React.RefObject<mapboxgl.Map | null>;
     /** Ref OBJECT — dragend reads .current at FIRE time to snap onto a lead. */
     tracerCtxRef: React.RefObject<TracerContext | null>;
     coordCaptureMode: boolean;
-    capturedCoords: { lat: number; lon: number }[];
+    capturedCoords: TraceRoutePoint[];
     /** Re-minted per auth identity, so listeners read it at fire time. */
     setCapturedCoords: Dispatch<SetStateAction<{ lat: number; lon: number }[]>>;
     selectedPin: number | null;
@@ -108,6 +109,8 @@ export function useTracerPinMarkers({
     // listener bound before a sign-in would drop the drag on the floor.
     const setCapturedCoordsRef = useRef(setCapturedCoords);
     setCapturedCoordsRef.current = setCapturedCoords;
+    const pointsRef = useRef(capturedCoords);
+    pointsRef.current = capturedCoords;
     // Per-pin marker records for RECONCILIATION (Shane 2026-07-15: "still
     // becoming unresponsive the moment I have a lot of waypoints"). The
     // old effect destroyed and recreated every DOM marker on EVERY pin
@@ -194,6 +197,7 @@ export function useTracerPinMarkers({
                 });
                 marker.on('dragend', () => {
                     const ll = marker.getLngLat();
+                    const clearsSide = !!pointsRef.current[newRec.index]?.constraint;
                     triggerHaptic('light');
                     // Dragging NEAR a lead lands ON the lead (same fat-finger
                     // rule as placement; >120 m away stays where dropped).
@@ -211,6 +215,7 @@ export function useTracerPinMarkers({
                     // auto-densify re-derives around the drag instead of
                     // stripping it on the next pass.
                     setCapturedCoordsRef.current((prev) => prev.map((p, j) => (j === newRec.index ? p0 : p)));
+                    if (clearsSide) flashTraceFeedback('Pin moved — its leave-side choice was cleared.');
                 });
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();

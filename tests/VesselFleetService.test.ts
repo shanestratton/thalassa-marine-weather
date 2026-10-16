@@ -306,6 +306,35 @@ describe('VesselFleetService offline fleet cache', () => {
 });
 
 describe('VesselFleetService queued vessel patches', () => {
+    it('keeps radar equipment per boat and preserves an explicit clear across JSON/offline account queues', async () => {
+        const marineRadar = {
+            schema: 1 as const,
+            make: 'raymarine' as const,
+            modelId: 'raymarine-quantum-2',
+            detail: null,
+        };
+        await queueVesselPatch({ boatId: 'boat-a', patch: { profile: { marineRadar } } });
+        await queueVesselPatch({
+            boatId: 'boat-b',
+            patch: { profile: { marineRadar: { ...marineRadar, make: 'garmin', modelId: 'garmin-18-hd3' } } },
+        });
+        await queueVesselPatch({ boatId: 'boat-a', patch: { profile: { marineRadar: null } } });
+        setAuthIdentityScope(OWNER_B);
+        const foreign = vi.fn(async () => {});
+        await drainQueuedVesselPatches(foreign);
+        expect(foreign).not.toHaveBeenCalled();
+        setAuthIdentityScope(OWNER_A);
+        const pushed: unknown[] = [];
+        await drainQueuedVesselPatches(async (job) => {
+            pushed.push(JSON.parse(JSON.stringify(job)));
+        });
+        expect(pushed).toHaveLength(2);
+        expect(pushed[0]).toMatchObject({ boatId: 'boat-a', patch: { profile: { marineRadar: null } } });
+        expect(pushed[1]).toMatchObject({
+            boatId: 'boat-b',
+            patch: { profile: { marineRadar: { make: 'garmin', modelId: 'garmin-18-hd3' } } },
+        });
+    });
     it('keeps a Comfort Zone OFF clear explicit through the offline queue', async () => {
         const cloudPatch = normaliseVesselProfilePatchForCloud({
             comfortParams: { maxWindKts: undefined, maxWaveM: 2.5 },

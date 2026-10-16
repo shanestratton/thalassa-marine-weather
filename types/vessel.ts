@@ -6,6 +6,7 @@
 
 import type { LengthUnit, WeightUnit, VolumeUnit } from './units';
 import type { PolarData, NmeaSample, SmartPolarBucket, SmartPolarBucketGrid } from './navigation';
+import type { MarineRadarEquipment } from './marineRadar';
 
 export interface VesselDimensionUnits {
     length: LengthUnit;
@@ -43,6 +44,8 @@ export interface VesselProfile {
     name: string;
     type: 'sail' | 'power' | 'observer';
     model?: string;
+    /** Owner-entered equipment only. Explicit null clears this field in fleet JSON merge patches. */
+    marineRadar?: MarineRadarEquipment | null;
     riggingType?: 'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other';
     length: number;
     beam: number;
@@ -87,6 +90,8 @@ export interface VesselProfile {
     callSign?: string;
     phoneticName?: string;
     sailNumber?: string;
+    /** Account-owned selected vessel profile; optional, never a rig or yacht default. */
+    sailInventory?: import('../services/sailing/sailInventory').SailInventory;
     crewCount?: number;
     /**
      * Who the crewCount IS — one row per person aboard, kept on the vessel so

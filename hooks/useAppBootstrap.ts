@@ -650,6 +650,14 @@ export function useAppBootstrap() {
                     if (pinWeatherBriefing(data, actionScope)) setPage('briefing');
                     else setPage('dashboard');
                     break;
+                case 'overdue_notice':
+                    // Review navigation only; tapping never confirms arrival,
+                    // changes the selected boat or acknowledges a watch.
+                    setPage('vessel');
+                    break;
+                case 'buddy_notice':
+                    setPage('map');
+                    break;
                 case 'anchor_alarm':
                     // 'compass' = the anchor-watch page — the surface with the
                     // alarm overlay + silence control ('map' has neither).

@@ -24,6 +24,8 @@ import { getOfflineEntries } from './OfflineQueue';
 import { isTrackworthyEntry } from './helpers';
 import { formatPlannedRouteLabel } from './plannedRouteNaming';
 import { ROUTE_CAVEAT_LINE_PREFIX, ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
+import { recoverRouteConstraints } from '../routing/routeConstraintNotes';
+import type { RouteConstraintPoint } from '../routing/routeConstraints';
 import { getVoyageSummaries, getVoyageEntries, isLandVoyage, type VoyageSummary } from './VoyageSummary';
 import type { ShipLogEntry } from '../../types/navigation';
 import { withTimeout } from '../../utils/deadline';
@@ -35,6 +37,7 @@ import {
 } from '../authIdentityScope';
 
 export interface RouteOrTrack {
+    routeConstraints?: RouteConstraintPoint[] | null;
     /** Stable id matching the underlying voyageId. */
     id: string;
     /** Human label shown in the picker. */
@@ -117,6 +120,9 @@ function cloneRoute(item: RouteOrTrack): RouteOrTrack {
     return {
         ...item,
         points: item.points.map((point) => ({ ...point })),
+        ...(item.routeConstraints !== undefined
+            ? { routeConstraints: item.routeConstraints?.map((p) => ({ ...p })) ?? null }
+            : {}),
         bbox: [item.bbox[0], item.bbox[1], item.bbox[2], item.bbox[3]],
     };
 }
@@ -373,6 +379,9 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
             kind,
             linkedPlanId,
             savedRouteId,
+            ...(isPlanned(id) && recoverRouteConstraints(sorted[0].notes) !== undefined
+                ? { routeConstraints: recoverRouteConstraints(sorted[0].notes) }
+                : {}),
             ...(isPlanned(id) && recoverRouteCaveats(sorted[0].notes).length > 0
                 ? { caveats: recoverRouteCaveats(sorted[0].notes) }
                 : {}),

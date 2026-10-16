@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { fixtureBackendOrigin } from './helpers/fixtureBackendOrigin';
+const backendOrigin = fixtureBackendOrigin('https://weather-watch.fixture.invalid');
 for (const width of [300, 375])
     test(`weather watch explicit opt-ins and sample review fit ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 640 });
@@ -18,7 +20,7 @@ for (const width of [300, 375])
         await page.route('**/*', (route) => {
             const url = new URL(route.request().url());
             if (['127.0.0.1', 'localhost'].includes(url.hostname)) return route.continue();
-            if (url.hostname === 'weather-watch.fixture.invalid' && url.pathname.startsWith('/rest/v1/rpc/')) {
+            if (url.origin === backendOrigin && url.pathname.startsWith('/rest/v1/rpc/')) {
                 const call = url.pathname.split('/').at(-1);
                 if (call === 'weather_watch_status') {
                     const cap = {

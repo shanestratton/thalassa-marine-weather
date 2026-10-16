@@ -30,10 +30,21 @@
 
 import type { WindGrid } from '../../weather/windField';
 import type { CurrentField2D, Vector2 } from './EnvFields';
+import { createCurrentSeriesSampler, type CurrentSeries, type CurrentComponents } from '../../weather/currentSeries';
 const HOUR_MS = 3_600_000;
 
 /** Public-beta safety hold: global current cubes are not an acceptable implicit mobile download. */
 export const CMEMS_CURRENT_ROUTING_BETA_ENABLED = false;
+
+/** Same public series as offshore, while preserving this consumer's ETA-only contract. */
+export function currentFieldFromSeries(series: CurrentSeries, components: CurrentComponents = 'ocean'): CurrentField2D {
+    const sample = createCurrentSeriesSampler(series, components);
+    return {
+        provenance: series.model === 'CMEMS' ? 'CMEMS_HOURLY' : 'RTOFS_FORECAST',
+        forecast: { model: series.model, generation: series.generation, components, runMs: series.runMs },
+        currentAt: sample,
+    };
+}
 
 // ── Pure field construction ─────────────────────────────────────────
 
@@ -53,9 +64,13 @@ export const CMEMS_CURRENT_ROUTING_BETA_ENABLED = false;
  * [first step, last step], or where the planes hold non-finite values.
  */
 export function currentFieldFromGrid(grid: WindGrid, baseTimeMs: number): CurrentField2D {
-    // stepHours is authoritative for the temporal axis when present and
-    // self-consistent; a length mismatch means the metadata is unreliable,
-    // so fall back to hourly rather than misalign every sample.
+    // An explicit malformed axis is unknown. Never invent hourly frames.
+    const invalidAxis =
+        grid.stepHours !== undefined &&
+        (grid.stepHours.length !== grid.totalHours ||
+            !grid.stepHours.every(
+                (hour, index) => Number.isFinite(hour) && (!index || hour > grid.stepHours![index - 1]),
+            ));
     const stepHours = grid.stepHours && grid.stepHours.length === grid.totalHours ? grid.stepHours : null;
     const firstHr = stepHours ? stepHours[0] : 0;
     const lastHr = stepHours ? stepHours[stepHours.length - 1] : grid.totalHours - 1;
@@ -63,6 +78,7 @@ export function currentFieldFromGrid(grid: WindGrid, baseTimeMs: number): Curren
     return {
         provenance: 'CMEMS_HOURLY',
         currentAt(lat: number, lon: number, timeMs: number): Vector2 | null {
+            if (invalidAxis) return null;
             // ── Temporal coverage + bracketing (no clamping past the ends) ──
             const offsetHr = (timeMs - baseTimeMs) / HOUR_MS;
             if (!isFinite(offsetHr) || offsetHr < firstHr || offsetHr > lastHr) return null;
@@ -178,13 +194,16 @@ function bilinear(
     cFrac: number,
     width: number,
 ): number {
-    const v00 = data[r0 * width + c0];
-    const v01 = data[r0 * width + c1];
-    const v10 = data[r1 * width + c0];
-    const v11 = data[r1 * width + c1];
-    const top = v00 + (v01 - v00) * cFrac;
-    const bot = v10 + (v11 - v10) * cFrac;
-    return top + (bot - top) * rFrac;
+    let value = 0;
+    for (const [index, weight] of [
+        [r0 * width + c0, (1 - rFrac) * (1 - cFrac)],
+        [r0 * width + c1, (1 - rFrac) * cFrac],
+        [r1 * width + c0, rFrac * (1 - cFrac)],
+        [r1 * width + c1, rFrac * cFrac],
+    ]) {
+        if (weight > 0) value += data[index] * weight;
+    }
+    return value;
 }
 
 // ── Public-beta remote-loading boundary ─────────────────────────────
@@ -216,5 +235,21 @@ export async function getCurrentField(
     void timeRange;
     void signal;
     if (!CMEMS_CURRENT_ROUTING_BETA_ENABLED) return null;
-    return null;
+    const { loadRegionalCurrentSeries } = await import('../../weather/api/currentRegionalLoader');
+    const bounds =
+        'north' in area
+            ? area
+            : {
+                  north: Math.min(90, area.lat + 0.05),
+                  south: Math.max(-90, area.lat - 0.05),
+                  west: ((area.lon - 0.05 + 540) % 360) - 180,
+                  east: ((area.lon + 0.05 + 540) % 360) - 180,
+              };
+    const series = await loadRegionalCurrentSeries({
+        bounds,
+        startMs: timeRange.startMs,
+        endMs: timeRange.endMs,
+        signal,
+    });
+    return series ? currentFieldFromSeries(series) : null;
 }

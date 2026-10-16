@@ -943,7 +943,11 @@ describe('wiring', () => {
     it('mounts on the Obs chart with its credit, key and loading state', () => {
         const hub = read('components/map/MapHub.tsx');
         expect(hub).toContain('useSatelliteLayer(');
-        expect(hub).toContain('<SatelliteIrCredit');
+        expect(hub).toContain('<ObsCreditsRollup');
+        expect(hub).toContain('satellite={satellite}');
+        const rollup = read('components/map/ObsCreditsRollup.tsx');
+        expect(rollup).toContain('<SatelliteIrCredit state={satellite}');
+        expect(rollup).toContain('onTogglePlay={onToggleSatellite}');
         expect(hub).toContain("satelliteIr: weather.activeLayers.has('satIR')");
         expect(hub).toContain("satLoading={satellite.status === 'loading'}");
     });

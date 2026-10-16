@@ -24,6 +24,7 @@ import { supabase, isSupabaseConfigured } from './supabase';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import type { TracePoint } from './routeTracer';
 import { createLogger } from '../utils/createLogger';
+import { decodeTraceRoutePoints } from './routing/traceRoutePoint';
 
 const log = createLogger('savedRoutePoints');
 
@@ -64,22 +65,7 @@ export function savedRouteFetchExtras(row: Record<string, unknown>): SavedRouteF
  * malformed rather than silently returning a shorter one.
  */
 export function decodeSavedRoutePoints(raw: unknown): TracePoint[] | null {
-    if (!Array.isArray(raw)) return null;
-    const points: TracePoint[] = [];
-    for (const pair of raw) {
-        if (
-            !Array.isArray(pair) ||
-            pair.length < 2 ||
-            typeof pair[0] !== 'number' ||
-            !Number.isFinite(pair[0]) ||
-            typeof pair[1] !== 'number' ||
-            !Number.isFinite(pair[1])
-        ) {
-            return null;
-        }
-        points.push({ lat: pair[0], lon: pair[1] });
-    }
-    return points.length >= 2 ? points : null;
+    return decodeTraceRoutePoints(raw);
 }
 
 export async function fetchSavedRoutePoints(savedRouteId: string): Promise<SavedRouteFetch> {

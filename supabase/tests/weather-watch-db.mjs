@@ -25,8 +25,8 @@ CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_rand
 CREATE SCHEMA cron;CREATE TABLE cron.job(jobid bigint PRIMARY KEY,jobname text,active boolean,schedule text,command text);CREATE TABLE cron.job_run_details(jobid bigint,status text,end_time timestamptz);
 INSERT INTO auth.users VALUES('${owner}'),('${other}');INSERT INTO public.boats VALUES('${boat}','${owner}',null);
 `);
-const migration=await readFile(new URL('../held-migrations/20261016152301_weather_watch_optins.sql',import.meta.url),'utf8');
-const positionMigration=await readFile(new URL('../held-migrations/20261016161522_weather_position_binding.sql',import.meta.url),'utf8');
+const migration=await readFile(new URL('../migrations/20261016191458_weather_watch_optins.sql',import.meta.url),'utf8');
+const positionMigration=await readFile(new URL('../migrations/20261016191504_weather_position_binding.sql',import.meta.url),'utf8');
 await db.exec(migration);await db.exec(positionMigration);await db.exec(migration);await db.exec(positionMigration);
 const now=Date.now(),p={morning:true,rain:true,storm:true,gust:true,hour:new Date(now).getUTCHours(),zone:'UTC',gustKts:25,samples:[{key:'boat:here',kind:'boat',label:'Fictional boat',lat:0,lon:0,sourceAt:now,expiresAt:now+900000}]};
 const save=(who,revision,prefs=p)=>as('authenticated',who,'SELECT public.configure_weather_watch($1,$2,$3::jsonb)',[boat,revision,JSON.stringify(prefs)]);

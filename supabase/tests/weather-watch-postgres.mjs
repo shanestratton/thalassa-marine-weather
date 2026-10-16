@@ -65,8 +65,8 @@ try {
     assert.match(version, /^17\.6(?:\D|$)/);
     checks++;
     await pool.query(await read('weather-watch-base.sql'));
-    await pool.query(await read('../held-migrations/20261016152301_weather_watch_optins.sql'));
-    await pool.query(await read('../held-migrations/20261016161522_weather_position_binding.sql'));
+    await pool.query(await read('../migrations/20261016191458_weather_watch_optins.sql'));
+    await pool.query(await read('../migrations/20261016191504_weather_position_binding.sql'));
     const stamp = Date.now(),
         preferences = {
             morning: true,

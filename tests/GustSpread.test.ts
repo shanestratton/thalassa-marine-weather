@@ -32,4 +32,16 @@ describe('HUD gust spread from the already-loaded comparison', () => {
         expect(gustSpread(data, 0, 7_200_000)).toBeNull();
         expect(gustSpread(block(), 8_000_000, 9_000_000)).toBeNull();
     });
+    it.each([undefined, null, []])(
+        'keeps an omitted/null/empty gust variable (%j) unknown without losing a separate wind verdict',
+        (gusts) => {
+            const data = block();
+            if (gusts === undefined) Reflect.deleteProperty(data.models[0].values, 'wind_gusts_10m');
+            else Reflect.set(data.models[0].values, 'wind_gusts_10m', gusts);
+            // Only one eligible member remains: neither zero-fill nor agreement.
+            expect(gustSpread(data, 0, 7_200_000)).toBeNull();
+            Reflect.deleteProperty(data.models[1].values, 'wind_gusts_10m');
+            expect(gustSpread(data, 0, 7_200_000)).toBeNull();
+        },
+    );
 });

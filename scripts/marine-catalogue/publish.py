@@ -117,7 +117,7 @@ def apply(store, plan, retention=False):
 def local_retention(root, dataset, protected, apply_delete=False):
     """Exact generated directories only. Never touch inputs, sibling jobs or active generation."""
     base = Path(root).resolve() / dataset
-    if dataset not in ("places", "osm", "noaa"): raise ValueError("Invalid dataset")
+    if dataset not in ("places", "osm", "noaa", "facilities"): raise ValueError("Invalid dataset")
     result = []
     for child in base.iterdir() if base.exists() else []:
         if child.is_symlink() or not child.is_dir() or not re.fullmatch(r"[a-z0-9-]{8,48}", child.name): raise ValueError("Unexpected staging path")

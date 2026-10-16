@@ -30,6 +30,7 @@ vi.mock('../services/supabase', () => ({
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { deleteTrace, getSavedTraceTombstones, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { pushSavedRoute, syncSavedRoutes } from '../services/savedRoutesSync';
+import { resolveRouteConstraints } from '../services/routing/routeConstraints';
 import {
     autoroutingProposalGeometryKey,
     type SavedAutoroutingProposalEvidence,
@@ -151,6 +152,27 @@ describe('savedRoutesSync — canonical chain and deletion integrity', () => {
             },
         ];
         await expect(syncSavedRoutes()).resolves.toEqual(expect.arrayContaining([expect.objectContaining(trace)]));
+    });
+    it('round-trips private mark/shape intent through the actual local library and account payload', async () => {
+        const constraint = { lat: -27.3, lon: 153.2, leaveSide: 'port' as const, standOffM: 50, courseBearing: 30 };
+        const resolved = resolveRouteConstraints(points[0], [constraint], points[1])!;
+        const tracePoints = [
+            points[0],
+            { lat: -27.4, lon: 153.1, shape: true as const },
+            { lat: resolved.points[1].lat, lon: resolved.points[1].lon, constraint },
+            points[1],
+        ];
+        const saved = saveTrace('Synthetic marks', tracePoints);
+        expect(saved.persisted).toBe(true);
+        await saved.cloud;
+        const payload = mocks.upsert.mock.calls.at(-1)![0];
+        expect(payload.points[1][2]).toBe(1);
+        expect(payload.points[2][2]).toEqual({ v: 1, mark: constraint });
+        expect(loadSavedTraces().find((row) => row.id === saved.trace.id)?.points).toEqual(tracePoints);
+        localStorage.clear();
+        mocks.rows = [{ ...payload, created_at: saved.trace.createdAt }];
+        await syncSavedRoutes();
+        expect(loadSavedTraces().find((row) => row.id === saved.trace.id)?.points).toEqual(tracePoints);
     });
 
     it('keeps a local deletion fence ahead of a stale live cloud row', async () => {

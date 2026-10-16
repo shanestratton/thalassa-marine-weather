@@ -34,10 +34,14 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: (selector: (state: { settings: { vessel: typeof mocks.vessel } }) => unknown) =>
-        selector({ settings: { vessel: mocks.vessel } }),
-}));
+vi.mock('../stores/settingsStore', () => {
+    const state = () => ({ settings: { vessel: mocks.vessel }, activeVesselId: null });
+    return {
+        useSettingsStore: Object.assign((select: (snapshot: ReturnType<typeof state>) => unknown) => select(state()), {
+            getState: state,
+        }),
+    };
+});
 vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 vi.mock('../services/floatPlanCrew', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/floatPlanCrew')>()),

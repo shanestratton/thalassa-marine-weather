@@ -3,6 +3,13 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TideGUIDetails } from '../types/weather';
 vi.mock('../components/dashboard/tide/TideCanvas', () => ({ TideCanvas: () => <div data-testid="tide-canvas" /> }));
+vi.mock('../components/map/OfflineTidesSheet', () => ({
+    default: ({ onClose }: { onClose: () => void }) => (
+        <div role="dialog" aria-label="Offline tides">
+            <button onClick={onClose}>Close offline tides</button>
+        </div>
+    ),
+}));
 import { TideGraph } from '../components/dashboard/tide/TideGraph';
 
 const NOW = Date.UTC(2026, 9, 16, 0);
@@ -27,6 +34,40 @@ const tides = [
 ];
 afterEach(() => vi.restoreAllMocks());
 describe('official tide display provenance', () => {
+    it('reserves a footer outside the plot and keeps both actions independent of the surrounding card', async () => {
+        vi.spyOn(Date, 'now').mockReturnValue(NOW);
+        const cardAction = vi.fn();
+        const cardKey = vi.fn();
+        render(
+            <div onClick={cardAction} onKeyDown={cardKey}>
+                <TideGraph
+                    tides={tides}
+                    unit="m"
+                    unitPref={{ tideHeight: 'm' } as never}
+                    guiDetails={metadata}
+                    customTime={NOW}
+                />
+            </div>,
+        );
+        const plot = screen.getByTestId('tide-plot');
+        const footer = screen.getByTestId('tide-source-footer');
+        expect(plot).not.toContainElement(footer);
+        expect(plot.nextElementSibling).toBe(footer);
+        expect(footer).toHaveStyle({ height: '44px' });
+        const source = screen.getByRole('button', { name: 'Source and datum' });
+        expect(source).toHaveAccessibleDescription('NOAA · MLLW · Annapolis');
+        fireEvent.keyDown(source, { key: 'Enter' });
+        fireEvent.click(source);
+        expect(screen.getByRole('dialog', { name: 'Tide source' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Licence' })).toHaveAttribute('href', metadata.licenceUrl);
+        expect(cardAction).not.toHaveBeenCalled();
+        expect(cardKey).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Offline tides' }));
+        expect(await screen.findByRole('dialog', { name: 'Offline tides' })).toBeInTheDocument();
+        expect(cardAction).not.toHaveBeenCalled();
+        expect(cardKey).not.toHaveBeenCalled();
+    });
     it('labels persisted official extrema as a saved table without reviving publisher freshness or observations', () => {
         vi.spyOn(Date, 'now').mockReturnValue(NOW);
         render(

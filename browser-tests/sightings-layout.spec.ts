@@ -411,41 +411,63 @@ test.describe('Sightings shared map', () => {
             await expect(page.locator('[data-sighting-id]')).toHaveCount(2);
             await page.screenshot({ path: info.outputPath(`sightings-shared-${width}.png`) });
             expect(errors).toEqual([]);
-            const offline = await openFixture(page, baseURL!, '/e2e/fixtures/sightings-map.html?offline=1', {
-                width,
-                height: 667,
-            });
-            await sightingsMapLoaded(page, 'fallback');
-            await expect(page.getByRole('status')).toContainText('Offline map');
-            await expect(page.locator('[data-sighting-id]')).toHaveCount(2);
-            const state = await page.evaluate(() => {
-                const map = window.__logMapFixture.maps.at(-1)! as unknown as {
-                    getStyle(): { sources?: Record<string, unknown> };
-                    getCenter(): { lng: number };
-                };
-                const sourceCount = Object.keys(
-                    (map.getStyle() as { sources?: Record<string, unknown> }).sources ?? {},
-                ).length;
-                const center = (map as unknown as { getCenter(): { lng: number } }).getCenter().lng;
-                return { sourceCount, center };
-            });
-            expect(state.sourceCount).toBe(0);
-            expect(Math.abs(Math.abs(state.center) - 180)).toBeLessThan(1);
-            expect(offline.seen.all.filter((url) => !url.startsWith(baseURL!) && !url.startsWith('blob:'))).toEqual([]);
-            // The known-offline map intentionally has no provider token; the real themed DOM sea remains
-            // visible even when Mapbox leaves its source-free GPU canvas transparent.
-            const image = decode(await page.screenshot());
-            const offset =
-                (Math.floor((480 * image.height) / 667) * image.width + Math.floor(image.width / 2)) * image.channels;
-            expect([
-                [31, 90, 133],
-                [11, 34, 54],
-            ]).toContainEqual(Array.from(image.data.slice(offset, offset + 3)));
-            await page.getByRole('button', { name: 'Show Fictional crew turtle' }).click();
-            await page.getByRole('button', { name: /^Fictional crew turtle / }).click();
-            await expect(page.getByTestId('opened')).toHaveText('Fictional crew turtle');
-            await page.screenshot({ path: info.outputPath(`sightings-offline-${width}.png`) });
-            expect(offline.errors).toEqual([]);
+            const removedBefore = await page.evaluate(
+                () => (window.__logMapFixture as unknown as { removed: number }).removed,
+            );
+            await page.evaluate(() => window.__logMapFixture.unmount());
+            await expect(map).toHaveCount(0);
+            await expect
+                .poll(() => page.evaluate(() => (window.__logMapFixture as unknown as { removed: number }).removed))
+                .toBe(removedBefore + 1);
+            expect(errors).toEqual([]);
+            // Keep both documents' error collectors alive in their own Page.
+            // The old collector was installed before navigating away from a
+            // still-mounted map, so outgoing blob events could enter the new
+            // scenario. The historical WebKit error itself remains unproven.
+            const offlinePage = await page.context().newPage();
+            try {
+                const offline = await openFixture(offlinePage, baseURL!, '/e2e/fixtures/sightings-map.html?offline=1', {
+                    width,
+                    height: 667,
+                });
+                await sightingsMapLoaded(offlinePage, 'fallback');
+                await expect(offlinePage.getByRole('status')).toContainText('Offline map');
+                await expect(offlinePage.locator('[data-sighting-id]')).toHaveCount(2);
+                const state = await offlinePage.evaluate(() => {
+                    const map = window.__logMapFixture.maps.at(-1)! as unknown as {
+                        getStyle(): { sources?: Record<string, unknown> };
+                        getCenter(): { lng: number };
+                    };
+                    const sourceCount = Object.keys(
+                        (map.getStyle() as { sources?: Record<string, unknown> }).sources ?? {},
+                    ).length;
+                    const center = (map as unknown as { getCenter(): { lng: number } }).getCenter().lng;
+                    return { sourceCount, center };
+                });
+                expect(state.sourceCount).toBe(0);
+                expect(Math.abs(Math.abs(state.center) - 180)).toBeLessThan(1);
+                expect(offline.seen.all.filter((url) => !url.startsWith(baseURL!) && !url.startsWith('blob:'))).toEqual(
+                    [],
+                );
+                // The known-offline map intentionally has no provider token; the real themed DOM sea remains
+                // visible even when Mapbox leaves its source-free GPU canvas transparent.
+                const image = decode(await offlinePage.screenshot());
+                const offset =
+                    (Math.floor((480 * image.height) / 667) * image.width + Math.floor(image.width / 2)) *
+                    image.channels;
+                expect([
+                    [31, 90, 133],
+                    [11, 34, 54],
+                ]).toContainEqual(Array.from(image.data.slice(offset, offset + 3)));
+                await offlinePage.getByRole('button', { name: 'Show Fictional crew turtle' }).click();
+                await offlinePage.getByRole('button', { name: /^Fictional crew turtle / }).click();
+                await expect(offlinePage.getByTestId('opened')).toHaveText('Fictional crew turtle');
+                await offlinePage.screenshot({ path: info.outputPath(`sightings-offline-${width}.png`) });
+                expect(offline.errors).toEqual([]);
+                expect(errors).toEqual([]);
+            } finally {
+                await offlinePage.close();
+            }
         });
     test('a failed provider style still leaves exact private sightings selectable on plain sea', async ({
         page,

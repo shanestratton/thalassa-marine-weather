@@ -93,9 +93,29 @@ describe('RainViewer attribution', () => {
         );
     });
 
+    it('suppresses standalone attribution only when the owning Obs surface supplies its rollup', () => {
+        const props = {
+            weather: weather(),
+            visible: true,
+            embedded: false,
+            controlsHidden: false,
+            onControlsHiddenChange: vi.fn(),
+        };
+        const view = render(<MapWeatherControls {...props} />);
+        expect(screen.getByRole('link', { name: 'Rain radar data by RainViewer' })).toBeVisible();
+        view.rerender(<MapWeatherControls {...props} creditsInRollup />);
+        expect(screen.queryByRole('link', { name: 'Rain radar data by RainViewer' })).toBeNull();
+        expect(screen.getByRole('slider', { name: 'Rain timeline' })).toBeVisible();
+        view.rerender(<MapWeatherControls {...props} embedded />);
+        expect(screen.getByRole('link', { name: 'Rain radar data by RainViewer' })).toBeVisible();
+    });
+
     it('leaves the credit LABEL inert — only the small ⓘ is a tap target', () => {
         const src = readFileSync('components/map/MapWeatherControls.tsx', 'utf8');
-        const block = src.slice(src.indexOf('{showRainViewerAttribution && ('), src.indexOf('{controlsHidden ? ('));
+        const block = src.slice(
+            src.indexOf('{showRainViewerAttribution && !creditsInRollup && ('),
+            src.indexOf('{controlsHidden ? ('),
+        );
         // The words themselves must not be clickable, or the accident just
         // recurs against a wider target.
         expect(block).toContain(

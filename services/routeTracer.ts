@@ -77,15 +77,13 @@ import { authScopedStorageKey } from './authIdentityScope';
 import { noaaGeometryOwner } from './enc/noaaGeometryOwner';
 import { normaliseTraceVerification, traceVerificationSummary, type TraceVerification } from './traceVerification';
 import { chartFreeLegEntries, TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
+import { routeConstraintsForTrace } from './routing/traceConstraints';
 
 const log = createLogger('routeTracer');
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export interface TracePoint {
-    lat: number;
-    lon: number;
-}
+export type TracePoint = import('./routing/traceRoutePoint').TraceRoutePoint;
 
 export type TraceGrade = 'clear' | 'caution' | 'danger';
 
@@ -2071,6 +2069,11 @@ export function traceAsVoyagePlan(
     legGrades?: readonly TraceGrade[],
     verification?: TraceVerification,
 ): VoyagePlan {
+    const routeConstraints = routeConstraintsForTrace(points);
+    if (!routeConstraints && points.some((p) => p.constraint))
+        throw Error(
+            'The traced line does not retain its leave-side choices. Review those marks before saving or following.',
+        );
     let nm = 0;
     for (let i = 1; i < points.length; i++) nm += distM(points[i - 1], points[i]) / 1852;
     const hours = Math.max(0.25, nm / 5.5); // conservative 5.5 kn passage speed
@@ -2099,6 +2102,7 @@ export function traceAsVoyagePlan(
     const originHalf = originNameFromRouteName(label);
     const destHalf = destNameFromRouteName(label);
     return {
+        ...(routeConstraints ? { routeConstraints } : {}),
         origin: originHalf ?? `${label} — start`,
         destination: destHalf ?? `${label} — end`,
         departureDate: new Date(verified?.departureMs ?? Date.now()).toISOString(),

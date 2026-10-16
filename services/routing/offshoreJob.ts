@@ -3,7 +3,7 @@ import { runComfortAttempts } from '../isochrone/comfortKernel';
 import { buildCycloneExclusionFromCyclones } from '../isochrone/cycloneField';
 import { haversineNm, initialBearing, projectPosition } from '../isochrone/geodesy';
 import { createWindFieldFromGrid } from '../weather/WindFieldAdapter';
-import { createCurrentFieldFromVectors } from '../weather/CurrentFieldAdapter';
+import { createCurrentFieldFromSeries, createCurrentFieldFromVectors } from '../weather/CurrentFieldAdapter';
 import { createWaveFieldFromSamples } from '../weather/WaveFieldAdapter';
 import { continuousEastForLongitudeRange, continuousLongitudeInGrid } from '../weather/windLongitude';
 import { prepareOffshoreJob, type OffshoreJob, type OffshoreCandidate } from './offshoreProtocol';
@@ -56,7 +56,13 @@ export async function runOffshoreJob(
     const current = () => Date.now() < job.deadlineMs;
     if (!current()) return null;
     const { wind } = offshoreWindFields(job);
-    const currentField = createCurrentFieldFromVectors(job.environment.currentVectors ?? []);
+    const currentField = job.environment.currentSeries
+        ? createCurrentFieldFromSeries(
+              job.environment.currentSeries,
+              Date.parse(job.departureTime),
+              job.environment.currentComponents,
+          )
+        : createCurrentFieldFromVectors(job.environment.currentVectors ?? []);
     const waves = createWaveFieldFromSamples(job.environment.waves, Date.parse(job.departureTime));
     const exclusions =
         job.environment.cyclones && buildCycloneExclusionFromCyclones(job.environment.cyclones, job.departureTime);

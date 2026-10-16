@@ -419,9 +419,9 @@ describe('MapHub opens a plot-day request in the Manual plotter', () => {
         expect(refusal).toContain("Plan Your Day's pins didn't load");
     });
 
-    it('never unparks the ⚡ buttons', () => {
+    it('retains the course-frame gate while independently checked per-leg Auto is visible', () => {
         const helpers = readFileSync('components/map/mapHubHelpers.ts', 'utf8');
-        expect(helpers).toMatch(/AUTO_ROUTE_BUTTON_VISIBLE\s*=\s*false/);
+        expect(helpers).toMatch(/AUTO_ROUTE_BUTTON_VISIBLE\s*=\s*true/);
         expect(helpers).toMatch(/COURSE_FRAME_VISIBLE\s*=\s*false/);
     });
 });

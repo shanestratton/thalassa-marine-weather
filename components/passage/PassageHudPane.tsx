@@ -73,6 +73,7 @@
  * until the ghost joins; actual map weather retains its own spatial coverage.
  */
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { AlongRouteNextUp } from './AlongRouteNextUp';
 import {
     askPassageOverview,
     LOOK_AHEAD_MAX_MS,
@@ -148,6 +149,7 @@ import {
     peekRouteForecast,
     routeForecastKey,
     sampleRouteForecast,
+    sampleCoveredRouteWind,
     type RouteForecast,
 } from '../../services/routeForecastSampler';
 import { vesselCruisingSpeedKts } from '../../services/units';
@@ -167,6 +169,10 @@ import { LocationStore } from '../../stores/LocationStore';
 import { GpsService } from '../../services/GpsService';
 import { MobService } from '../../services/MobService';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
+import { useForecastSteeringField } from '../../hooks/useForecastSteeringField';
+import { forecastSteeringAt } from '../../services/routing/forecastSteering';
+import { ForecastSteeringLine } from './ForecastSteeringLine';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 import { triggerHaptic } from '../../utils/system';
@@ -372,6 +378,9 @@ const HOW_WORDS: Record<SpeedHow, string> = {
 const currentWindModel = () => WindStore.getState().model;
 
 const SailingPerformanceHud = React.lazy(() => import('./SailingPerformanceHud'));
+const SailAdviceLine = React.lazy(() => import('./SailAdviceLine'));
+const RouteReplanControl = React.lazy(() => import('./RouteReplanControl'));
+const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 
 const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: TrackingState }> = ({
     open,
@@ -530,6 +539,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const windCoverageHours = usePassageWindCoverageHours();
     const unsyncedLayers = usePassageUnsyncedLayers();
     const vessel = useSettingsStore((st) => st.settings.vessel);
+    const sailOwner = useSyncExternalStore(subscribeSailOwner, getAuthIdentityScope, getAuthIdentityScope);
     const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
     const profileCruiseKts =
         vessel?.cruisingSpeed && Number.isFinite(vessel.cruisingSpeed) && vessel.cruisingSpeed > 0
@@ -584,11 +594,11 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         let clearance = 0;
         let frame = 0;
         const observed = new Set<Element>();
-        // Lightning by MapHub's credits-strip slot, not the chip's label: the
-        // chart key renders the same labelled chip low in this column.
+        // Measure Obs's shared credit row, retaining the standalone selectors
+        // for embedded surfaces. Chart-key labels are not top-strip credits.
         const ownCredits =
             '[aria-label^="Copernicus Marine data attribution"], [data-testid="sat-ir-credit"], ' +
-            '[data-testid="lightning-credit"], [data-testid="wind-credit"]';
+            '[data-testid="obs-credits-rollup"], [data-testid="lightning-credit"], [data-testid="wind-credit"]';
         const creditSelector =
             `${ownCredits}, ` +
             'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]';
@@ -1130,6 +1140,22 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const ghostLat = station?.lat ?? null;
     const ghostLon = station?.lon ?? null;
     const ghostBearing = station?.bearingDeg ?? null;
+    const steeringVesselId = useSettingsStore((state) => state.activeVesselId);
+    const steeringSatellite = useSettingsStore((state) => state.settings.satelliteMode);
+    const steeringAtMs = departureTimeMs + aheadMs;
+    const steeringField = useForecastSteeringField({
+        points: station ? [station] : [],
+        startMs: steeringAtMs,
+        endMs: steeringAtMs,
+        vesselKey: steeringVesselId ?? '',
+        enabled:
+            look.on && !!station && !station.joining && !planArrived && planHow !== 'tack' && planHow !== 'assumed',
+        satelliteMode: steeringSatellite,
+    });
+    const forecastSteering =
+        station && !station.joining && planHow !== 'tack' && planHow !== 'assumed'
+            ? forecastSteeringAt(steeringField, station, steeringAtMs, station.bearingDeg, planBoatKts)
+            : null;
     useEffect(() => {
         publishPassageGhost(
             ghostLat !== null && ghostLon !== null && ghostBearing !== null
@@ -1295,6 +1321,27 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // covers one refresh round, so a healthy hourly refetch never flashes it.
     const forecastAgeMs = forecast ? Math.max(0, nowMs - forecast.fetchedAt) : 0;
     const forecastOld = forecastAgeMs > FORECAST_TTL_MS + 5 * 60_000;
+    const sailWind =
+        station &&
+        !station.joining &&
+        !planArrived &&
+        forecastAgeMs <= FORECAST_TTL_MS &&
+        (planHow === 'sail' || planHow === 'tack')
+            ? sampleCoveredRouteWind(forecast, station.alongNm, steeringAtMs)
+            : null;
+    const sailSample =
+        sailWind && sailWind.twsKts !== null && sailWind.twdDeg !== null && forecast
+            ? {
+                  twsKn: sailWind.twsKts,
+                  gustKn: sailWind.gustKts,
+                  twaDeg:
+                      planHow === 'tack'
+                          ? pointingDeg(speedModel)
+                          : Math.abs(((sailWind.twdDeg - station!.bearingDeg + 540) % 360) - 180),
+                  timeMs: steeringAtMs,
+                  sourceKey: `${forecast.model}:${forecast.fetchedAt}:${forecastKey}`,
+              }
+            : null;
     const forecastAgeTag =
         forecastAgeMs < 2 * 3_600_000
             ? `${Math.round(forecastAgeMs / 60_000)}M OLD`
@@ -1628,6 +1675,17 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                         : null
                                 }
                             />
+                            <ForecastSteeringLine value={forecastSteering} />
+                            {isSail && vessel?.sailInventory && (
+                                <React.Suspense fallback={null}>
+                                    <SailAdviceLine
+                                        inventory={vessel.sailInventory}
+                                        vesselType={vessel.type}
+                                        scopeKey={`${sailOwner.key}:${sailOwner.generation}:${steeringVesselId ?? 'local'}`}
+                                        sample={sailSample}
+                                    />
+                                </React.Suspense>
+                            )}
                             <Cell
                                 forecast
                                 // The chance rides in the label: a line of its own
@@ -1695,6 +1753,12 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                         </>
                     ) : (
                         <>
+                            <AlongRouteNextUp
+                                points={routeCoords}
+                                alongNm={
+                                    previewing ? 0 : fix && fix.source !== 'phone-old' ? fix.progress.alongNm : null
+                                }
+                            />
                             {previewing ? (
                                 // The previewed route: its whole length from its first
                                 // point, and its name. No ETA until a departure is chosen.
@@ -1879,6 +1943,14 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                 ride is a boat adrift on the chart. OFF still lives in the
                 layer button. A preview keeps it in the bottom row instead. */}
                 {followingRoute && renderLookAhead('h-10 border-t border-white/10')}
+                {followingRoute && (
+                    <React.Suspense fallback={null}>
+                        <RouteReplanControl
+                            xteNm={fix && fix.source !== 'phone-old' ? fix.progress.offTrackNm : null}
+                            etaMs={liveEta.arrivalMs}
+                        />
+                    </React.Suspense>
+                )}
 
                 <div className="flex shrink-0 border-t border-white/10">
                     {/* A preview's departure shares this row: the strip's fixed height

@@ -13,7 +13,7 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon;
 CREATE TABLE public.vessel_engine_hours(user_id uuid PRIMARY KEY REFERENCES auth.users(id), hours integer NOT NULL CHECK(hours >= 0));
 -- The unchanged production meter table already has its own RLS/write guards.
 -- This fixture isolates the new RPC/receipt/carry behavior.
-\ir ../../supabase/migrations/20261016102500_confirmed_voyage_engine_hours.sql
+\ir ../../supabase/migrations/20261016175740_confirmed_voyage_engine_hours.sql
 INSERT INTO auth.users VALUES('00000000-0000-4000-8000-000000000001'),('00000000-0000-4000-8000-000000000002');
 INSERT INTO public.vessel_engine_hours VALUES('00000000-0000-4000-8000-000000000001',100),('00000000-0000-4000-8000-000000000002',500);
 SET ROLE authenticated;

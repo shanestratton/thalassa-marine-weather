@@ -17,6 +17,7 @@
  */
 
 import type { TideCurve } from '../../TideHeightService';
+import type { CurrentComponents, CurrentModel } from '../../weather/currentSeries';
 
 // ── Provenance ──────────────────────────────────────────────────────
 
@@ -79,7 +80,8 @@ export interface CurrentField2D {
      *  consumer contract: ≈1/12° source data cannot resolve channel
      *  jets — never use for feasibility. */
     currentAt(lat: number, lon: number, timeMs: number): Vector2 | null;
-    provenance: 'CMEMS_HOURLY' | 'ESTIMATE' | 'NONE';
+    provenance: 'CMEMS_HOURLY' | 'RTOFS_FORECAST' | 'ESTIMATE' | 'NONE';
+    forecast?: { model: CurrentModel; generation: string; components: CurrentComponents; runMs: number };
 }
 
 export interface WindField2D {
