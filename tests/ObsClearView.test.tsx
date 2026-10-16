@@ -23,42 +23,17 @@ import {
     useObsClearView,
     type ObsClearView,
 } from '../components/map/mapHub/useObsClearView';
+import { MapBaseSelector } from '../components/map/MapBaseSelector';
 import { ObsClearViewChrome } from '../components/map/ObsClearViewChrome';
 import { AlarmAudioService } from '../services/AlarmAudioService';
 
-type Listener = (event: { originalEvent?: unknown }) => void;
-
-/** Just enough of a Mapbox map: its container, and on/off/emit for its camera events. */
-function fakeMap() {
-    const listeners = new Map<string, Set<Listener>>();
-    return {
-        getContainer: () => document.querySelector<HTMLElement>('[data-testid="chart"]')!,
-        on: (type: string, fn: Listener) => {
-            if (!listeners.has(type)) listeners.set(type, new Set());
-            listeners.get(type)!.add(fn);
-        },
-        off: (type: string, fn: Listener) => listeners.get(type)?.delete(fn),
-        emit: (type: string, event: { originalEvent?: unknown }) => listeners.get(type)?.forEach((fn) => fn(event)),
-    };
-}
-
-let map = fakeMap();
 let latest: ObsClearView;
 const chartClicks = vi.fn();
 const mobClicks = vi.fn();
 
-function Harness({
-    available = true,
-    modeOwnsChart = false,
-    holdGesture = true,
-}: {
-    available?: boolean;
-    modeOwnsChart?: boolean;
-    holdGesture?: boolean;
-}) {
+function Harness({ available = true, modeOwnsChart = false }: { available?: boolean; modeOwnsChart?: boolean }) {
     const frameRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef(map as unknown as mapboxgl.Map);
-    const view = useObsClearView({ frameRef, mapRef, mapReady: true, available, modeOwnsChart, holdGesture });
+    const view = useObsClearView({ frameRef, available, modeOwnsChart });
     latest = view;
     return (
         <div ref={frameRef} data-testid="frame" data-obs-clear-view={view.on ? 'on' : undefined}>
@@ -77,6 +52,15 @@ function Harness({
                 MOB
             </button>
             <input aria-label="Search" />
+            <MapBaseSelector
+                visible={available}
+                value="relief"
+                onChange={vi.fn()}
+                encCellCount={0}
+                encVisible={false}
+                onToggleEnc={vi.fn()}
+                onClearView={view.available ? view.hide : undefined}
+            />
             <ObsClearViewChrome view={view} />
         </div>
     );
@@ -108,6 +92,11 @@ function lift() {
     act(() => touch('touchend', []));
 }
 
+function clearFromMenu() {
+    fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Clear view/ }));
+}
+
 /** A tap: pointer down, then the click, `after` ms later. */
 function tap(el: Element, after = 80) {
     act(() => {
@@ -122,7 +111,6 @@ beforeEach(() => {
     vi.useFakeTimers({
         toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'],
     });
-    map = fakeMap();
     chartClicks.mockClear();
     mobClicks.mockClear();
     window.localStorage.clear();
@@ -134,11 +122,10 @@ afterEach(() => {
     document.documentElement.classList.remove(CLEAR_VIEW_ROOT_CLASS);
 });
 
-describe('two fingers held on the chart', () => {
+describe('Clear view in the top-centre dropdown', () => {
     it('hide the controls; one tap anywhere brings them back and never reaches the chart', () => {
         render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         expect(screen.getByTestId('frame').dataset.obsClearView).toBe('on');
         // The tab bar goes too (not in split view).
@@ -153,10 +140,8 @@ describe('two fingers held on the chart', () => {
         expect(chartClicks).toHaveBeenCalledTimes(1);
     });
 
-    it('toggle back with a second hold', () => {
+    it('no longer hides the controls with a two-finger hold', () => {
         render(<Harness />);
-        twoFingerHold();
-        lift();
         twoFingerHold();
         lift();
         expect(latest.on).toBe(false);
@@ -164,8 +149,7 @@ describe('two fingers held on the chart', () => {
 
     it('keep a long press the chart’s, so it still drops its pin', () => {
         render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         tap(screen.getByTestId('chart'), 600);
         expect(chartClicks).toHaveBeenCalledTimes(1);
         expect(latest.on).toBe(true);
@@ -173,83 +157,62 @@ describe('two fingers held on the chart', () => {
 
     it('leave MOB working in the clear view, and the clear view up', () => {
         render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         tap(screen.getByRole('button', { name: 'MOB' }));
         expect(mobClicks).toHaveBeenCalledTimes(1);
         expect(latest.on).toBe(true);
     });
 
-    it('stand down for a pinch Mapbox began, not for the camera’s own moves', () => {
+    it('closes the dropdown and makes its action reachable with the keyboard', () => {
         render(<Harness />);
-        act(() => {
-            touch('touchstart', [
-                { id: 1, x: 100, y: 300 },
-                { id: 2, x: 220, y: 300 },
-            ]);
-            map.emit('zoomstart', { originalEvent: new Event('touchmove') });
-            vi.advanceTimersByTime(700);
-        });
-        lift();
-        expect(latest.on).toBe(false);
-        act(() => {
-            touch('touchstart', [
-                { id: 1, x: 100, y: 300 },
-                { id: 2, x: 220, y: 300 },
-            ]);
-            // Following the boat, or a storm's centre lock: no originalEvent.
-            map.emit('zoomstart', {});
-            vi.advanceTimersByTime(700);
-        });
-        lift();
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        for (let i = 0; i < 5; i++) {
+            fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+        }
+        const clear = screen.getByRole('menuitem', { name: /^Clear view/ });
+        expect(clear).toHaveFocus();
+        fireEvent.click(clear);
+        expect(screen.queryByRole('menu')).toBeNull();
         expect(latest.on).toBe(true);
+        expect(screen.getByRole('button', { name: 'Controls hidden. Double tap to show' })).toHaveFocus();
+        tap(screen.getByTestId('chart'));
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
-    it('do nothing while a mode owns the chart, with a dialog open, or with the Preferences switch off', () => {
+    it('offers no clear action while a mode owns the chart, and H respects an open dialog', () => {
         const { rerender } = render(<Harness modeOwnsChart />);
-        twoFingerHold();
-        lift();
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        expect(screen.queryByRole('menuitem', { name: /^Clear view/ })).toBeNull();
+        act(() => latest.hide());
         expect(latest.on).toBe(false);
         rerender(<Harness />);
         const dialog = document.createElement('div');
         dialog.setAttribute('role', 'dialog');
         dialog.getClientRects = () => [{}] as unknown as DOMRectList;
         document.body.append(dialog);
-        twoFingerHold();
-        lift();
+        fireEvent.keyDown(document.body, { key: 'h' });
         expect(latest.on).toBe(false);
         dialog.remove();
-        rerender(<Harness holdGesture={false} />);
-        twoFingerHold();
-        lift();
-        expect(latest.on).toBe(false);
-        // The switch is the gesture's alone: the keyboard still clears.
-        act(() => {
-            fireEvent.keyDown(document.body, { key: 'h' });
-        });
-        expect(latest.on).toBe(true);
     });
 });
 
 describe('everything that brings the controls back', () => {
     it('MOB or any mode taking the chart, and leaving Obs', () => {
         const { rerender } = render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         rerender(<Harness modeOwnsChart />);
         expect(latest.on).toBe(false);
         rerender(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         rerender(<Harness available={false} />);
         expect(latest.on).toBe(false);
     });
 
     it('any alarm', async () => {
         render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         await act(async () => {
             // The web alarm needs an AudioContext jsdom lacks; the controls come back regardless.
@@ -262,8 +225,7 @@ describe('everything that brings the controls back', () => {
 
     it('the app going to the background', () => {
         render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         Object.defineProperty(document, 'hidden', { configurable: true, value: true });
         act(() => {
             document.dispatchEvent(new Event('visibilitychange'));
@@ -274,8 +236,7 @@ describe('everything that brings the controls back', () => {
 
     it('is never saved: a fresh Obs opens with its controls', () => {
         const { unmount } = render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         unmount();
         render(<Harness />);
@@ -323,8 +284,7 @@ describe('keyboard, VoiceOver and the first-time hint', () => {
 
     it('"Tap anywhere to bring the controls back" shows the first time on this phone only', () => {
         const { unmount } = render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(screen.getByTestId('clear-view-hint')).toHaveTextContent('Tap anywhere to bring the controls back');
         act(() => {
             vi.advanceTimersByTime(4_100);
@@ -332,8 +292,7 @@ describe('keyboard, VoiceOver and the first-time hint', () => {
         expect(screen.queryByTestId('clear-view-hint')).toBeNull();
         unmount();
         render(<Harness />);
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(screen.queryByTestId('clear-view-hint')).toBeNull();
     });
 
@@ -342,8 +301,7 @@ describe('keyboard, VoiceOver and the first-time hint', () => {
         pane.dataset.splitPane = 'chart';
         document.body.append(pane);
         render(<Harness />, { container: pane.appendChild(document.createElement('div')) });
-        twoFingerHold();
-        lift();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         expect(document.documentElement.classList.contains(CLEAR_VIEW_ROOT_CLASS)).toBe(false);
         pane.remove();

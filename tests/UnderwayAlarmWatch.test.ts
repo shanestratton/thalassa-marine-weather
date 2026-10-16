@@ -323,13 +323,12 @@ describe('off route', () => {
         runUnderwayPass({ ...inputsFor({ offNm: 0.6 }), following: { key: 'voyage-kestrel-2', route: SOLENT } });
         await idle();
         expect(AlarmAudioService.getActiveLeaseCount()).toBe(0);
-        expect(UnderwayAlarmStore.getNotices()).toContain(UNDERWAY_NOTICES.arming);
+        expect(UnderwayAlarmStore.getNotices()).toEqual([]);
     });
 
-    it('says when it cannot see: not yet on the route, or no position', async () => {
+    it('arms quietly before joining the route, but still reports a missing position', async () => {
         pass({ offNm: 0.6 });
-        expect(UnderwayAlarmStore.getNotices()).toEqual([UNDERWAY_NOTICES.arming]);
-        expect(UNDERWAY_NOTICES.arming).toBe('Off-route alarm arms once you are on the route.');
+        expect(UnderwayAlarmStore.getNotices()).toEqual([]);
         pass({ offNm: 0.05 });
         expect(UnderwayAlarmStore.getNotices()).toEqual([]);
         pass({ offNm: null });

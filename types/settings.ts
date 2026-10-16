@@ -237,14 +237,7 @@ export interface UserSettings {
      * components/map/mapHub/useEncAtOpen.ts reads it.
      */
     obsEncOnOpen?: boolean;
-    /**
-     * Settings → Preferences → Chart: "Two-finger hold clears the chart"
-     * (build 129, 129-13). Two fingers held still on Obs hide its controls;
-     * on unless set to exactly false. It is the one touch way in (129-13b:
-     * Shane chose the hold, not a long press on the scrubber); a tap to come
-     * back, H and Escape are not switched by it.
-     * components/map/mapHub/useObsClearView.ts reads it.
-     */
+    /** @deprecated Clear view now uses Obs's top-centre dropdown; legacy values are ignored. */
     obsClearViewHold?: boolean;
     /**
      * Settings → Alerts: "Cyclone warnings near the boat" (build 129, 129-09).

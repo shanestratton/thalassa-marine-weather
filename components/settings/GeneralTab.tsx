@@ -558,24 +558,6 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         onChange={(on) => onSave({ obsEncOnOpen: on })}
                     />
                 </Row>
-                {/* Obs's clear view (129-13): a way out for a skipper who finds
-                    the gesture fiddly. On by default. The hold is the one touch
-                    way in (129-13b); H, VoiceOver's hidden button and the tap
-                    that brings the controls back are not switched by it. */}
-                <Row>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium">Two-finger hold clears the chart</p>
-                        <p className="text-xs text-gray-400">
-                            Hold two fingers still on Obs to hide its controls; tap anywhere to bring them back. MOB and
-                            the credits stay.
-                        </p>
-                    </div>
-                    <Toggle
-                        label="Two-finger hold clears the chart"
-                        checked={settings.obsClearViewHold !== false}
-                        onChange={(on) => onSave({ obsClearViewHold: on })}
-                    />
-                </Row>
             </Section>
 
             {/* Collision alarm (build 125, 125-01; Shane's recommended defaults,

@@ -19,7 +19,7 @@
  *  - THE CARDS and the strip through ./underwayAlarmStore.ts, drawn by the
  *    app-wide alarm stack under the collision cards: shoal, then off route.
  *  - HONEST: the strip says when it cannot see (no position, a stale or lost
- *    sounder, not yet on the route). Going to the background with an alarm armed and
+ *    sounder). Going to the background with an alarm armed and
  *    nothing keeping Thalassa running (no voyage track, anchor watch or MOB
  *    holding the background GPS) posts one plain notice, because iOS then
  *    suspends the app and a suspended app watches nothing.
@@ -348,7 +348,6 @@ function publish(nowMs: number): void {
     const notices: string[] = [];
     if (context.offRouteOn) {
         if (xte.status === 'no-fix') notices.push(UNDERWAY_NOTICES.noFix);
-        else if (!xte.latched) notices.push(UNDERWAY_NOTICES.arming);
     }
     if (context.shoalOn && context.underWay) {
         if (shoal.status === 'stale') notices.push(UNDERWAY_NOTICES.shoalStale);

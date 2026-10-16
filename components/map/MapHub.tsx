@@ -3262,18 +3262,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
-    // Clear view (129-13, mapHub/useObsClearView.ts): two fingers held on the
-    // chart hide Obs's controls, with or without a weather layer (Shane's
-    // choice, 129-13b); one tap brings them back. Never while MOB, the picker,
+    // Clear view lives in Obs's top-centre dropdown (Shane, 16 Oct 2026).
+    // One tap brings the controls back. Never while MOB, the picker,
     // plotting, Inspect or a passage point has the chart.
     const obsFrameRef = useRef<HTMLDivElement>(null);
     const clearView = useObsClearView({
         frameRef: obsFrameRef,
-        mapRef,
-        mapReady,
         available: obsShowing,
         modeOwnsChart: mobActive || coordCaptureMode || browseWeatherInspectMode || !!passage.settingPoint,
-        holdGesture: settings.obsClearViewHold !== false,
     });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
@@ -4032,6 +4028,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
                     toggles={nightDimRow ? [nightDimRow] : []}
+                    onClearView={clearView.available ? clearView.hide : undefined}
                 />
                 {/* The planner's own menu, the same pill (127-DESKMAP A2/B1):
                     Light, Relief + Sat or Hybrid, then on the desk OpenSeaMap's

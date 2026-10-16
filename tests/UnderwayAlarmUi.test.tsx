@@ -156,9 +156,9 @@ describe('the under-way cards in the alarm stack', () => {
     });
 
     it('says when the watch cannot see, in the strip', async () => {
-        act(() => UnderwayAlarmStore.set([], ['Off-route alarm arms once you are on the route.']));
+        act(() => UnderwayAlarmStore.set([], ['Off-route alarm: no position fix']));
         render(<AisGuardAlert />);
-        expect(await screen.findByRole('status')).toHaveTextContent('Off-route alarm arms once you are on the route.');
+        expect(await screen.findByRole('status')).toHaveTextContent('Off-route alarm: no position fix');
         expect(screen.queryByRole('alert')).toBeNull();
     });
 

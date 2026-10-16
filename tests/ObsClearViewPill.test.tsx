@@ -1,11 +1,6 @@
 /**
- * The scrubber's pill in Obs's clear view (129-13, 129-13b). Shane, 14 Oct:
- * "Maybe the scrubber button. As that should stay." It stays, and works, in
- * the clear view. But it is not the switch: asked how clearing the screen
- * should work, he chose "Two-finger hold (Recommended)", not a long press on
- * the scrubber and not both. So a long press on the pill clears nothing, and
- * two fingers held clear the screen with a weather layer up as well as with
- * none. And Preferences → Chart's way out for the two-finger hold.
+ * The scrubber stays usable in Obs's clear view. Clear view is selected from
+ * the top-centre dropdown (Shane, 16 Oct 2026), with or without weather.
  */
 import React, { useRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -17,6 +12,7 @@ vi.mock('../utils/system', async (importOriginal) => ({
     triggerHaptic: vi.fn(),
 }));
 
+import { MapBaseSelector } from '../components/map/MapBaseSelector';
 import { MapWeatherControls } from '../components/map/MapWeatherControls';
 import { CLEAR_VIEW_ROOT_CLASS, useObsClearView, type ObsClearView } from '../components/map/mapHub/useObsClearView';
 import type { useWeatherLayers } from '../components/map/useWeatherLayers';
@@ -47,32 +43,30 @@ function weather(layers: string[]): WeatherControlsWeather {
     } as unknown as WeatherControlsWeather;
 }
 
-/** Just enough of a Mapbox map for the clear view's gesture: its container. */
-const fakeMap = {
-    getContainer: () => document.querySelector<HTMLElement>('[data-testid="chart"]')!,
-    on: () => undefined,
-    off: () => undefined,
-};
-
 let latest: ObsClearView;
 
 /** Obs's chart frame, its clear view, and the weather controls wired as MapHub wires them. */
 function Obs({ layers }: { layers: string[] }) {
     const frameRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef(fakeMap as unknown as mapboxgl.Map);
     const [controlsHidden, setControlsHidden] = useState(true);
     const clearView = useObsClearView({
         frameRef,
-        mapRef,
-        mapReady: true,
         available: true,
         modeOwnsChart: false,
-        holdGesture: true,
     });
     latest = clearView;
     return (
         <div ref={frameRef} data-obs-clear-view={clearView.on ? 'on' : undefined}>
             <div data-testid="chart" className="thalassa-chart-map" />
+            <MapBaseSelector
+                visible
+                value="relief"
+                onChange={vi.fn()}
+                encCellCount={0}
+                encVisible={false}
+                onToggleEnc={vi.fn()}
+                onClearView={clearView.available ? clearView.hide : undefined}
+            />
             {layers.length > 0 && (
                 <MapWeatherControls
                     weather={weather(layers)}
@@ -87,26 +81,9 @@ function Obs({ layers }: { layers: string[] }) {
     );
 }
 
-function touch(type: string, points: { id: number; x: number; y: number }[]) {
-    const event = new Event(type, { bubbles: true });
-    Object.defineProperty(event, 'touches', {
-        value: points.map((p) => ({ identifier: p.id, clientX: p.x, clientY: p.y })),
-    });
-    screen.getByTestId('chart').dispatchEvent(event);
-}
-
-/** Two fingers down on the chart, held still 650 ms, and lifted. */
-function twoFingerHold() {
-    act(() => {
-        touch('touchstart', [
-            { id: 1, x: 100, y: 300 },
-            { id: 2, x: 220, y: 300 },
-        ]);
-    });
-    act(() => {
-        vi.advanceTimersByTime(650);
-    });
-    act(() => touch('touchend', []));
+function clearFromMenu() {
+    fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Clear view/ }));
 }
 
 /** One finger held on the pill well past the app's 500 ms long press, and lifted. */
@@ -152,7 +129,7 @@ function hubControlsCall(): string {
     return hub.slice(open, close);
 }
 
-describe('the scrubber pill is not the clear view’s switch (Shane chose the two-finger hold)', () => {
+describe('the scrubber pill is not the clear view’s switch (Clear view is in the dropdown)', () => {
     // A check of behaviour, wired as MapHub wires it today. With only keepInClearView reaching
     // the controls there is nothing for the pill to call, so this alone cannot catch the old
     // hold coming back; the two source checks below are what catch that, under any prop name.
@@ -188,20 +165,20 @@ describe('the scrubber pill is not the clear view’s switch (Shane chose the tw
     });
 });
 
-describe('two fingers held clear the screen on every chart view', () => {
+describe('the dropdown clears the screen with or without weather', () => {
     it('with a weather layer up: the pill stays over the clear chart', () => {
         render(<Obs layers={['wind']} />);
-        twoFingerHold();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         expect(pill().hasAttribute('data-clear-view-keep')).toBe(true);
-        twoFingerHold();
+        fireEvent.click(screen.getByTestId('chart'));
         expect(latest.on).toBe(false);
     });
 
     it('with no weather layer, and so no pill', () => {
         render(<Obs layers={[]} />);
         expect(screen.queryByTestId('weather-status-pill')).toBeNull();
-        twoFingerHold();
+        clearFromMenu();
         expect(latest.on).toBe(true);
     });
 
@@ -210,7 +187,7 @@ describe('two fingers held clear the screen on every chart view', () => {
         const call = hub.slice(hub.indexOf('const clearView = useObsClearView({'));
         const block = call.slice(0, call.indexOf('});'));
         expect(block).toContain('available: obsShowing,');
-        expect(block).toContain('holdGesture: settings.obsClearViewHold !== false,');
+        expect(hub).toContain('onClearView={clearView.available ? clearView.hide : undefined}');
         expect(block).not.toMatch(/activeLayers|weather\./);
         const hook = readFileSync('components/map/mapHub/useObsClearView.ts', 'utf8');
         const options = hook.slice(hook.indexOf('export interface UseObsClearViewOptions'));
@@ -221,7 +198,7 @@ describe('two fingers held clear the screen on every chart view', () => {
 describe('the pill in the clear view', () => {
     it('still works: a tap opens the timeline over the clear chart, and the clear view stays', () => {
         render(<Obs layers={['wind']} />);
-        twoFingerHold();
+        clearFromMenu();
         expect(latest.on).toBe(true);
         act(() => {
             fireEvent.pointerDown(pill(), { isPrimary: true, clientX: 20, clientY: 700 });
@@ -272,39 +249,20 @@ describe('the pill in the clear view', () => {
 });
 
 describe('Preferences → Chart', () => {
-    it('"Two-finger hold clears the chart": on by default, and saves obsClearViewHold', async () => {
+    it('does not offer the retired two-finger gesture switch', async () => {
         vi.useRealTimers();
-        vi.stubGlobal('__BUILD_STAMP__', '2026-10-14 00:00Z');
+        vi.stubGlobal('__BUILD_STAMP__', '2026-10-16 00:00Z');
         const { GeneralTab } = await import('../components/settings/GeneralTab');
         const { DEFAULT_SETTINGS } = await import('../stores/settingsStore');
-        expect(DEFAULT_SETTINGS.obsClearViewHold).not.toBe(false);
-        const onSave = vi.fn();
-        const props = {
-            onSave,
-            onLocationSelect: vi.fn(),
-            onDetectLocation: vi.fn(),
-            onShowFactoryReset: vi.fn(),
-        };
-        const { unmount } = render(React.createElement(GeneralTab, { settings: DEFAULT_SETTINGS, ...props }));
-        const toggle = screen.getByRole('switch', { name: 'Two-finger hold clears the chart' });
-        expect(toggle.getAttribute('aria-checked')).toBe('true');
-        // In the Chart section's card, beside the other chart switches.
-        const card = toggle.parentElement!.parentElement as HTMLElement;
-        expect(card.previousElementSibling?.textContent).toBe('Chart');
-        expect(card.textContent).toContain('Show ENC charts when Obs opens');
-        fireEvent.click(toggle);
-        expect(onSave).toHaveBeenCalledWith({ obsClearViewHold: false });
-        unmount();
         render(
-            React.createElement(GeneralTab, { settings: { ...DEFAULT_SETTINGS, obsClearViewHold: false }, ...props }),
+            <GeneralTab
+                settings={{ ...DEFAULT_SETTINGS, obsClearViewHold: true }}
+                onSave={vi.fn()}
+                onLocationSelect={vi.fn()}
+                onDetectLocation={vi.fn()}
+                onShowFactoryReset={vi.fn()}
+            />,
         );
-        const off = screen.getByRole('switch', { name: 'Two-finger hold clears the chart' });
-        expect(off.getAttribute('aria-checked')).toBe('false');
-        fireEvent.click(off);
-        expect(onSave).toHaveBeenCalledWith({ obsClearViewHold: true });
-        // MapHub reads it as "on unless exactly false".
-        expect(readFileSync('components/map/MapHub.tsx', 'utf8')).toContain(
-            'holdGesture: settings.obsClearViewHold !== false,',
-        );
+        expect(screen.queryByRole('switch', { name: 'Two-finger hold clears the chart' })).toBeNull();
     });
 });
