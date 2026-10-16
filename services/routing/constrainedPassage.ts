@@ -22,6 +22,7 @@ import { vesselDraftMetres, vesselDraftIsAssumed, vesselAirDraftMetres } from '.
 import { withDeadline } from '../../utils/deadline';
 import { chartedLandFinding } from './landBackstopWords';
 import { RoutingExclusionFailure, isRoutingExclusionFailure } from './passageExclusions';
+import { routingExclusionContextKey } from './routingExclusions';
 
 function coarseLeg(points: RouteConstraintPoint[], departure: string, speed: number, notes: string[]): IsochroneResult {
     const distance = cumulativeLegs(points, speed);
@@ -261,6 +262,7 @@ export async function computeConstrainedPassage(input: {
                 route.push({ ...route.at(-1)!, ...request.destination });
             return verifiedIsochroneRoute(result, route, request.departureTime, input.speed);
         };
+        let acceptedAreaKey: string | undefined;
         const result = await computeVerifiedIsochroneChain({
             ...input,
             computeLeg: makeLeg,
@@ -269,6 +271,7 @@ export async function computeConstrainedPassage(input: {
                 const outcome: { current: { status: 'verified' | 'unverified'; reason?: string } | null } = {
                     current: null,
                 };
+                const validationAreaKey = routingExclusionContextKey();
                 const route = await validateRouteSegments(candidate.route, {
                     vesselDraftM: vesselDraftMetres(input.settings.vessel),
                     draftAssumed: vesselDraftIsAssumed(input.settings.vessel),
@@ -281,6 +284,12 @@ export async function computeConstrainedPassage(input: {
                         outcome.current = next;
                     },
                 });
+                if (routingExclusionContextKey() !== validationAreaKey)
+                    throw new RoutingExclusionFailure(
+                        'exclusion-unavailable',
+                        'The passage area policy changed before acceptance. Review the route again.',
+                    );
+                acceptedAreaKey = validationAreaKey;
                 const checked = verifiedIsochroneRoute(candidate, route, input.departureTime, input.speed);
                 const env = inspectRouteEnvironment(
                     checked.route,
@@ -307,6 +316,11 @@ export async function computeConstrainedPassage(input: {
                 };
             },
         });
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'The passage area policy changed before acceptance. Review the route again.',
+            );
         result.environmentNotes = [...new Set([...notes, ...(result.environmentNotes ?? [])])];
         const turns = detectTurnWaypoints(result.route, input.departureTime);
         for (let i = 1; i < constraints.points.length - 1; i++) {

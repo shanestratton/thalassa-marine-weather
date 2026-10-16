@@ -14,7 +14,8 @@ import {
     type BerthPortalLease,
 } from './berthToBerth';
 import { withDeadline } from '../../utils/deadline';
-import { isRoutingExclusionFailure } from './passageExclusions';
+import { RoutingExclusionFailure, isRoutingExclusionFailure } from './passageExclusions';
+import { routingExclusionContextKey } from './routingExclusions';
 
 /** Carry per-segment facts and their indices across exact concatenation. No
  * invented chart depth, survey grade, tide datum or propulsion is added. */
@@ -272,6 +273,7 @@ export async function calculateBerthProposal(
         const owned = leases;
         if (!owned || owned.length !== 2 || !owned[0] || !owned[1])
             throw Error('Complete charted berth portals are unavailable. Review the passage again.');
+        let acceptedAreaKey: string | undefined;
         const mixed = await computeBerthToBerth({
             origin: request.departure,
             destination: request.destination,
@@ -338,6 +340,7 @@ export async function calculateBerthProposal(
                 options.onProgress?.('Checking the entire berth-to-berth line and both joins…');
                 const verdict: { current: 'verified' | 'unverified' } = { current: 'unverified' };
                 let areaCaveats: readonly string[] = [];
+                const validationAreaKey = routingExclusionContextKey();
                 const route = await withDeadline(
                     validateRouteSegments(candidate.route, {
                         vesselDraftM: request.draftM,
@@ -356,7 +359,13 @@ export async function calculateBerthProposal(
                     remaining(),
                     'whole berth chart/depth/land check',
                 );
+                if (routingExclusionContextKey() !== validationAreaKey)
+                    throw new RoutingExclusionFailure(
+                        'exclusion-unavailable',
+                        'The passage area policy changed before acceptance. Review the route again.',
+                    );
                 check();
+                acceptedAreaKey = validationAreaKey;
                 return {
                     verified: verdict.current === 'verified',
                     result: {
@@ -369,6 +378,11 @@ export async function calculateBerthProposal(
                 };
             },
         });
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'The passage area policy changed before acceptance. Review the route again.',
+            );
         check();
         const engine = berthDisclosure(mixed, performance.now() - start);
         const warnings = [

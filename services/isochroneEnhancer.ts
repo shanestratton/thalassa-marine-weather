@@ -39,6 +39,7 @@ import { estimateRouteFuel } from './isochrone/routeStats';
 import { verifiedIsochroneRoute } from './routing/verifiedIsochroneRoute';
 import { inspectRouteEnvironment } from './isochrone/routeComfort';
 import { RoutingExclusionFailure, isRoutingExclusionFailure } from './routing/passageExclusions';
+import { routingExclusionContextKey } from './routing/routingExclusions';
 
 const log = createLogger('IsoEnhancer');
 
@@ -277,6 +278,7 @@ export async function enhanceVoyagePlanWithIsochrone(
         //
         // Capped at 15s (matches usePassagePlanner). An unfinished final
         // private-policy check holds the route; it cannot adopt an old line.
+        let acceptedAreaKey: string | undefined;
         const validationAbort = new AbortController();
         let validationTimer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -288,6 +290,7 @@ export async function enhanceVoyagePlanWithIsochrone(
             // must be announced, not buried in a prod-silenced log.
             let enhancerStale = false;
             let areaCaveats: readonly string[] = [];
+            const validationAreaKey = routingExclusionContextKey();
             const validated = await Promise.race([
                 validateRouteSegments(isoResult.route, {
                     // The field name says M — vessel.draft is FEET. Raw
@@ -320,6 +323,12 @@ export async function enhanceVoyagePlanWithIsochrone(
                 );
             }
             if (validated) {
+                if (routingExclusionContextKey() !== validationAreaKey)
+                    throw new RoutingExclusionFailure(
+                        'exclusion-unavailable',
+                        'The passage area policy changed before acceptance. Review the route again.',
+                    );
+                acceptedAreaKey = validationAreaKey;
                 const checked = verifiedIsochroneRoute(
                     isoResult,
                     validated,
@@ -455,6 +464,11 @@ export async function enhanceVoyagePlanWithIsochrone(
             },
         };
 
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'The passage area policy changed before acceptance. Review the route again.',
+            );
         return merged;
     } catch (e) {
         if (isRoutingExclusionFailure(e)) throw e;

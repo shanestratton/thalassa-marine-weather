@@ -586,7 +586,7 @@ export async function validateRouteSegments(
         if (isRoutingExclusionFailure(error)) throw error;
         throw new RoutingExclusionFailure(
             'exclusion-unavailable',
-            'The finished passage current no-go areas could not be fully checked. Review the route again.',
+            'The current no-go areas for the finished passage could not be fully checked. Review the route again.',
         );
     } finally {
         acceptingRead = false;

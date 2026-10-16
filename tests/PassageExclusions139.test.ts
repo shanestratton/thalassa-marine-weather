@@ -31,6 +31,7 @@ vi.mock('../services/enc/EncHazardReportService', () => ({ setLastReport: h.publ
 vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => [] }));
 vi.mock('../services/enc/encIndexCache', () => ({ failedCellIds: () => [] }));
 import { validateRouteSegments } from '../services/isochrone/landAvoidance';
+import { ROUTING_AREA_CAVEATS, knownRouteAreaCaveats } from '../services/routing/routeAreaWords';
 import {
     auditPassageRoutingAreas,
     passageRoutingWindow,
@@ -189,7 +190,8 @@ describe('passage-final actual policy lease and staged emission', () => {
         });
         expect(caveats.mock.calls[0][0]).toEqual([
             'Retained source caution',
-            expect.stringContaining('indicative marine park footprint'),
+            ROUTING_AREA_CAVEATS[5],
+            ROUTING_AREA_CAVEATS[6],
         ]);
         expect(outcome).toHaveBeenCalledExactlyOnceWith({ status: 'verified' });
         expect(h.publish).not.toHaveBeenCalled();
@@ -334,6 +336,11 @@ describe('bounded original passage window and exact negative geometry', () => {
         expect(() => auditPassageRoutingAreas(points, lease(), window, () => {})).toThrow(
             expect.objectContaining({ code: 'exclusion-unavailable' }),
         );
+    });
+    it('retains the exact accepted passage park caution in saved/UI whitelists without adding source prose', () => {
+        expect(
+            knownRouteAreaCaveats([ROUTING_AREA_CAVEATS[5], ROUTING_AREA_CAVEATS[6], 'borrowed chart prose']),
+        ).toEqual([ROUTING_AREA_CAVEATS[5], ROUTING_AREA_CAVEATS[6]]);
     });
     it('recognizes structured policy failures across independently bundled callers only', () => {
         expect(isRoutingExclusionFailure({ code: 'route-exclusion' })).toBe(true);

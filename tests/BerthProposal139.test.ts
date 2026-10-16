@@ -220,3 +220,20 @@ describe('berth proposal area-policy refusal and current caveats', () => {
         expect(h.validate.mock.calls.at(-1)?.[1].signal).toBeInstanceOf(AbortSignal);
     });
 });
+
+it('berth proposal holds an actual auth A/B/A key retirement at the validator return seam', async () => {
+    const { getAuthIdentityScope, setAuthIdentityScope } = await import('../services/authIdentityScope');
+    const original = getAuthIdentityScope().userId;
+    const validate = h.validate;
+    validate.mockImplementationOnce(async (route, options) => {
+        setAuthIdentityScope('fictional-other-policy-owner');
+        setAuthIdentityScope(original);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    try {
+        await expect(calculateBerthProposal(request())).rejects.toMatchObject({ code: 'exclusion-unavailable' });
+    } finally {
+        setAuthIdentityScope(original);
+    }
+});

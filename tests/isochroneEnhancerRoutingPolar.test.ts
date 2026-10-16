@@ -195,3 +195,25 @@ describe('enhancer final area-policy failures never become corridor fallback', (
         expect(out?.routeReasoning).toContain('Indicative park fixture; check current local rules.');
     });
 });
+
+it('enhancer holds an actual auth A/B/A key retirement at the validator return seam', async () => {
+    const { getAuthIdentityScope, setAuthIdentityScope } = await import('../services/authIdentityScope');
+    const original = getAuthIdentityScope().userId;
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    const validate = vi.mocked(validateRouteSegments);
+    validate.mockImplementationOnce(async (route, options) => {
+        setAuthIdentityScope('fictional-other-policy-owner');
+        setAuthIdentityScope(original);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    try {
+        await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+            code: 'exclusion-unavailable',
+        });
+    } finally {
+        setAuthIdentityScope(original);
+    }
+});

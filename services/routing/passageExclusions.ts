@@ -2,6 +2,7 @@
 import type { CurrentRoutingExclusions } from './routingExclusions';
 import type { OverlayRouteBounds } from '../userOverlays/model';
 import { buildExclusionField, routeExclusionConflict } from '../engine/exclusionField';
+import { ROUTING_AREA_CAVEATS } from './routeAreaWords';
 
 export type RoutingExclusionCode = 'route-exclusion' | 'exclusion-unavailable';
 export class RoutingExclusionFailure extends Error {
@@ -25,7 +26,7 @@ export function isRoutingExclusionFailure(error: unknown): error is Error & { co
 const unavailable = () =>
     new RoutingExclusionFailure(
         'exclusion-unavailable',
-        'The finished passage current no-go areas could not be fully checked. Review the route again.',
+        'The current no-go areas for the finished passage could not be fully checked. Review the route again.',
     );
 type Point = { lat: number; lon: number };
 const wrap = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
@@ -101,11 +102,8 @@ export function auditPassageRoutingAreas(
         check();
         return Object.freeze([
             ...lease.advisories,
-            ...(intersectsPark
-                ? [
-                      'The finished passage intersects an indicative marine park footprint. Check current local rules; the footprint grants no permission or clearance.',
-                  ]
-                : []),
+            ...(intersectsPark ? [ROUTING_AREA_CAVEATS[5]] : []),
+            ROUTING_AREA_CAVEATS[6],
         ]);
     } catch (error) {
         check();
