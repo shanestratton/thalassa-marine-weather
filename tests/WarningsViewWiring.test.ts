@@ -37,6 +37,19 @@ describe('the Forecast alerts page wiring', () => {
             coordinates: { lat: 43.3, lon: 5.37 },
             locationType: 'coastal',
             modelUsed: 'wx:ecmwf_ifs025',
+            briefingNetworkAllowed: true,
+        });
+    });
+
+    it('blocks briefing network access in Satellite Mode', () => {
+        expect(VIEW_REGISTRY.warnings.getProps?.({ ...ctx, settings: { satelliteMode: true } })).toEqual({
+            alerts: ctx.weatherAlerts,
+            checkedAt: ctx.weatherGeneratedAt,
+            placeName: ctx.weatherLocationName,
+            coordinates: ctx.weatherCoordinates,
+            locationType: ctx.weatherLocationType,
+            modelUsed: ctx.weatherModelUsed,
+            briefingNetworkAllowed: false,
         });
     });
 
