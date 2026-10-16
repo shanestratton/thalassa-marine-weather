@@ -1074,6 +1074,7 @@ attachSeabed({
     app,
     cacheDir: CACHE_DIR,
     signalkOrigin: SIGNALK_ORIGIN,
+    selfDocument,
     supabaseOrigin: SUPABASE_ORIGIN,
     anonKey: () => SUPABASE_ANON_KEY,
     outbox: diaryRelayOutbox,
