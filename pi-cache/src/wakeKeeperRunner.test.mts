@@ -1,0 +1,363 @@
+import { test, type TestContext } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { PiWakeKeeper } from './wakeKeeper/runner.js';
+import { WakeKeeperStore } from './wakeKeeper/store.js';
+import {
+    wakeHash,
+    wakePairingId,
+    type WakeBinding,
+    type WakePairIdentity,
+    type WakeConfigurationRequest,
+} from './wakeKeeper/contract.js';
+import {
+    defaultWakeRules,
+    wakeRulesCanonical,
+    evaluateWakeRule,
+    initialWakeState,
+    type WakePreset,
+} from './wakeRule/wakeRule.js';
+import type { ChartDevicePublic } from './encDevices.js';
+const start = Date.parse('2026-10-16T00:00:00Z');
+const owner = '00000000-0000-4000-8000-000000000001',
+    pi = '00000000-0000-4000-8000-000000000002';
+const device: ChartDevicePublic = {
+    id: '00000000-0000-4000-8000-000000000003',
+    label: 'Fictional phone',
+    enrolledAt: new Date(start - 60_000).toISOString(),
+    lastSeenAt: new Date(start).toISOString(),
+};
+const pair: WakePairIdentity = {
+    ownerId: owner,
+    piDeviceId: pi,
+    pairingId: wakePairingId(owner, pi, 'fictional-relay-identity'),
+};
+function request(
+    binding: WakeBinding,
+    preset?: WakePreset,
+    expectedRevision: string | null = null,
+): WakeConfigurationRequest {
+    const rules = defaultWakeRules();
+    if (preset) {
+        const r = rules.find((r) => r.preset === preset)!;
+        r.enabled = true;
+        r.selection = {
+            feedId: binding.feedId,
+            sensorId: 'fictional.1',
+            reference: preset === 'wind-above' ? 'true-water' : 'station-3h-fall',
+        };
+        r.minimumDurationMs = 10_000;
+    }
+    return {
+        schema: 1,
+        expectedRevision,
+        binding,
+        draftM: 2,
+        rules,
+        rulesDigest: wakeHash(wakeRulesCanonical(rules, 2)),
+    };
+}
+async function fixture(t: TestContext) {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'thalassa-wake-runner-'));
+    t.after(async () => {
+        assert(path.resolve(directory).startsWith(path.resolve(os.tmpdir()) + path.sep + 'thalassa-wake-runner-'));
+        await fs.rm(directory, { recursive: true, force: true });
+    });
+    const data = {
+        now: start,
+        identity: { ...pair } as WakePairIdentity | null,
+        devices: [{ ...device }],
+        reads: 0,
+        document: null as unknown,
+        block: null as (() => Promise<unknown>) | null,
+        enrollmentFailure: false,
+    };
+    const store = new WakeKeeperStore(directory);
+    const deps = {
+        store,
+        identity: () => data.identity,
+        devices: {
+            list: async () => {
+                if (data.enrollmentFailure) throw new Error('synthetic unreadable file');
+                return data.devices;
+            },
+        },
+        selfDocument: async () => {
+            data.reads++;
+            return data.block ? data.block() : data.document;
+        },
+        now: () => data.now,
+    };
+    const keeper = new PiWakeKeeper(deps);
+    await keeper.start(false);
+    t.after(() => keeper.stop());
+    const wind = (value = 20, at = data.now) => ({
+        uuid: 'urn:mrn:imo:mmsi:000000001',
+        environment: {
+            wind: {
+                speedTrue: {
+                    value,
+                    $source: 'fictional.1',
+                    timestamp: new Date(at).toISOString(),
+                    meta: { units: 'm/s' },
+                },
+            },
+        },
+    });
+    const pressure = (pa = 101000, source = 'fictional.1', at = data.now) => ({
+        uuid: 'urn:mrn:imo:mmsi:000000001',
+        environment: {
+            outside: {
+                pressure: { value: pa, $source: source, timestamp: new Date(at).toISOString(), meta: { units: 'Pa' } },
+            },
+        },
+    });
+    data.now += 100;
+    data.document = wind();
+    await keeper.tick();
+    const binding = (await keeper.sensors(device)).binding!;
+    assert.ok(binding);
+    return { data, keeper, store, deps, binding, wind, pressure };
+}
+test('defaults OFF; read endpoints never poll source; phone and Pi evaluate exactly the same original reading', async (t) => {
+    const f = await fixture(t),
+        { keeper, data, binding } = f;
+    let status = await keeper.status(device);
+    assert.equal(status.configured, false);
+    assert.equal(status.proof, null);
+    assert.equal(status.reason, 'off');
+    const before = data.reads;
+    const sensor = (await keeper.sensors(device)).options.find((o) => o.preset === 'wind-above')!;
+    assert.equal(sensor.reading?.at, data.now);
+    assert.equal(data.reads, before);
+    const body = request(binding, 'wind-above');
+    const config = await keeper.configure(body, device);
+    status = await keeper.status(device);
+    assert.equal(status.proof, null);
+    data.now += 1000;
+    data.document = f.wind();
+    await keeper.tick();
+    status = await keeper.status(device);
+    assert.equal(status.rules.find((r) => r.preset === 'wind-above')?.status, 'pending');
+    const reading = (await keeper.sensors(device)).options.find((o) => o.preset === 'wind-above')!.reading;
+    assert.deepEqual(
+        status.rules.find((r) => r.preset === 'wind-above')?.lastAt,
+        evaluateWakeRule(config.rules[1], initialWakeState(), reading, data.now).state.lastAt,
+    );
+    assert.equal(status.proof?.rulesDigest, body.rulesDigest);
+    assert.deepEqual(status.proof?.binding, binding);
+    const last = data.now;
+    data.now += 10_000;
+    await keeper.tick();
+    status = await keeper.status(device);
+    assert.equal(status.rules[1].active, false);
+    assert.equal(status.rules[1].lastAt, last);
+    data.document = f.wind();
+    await keeper.tick();
+    assert.equal((await keeper.status(device)).rules[1].active, true);
+    assert.deepEqual(status.push, { state: 'unavailable', capability: 0 });
+});
+test('stale neither fires nor clears active state; proof expires without a poll, backwards wall clock cannot keep old green', async (t) => {
+    const f = await fixture(t);
+    const body = request(f.binding, 'wind-above');
+    body.rules[1].minimumDurationMs = 0;
+    body.rulesDigest = wakeHash(wakeRulesCanonical(body.rules, 2));
+    await f.keeper.configure(body, device);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    let status = await f.keeper.status(device);
+    assert.equal(status.rules[1].active, true);
+    assert.ok(status.proof);
+    f.data.now -= 100;
+    assert.equal((await f.keeper.status(device)).proof, null);
+    f.data.now += 14_100;
+    status = await f.keeper.status(device);
+    assert.equal(status.proof, null);
+    assert.equal(status.rules[1].status, 'unknown');
+    assert.equal(status.rules[1].active, true);
+    assert.equal(status.rules[1].value, null);
+    f.data.document = null;
+    await f.keeper.tick();
+    status = await f.keeper.status(device);
+    assert.equal(status.rules[1].active, true);
+    assert.equal(status.rules[1].status, 'unknown');
+    f.data.document = f.wind(1);
+    await f.keeper.tick();
+    assert.equal((await f.keeper.status(device)).rules[1].active, true);
+    f.data.now += 31_000;
+    f.data.document = f.wind(1);
+    await f.keeper.tick();
+    // A missing source interval cannot count towards the clear duration.
+    assert.equal((await f.keeper.status(device)).rules[1].active, true);
+});
+test('process restart and stopped-loop restart require a new postboot original measurement, no persisted active/proof', async (t) => {
+    const f = await fixture(t);
+    await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    assert.ok((await f.keeper.status(device)).proof);
+    f.keeper.stop();
+    const restarted = new PiWakeKeeper(f.deps);
+    t.after(() => restarted.stop());
+    await restarted.start(false);
+    await restarted.tick();
+    assert.equal((await restarted.status(device)).proof, null);
+    assert.equal((await restarted.status(device)).rules[1].active, false);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await restarted.tick();
+    assert.ok((await restarted.status(device)).proof);
+    restarted.stop();
+    await restarted.start(false);
+    await restarted.tick();
+    assert.equal((await restarted.status(device)).proof, null);
+});
+test('owner/pair/feed/enrollment change retires pending state, catalogue and proof; late old-document work cannot commit', async (t) => {
+    const f = await fixture(t);
+    await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    assert.ok((await f.keeper.status(device)).proof);
+    let release!: (value: unknown) => void;
+    const deferred = new Promise<unknown>((r) => {
+        release = r;
+    });
+    f.data.block = () => deferred;
+    const ticking = f.keeper.tick();
+    await new Promise((r) => setTimeout(r, 5));
+    f.data.identity = { ...pair, ownerId: '00000000-0000-4000-8000-000000000004' };
+    assert.equal((await f.keeper.status(device)).configuration, null);
+    release(f.wind());
+    await ticking;
+    assert.deepEqual((await f.keeper.sensors(device)).options, []);
+    assert.equal((await f.keeper.status(device)).proof, null);
+    f.data.block = null;
+    f.data.identity = { ...pair };
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    f.data.devices = [];
+    const status = await f.keeper.status(device);
+    assert.equal(status.proof, null);
+    assert.equal(status.reason, 'binding-changed');
+    assert.deepEqual((await f.keeper.sensors(device)).options, []);
+});
+test('different verified vessel feed cannot reuse old selection/profile; offline explicit stand-down remains possible', async (t) => {
+    const f = await fixture(t),
+        config = await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    f.data.now += 1000;
+    f.data.document = { ...f.wind(), uuid: 'urn:mrn:imo:mmsi:000000002' };
+    await f.keeper.tick();
+    const status = await f.keeper.status(device);
+    assert.equal(status.reason, 'binding-changed');
+    assert.equal(status.proof, null);
+    assert.notEqual(status.binding?.feedId, f.binding.feedId);
+    assert.equal(status.rules.length, 0);
+    await assert.rejects(f.keeper.configure(request(f.binding, 'wind-above', config.revision), device), {
+        code: 'binding',
+    });
+    f.data.document = null;
+    await f.keeper.clear(
+        { schema: 1, binding: f.binding, expectedRevision: config.revision, rulesDigest: config.rulesDigest },
+        device,
+    );
+    assert.equal((await f.keeper.status(device)).configured, false);
+});
+test('real measured pressure warms over bounded minutes, retains current leaf, resets on physical source change', async (t) => {
+    const f = await fixture(t);
+    f.data.now += 1000;
+    f.data.document = f.pressure();
+    await f.keeper.tick();
+    let sensors = await f.keeper.sensors(device);
+    assert.equal(sensors.pressure.state, 'warming');
+    assert.equal(sensors.options.find((o) => o.preset === 'pressure-fall')?.reading, null);
+    for (let i = 1; i <= 190; i++) {
+        f.data.now += 60_000;
+        f.data.document = f.pressure(101000 - i * 3);
+        await f.keeper.tick();
+    }
+    sensors = await f.keeper.sensors(device);
+    assert.equal(sensors.pressure.state, 'ready');
+    assert.equal(sensors.pressure.sampleCount, 191);
+    assert.ok(sensors.pressure.spanMs >= 3 * 3_600_000);
+    const reading = sensors.options.find((o) => o.preset === 'pressure-fall')!.reading!;
+    assert.equal(reading.at, f.data.now);
+    assert.ok(reading.value > 4 && reading.value < 7);
+    for (let i = 0; i < 100; i++) {
+        f.data.now += 10;
+        f.data.document = f.pressure(100400);
+        await f.keeper.tick();
+    }
+    sensors = await f.keeper.sensors(device);
+    assert.equal(sensors.pressure.sampleCount, 191);
+    assert.equal(sensors.pressure.state, 'ready');
+    f.data.now += 1000;
+    f.data.document = f.pressure(100400, 'fictional.other');
+    await f.keeper.tick();
+    sensors = await f.keeper.sensors(device);
+    assert.equal(sensors.pressure.state, 'warming');
+    assert.equal(sensors.pressure.sampleCount, 1);
+});
+test('enabled selection must be from a current qualified fixed source; failed CAS never overwrites saved config', async (t) => {
+    const f = await fixture(t),
+        bad = request(f.binding, 'wind-above');
+    bad.rules[1].selection!.sensorId = 'not-present';
+    bad.rulesDigest = wakeHash(wakeRulesCanonical(bad.rules, 2));
+    await assert.rejects(f.keeper.configure(bad, device), { code: 'binding' });
+    const config = await f.keeper.configure(request(f.binding), device);
+    await assert.rejects(f.keeper.configure(request(f.binding), device), { code: 'conflict' });
+    assert.equal((await f.store.load())?.revision, config.revision);
+    await assert.rejects(
+        f.keeper.clear(
+            { schema: 1, binding: f.binding, expectedRevision: config.revision, rulesDigest: '0'.repeat(64) },
+            device,
+        ),
+        { code: 'conflict' },
+    );
+});
+test('unreadable enrollment is unknown rather than alarm clear; a later confirmed removal retires the profile', async (t) => {
+    const f = await fixture(t),
+        body = request(f.binding, 'wind-above');
+    body.rules[1].minimumDurationMs = 0;
+    body.rulesDigest = wakeHash(wakeRulesCanonical(body.rules, 2));
+    await f.keeper.configure(body, device);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    assert.equal((await f.keeper.status(device)).rules[1].active, true);
+    f.data.enrollmentFailure = true;
+    await f.keeper.tick();
+    let status = await f.keeper.status(device);
+    assert.equal(status.reason, 'storage-unavailable');
+    assert.equal(status.proof, null);
+    assert.equal(status.rules[1].active, true);
+    assert.equal(status.rules[1].status, 'unknown');
+    f.data.enrollmentFailure = false;
+    f.data.devices = [];
+    status = await f.keeper.status(device);
+    assert.equal(status.reason, 'binding-changed');
+    assert.deepEqual(status.rules, []);
+});
+test('an atomic external configuration revision is adopted on the next owned tick; old active evaluation is never persisted', async (t) => {
+    const f = await fixture(t),
+        body = request(f.binding, 'wind-above');
+    body.rules[1].minimumDurationMs = 0;
+    body.rulesDigest = wakeHash(wakeRulesCanonical(body.rules, 2));
+    const old = await f.keeper.configure(body, device);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    assert.equal((await f.keeper.status(device)).rules[1].active, true);
+    const off = await f.store.configure(request(f.binding, undefined, old.revision), async () => true, f.data.now);
+    await f.keeper.tick();
+    const status = await f.keeper.status(device);
+    assert.equal(status.configuration?.revision, off.revision);
+    assert.equal(status.reason, 'off');
+    assert.equal(status.proof, null);
+    assert.equal(status.rules[1].active, false);
+});
