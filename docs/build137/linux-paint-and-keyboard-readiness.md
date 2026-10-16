@@ -139,3 +139,24 @@ class/CSS variable readiness. All native calls keep their original receiver
 and arguments; there are no extra product draws or pixel reads during draw.
 The original compact case remains free of method interception, so a probe-only
 pass cannot satisfy acceptance.
+
+The native-state probe on source `182dd822a`, Linux run `38979690246`,
+retains valid identical draw-2/draw-3 coordinates and opaque colours despite
+their different raster result. Both have loaded font status and populated
+theme variables. The curve occupies logical y49–64 and the labels y80 within
+the 81 px canvas. Artifact `12080356977` is 447973 bytes, SHA256
+`e9f75aff5f0210f531638653de474220364932b576bd45ef6e95a18d2ad8234c`.
+Independent scans of a failed screenshot place grid lines about 195.5 backing
+pixels apart, three times their expected DPR-scaled 65.125 pixel spacing. This
+suggests an additional effective raster scale, rather than bad input colours
+or off-surface logical coordinates; it is not yet a proven platform cause.
+
+The next diagnostic adds actual alpha-column band bounds to the existing
+readback. In the isolated probe only, three fresh canvases use the same source
+CSS/backing sizes and DPR transform, then paint a rectangle at logical
+(10,12) with size 4 by 5. Its actual nontransparent backing bounds are compared
+with the expected DPR-scaled bounds. One control is detached, one temporarily
+offscreen under body, and one offscreen under the source canvas's parent to
+share its ancestor compositing layer. Each attached control is removed in a
+finally block. None paints into or over the product, and the original case
+does not create controls or intercept native canvas methods.

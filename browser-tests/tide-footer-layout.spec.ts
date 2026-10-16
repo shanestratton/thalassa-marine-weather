@@ -191,10 +191,47 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                             opaque = 0,
                             belowCaptionPaint = 0,
                             maxAlpha = 0;
+                        const columns: Array<{ count: number; minY: number; maxY: number } | undefined> = [];
                         for (let i = 3; i < data.length; i += 4) {
-                            if (data[i] > 0) nontransparent++;
+                            if (data[i] > 0) {
+                                nontransparent++;
+                                const pixel = (i - 3) / 4;
+                                const x = pixel % el.width;
+                                const y = (pixel - x) / el.width;
+                                const column = columns[x];
+                                columns[x] = {
+                                    count: (column?.count ?? 0) + 1,
+                                    minY: Math.min(column?.minY ?? y, y),
+                                    maxY: Math.max(column?.maxY ?? y, y),
+                                };
+                            }
                             if (data[i] > 128) opaque++;
                             maxAlpha = Math.max(maxAlpha, data[i]);
+                        }
+                        const alphaBands: Array<{
+                            minX: number;
+                            maxX: number;
+                            minY: number;
+                            maxY: number;
+                            pixels: number;
+                        }> = [];
+                        for (let x = 0; x < el.width; x++) {
+                            const column = columns[x];
+                            if (!column) continue;
+                            const previous = alphaBands.at(-1);
+                            if (previous?.maxX === x - 1) {
+                                previous.maxX = x;
+                                previous.minY = Math.min(previous.minY, column.minY);
+                                previous.maxY = Math.max(previous.maxY, column.maxY);
+                                previous.pixels += column.count;
+                            } else if (alphaBands.length < 32)
+                                alphaBands.push({
+                                    minX: x,
+                                    maxX: x,
+                                    minY: column.minY,
+                                    maxY: column.maxY,
+                                    pixels: column.count,
+                                });
                         }
                         for (let y = Math.max(0, visibleTop); y < el.height; y++)
                             for (let x = 0; x < el.width; x++) {
@@ -240,19 +277,72 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                                 transform: style.transform,
                             };
                         };
-                        // An unmounted fresh surface is a diagnostic control
-                        // only. It never draws into or overlays the product.
-                        let freshSurface: { pixel: number[]; width: number; height: number } | null = null;
+                        // Fresh calibration surfaces are diagnostic controls
+                        // only. They never draw into or overlay the product.
+                        let freshSurface: Record<string, unknown> | null = null;
                         if (Object.keys(commands).length > 0) {
-                            const control = document.createElement('canvas');
-                            control.width = el.width;
-                            control.height = el.height;
-                            const controlContext = control.getContext('2d')!;
-                            controlContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-                            controlContext.fillStyle = '#22d3ee';
-                            controlContext.fillRect(0, 0, 12, 12);
-                            const pixel = [...controlContext.getImageData(1, 1, 1, 1).data];
-                            freshSurface = { pixel, width: control.width, height: control.height };
+                            const calibrate = (attachment: 'none' | 'body' | 'source-parent') => {
+                                const control = document.createElement('canvas');
+                                const sourceBox = el.getBoundingClientRect();
+                                control.style.cssText = `position:fixed;left:-2000px;top:-2000px;width:${sourceBox.width}px;height:${sourceBox.height}px;pointer-events:none`;
+                                control.setAttribute('aria-hidden', 'true');
+                                control.width = el.width;
+                                control.height = el.height;
+                                if (attachment === 'body') document.body.append(control);
+                                if (attachment === 'source-parent') el.parentElement!.append(control);
+                                try {
+                                    const cssRect = rect(control);
+                                    const controlContext = control.getContext('2d')!;
+                                    controlContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+                                    controlContext.fillStyle = '#22d3ee';
+                                    controlContext.fillRect(10, 12, 4, 5);
+                                    const pixels = controlContext.getImageData(
+                                        0,
+                                        0,
+                                        control.width,
+                                        control.height,
+                                    ).data;
+                                    let minX = control.width,
+                                        minY = control.height,
+                                        maxX = -1,
+                                        maxY = -1,
+                                        count = 0;
+                                    for (let i = 3; i < pixels.length; i += 4)
+                                        if (pixels[i] > 0) {
+                                            const index = (i - 3) / 4;
+                                            const x = index % control.width;
+                                            const y = (index - x) / control.width;
+                                            minX = Math.min(minX, x);
+                                            maxX = Math.max(maxX, x);
+                                            minY = Math.min(minY, y);
+                                            maxY = Math.max(maxY, y);
+                                            count++;
+                                        }
+                                    const matrix = controlContext.getTransform();
+                                    return {
+                                        attachment,
+                                        backing: { width: control.width, height: control.height },
+                                        cssSize: { width: sourceBox.width, height: sourceBox.height },
+                                        cssRect,
+                                        logicalRect: { x: 10, y: 12, width: 4, height: 5 },
+                                        expectedBacking: {
+                                            minX: 10 * devicePixelRatio,
+                                            minY: 12 * devicePixelRatio,
+                                            maxX: 14 * devicePixelRatio - 1,
+                                            maxY: 17 * devicePixelRatio - 1,
+                                        },
+                                        actualBacking: { minX, minY, maxX, maxY, pixels: count },
+                                        transform: [matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f],
+                                    };
+                                } finally {
+                                    control.remove();
+                                }
+                            };
+                            freshSurface = {
+                                unmounted: calibrate('none'),
+                                body: calibrate('body'),
+                                sourceParent: calibrate('source-parent'),
+                            };
                         }
                         return {
                             ...commands,
@@ -263,6 +353,7 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                             opaque: opaque / devicePixelRatio ** 2,
                             belowCaptionPaint: belowCaptionPaint / devicePixelRatio ** 2,
                             maxAlpha,
+                            alphaBands,
                             visibleHeight: (axisTop - visibleTop) / devicePixelRatio,
                             width: el.width,
                             height: el.height,
