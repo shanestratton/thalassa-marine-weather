@@ -1,10 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
+import { applyWideFonts } from '../e2e/helpers/wideFonts';
 
 const unexpectedByPage = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
     const unexpected: string[] = [];
     unexpectedByPage.set(page, unexpected);
+    await applyWideFonts(page);
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
         if (['127.0.0.1', 'localhost'].includes(url.hostname) || ['blob:', 'data:'].includes(url.protocol))
