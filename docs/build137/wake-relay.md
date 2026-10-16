@@ -1,6 +1,6 @@
-# Build 137: prepared wake relay
+# Build 137: wake relay
 
-This is reviewed-source preparation, not a deployment or a delivery claim. The Pi keeper still reports `push: {state: 'unavailable', capability: 0}`. The episode/ack transport bridge, phone notification acknowledgement and update 7 installation remain separate integration work. No product database, APNs request, device notification or paid provider was used in these checks.
+The reviewed backend packet is deployed to project `pcisdplnodrphauixcau`: migration `20261016154726`, `send-push` version22 and `pi-alarm-relay` version3. Existing authentication settings are retained. Schema and delivery capability checks both return1; an invalid Pi credential returns401. Every deployed runtime source file matches the reviewed packet. The post-deploy check found zero wake contexts, events and queue rows, and no new advisor notice names. No test notification was sent. Pi update7 installation and physical locked-phone delivery remain pending.
 
 ## Fixed authenticated family
 
@@ -19,9 +19,9 @@ An episode key is derived by the exported `wakeRelayAlarmKey` helper from the ex
 
 The Pi bridge must reconcile capability and context before sending, retain the returned cloud revision, and invalidate that binding whenever keeper owner/pair/feed/digest/configuration/instance changes. It must never automatically adopt a conflicting cloud profile. The descriptor source hash and alarm source hash must be identical. Acknowledgements must be applied only to the matching wake family, context and episode; they cannot affect AIS/underway state.
 
-## Held database migration
+## Applied database migration
 
-`supabase/held-migrations/20261016135225_pi_wake_keeper_relay.sql` was created with Supabase CLI 2.121.0 and deliberately moved out of the automatic migration directory. Apply only this exact reviewed file after the PostgreSQL race proof and an explicit integration decision. It has no HTTP extension, notification webhook or test rows.
+The SQL was created with Supabase CLI2.121.0 and held outside automatic migrations for review. After the actual PostgreSQL17.6 race proof and integration checks, only this exact packet was applied through the project migration API. It now lives at `supabase/migrations/20261016154726_pi_wake_keeper_relay.sql`, matching the live ledger version. Its SHA256 is `c1444778087bdbb87b30e6f2bafef1602f9cf1e21b8f62baf81e55d1feb22d1b`. The initial held annotation is preserved with the exact tested/deployed bytes; the live migration ledger and this receipt record its applied status. It has no HTTP extension, notification webhook or test rows.
 
 The service-only `pi_wake_apply` RPC rechecks the authoritative relay owner/enabled row and uses a short owner-scoped advisory transaction lock. Context changes are CAS operations. Context/event tables have RLS and owner-only reads, with no authenticated direct writes. Authenticated acknowledgement passes through a narrow private security-definer function checking `auth.uid()`; anonymous use and acknowledgement of another owner's event are refused.
 
@@ -44,4 +44,4 @@ node node_modules/tsx/dist/cli.mjs scripts/check-pi-wake-postgres.mjs
 
 Run only in the disposable PostgreSQL 17.6 CI service; never point it at a product project. The analogous single-session harness uses `PGLITE_MODULE_PATH` and `scripts/check-pi-wake-db.mjs`.
 
-After a successful race proof and source review, a later deployment packet must preserve live authentication/configuration and include the exact new sibling modules plus `utils/wakeRule.ts`, which the relay imports. The safe backend order is held migration, `send-push`, then `pi-alarm-relay`; both capability halves must report version 1 before any Pi binding/write. Deploying these prepared halves alone does not enable the keeper or send a test push. Before update 7 readiness, integrate and test the Pi episode/ack bridge, account/pair/feed retirement, lost-response/CAS behavior and phone acknowledgement, then perform the separately authorized install/device checks. Keep the UI unavailable until those proofs exist.
+Deployment followed the reviewed order: migration, `send-push`, then `pi-alarm-relay`. Both function snapshots from before deployment are retained for rollback. Runtime checks used the existing project-local service credential inside the database; it stayed inside the project and outside receipts. The checks requested only delivery capabilities and an invalid fictional Pi probe, with no queue or APNs action. Source checks separately cover the bridge, account/pair/feed retirement, explicit CAS recovery and phone acknowledgement. A released app, guarded Pi update7 install and physical-device checks remain necessary for end-to-end delivery acceptance; fresh matching keeper/recipient/context proof still gates the UI.

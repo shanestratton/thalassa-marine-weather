@@ -106,7 +106,7 @@ try {
     assert.match(version, /^17\.6(?:\D|$)/);
     checks++;
     await pool.query(await read('tests/sql/pi-wake-base.sql'));
-    await pool.query(await read('supabase/held-migrations/20261016135225_pi_wake_keeper_relay.sql'));
+    await pool.query(await read('supabase/migrations/20261016154726_pi_wake_keeper_relay.sql'));
     const bound = await call({ family: 'wake', action: 'bind', context, expectedContextRevision: null }),
         revision = bound.contextRevision;
     // Same eval clock deliberately avoids the independent out-of-order-clock

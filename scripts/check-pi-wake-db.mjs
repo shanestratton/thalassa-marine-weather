@@ -106,7 +106,7 @@ async function sync(
 }
 try {
     await db.exec(await read('tests/sql/pi-wake-base.sql'));
-    await db.exec(await read('supabase/held-migrations/20261016135225_pi_wake_keeper_relay.sql'));
+    await db.exec(await read('supabase/migrations/20261016154726_pi_wake_keeper_relay.sql'));
     eq(await as('service_role', null, 'SELECT public.pi_alarm_wake_capability()'), 1, 'reviewed schema capability');
     for (const role of ['anon', 'authenticated']) {
         eq(
@@ -353,7 +353,7 @@ try {
         }),
     );
 } catch (error) {
-    const source = await read('supabase/held-migrations/20261016135225_pi_wake_keeper_relay.sql');
+    const source = await read('supabase/migrations/20261016154726_pi_wake_keeper_relay.sql');
     console.error(
         JSON.stringify({
             message: error.message,
