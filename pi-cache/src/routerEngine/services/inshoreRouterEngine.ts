@@ -72,6 +72,7 @@ import {
     UNCHARTED_MAX_RUN_M,
 } from './engine/constants.js';
 import { applyTrackPriors } from './engine/trackPriors.js';
+import { routeTideGatedCandidate } from './engine/tideGatedRoute.js';
 import { auditTrafficLaneRoute } from './engine/trafficLanes.js';
 import {
     applyExclusionField,
@@ -521,7 +522,10 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
     } catch (error) {
         return unavailable(error);
     }
-    const result = routeInshoreWithExclusions(rawLayers, { ...req, _exclusionField: field });
+    const checkedRequest = { ...req, _exclusionField: field };
+    const result = req._tideCandidate?.enabled
+        ? routeTideGatedCandidate(rawLayers, checkedRequest)
+        : routeInshoreWithExclusions(rawLayers, checkedRequest);
     if ('error' in result) return result;
     try {
         const conflict = routeExclusionConflict(result.polyline, field);
