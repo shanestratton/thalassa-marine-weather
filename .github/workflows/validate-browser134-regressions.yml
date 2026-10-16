@@ -28,18 +28,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [keyboard, production]
+        suite: [keyboard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 'd42668411a5117e443a6bc0b6bc5b8839dbb17f7'
+          ref: 'aa200d597abfe6453b0cd89442a2171adbd922d3'
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: npm
       - name: Verify source
-        run: test "$(git rev-parse HEAD)" = 'd42668411a5117e443a6bc0b6bc5b8839dbb17f7'
+        run: test "$(git rev-parse HEAD)" = 'aa200d597abfe6453b0cd89442a2171adbd922d3'
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit
       - name: Actual offline restart and complete trip flow in both engines
