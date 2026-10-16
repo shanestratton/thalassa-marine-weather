@@ -10,6 +10,7 @@ import { gradeRadarContact, radarCollisionOwnship } from '../../utils/radarColli
 import { ownMotionState, sanitiseCollisionPrefs, type CollisionPairName } from '../../utils/collisionRule';
 import type { EncounterOwnState } from '../../utils/collisionEncounter';
 import { subscribeAuthIdentityScope } from '../authIdentityScope';
+import { PiRadarWatchStateStore } from './piRadarWatchState';
 let stop: (() => void) | null = null;
 let releasePi: (() => void) | null = null;
 let pairs = new Map<string, CollisionPairName>();
@@ -99,6 +100,7 @@ export function startRadarWatch(): () => void {
         });
     };
     const disposers = [
+        PiRadarWatchStateStore.retain(),
         RadarStore.subscribe(queue),
         AisGuardZone.subscribe(() => runRadarWatch()),
         useSettingsStore.subscribe(queue),

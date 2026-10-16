@@ -74,6 +74,8 @@ import { UnderwayAlarmStore, type UnderwayAlarmCard } from '../../services/under
 import { WakeAlarmStore } from '../../services/alarms/wakeAlarmStore';
 import { RadarAlarmStore } from '../../services/radar/radarAlarmStore';
 import { RadarAlarmCards } from './RadarAlarmCards';
+import { PiRadarAlarmCards } from './PiRadarWatchControls';
+import { PiRadarWatchStateStore } from '../../services/radar/piRadarWatchState';
 const WakeAlarmCards = React.lazy(() => import('./WakeAlarmCards').then((m) => ({ default: m.WakeAlarmCards })));
 
 const UnderwayAlarmCards = React.lazy(() =>
@@ -490,6 +492,21 @@ export const AisGuardAlert: React.FC = () => {
     }, []);
     const showingUnderway = underway.cards.length > 0 || underway.notices.length > 0;
     const [radar, setRadar] = useState(RadarAlarmStore.get);
+    const [piRadar, setPiRadar] = useState(PiRadarWatchStateStore.get);
+    const hasPiRadar = !!piRadar.view;
+    useEffect(() => {
+        if (!hasPiRadar) return;
+        const timer = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [hasPiRadar]);
+    useEffect(() => {
+        const sync = () => {
+            setPiRadar(PiRadarWatchStateStore.get());
+            setNowMs(Date.now());
+        };
+        sync();
+        return PiRadarWatchStateStore.subscribe(sync);
+    }, []);
     useEffect(() => {
         const sync = () => {
             setRadar(RadarAlarmStore.get());
@@ -520,13 +537,17 @@ export const AisGuardAlert: React.FC = () => {
         !showingUnderway &&
         wake.length === 0 &&
         radar.cards.length === 0 &&
-        !radar.capacity
+        !radar.capacity &&
+        !piRadar.view?.alarms.length &&
+        !piRadar.view?.capacity
     ) {
         return null;
     }
     const alarming =
         piAlarms.length > 0 ||
         radar.cards.some((c) => !c.cleared) ||
+        !!piRadar.view?.alarms.some((c) => !c.cleared) ||
+        !!piRadar.view?.capacity ||
         !!(radar.capacity && !radar.capacity.acknowledged) ||
         underway.cards.some((c) => c.sounding) ||
         wake.some((c) => !c.quiet && !c.muted) ||
@@ -602,6 +623,7 @@ export const AisGuardAlert: React.FC = () => {
                     <CollisionCard key={`c-${alert.mmsi}`} alert={alert as CollisionAlertCard} />
                 ))}
             <RadarAlarmCards state={radar} now={nowMs} />
+            <PiRadarAlarmCards state={piRadar} now={nowMs} />
             {/* Shoal water, then off route (126-02a): under the collision cards, above the guard ring. */}
             {wake.some((c) => c.preset === 'depth-below-keel') && (
                 <React.Suspense fallback={null}>

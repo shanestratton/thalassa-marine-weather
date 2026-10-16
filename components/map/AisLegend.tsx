@@ -28,6 +28,8 @@ import { triggerHaptic } from '../../utils/system';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { AIS_LEGEND_ITEMS } from './aisPresentationPalette';
 import { AisCoverageNotice } from './AisCoverageNotice';
+import { PiRadarWatchControls } from './PiRadarWatchControls';
+import { PiRadarWatchStateStore } from '../../services/radar/piRadarWatchState';
 
 /** The anchor's real sound check, in its collision wording (loaded only when arming). */
 const SoundCheckModal = lazyRetry(
@@ -133,8 +135,10 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
     // Disarming stays one tap.
     const toggleGuard = useCallback(() => {
         triggerHaptic('medium');
-        if (guardState.enabled) AisGuardZone.setEnabled(false);
-        else setSoundCheck(true);
+        if (guardState.enabled) {
+            AisGuardZone.setEnabled(false);
+            void PiRadarWatchStateStore.standDownDeliberately();
+        } else setSoundCheck(true);
     }, [guardState.enabled]);
 
     const selectRadius = useCallback((r: number) => {
@@ -425,6 +429,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                 }
             >
                 <AisCoverageNotice />
+                <PiRadarWatchControls />
             </div>
             {soundCheck && (
                 <React.Suspense fallback={null}>
@@ -433,6 +438,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                         onConfirm={() => {
                             setSoundCheck(false);
                             AisGuardZone.armAfterSoundCheck();
+                            void PiRadarWatchStateStore.armDeliberately();
                         }}
                         onCancel={() => setSoundCheck(false)}
                     />
