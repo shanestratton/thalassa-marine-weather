@@ -45,7 +45,7 @@ import { readS57 } from './enc/types';
 import { hasCellGeoJSON, loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { collectTrackRoutingPriors, trackPriorContextKey } from './routing/trackRoutingPriors';
-import { auditFinishedRouteExclusions } from './engine/exclusionField';
+import { auditFinishedRouteExclusions, finishedTrafficLaneGuidance } from './engine/exclusionField';
 import {
     readCurrentRoutingExclusions,
     routingExclusionContextKey,
@@ -887,6 +887,7 @@ async function tryInshoreRouteInner(
         ...(run.routingExclusions.marineParks ? { MPA_CAUTION: run.routingExclusions.marineParks } : {}),
         RESARE: { type: 'FeatureCollection', features: [] },
         TSEZNE: { type: 'FeatureCollection', features: [] },
+        TSSLPT: { type: 'FeatureCollection', features: [] },
         LNDARE: { type: 'FeatureCollection', features: [] },
         DEPARE: { type: 'FeatureCollection', features: [] },
         OBSTRN: { type: 'FeatureCollection', features: [] },
@@ -1074,7 +1075,7 @@ async function tryInshoreRouteInner(
             (merged.SEAARE!.features as unknown[]).push(...seaare.features);
         }
         let areasExtracted = true;
-        for (const name of ['RESARE', 'TSEZNE'] as const) {
+        for (const name of ['RESARE', 'TSEZNE', 'TSSLPT'] as const) {
             const original = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[name];
             if (original?.type === 'FeatureCollection' && Array.isArray(original.features))
                 merged[name]!.features.push(...original.features);
@@ -2035,10 +2036,7 @@ async function tryInshoreRouteInner(
         where: hosted.where,
     });
     const rawResult = hosted.output.result;
-    const res =
-        rawResult && 'polyline' in rawResult && run.routingExclusions.advisories.length
-            ? { ...rawResult, routeAreaCaveats: [...run.routingExclusions.advisories] }
-            : rawResult;
+    let res = rawResult;
     if (res && 'polyline' in res) {
         if (!routeInsideAreaWindow(res.polyline, areaWindow))
             return {
@@ -2048,6 +2046,23 @@ async function tryInshoreRouteInner(
             };
         const failure = auditFinishedRouteExclusions(merged, res.polyline, stillWanted);
         if (failure) return { ...failure, cellsUsed };
+        try {
+            // A hosted result cannot supply or retain its own direction verdict.
+            // Recompute from the original cohort after every route splice.
+            const guidance = finishedTrafficLaneGuidance(merged, res.polyline, stillWanted);
+            const current = { ...res, routeAreaCaveats: [...run.routingExclusions.advisories] };
+            delete current.trafficLaneGuidance;
+            if (guidance) current.trafficLaneGuidance = guidance;
+            stillWanted();
+            res = current;
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') throw error;
+            return {
+                error: 'The finished route’s traffic-lane guidance could not be checked. Review the current chart and route again.',
+                code: 'exclusion-unavailable',
+                cellsUsed,
+            };
+        }
     }
     // A pin's dry tail with when the boat floats over it (125-05b), from the
     // tide curves this thread loaded.
@@ -2094,6 +2109,8 @@ export function inshoreRouteToGeoJSON(
             // transient banner (fix-up, 2026-09-30).
             ...(result.structuresUnknownCells?.length ? { structuresUnknownCells: result.structuresUnknownCells } : {}),
             ...(result.exclusionsUnchecked ? { exclusionsUnchecked: true } : {}),
+            ...(result.trafficLaneGuidance ? { trafficLaneGuidance: result.trafficLaneGuidance } : {}),
+            ...(result.routeAreaCaveats?.length ? { routeAreaCaveats: [...result.routeAreaCaveats] } : {}),
             ...(result.pinOffWater ? { pinOffWater: result.pinOffWater } : {}),
             // …and a shallow pin whose tail is not direct (Shane, 2026-10-03).
             ...(result.pinTail ? { pinTail: result.pinTail } : {}),

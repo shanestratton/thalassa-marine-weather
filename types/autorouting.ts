@@ -68,6 +68,8 @@ export interface ThalassaRouteDisclosure {
     surveyUncheckedCells?: string[];
     structuresUnknownCells?: string[];
     exclusionsUnchecked?: boolean;
+    trafficLaneGuidance?: 'charted-flow' | 'orientation-unknown';
+    routeAreaCaveats?: string[];
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
     tideCheck?: 'not-loaded';
     destinationInlandTrimM?: number;
