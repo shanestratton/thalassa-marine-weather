@@ -35,7 +35,8 @@ import {
 } from '../../services/IsochroneRouter';
 import type { IsochroneNode } from '../../services/isochrone/types';
 import { computeComfortIsochrones as computeIsochrones } from '../../services/routing/comfortRoute';
-import { cumulativeLegs } from '../../services/isochrone/geodesy';
+import { cumulativeLegs, haversineNm } from '../../services/isochrone/geodesy';
+import { isAutorouteTrialOn } from '../../services/autorouteTrialSwitch';
 import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { resolveRoutingPolar } from '../../services/routingPolar';
@@ -534,7 +535,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
         // A VIA request is one ordered cohort. The existing direct-route
         // shortcuts must never return a route that silently drops those pins.
-        if (viaWaypoints.length) {
+        // The NEW automatic berth approaches require the existing Auto opt-in.
+        // With it off, the manual path and its full terminal verifier below
+        // remain unchanged. VIA requests always retain their ordered contract.
+        const automaticBerth =
+            !viaWaypoints.length &&
+            isAutorouteTrialOn() &&
+            haversineNm(departure.lat, departure.lon, arrival.lat, arrival.lon) > 50;
+        if (viaWaypoints.length || automaticBerth) {
             const settingsSnapshot = structuredClone(useSettingsStore.getState().settings);
             const selectedBoat = useSettingsStore.getState().activeVesselId;
             const selectedModel = WindStore.getState().model;
@@ -567,27 +575,35 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             );
             dispatchPassageNotice({
                 severity: 'info',
-                title: 'Checking every required waypoint…',
+                title: automaticBerth ? 'Checking both harbour approaches…' : 'Checking every required waypoint…',
                 message: 'One bounded route job; every pin and the complete final line must pass verification.',
             });
             try {
                 const { computeConstrainedPassage } = await import('../../services/routing/constrainedPassage');
-                const route = await computeConstrainedPassage({
+                const common = {
                     origin: departure,
                     destination: arrival,
-                    vias: viaWaypoints,
                     departureTime: depIso,
                     speed,
                     settings: settingsSnapshot,
                     model: selectedModel,
                     privateWind: replanBase?.wind,
-                    deadlineMs: replanBase?.deadlineMs ?? Date.now() + 60000,
+                    deadlineMs: replanBase?.deadlineMs ?? Date.now() + (automaticBerth ? 90000 : 60000),
                     stillCurrent: current,
-                    inshoreEvidence: (r) => ({
-                        masksVerified: !!inshoreSegmentStates(r),
-                        caveats: inshoreRouteCaveats({ ...r, nearShallow: nearShallowSummary(r.chartedShallowSpans) }),
-                    }),
-                });
+                };
+                const route = automaticBerth
+                    ? await (await import('../../services/routing/berthProposal')).computeBerthPassage(common)
+                    : await computeConstrainedPassage({
+                          ...common,
+                          vias: viaWaypoints,
+                          inshoreEvidence: (r) => ({
+                              masksVerified: !!inshoreSegmentStates(r),
+                              caveats: inshoreRouteCaveats({
+                                  ...r,
+                                  nearShallow: nearShallowSummary(r.chartedShallowSpans),
+                              }),
+                          }),
+                      });
                 if (!current()) return;
                 const base = computeRouteFromPolyline(route.result.routeCoordinates, {
                     speed,
@@ -617,15 +633,26 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 routeConstraintsRef.current = route.constraints;
                 commitDisplayedRoute(
                     map,
-                    route.result.routeCoordinates.slice(1).map((point, i) => ({
-                        type: 'Feature',
-                        properties: {
-                            safety:
-                                route.result.shallowFlags[i] || route.result.shallowFlags[i + 1] ? 'danger' : 'safe',
-                            verification: 'verified',
-                        },
-                        geometry: { type: 'LineString', coordinates: [route.result.routeCoordinates[i], point] },
-                    })),
+                    'disclosure' in route
+                        ? inshoreRouteFeatures(
+                              inshoreRoutePieces(
+                                  route.result.routeCoordinates,
+                                  route.disclosure.stateMask ?? [],
+                                  route.disclosure.surveyRuns,
+                                  route.disclosure.chartedShallowSpans,
+                              ),
+                          )
+                        : route.result.routeCoordinates.slice(1).map((point, i) => ({
+                              type: 'Feature',
+                              properties: {
+                                  safety:
+                                      route.result.shallowFlags[i] || route.result.shallowFlags[i + 1]
+                                          ? 'danger'
+                                          : 'safe',
+                                  verification: 'verified',
+                              },
+                              geometry: { type: 'LineString', coordinates: [route.result.routeCoordinates[i], point] },
+                          })),
                     'verified',
                 );
                 pushToPassageStore(
@@ -664,7 +691,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 commitDisplayedRoute(map, [preview], 'unverified', reason);
                 dispatchPassageNotice({
                     severity: 'warn',
-                    title: 'Waypoint route not verified',
+                    title: automaticBerth ? 'Berth approaches not verified' : 'Waypoint route not verified',
                     message: reason + ' Every required point stays in the request; no direct shortcut was substituted.',
                 });
             } finally {

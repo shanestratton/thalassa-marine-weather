@@ -10,6 +10,7 @@ export default defineConfig({
         'chart-find-layout.spec.ts',
         'user-overlays139-layout.spec.ts',
         'chart-drawing139-layout.spec.ts',
+        'berth139-layout.spec.ts',
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
         'wake-rules137-layout.spec.ts',

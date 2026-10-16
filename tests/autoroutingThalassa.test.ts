@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
+    berth: vi.fn(),
     tryInshoreRoute: vi.fn(),
     hasEncCoverageForRoute: vi.fn(() => true),
     crossesLand: vi.fn(),
@@ -27,6 +28,7 @@ const m = vi.hoisted(() => ({
     boatWhy: null as string | null,
     order: [] as string[],
 }));
+vi.mock('../services/routing/berthProposal', () => ({ calculateBerthProposal: m.berth }));
 
 vi.mock('../services/InshoreRouter', () => ({
     tryInshoreRoute: m.tryInshoreRoute,
@@ -137,6 +139,7 @@ beforeEach(() => {
     setAuthIdentityScope('user-1');
     m.trialOn = true;
     m.tryInshoreRoute.mockReset();
+    m.berth.mockReset();
     m.hasEncCoverageForRoute.mockReset().mockReturnValue(true);
     m.crossesLand.mockReset().mockResolvedValue({ status: 'verified', crossesLand: false, runs: [] });
     m.fill.mockReset();
@@ -407,10 +410,23 @@ describe('calculateThalassaProposal', () => {
         );
     });
 
-    it('refuses over 50 NM and without endpoint coverage before the engine runs', async () => {
-        await expect(calculateThalassaProposal(request({ destination: { lat: -32.0, lon: 161.0 } }))).rejects.toThrow(
-            /^Auto routes inshore passages up to 50 NM; this one is 60\.0 NM\. Split it, or plot it in Manual\.$/,
-        );
+    it('delegates beyond 50 NM to the bounded berth solver and still refuses missing short-route endpoint coverage', async () => {
+        const longRequest = request({ destination: { lat: -32.0, lon: 161.0 } });
+        const proposal = {
+            id: 'fictional-long-proposal',
+            provider: 'Thalassa',
+            coordinates: [],
+            warnings: [],
+            createdAt: new Date().toISOString(),
+        };
+        m.berth.mockResolvedValue(proposal);
+        await expect(calculateThalassaProposal(longRequest)).resolves.toBe(proposal);
+        expect(m.berth).toHaveBeenCalledWith(longRequest, {
+            signal: undefined,
+            onProgress: undefined,
+            stillCurrent: expect.any(Function),
+        });
+        expect(m.tryInshoreRoute).not.toHaveBeenCalled();
         m.hasEncCoverageForRoute.mockImplementation(((a: { lat: number }) => a.lat !== DEST.lat) as never);
         await expect(calculateThalassaProposal(request())).rejects.toThrow(
             'No installed chart covers the destination.',
