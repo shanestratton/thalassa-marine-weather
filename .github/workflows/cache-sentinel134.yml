@@ -1,0 +1,62 @@
+name: Build 134 isolated CacheStorage diagnostic
+
+on:
+  push:
+    branches: [codex/build-134-cache-sentinel]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-webkit-cache-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: controls
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: aa200d597abfe6453b0cd89442a2171adbd922d3
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Verify unchanged diagnostic subject
+        working-directory: source
+        run: |
+          test "$(git rev-parse HEAD)" = aa200d597abfe6453b0cd89442a2171adbd922d3
+          test -z "$(git status --porcelain)"
+      - name: Install exact locked packages
+        working-directory: source
+        run: npm ci --ignore-scripts
+      - name: Install Linux WebKit and its runtime dependencies
+        working-directory: source
+        run: npx --no-install playwright install --with-deps webkit
+      - name: Compare cold CacheStorage with three keeper modes
+        working-directory: source
+        run: node ../controls/scripts/diagnostics/offline-cache-sentinel.mjs --source="$PWD" --engine=webkit --output="$RUNNER_TEMP/cache-sentinel134.json"
+      - name: Validate diagnostic completeness without certifying product behavior
+        working-directory: source
+        run: |
+          node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          const report=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/cache-sentinel134.json`,'utf8'));
+          if(report.sourceSha!=='aa200d597abfe6453b0cd89442a2171adbd922d3'||report.cases.length!==3||report.cases.some(c=>c.error||!c.coldBeforeHydrate))throw Error('Diagnostic did not reach all cold snapshots');
+          console.log('All three diagnostic cases captured. Missing metadata remains a product failure, not a passing release gate.');
+          JS
+          git diff --exit-code
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: cache-sentinel134-linux-webkit
+          path: ${{ runner.temp }}/cache-sentinel134.json
+          retention-days: 7
+          if-no-files-found: warn
