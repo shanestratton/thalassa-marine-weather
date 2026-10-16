@@ -12,6 +12,8 @@ interface CmemsAttributionProps {
     embedded?: boolean;
     /** Pixels below the strip's first slot — CREDITS_SLOT_PX when the RainViewer pill is showing above. */
     stackOffsetPx?: number;
+    /** Full wording inside the shared credit sheet; no independent chart furniture. */
+    inline?: boolean;
 }
 
 const LAYER_LABELS: Record<CmemsLayerId, string> = {
@@ -49,7 +51,12 @@ export const CMEMS_PRODUCT_ATTRIBUTIONS = [
     },
 ] as const;
 
-export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embedded = false, stackOffsetPx = 0 }) => {
+export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({
+    layers,
+    embedded = false,
+    stackOffsetPx = 0,
+    inline = false,
+}) => {
     const requestedLayers = new Set(layers);
     const activeLayers = LAYER_ORDER.filter((layer) => requestedLayers.has(layer));
     if (activeLayers.length === 0) return null;
@@ -61,17 +68,16 @@ export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embe
 
     return (
         <aside
-            // On the chart this credit lives in the top-centre credits strip
-            // with the others (Shane 2026-09-06), one slot below the RainViewer
-            // pill when that is showing. The embedded public map keeps its
-            // bottom-left placement. The words are the licence's minimum and
-            // are not touched here.
+            // Obs composes the unchanged licence words in its credit sheet.
+            // Other surfaces retain the standalone strip or embedded placement.
             className={
-                embedded
-                    ? 'absolute left-2 z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto'
-                    : `${CREDITS_STRIP_POSITION_CLASS} z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto`
+                inline
+                    ? 'relative pointer-events-auto'
+                    : embedded
+                      ? 'absolute left-2 z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto'
+                      : `${CREDITS_STRIP_POSITION_CLASS} z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto`
             }
-            style={embedded ? { bottom: '84px' } : { top: creditsStripTop(stackOffsetPx) }}
+            style={inline ? undefined : embedded ? { bottom: '84px' } : { top: creditsStripTop(stackOffsetPx) }}
             aria-label={`Copernicus Marine data attribution for ${activeLayerLabel}`}
             // Cut out of the layer menu's scrim, like every licence credit.
             data-map-credit

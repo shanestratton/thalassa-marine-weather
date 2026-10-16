@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { WindVsTideView } from '../../components/dashboard/tide/WindVsTideView';
 import { TideGraph } from '../../components/dashboard/tide/TideGraph';
 import type { Tide, TidePoint, UnitPreferences } from '../../types';
+import type { TideGUIDetails } from '../../types/weather';
 import '../../index.css';
 import '../../styles/bioluminescent.css';
 
@@ -17,18 +18,35 @@ const units: UnitPreferences = {
     tideHeight: 'm',
 };
 const tides: Tide[] = [
+    { time: '2026-09-08T18:00:00Z', height: 2, type: 'High' },
     { time: '2026-09-09T00:00:00Z', height: 0.4, type: 'Low' },
     { time: '2026-09-09T06:00:00Z', height: 2, type: 'High' },
     { time: '2026-09-09T12:00:00Z', height: 0.4, type: 'Low' },
     { time: '2026-09-09T18:00:00Z', height: 2, type: 'High' },
+    { time: '2026-09-10T00:00:00Z', height: 0.4, type: 'Low' },
 ];
 const tideSeries: TidePoint[] = tides.map(({ time, height }) => ({ time, height }));
+const provenance: TideGUIDetails = {
+    source: 'official',
+    provider: 'MSQ',
+    stationId: 'fixture-scarborough',
+    stationName: 'SCARBOROUGH BOAT HARBOUR',
+    isSecondary: false,
+    datumId: 'fixture:LAT',
+    datumLabel: 'Station LAT',
+    attribution: 'Tide predictions: MSQ/BOM. Generated layout fixture, not a tide forecast.',
+    sourceUrl: 'https://www.msq.qld.gov.au/tides',
+    licenceUrl: 'https://www.msq.qld.gov.au/copyright',
+    generatedAt: '2026-09-09T00:00:00Z',
+    expiresAt: '2099-01-01T00:00:00Z',
+};
 
 function Fixture() {
     const params = new URLSearchParams(location.search);
     const height = Number(params.get('height') || 180);
     const split = params.has('split');
     const mode = params.get('mode') || 'light';
+    const displayNowMs = params.has('late') ? Date.parse('2026-09-09T13:30:00Z') : nowMs;
     const samples: Record<string, React.ComponentProps<typeof WindVsTideView>['now']> = {
         default: { windDeg: 45, windKts: 6, currentDir: 0, currentKts: 0 },
         measured: { windDeg: 45, windKts: 18, currentDir: 45, currentKts: 1.5 },
@@ -115,11 +133,14 @@ function Fixture() {
                                             <TideGraph
                                                 tides={tides}
                                                 tideSeries={tideSeries}
-                                                customTime={nowMs}
+                                                customTime={displayNowMs}
+                                                showAllDayEvents={params.has('allDay')}
                                                 timeZone="Australia/Brisbane"
                                                 unit="m"
                                                 unitPref={units}
                                                 className="h-full w-full"
+                                                reserveRightPx={params.has('provenance') ? 16 : 0}
+                                                guiDetails={params.has('provenance') ? provenance : undefined}
                                             />
                                         )}
                                     </div>

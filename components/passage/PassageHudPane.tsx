@@ -593,11 +593,11 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         let clearance = 0;
         let frame = 0;
         const observed = new Set<Element>();
-        // Lightning by MapHub's credits-strip slot, not the chip's label: the
-        // chart key renders the same labelled chip low in this column.
+        // Measure Obs's shared credit row, retaining the standalone selectors
+        // for embedded surfaces. Chart-key labels are not top-strip credits.
         const ownCredits =
             '[aria-label^="Copernicus Marine data attribution"], [data-testid="sat-ir-credit"], ' +
-            '[data-testid="lightning-credit"], [data-testid="wind-credit"]';
+            '[data-testid="obs-credits-rollup"], [data-testid="lightning-credit"], [data-testid="wind-credit"]';
         const creditSelector =
             `${ownCredits}, ` +
             'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]';

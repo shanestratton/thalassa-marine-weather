@@ -63,7 +63,8 @@ import {
     type CollisionAlertCard,
     type CollisionWatchNotice,
 } from './aisGuardAlertStore';
-import type { CollisionLostDetail, CollisionLostReason } from './AisGuardZone';
+import type { CollisionLostDetail } from './AisGuardZone';
+import { advanceCollisionEncounters, type CollisionEncounter } from '../utils/collisionEncounter';
 import { COLLISION_RULE, collisionShouldSound, type CollisionAssessment } from '../utils/collisionRule';
 import { createLogger } from '../utils/createLogger';
 
@@ -112,23 +113,19 @@ export interface CollisionPassStatus {
 /** How an encounter ended: shown clear, or lost and never shown clear. */
 export type CollisionEnd = { how: 'passed' } | { how: 'lost'; lost: CollisionLostDetail };
 
-interface Encounter {
-    /** The last pass she alarmed: its kind (close quarters or not) is the encounter's. */
-    last: CollisionAlarmCandidate;
-    lastAlarmAt: number;
-    /** The newest pass with a computed CPA (alarming or not): the card's numbers. */
-    latest: CollisionAlarmCandidate;
-    latestAt: number;
-    /** She was in close quarters at some point: the encounter needs her beyond 0.1 NM to end. */
-    everCloseQuarters: boolean;
-    clearSince: number | null;
-    clearPasses: number;
-    lost: { reason: CollisionLostReason; since: number } | null;
+export interface RadarSoundContribution {
+    /** Source + episode + severity identity; never a fabricated MMSI. */
+    key: string;
+    title: string;
+    body: string;
 }
+type Encounter = CollisionEncounter<CollisionAlarmCandidate>;
+let radarSounds: readonly RadarSoundContribution[] = [];
+let radarArmed = false;
 
 let armedAt: number | null = null;
 const encounters = new Map<number, Encounter>();
-let sounding = new Set<number>();
+let sounding = new Set<number | string>();
 let leaseToken: string | null = null;
 /** What the last pass asked for, set at once; the queued side effects catch up to it. */
 let soundWanted = false;
@@ -205,72 +202,11 @@ async function localNotice(id: number, text: string): Promise<void> {
     }
 }
 
-/** Why the watch cannot see her this pass, or null when it can. */
-function blindReason(t: CollisionAlarmCandidate | undefined, own: CollisionOwnState): CollisionLostReason | null {
-    if (own === 'no-fix') return 'no-fix';
-    if (own === 'unknown') return 'own-motion-unknown';
-    if (!t) return 'gone';
-    if (t.assessment.rangeOnly) return t.assessment.reason ?? 'target-motion-unknown';
-    return null;
-}
-
-/** Track every encounter against this pass's grades. Returns the ones that ended, and how. */
+/** Advance the shared125 lifecycle, then perform the AIS family's own side effects. */
 function track(targets: CollisionAlarmCandidate[], own: CollisionOwnState, nowMs: number): Map<number, CollisionEnd> {
-    const byMmsi = new Map(targets.map((t) => [t.mmsi, t]));
-    for (const t of targets) {
-        if (!t.assessment.alarm) continue;
-        const e = encounters.get(t.mmsi);
-        encounters.set(t.mmsi, {
-            last: t,
-            lastAlarmAt: nowMs,
-            latest: t,
-            latestAt: nowMs,
-            everCloseQuarters: (e?.everCloseQuarters ?? false) || t.assessment.closeQuarters,
-            clearSince: null,
-            clearPasses: 0,
-            lost: null,
-        });
-    }
-
-    const ended = new Map<number, CollisionEnd>();
-    for (const [mmsi, e] of encounters) {
-        const t = byMmsi.get(mmsi);
-        if (t?.assessment.alarm) continue;
-        const blind = blindReason(t, own);
-        if (blind) {
-            e.clearSince = null;
-            e.clearPasses = 0;
-            e.lost = e.lost?.reason === blind ? e.lost : { reason: blind, since: e.lost?.since ?? nowMs };
-            const cpaDueAt = e.latestAt + Math.max(0, e.latest.assessment.tcpaMin ?? 0) * 60_000;
-            if (nowMs > cpaDueAt + LATCH.lostHoldAfterCpaMs) ended.set(mmsi, { how: 'lost', lost: lostDetail(e)! });
-            continue;
-        }
-        e.lost = null;
-        e.latest = t!;
-        e.latestAt = nowMs;
-        // She is no longer under way and we are stopped: over, however close
-        // she lies, once that holds a full anchored report cycle.
-        const settled = t!.settled === true;
-        const opening =
-            settled ||
-            (t!.opening === true &&
-                (!e.everCloseQuarters || t!.assessment.rangeNm >= COLLISION_RULE.closeQuarters.cpaNm));
-        if (!opening) {
-            e.clearSince = null;
-            e.clearPasses = 0;
-            continue;
-        }
-        e.clearSince ??= nowMs;
-        e.clearPasses += 1;
-        const holdMs = settled ? LATCH.settledAfterMs : LATCH.clearAfterMs;
-        if (nowMs - e.clearSince >= holdMs && e.clearPasses >= LATCH.clearMinPasses) {
-            ended.set(mmsi, { how: 'passed' });
-        }
-    }
+    const ended = advanceCollisionEncounters(encounters, targets, (t) => t.mmsi, own, nowMs);
     for (const [mmsi, end] of ended) {
-        encounters.delete(mmsi);
         AisGuardAlertStore.endEncounter(mmsi);
-        // Never shown clear: whatever reached the lock screen stays there.
         if (end.how === 'lost') keepLockScreenAlert = true;
     }
     return ended;
@@ -295,8 +231,17 @@ function reconcile(nowMs: number, ended: ReadonlyMap<number, CollisionEnd> = new
     );
     AisGuardAlertStore.setCollision(cards, nowMs, ended);
 
-    const next = new Set(cards.map((c) => c.mmsi));
-    const fresh = cards.find((c) => !sounding.has(c.mmsi));
+    const notices: (Omit<RadarSoundContribution, 'key'> & { key: number | string })[] = cards.map((c) => {
+        const lines = collisionLines(c);
+        return {
+            key: c.mmsi,
+            title: `${c.collision.closeQuarters ? 'Close quarters' : 'Collision risk'}: ${c.name}`,
+            body: `${lines.cpa}, ${lines.where} away. ${lines.age}.`,
+        };
+    });
+    notices.push(...radarSounds);
+    const next = new Set(notices.map((c) => c.key));
+    const fresh = notices.find((c) => !sounding.has(c.key));
     sounding = next;
     // This runs on every AIS update: queue work only when the sound must
     // start or stop, a new vessel must be announced, or a failed start retried.
@@ -317,10 +262,8 @@ function reconcile(nowMs: number, ended: ReadonlyMap<number, CollisionEnd> = new
             await AlarmAudioService.release(token).catch(() => AlarmAudioService.releaseEventually(token));
         }
 
-        if (fresh && sounding.has(fresh.mmsi)) {
-            const lines = collisionLines(fresh);
-            const title = `${fresh.collision.closeQuarters ? 'Close quarters' : 'Collision risk'}: ${fresh.name}`;
-            const body = `${lines.cpa}, ${lines.where} away. ${lines.age}.`;
+        if (fresh && sounding.has(fresh.key)) {
+            const { title, body } = fresh;
             alertLive = true;
             // A new alert replaces whatever a lost contact left on the lock screen.
             keepLockScreenAlert = false;
@@ -393,6 +336,18 @@ AisGuardAlertStore.subscribeActions((nowMs) => {
 });
 
 export const CollisionAlarmService = {
+    /** Radar shares this one collision lease/notification coordinator with AIS.
+     * Removing one family can never cancel the other family's sounding alarm. */
+    updateRadar(
+        sounds: readonly RadarSoundContribution[],
+        status: { armed: boolean; nowMs: number; lost?: boolean },
+    ): void {
+        radarArmed = status.armed;
+        radarSounds = status.armed ? sounds : [];
+        if (status.armed) arm(status.nowMs);
+        if (status.lost) keepLockScreenAlert = true;
+        reconcile(status.nowMs);
+    },
     /**
      * One pass of the armed watch: every target the rule graded (alarming or
      * not), what our own motion allowed, and when AIS was last heard.
@@ -443,11 +398,11 @@ export const CollisionAlarmService = {
 
     /** The skipper switched the watch off: stand down quietly. */
     disarm(): void {
-        if (armedAt === null && !soundWanted && !leaseToken && !alertLive && encounters.size === 0) {
+        if (armedAt === null && !soundWanted && !leaseToken && !alertLive && encounters.size === 0 && !radarArmed) {
             AisGuardAlertStore.setWatchNotice(null);
             return;
         }
-        armedAt = null;
+        if (!radarArmed) armedAt = null;
         pausedFrom = null;
         for (const mmsi of encounters.keys()) AisGuardAlertStore.endEncounter(mmsi);
         encounters.clear();
@@ -483,6 +438,8 @@ export const CollisionAlarmService = {
     /** Test seam. */
     __resetForTests(): void {
         armedAt = null;
+        radarSounds = [];
+        radarArmed = false;
         encounters.clear();
         sounding = new Set();
         leaseToken = null;

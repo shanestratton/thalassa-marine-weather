@@ -16,6 +16,7 @@ import { officialWarningsSource } from '../utils/officialWarningsSource';
 import { useOfficialWarnings } from '../hooks/useOfficialWarnings';
 import { answerHolds, OfficialWarningsSection, PinnedOfficialPush } from './warnings/OfficialWarningsSection';
 import { type OfficialPushPin, takeOfficialPushPin, useOfficialPushPin } from '../services/officialPushPin';
+const BriefingCard = React.lazy(() => import('./warnings/BriefingCard'));
 
 interface WarningDetailsProps {
     alerts: string[];
@@ -29,6 +30,8 @@ interface WarningDetailsProps {
     locationType?: string;
     /** The pipeline's model tag ('wx:ecmwf_ifs025', …), named on each card. */
     modelUsed?: string;
+    /** Explicit parent policy; keeps the optional cache reader absent on metered/legacy surfaces. */
+    briefingNetworkAllowed?: boolean;
 }
 
 /**
@@ -62,6 +65,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
     coordinates,
     locationType,
     modelUsed,
+    briefingNetworkAllowed = false,
 }) => {
     // These are Thalassa's own model checks, never official warnings (build
     // 123, W1-02). Each card says so, and the onward link goes to the
@@ -188,6 +192,11 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
                     under their own heading, never mixed in (129-06). */}
                 {pinApart && <PinnedOfficialPush pin={pinApart} placeName={placeName} />}
                 {official && <OfficialWarningsSection answer={official} source={source} nowMs={now} pinned={livePin} />}
+                {briefingNetworkAllowed && (
+                    <React.Suspense fallback={null}>
+                        <BriefingCard point={coordinates} place={placeName} />
+                    </React.Suspense>
+                )}
                 {officialPage && (
                     <h2 className="pt-2 text-sm font-bold uppercase tracking-wider text-slate-300">Forecast alerts</h2>
                 )}

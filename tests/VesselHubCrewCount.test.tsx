@@ -28,11 +28,15 @@ vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
 vi.mock('../context/SettingsContext', () => ({
     useSettings: () => ({ settings: { vessel: hub.vessel }, updateSettings: vi.fn() }),
 }));
-vi.mock('../stores/settingsStore', () => ({
-    refreshSkipperClaim: vi.fn(async () => undefined),
-    useSettingsStore: (select: (state: { settings: { vessel: unknown } }) => unknown) =>
-        select({ settings: { vessel: hub.vessel } }),
-}));
+vi.mock('../stores/settingsStore', () => {
+    const state = () => ({ settings: { vessel: hub.vessel }, activeVesselId: null });
+    return {
+        refreshSkipperClaim: vi.fn(async () => undefined),
+        useSettingsStore: Object.assign((select: (snapshot: ReturnType<typeof state>) => unknown) => select(state()), {
+            getState: state,
+        }),
+    };
+});
 vi.mock('../context/WeatherContext', () => ({
     useWeather: () => ({ weatherData: null, refreshData: vi.fn() }),
 }));

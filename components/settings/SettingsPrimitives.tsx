@@ -162,7 +162,7 @@ export const Row = React.memo(
     }: {
         children: React.ReactNode;
         className?: string;
-        onClick?: () => void;
+        onClick?: React.MouseEventHandler<HTMLButtonElement>;
         label?: string;
     }) => {
         const baseClass = `p-4 border-b border-white/5 last:border-0 flex items-center justify-between gap-4 ${className}`;

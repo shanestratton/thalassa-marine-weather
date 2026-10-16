@@ -16,7 +16,7 @@ import os from 'node:os';
 import { Agent, setGlobalDispatcher } from 'undici';
 setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
-import express from 'express';
+import express, { type Request } from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import http from 'http';
@@ -32,7 +32,7 @@ import { createTideRoutes } from './routes/tides.js';
 import { createMiscRoutes, purgeGeocodeCache } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes, sweepEncTempLeftovers } from './routes/enc.js';
-import { EncDeviceStore, encNoStore, createEncFrontDoor } from './encDevices.js';
+import { EncDeviceStore, encNoStore, createEncFrontDoor, CHART_DEVICE_HEADER } from './encDevices.js';
 import { PiPolarLearner } from './polarLearner.js';
 import { createPolarRoutes } from './routes/polars.js';
 import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
@@ -58,6 +58,20 @@ import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
+import { RadarRawReader } from './radar/rawReader.js';
+import { RadarContextSession } from './radar/contextSession.js';
+import { createRadarRoutes } from './routes/radar.js';
+import { RadarWatch } from './radar/watch.js';
+import { RadarRelay } from './radar/relay.js';
+import { radarServerContext, createRadarControllerVerifier } from './radar/serverContext.js';
+import { createRadarWatchRoutes } from './routes/radarWatch.js';
+import { createAppJsonParser } from './appJson.js';
+import { PiWakeKeeper } from './wakeKeeper/runner.js';
+import { WakeKeeperStore } from './wakeKeeper/store.js';
+import { WakeRelay } from './wakeKeeper/relay.js';
+import { wakePairingId, wakeEnrollmentRevision } from './wakeKeeper/contract.js';
+import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
@@ -202,6 +216,40 @@ try {
     console.warn('[signalk] read stream unavailable: review the operator configuration');
 }
 const selfDocument = async (): Promise<unknown | null> => (await signalkRead?.readDocuments())?.selfDoc ?? null;
+let radarReader: RadarRawReader;
+try {
+    const port = process.env.THALASSA_RADAR_NMEA_PORT;
+    radarReader = new RadarRawReader(port === undefined ? {} : { port: /^\d{1,5}$/.test(port) ? Number(port) : NaN });
+} catch {
+    radarReader = new RadarRawReader();
+    console.warn('[radar] local passthrough unavailable; review the operator configuration');
+}
+const currentRadarWatchContext = () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return radarServerContext(
+        config.ownerId,
+        identity.deviceId,
+        config.relayId,
+        signalkRead?.notificationSnapshot() ?? null,
+    );
+};
+const radarSession = new RadarContextSession(
+    radarReader,
+    () => currentRadarWatchContext()?.contextToken ?? null,
+    () => {
+        const context = currentRadarWatchContext();
+        return context
+            ? {
+                  ownerId: context.ownerId,
+                  piDeviceId: context.piDeviceId,
+                  pairingId: context.pairingId,
+                  feedId: context.feedId,
+              }
+            : null;
+    },
+);
+if (APP_API_ENABLED) radarSession.start();
 const windHistory = new WindHistory({
     cacheDir: CACHE_DIR,
     fetchImpl: fetch,
@@ -338,6 +386,80 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+const wakeRelay = new WakeRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+});
+const wakeKeeper = new PiWakeKeeper({
+    store: new WakeKeeperStore(CACHE_DIR),
+    devices: chartDevices,
+    selfDocument,
+    relay: wakeRelay,
+    identity: () => {
+        const config = diaryRelayOutbox.getConfiguration();
+        return config.ownerId && config.relayId
+            ? {
+                  ownerId: config.ownerId,
+                  piDeviceId: identity.deviceId,
+                  pairingId: wakePairingId(config.ownerId, identity.deviceId, config.relayId),
+              }
+            : null;
+    },
+});
+if (APP_API_ENABLED)
+    void wakeKeeper.start().catch(() => console.warn('[wake] keeper unavailable; review local storage'));
+const radarRelay = new RadarRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+});
+const radarWatch: RadarWatch = new RadarWatch({
+    readSnapshot: () => radarSession.snapshot(),
+    currentContext: currentRadarWatchContext,
+    aisArmed: () => aisWatch.describe().armed === true,
+    atAnchor: () => anchorWatch.isRunning(),
+    controllerCurrent: createRadarControllerVerifier(currentRadarWatchContext, () => chartDevices.list()),
+    onEvent: (event) => radarRelay.event(event),
+    onPass: (pass, current) =>
+        radarRelay.update(pass, current, (context, acks) => radarWatch.applyRemoteAcks(context, acks)),
+    pushStatus: () => radarRelay.status(),
+});
+let radarWatchFailureLogged = false;
+const radarWatchTimer = APP_API_ENABLED
+    ? setInterval(() => {
+          radarRelay.pump();
+          void radarWatch.tick().catch(() => {
+              if (!radarWatchFailureLogged) {
+                  radarWatchFailureLogged = true;
+                  console.warn('[radar] watch evaluation unavailable; review local status');
+              }
+          });
+      }, 1000)
+    : null;
+radarWatchTimer?.unref();
+const enrolledRadarController = async (req: Request) => {
+    const token = req.headers[CHART_DEVICE_HEADER],
+        verdict = await chartDevices.verify(typeof token === 'string' ? token : undefined);
+    return verdict.state === 'enrolled'
+        ? { deviceId: verdict.device.id, enrollmentRevision: wakeEnrollmentRevision(verdict.device) }
+        : null;
+};
+const reviewRadarRelay = (revision: string, context: Parameters<RadarRelay['review']>[1]) =>
+    radarRelay.review(revision, context);
+const currentWeatherPositionIdentity = () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return config.ownerId && config.relayId
+        ? { ownerId: config.ownerId, piDeviceId: identity.deviceId, relayId: config.relayId }
+        : null;
+};
 // Read access never grants route writes. Only the operator's separately approved
 // token and explicit switch can enable this fixed course/resource surface.
 let courseClient: SignalKClient | null = null;
@@ -399,7 +521,7 @@ app.use('/api/enc', encNoStore);
 // simplification — the 100kb default would reject them on POST. ENC
 // imports go through a different code path (raw octet-stream / base64)
 // so they aren't affected by this limit.
-app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
+app.use(createAppJsonParser(UNSAFE_ADMIN_API_ENABLED));
 // Only her own devices can command the Pi (129-12): every route's class from
 // one table (piCommandLock.ts), before any route and after the body parser, so
 // a stand-down is told from an arm by its body. Observe until the skipper turns
@@ -606,6 +728,8 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
         input.allowInternet = (flatPolicy ?? nestedPolicy) as boolean;
     }
 
+    radarWatch.stop();
+    radarSession.retire();
     diaryRelayOutbox.configure(input);
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
     return input.allowInternet;
@@ -1010,6 +1134,19 @@ app.use(
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
     app.use(
+        '/api/radar',
+        requireAppApi,
+        createEncFrontDoor({ devices: chartDevices }),
+        createRadarWatchRoutes({ watch: radarWatch, enrolled: enrolledRadarController, reviewRelay: reviewRadarRelay }),
+        createRadarRoutes(radarSession),
+    );
+    app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
+    app.use(
+        '/api/weather-watch',
+        requireAppApi,
+        createWeatherPositionRoutes({ devices: chartDevices, selfDocument, identity: currentWeatherPositionIdentity }),
+    );
+    app.use(
         '/api/signalk',
         requireAppApi,
         createSignalKReadRoutes(
@@ -1064,6 +1201,9 @@ if (APP_API_ENABLED) {
         '/api/underway-watch',
         '/api/signalk',
         '/api/course',
+        '/api/wake-rules',
+        '/api/weather-watch',
+        '/api/radar',
         '/api/polars',
         '/api/offline-weather',
     ]) {
@@ -1230,7 +1370,11 @@ function shutdown() {
             );
     });
     vaultLink?.stop();
+    if (radarWatchTimer) clearInterval(radarWatchTimer);
+    radarWatch.stop();
+    radarSession.stop();
     signalkRead?.stop();
+    wakeKeeper.stop();
     windHistory.stop();
     polarLearner.stop();
     underwayWatch.close();

@@ -60,6 +60,11 @@ const SEEN_PAIRABLE_KEY = 'thalassa_pi_seen_pairable_v1';
 
 /** Raw byte length of the challenge nonce (hex-encoded on the wire). */
 const NONCE_BYTES = 32;
+// A same-Pi re-pair or re-enrolment still retires a pending equipment read.
+let equipmentReadRevision = 0;
+export function getPiEquipmentReadRevision(): number {
+    return equipmentReadRevision;
+}
 
 export interface PiPairingRecord {
     deviceId: string;
@@ -98,6 +103,7 @@ export function getPairing(): PiPairingRecord | null {
 
 export function savePairing(record: PiPairingRecord): void {
     if (!PI_INTEGRATION_ENABLED) return;
+    equipmentReadRevision++;
     localStorage.setItem(PAIRING_KEY, JSON.stringify(record));
     markHostPairable(record.host);
     // Another Pi, or this one again: what a Pi said about this phone no longer holds (129-12).
@@ -105,6 +111,7 @@ export function savePairing(record: PiPairingRecord): void {
 }
 
 export function forgetPairing(): void {
+    equipmentReadRevision++;
     localStorage.removeItem(PAIRING_KEY);
     dropChartDevice();
     // Her licensed charts leave this phone's memory, and the account's
@@ -227,6 +234,7 @@ export async function getChartDevice(): Promise<{ chartDeviceId: string } | null
 export async function saveChartDevice(device: { chartDeviceId: string; token: string }): Promise<boolean> {
     const pairing = getPairing();
     if (!pairing) throw new Error('Not paired');
+    equipmentReadRevision++;
     const c = { pi: pairing.deviceId, key: pairing.publicKeySpki, id: device.chartDeviceId, token: device.token };
     chartCredential = Promise.resolve(c);
     clearPiCommandRefusal();
@@ -241,6 +249,7 @@ export async function saveChartDevice(device: { chartDeviceId: string; token: st
 
 /** Forget this phone's chart token: on Forget, and when the Pi says it removed this phone. */
 export function dropChartDevice(): void {
+    equipmentReadRevision++;
     chartCredential = Promise.resolve(null);
     void (async () => {
         if (usesNativeSecureStorage()) await removeSecureValue(SECURE_PI_CHART_DEVICE_KEY);

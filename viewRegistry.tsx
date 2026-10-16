@@ -67,6 +67,7 @@ const WarningDetails = lazyRetry(
     () => import('./components/WarningDetails').then((m) => ({ default: m.WarningDetails })),
     'WarningDetails',
 );
+const WeatherBriefingPage = lazyRetry(() => import('./components/warnings/WeatherBriefingPage'), 'WeatherBriefingPage');
 const AnchorWatchPage = lazyRetry(
     () => import('./components/AnchorWatchPage').then((m) => ({ default: m.AnchorWatchPage })),
     'AnchorWatchPage',
@@ -380,7 +381,14 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             coordinates: ctx.weatherCoordinates,
             locationType: ctx.weatherLocationType,
             modelUsed: ctx.weatherModelUsed,
+            briefingNetworkAllowed: ctx.settings.satelliteMode !== true,
         }),
+    },
+    briefing: {
+        component: WeatherBriefingPage,
+        boundaryName: 'Weather briefing',
+        group: 'standalone',
+        getProps: () => ({}),
     },
     chat: {
         component: ChatPage,

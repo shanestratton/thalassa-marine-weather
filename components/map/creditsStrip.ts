@@ -9,8 +9,10 @@
  *
  * The strip is centred under the basemap dropdown (MapBaseSelector: top =
  * inset + 8px, trigger h-12 → bottom at inset + 56px), starting 6px below it.
- * Credits stack downward in fixed slots so a credit never jumps when another
- * appears: slot 0 is the RainViewer pill (~28px), slot 1 starts 30px lower.
+ * Obs now uses one 44px credit row, following the picker's rem-scaled height
+ * and its 44px minimum.
+ * The fixed-slot helpers remain for embedded/planner credits and compatibility
+ * fixtures: slot 0 is the standalone RainViewer pill, slot 1 starts 30px lower.
  *
  * Wording is each licence's minimum, unchanged here: the words are the
  * licence's business, the position is ours.

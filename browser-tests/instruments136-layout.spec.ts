@@ -1,4 +1,41 @@
 import { test, expect } from '@playwright/test';
+
+test('synthetic instrument fixture blocks connections and isolates persisted receiver state', async ({ page }) => {
+    const remote: string[] = [];
+    await page.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.protocol === 'blob:')
+            return route.continue();
+        remote.push(url.hostname);
+        return route.abort();
+    });
+    await page.addInitScript(() => {
+        localStorage.setItem('nmea_host', 'fictional-saved-gateway.invalid');
+        sessionStorage.setItem('instrument-saved-session', 'fictional-saved-session');
+    });
+    await page.goto('/e2e/fixtures/instruments136.html');
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    await expect(page.getByText('Instrument Panel', { exact: true })).toBeVisible();
+    const isolation = await page.evaluate(async () => {
+        const telemetryModule = '/services/sentry.ts';
+        const telemetry = await import(/* @vite-ignore */ telemetryModule);
+        await telemetry.ensureSentryLoaded();
+        let blocked = false;
+        try {
+            await fetch('https://fictional-instrument-connection.invalid/probe');
+        } catch {
+            blocked = true;
+        }
+        return {
+            blocked,
+            savedGateway: localStorage.getItem('nmea_host'),
+            savedSession: sessionStorage.getItem('instrument-saved-session'),
+        };
+    });
+    expect(isolation).toEqual({ blocked: true, savedGateway: null, savedSession: null });
+    expect(remote).toEqual([]);
+});
+
 for (const width of [300, 375]) {
     test(`identified Engine panel fits at ${width}px and clears with its source`, async ({ page }) => {
         await page.setViewportSize({ width, height: 667 });
@@ -11,6 +48,7 @@ for (const width of [300, 375]) {
             return route.abort();
         });
         await page.goto('/e2e/fixtures/instruments136.html');
+        await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
         await page.evaluate(() =>
             (window as unknown as { __instruments136: { mode: (v: string) => void } }).__instruments136.mode('engine'),
         );
@@ -55,6 +93,7 @@ for (const width of [300, 375]) {
             return route.abort();
         });
         await page.goto('/e2e/fixtures/instruments136.html');
+        await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
         await expect(page.getByText('Instrument Panel', { exact: true })).toBeVisible();
         await expect
             .poll(() =>

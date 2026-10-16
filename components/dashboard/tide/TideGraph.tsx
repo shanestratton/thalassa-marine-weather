@@ -19,25 +19,77 @@ import { ModalSheet } from '../../ui/ModalSheet';
 const log = createLogger('TideGraph');
 const OfflineTidesSheet = React.lazy(() => import('../../map/OfflineTidesSheet'));
 
-function TideSource({ details }: { details: TideGUIDetails }): React.ReactNode {
+function TideSource({
+    details,
+    stationLabel,
+    observationLabel,
+    reserveRightPx,
+    compact = false,
+    heightReadout,
+    heightLabel,
+    events,
+}: {
+    details: TideGUIDetails;
+    stationLabel: string;
+    observationLabel: string | null;
+    reserveRightPx: number;
+    compact?: boolean;
+    heightReadout?: React.ReactNode;
+    heightLabel?: string;
+    events?: { type: 'High' | 'Low'; time: string; height: string }[];
+}): React.ReactNode {
     const [open, setOpen] = React.useState(false);
     const [offlineOpen, setOfflineOpen] = React.useState(false);
+    const stationId = React.useId();
     return (
-        <>
+        <div
+            data-testid={compact ? 'tide-source-disclosure' : 'tide-source-footer'}
+            className={
+                compact
+                    ? 'shrink-0 min-w-0 pointer-events-auto'
+                    : 'grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-white/10 px-2 text-white/60'
+            }
+            style={compact ? undefined : { height: 44, paddingRight: 8 + reserveRightPx }}
+            // The surrounding Glass card opens wind-versus-tide. Its footer
+            // has independent controls, including when operated by keyboard.
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+            }}
+        >
             <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="pointer-events-auto min-h-11 text-xs underline font-normal tracking-normal"
+                aria-label={compact ? `${heightLabel}; source and datum` : 'Source and datum'}
+                aria-describedby={stationId}
+                className="pointer-events-auto min-w-0 text-left text-xs leading-4 font-normal tracking-normal"
+                style={{ height: 44 }}
+                title={stationLabel}
             >
-                Source and datum
+                {compact && heightReadout}
+                <span
+                    id={stationId}
+                    className={compact ? 'sr-only' : 'block truncate font-semibold'}
+                    data-testid="tide-station-name"
+                >
+                    {stationLabel}
+                </span>
+                <span className={compact ? 'block w-0 min-w-full truncate underline leading-none' : 'block underline'}>
+                    {compact
+                        ? `${details.source?.startsWith('saved-') ? 'Saved ' : ''}${details.provider ?? 'Source'} ⓘ`
+                        : 'Source and datum'}
+                </span>
             </button>
-            <button
-                type="button"
-                className="pointer-events-auto min-h-11 ml-2 text-xs underline font-normal tracking-normal"
-                onClick={() => setOfflineOpen(true)}
-            >
-                Offline tides
-            </button>
+            {!compact && (
+                <button
+                    type="button"
+                    className="pointer-events-auto text-xs leading-4 underline font-normal tracking-normal"
+                    style={{ height: 44 }}
+                    onClick={() => setOfflineOpen(true)}
+                >
+                    Offline tides
+                </button>
+            )}
             {offlineOpen && (
                 <React.Suspense fallback={null}>
                     <OfflineTidesSheet onClose={() => setOfflineOpen(false)} />
@@ -48,6 +100,16 @@ function TideSource({ details }: { details: TideGUIDetails }): React.ReactNode {
                     {details.provider} · {details.datumLabel} · {details.stationName}
                 </p>
                 <p>{details.attribution}</p>
+                {events && events.length > 0 && (
+                    <div className="mt-2 text-sm" aria-label="All tide events">
+                        {events.map((event, index) => (
+                            <p key={index}>
+                                {event.type} {event.time} · {event.height}
+                            </p>
+                        ))}
+                    </div>
+                )}
+                {observationLabel && <p data-testid="tide-observed">{observationLabel}</p>}
                 {details.savedAt && (
                     <p>
                         Saved table · downloaded {details.savedAt}. Covers {details.coverageStart} to{' '}
@@ -66,8 +128,20 @@ function TideSource({ details }: { details: TideGUIDetails }): React.ReactNode {
                         Licence
                     </a>
                 </div>
+                {compact && (
+                    <button
+                        type="button"
+                        className="min-h-11 mt-2 underline text-sm"
+                        onClick={() => {
+                            setOpen(false);
+                            setOfflineOpen(true);
+                        }}
+                    >
+                        Offline tides
+                    </button>
+                )}
             </ModalSheet>
-        </>
+        </div>
     );
 }
 
@@ -276,24 +350,30 @@ export const TideGraphOriginal = ({
     // chart area's own height, which says when the card is short.
     const heroHeaderRef = React.useRef<HTMLDivElement | null>(null);
     const chartAreaRef = React.useRef<HTMLDivElement | null>(null);
+    const graphRef = React.useRef<HTMLDivElement | null>(null);
     const [heroHeaderPx, setHeroHeaderPx] = React.useState(0);
     const [chartAreaPx, setChartAreaPx] = React.useState(0);
+    const [graphHeightPx, setGraphHeightPx] = React.useState(0);
+    const compactSource = !!guiDetails && stationPosition === 'bottom' && graphHeightPx > 0 && graphHeightPx < 170;
     const hasPoints = dataPoints.length > 0;
     React.useLayoutEffect(() => {
         const header = heroHeaderRef.current;
         const area = chartAreaRef.current;
-        if (!header && !area) return;
+        const graph = graphRef.current;
+        if (!header && !area && !graph) return;
         const measure = () => {
             if (header) setHeroHeaderPx(Math.ceil(header.getBoundingClientRect().height));
             if (area) setChartAreaPx(Math.floor(area.clientHeight));
+            if (graph) setGraphHeightPx(Math.floor(graph.clientHeight));
         };
         measure();
         if (typeof ResizeObserver === 'undefined') return;
         const ro = new ResizeObserver(measure);
         if (header) ro.observe(header);
         if (area) ro.observe(area);
+        if (graph) ro.observe(graph);
         return () => ro.disconnect();
-    }, [stationPosition, hasPoints]);
+    }, [stationPosition, hasPoints, official]);
 
     if (officialTable && !official) {
         return (
@@ -413,9 +493,6 @@ export const TideGraphOriginal = ({
             );
         }
     }
-    // A short card: its station name moves up beside the height, out of the
-    // trough the curve swings through along the bottom (UX scorecard run 9).
-    const shortCard = stationPosition === 'bottom' && !showAllDayEvents && chartAreaPx > 0 && chartAreaPx < 130;
     const savedTable = guiDetails?.source === 'saved-official' || guiDetails?.source === 'saved-worldtides';
     const stationLabel = savedTable
         ? `Saved ${guiDetails.provider} table · ${guiDetails.datumLabel ?? 'datum unknown'} · ${guiDetails.stationName}`
@@ -496,7 +573,8 @@ export const TideGraphOriginal = ({
 
     return (
         <div
-            className={`flex flex-col h-full relative group ${className || ''}`}
+            ref={graphRef}
+            className={`flex flex-col h-full min-h-0 relative group ${className || ''}`}
             style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}
         >
             {/* On a short card the canvas's grid lines and now hairline start
@@ -514,14 +592,54 @@ export const TideGraphOriginal = ({
                 /* HERO MODE (Clean, Single Line) */
                 <div
                     ref={heroHeaderRef}
-                    className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline pl-2 pt-1.5 pointer-events-none"
+                    data-testid="tide-caption-band"
+                    className={`absolute top-0 left-0 right-0 z-20 flex ${compactSource ? 'flex-nowrap items-start gap-x-1 pt-0.5' : 'flex-wrap items-baseline gap-x-2 pt-1.5'} justify-between gap-y-1 pl-2 pointer-events-none`}
                     style={{ paddingRight: 8 + reserveRightPx }}
                 >
-                    {/* LEFT: Height — and, on a short card, the station under it */}
-                    {!showAllDayEvents ? (
-                        <div className="flex flex-col min-w-0 gap-1 pointer-events-auto">
+                    {/* LEFT: Height */}
+                    {compactSource && guiDetails ? (
+                        <TideSource
+                            details={guiDetails}
+                            compact
+                            stationLabel={stationLabel || guiDetails.stationName}
+                            observationLabel={observationLabel}
+                            reserveRightPx={reserveRightPx}
+                            events={
+                                showAllDayEvents
+                                    ? visibleMarkers.map((event) => ({
+                                          type: event.type,
+                                          time: eventClock(event.time),
+                                          height: `${event.height.toFixed(1)} ${unit}`,
+                                      }))
+                                    : undefined
+                            }
+                            heightLabel={
+                                showAllDayEvents
+                                    ? 'All tide events'
+                                    : `${official ? 'Estimated height' : 'Height'} ${currentHeight.toFixed(1)} ${unit}`
+                            }
+                            heightReadout={
+                                showAllDayEvents ? (
+                                    <span className="text-base font-semibold whitespace-nowrap leading-none">
+                                        Tides · {unit}
+                                    </span>
+                                ) : (
+                                    <span className="flex items-baseline gap-0.5 whitespace-nowrap leading-none">
+                                        <span className="text-xl font-bold text-white font-mono leading-none">
+                                            {currentHeight.toFixed(1)}
+                                        </span>
+                                        <span className={unitClass}>{unit}</span>
+                                        <TrendIcon className={`w-3 h-3 ${trendColor}`} />
+                                    </span>
+                                )
+                            }
+                        />
+                    ) : !showAllDayEvents ? (
+                        <div className="flex flex-col shrink-0 min-w-0 gap-1 pointer-events-auto">
                             <div className="flex items-baseline gap-1">
-                                <span className={heroLabelClass}>{official ? 'Est. height' : 'Height'}</span>
+                                <span className={`${heroLabelClass} whitespace-nowrap`}>
+                                    {official ? 'Est. height' : 'Height'}
+                                </span>
                                 <span className="whitespace-nowrap leading-none">
                                     <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
                                         {currentHeight.toFixed(1)}
@@ -531,28 +649,13 @@ export const TideGraphOriginal = ({
                                 </span>
                                 <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                             </div>
-                            {shortCard && stationLabel && (
-                                <div
-                                    className="truncate text-xs leading-4 font-semibold text-white/60 tracking-wide select-none"
-                                    title={guiDetails?.attribution}
-                                    data-testid="tide-station-name"
-                                >
-                                    {stationLabel}
-                                    {observationLabel && (
-                                        <span className="block text-[10px]" data-testid="tide-observed">
-                                            {observationLabel}
-                                        </span>
-                                    )}
-                                    {guiDetails && <TideSource details={guiDetails} />}
-                                </div>
-                            )}
                         </div>
                     ) : (
                         <div className="hidden"></div>
                     )}
 
                     {/* RIGHT: High / Low Events */}
-                    {showAllDayEvents ? (
+                    {showAllDayEvents && !compactSource ? (
                         <div className="flex items-baseline gap-3 pointer-events-auto w-full justify-between px-2">
                             {[...visibleMarkers]
                                 .sort((a, b) => a.time - b.time)
@@ -600,40 +703,60 @@ export const TideGraphOriginal = ({
                         // row of chips sat on the crest of a short card (UX
                         // scorecard run 9). Columns keep times and heights aligned.
                         <div
-                            className={`grid shrink-0 ${nextHasCue ? 'grid-cols-[auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto]'} items-baseline gap-x-1 gap-y-1 pointer-events-auto`}
+                            className={`grid shrink-0 ${nextHasCue && !compactSource ? 'grid-cols-[auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto]'} items-baseline ${compactSource ? 'gap-x-0.5 gap-y-0.5' : 'gap-x-1 gap-y-1'} pointer-events-auto`}
                         >
-                            {nextEvents.map((event, idx) => {
-                                const cue = dayCue(event.time);
-                                return (
-                                    <React.Fragment key={idx}>
-                                        <span className={heroLabelClass}>{event.type}</span>
-                                        <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
-                                            {eventClock(event.time)}
-                                        </span>
-                                        {cue ? (
-                                            <span
-                                                className="glass-tide-caption text-xs font-semibold leading-none text-sky-200/80"
-                                                data-testid="tide-day-cue"
-                                            >
-                                                <span aria-hidden="true">{cue.shown}</span>
-                                                <span className="sr-only">{cue.spoken}</span>
+                            {(showAllDayEvents && compactSource ? visibleMarkers.slice(0, 2) : nextEvents).map(
+                                (event, idx) => {
+                                    const cue = dayCue(event.time);
+                                    return (
+                                        <React.Fragment key={idx}>
+                                            <span className={heroLabelClass}>
+                                                {compactSource ? (
+                                                    <>
+                                                        <span aria-hidden="true">{event.type[0]}</span>
+                                                        <span className="sr-only">{event.type}</span>
+                                                    </>
+                                                ) : (
+                                                    event.type
+                                                )}
                                             </span>
-                                        ) : (
-                                            nextHasCue && <span aria-hidden="true" />
-                                        )}
-                                        <span className="justify-self-end whitespace-nowrap leading-none">
-                                            <span aria-hidden="true" className={unitClass}>
-                                                {'· '}
+                                            <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
+                                                {eventClock(event.time)}
+                                                {compactSource && cue && (
+                                                    <span
+                                                        className="text-xs font-sans leading-none"
+                                                        data-testid="tide-day-cue"
+                                                    >
+                                                        <span aria-hidden="true">+1</span>
+                                                        <span className="sr-only">{cue.spoken}</span>
+                                                    </span>
+                                                )}
                                             </span>
-                                            <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
-                                                {event.height.toFixed(1)}
+                                            {cue && !compactSource ? (
+                                                <span
+                                                    className="glass-tide-caption text-xs font-semibold leading-none text-sky-200/80"
+                                                    data-testid="tide-day-cue"
+                                                >
+                                                    <span aria-hidden="true">{cue.shown}</span>
+                                                    <span className="sr-only">{cue.spoken}</span>
+                                                </span>
+                                            ) : (
+                                                nextHasCue && !compactSource && <span aria-hidden="true" />
+                                            )}
+                                            <span className="justify-self-end whitespace-nowrap leading-none">
+                                                <span aria-hidden="true" className={unitClass}>
+                                                    {'· '}
+                                                </span>
+                                                <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
+                                                    {event.height.toFixed(1)}
+                                                </span>
+                                                {'\u2009'}
+                                                <span className={compactSource ? 'sr-only' : unitClass}>{unit}</span>
                                             </span>
-                                            {'\u2009'}
-                                            <span className={unitClass}>{unit}</span>
-                                        </span>
-                                    </React.Fragment>
-                                );
-                            })}
+                                        </React.Fragment>
+                                    );
+                                },
+                            )}
                         </div>
                     )}
                 </div>
@@ -682,6 +805,7 @@ export const TideGraphOriginal = ({
                 (UX scorecard run 6). The other hosts give it 160 px anyway. */}
             <div
                 ref={chartAreaRef}
+                data-testid="tide-plot"
                 className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-0"
             >
                 <TideCanvas
@@ -694,27 +818,27 @@ export const TideGraphOriginal = ({
                     topBandPx={stationPosition === 'bottom' ? heroHeaderPx : 0}
                     rightInsetPx={reserveRightPx}
                 />
-                {/* Station name — bottom left, lifted clear of the 14 px hour
-                    axis band TideCanvas draws along the bottom edge. On the
-                    heights' backing pill: bare, it sat on the curve with
-                    nothing behind it (UX scorecard run 8). A short card
-                    carries it in the caption band instead. */}
-                {stationLabel && !shortCard && (
-                    <div
-                        className={`absolute bottom-4 left-2 max-w-[90%] text-xs leading-4 font-semibold text-white/60 tracking-wide select-none ${scrimClass}`}
-                        title={guiDetails?.attribution}
-                        data-testid="tide-station-name"
-                    >
-                        {stationLabel}
-                        {observationLabel && (
-                            <span className="block text-[10px]" data-testid="tide-observed">
-                                {observationLabel}
-                            </span>
-                        )}
-                        {guiDetails && <TideSource details={guiDetails} />}
-                    </div>
-                )}
             </div>
+            {/* Reserve attribution INSIDE the existing card, below the entire
+                canvas including its hour axis. The plot flexes; the card and
+                page never gain height. Long names remain complete in details. */}
+            {guiDetails && !compactSource ? (
+                <TideSource
+                    details={guiDetails}
+                    stationLabel={stationLabel || guiDetails.stationName}
+                    observationLabel={observationLabel}
+                    reserveRightPx={reserveRightPx}
+                />
+            ) : !guiDetails && stationLabel ? (
+                <div
+                    className="shrink-0 truncate px-2 text-xs leading-4 font-semibold text-white/60"
+                    style={{ paddingRight: 8 + reserveRightPx }}
+                    title={stationLabel}
+                    data-testid="tide-station-name"
+                >
+                    {stationLabel}
+                </div>
+            ) : null}
         </div>
     );
 };

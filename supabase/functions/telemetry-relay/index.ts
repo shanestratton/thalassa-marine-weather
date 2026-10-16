@@ -15,6 +15,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
 import { authenticatePiRelay, readRelayCredential, touchPiRelay } from '../_shared/pi-relay-auth.ts';
 import { parseTelemetryBody } from './parse.ts';
+import tzLookup from 'npm:tz-lookup@6.1.25';
+import { recordWeatherPosition } from './weather-position.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -76,5 +78,11 @@ Deno.serve(async (req) => {
         return json({ error: 'Could not store the snapshot' }, 503);
     }
     touchPiRelay(admin, identity.relayId);
-    return json({ ok: true, boat_id: boatId, reported_at: parsed.row.reported_at });
+    const weatherPositionRequest = await recordWeatherPosition(admin, identity, body, tzLookup);
+    return json({
+        ok: true,
+        boat_id: boatId,
+        reported_at: parsed.row.reported_at,
+        weather_position_request: weatherPositionRequest,
+    });
 });

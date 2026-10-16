@@ -61,12 +61,10 @@ export function createCourseRoutes(options: {
             const token = req.headers[CHART_DEVICE_HEADER];
             const verdict = await options.devices.verify(typeof token === 'string' ? token : undefined);
             if (verdict.state !== 'enrolled')
-                return res
-                    .status(401)
-                    .json({
-                        code: 'course-device-not-enrolled',
-                        error: 'Set up this phone with the code from the boat’s Pi.',
-                    });
+                return res.status(401).json({
+                    code: 'course-device-not-enrolled',
+                    error: 'Set up this phone with the code from the boat’s Pi.',
+                });
             res.locals.courseDevice = verdict.device.id;
             next();
         } catch {
@@ -78,12 +76,10 @@ export function createCourseRoutes(options: {
     router.get('/capability', (_req, res) => res.json({ schema: 1, enabled: options.enabled(), exactRoute: true }));
     router.use((_req, res, next) => {
         if (!options.enabled())
-            return res
-                .status(403)
-                .json({
-                    code: 'course-writes-disabled',
-                    error: 'Route sending needs approved Signal K write access on the Pi.',
-                });
+            return res.status(403).json({
+                code: 'course-writes-disabled',
+                error: 'Route sending needs approved Signal K write access on the Pi.',
+            });
         next();
     });
     const failure = (res: import('express').Response, error: unknown) =>

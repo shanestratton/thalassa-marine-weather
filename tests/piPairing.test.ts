@@ -42,6 +42,7 @@ vi.mock('../services/piTls', () => ({
 
 import {
     getPairing,
+    getPiEquipmentReadRevision,
     savePairing,
     forgetPairing,
     isLegacyPlainConnectionAllowed,
@@ -72,6 +73,22 @@ function record(over: Partial<PiPairingRecord> & { publicKeySpki: string }): PiP
 beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+});
+
+it('retires equipment reads even when the same Pi or enrollment is replaced and restored', async () => {
+    const r = record({ publicKeySpki: makeSigner().spkiB64 });
+    const a = getPiEquipmentReadRevision();
+    savePairing(r);
+    const b = getPiEquipmentReadRevision();
+    expect(b).toBeGreaterThan(a);
+    savePairing(r);
+    expect(getPiEquipmentReadRevision()).toBeGreaterThan(b);
+    const c = getPiEquipmentReadRevision();
+    await saveChartDevice({ chartDeviceId: 'synthetic-phone', token: 'generated-test-token' });
+    expect(getPiEquipmentReadRevision()).toBeGreaterThan(c);
+    const d = getPiEquipmentReadRevision();
+    dropChartDevice();
+    expect(getPiEquipmentReadRevision()).toBeGreaterThan(d);
 });
 
 describe('PiPairingService — signed response verification', () => {

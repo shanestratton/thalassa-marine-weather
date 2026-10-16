@@ -16,7 +16,7 @@
  * a hue on its back (Shane 2026-10-13, 128-HUES: "ok the crew and float plan,
  * really needs its own card, can we make a nice card for it without having to
  * scroll up and down on the page, maybe a nice hue as well on the back of
- * it"). The other five stay in the one box, in their order.
+ * it"). The other six stay in the one box, in their order.
  */
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -176,6 +176,7 @@ describe('Vessel page menu box', () => {
             'Readiness checks & cast off',
         );
         expect(screen.getByRole('button', { name: 'Music' })).toHaveAccessibleDescription('Apple Music & speakers');
+        expect(screen.getByRole('button', { name: 'Systems' })).toHaveAccessibleDescription('Tanks, batteries & power');
         expect(screen.getByRole('button', { name: 'Boat Network' })).toHaveAccessibleDescription(
             'Boat computer, charts & devices',
         );
@@ -192,10 +193,20 @@ describe('Vessel page menu box', () => {
         // The box opens on its first row: no divider left over from the crew row.
         expect(rows[0].previousElementSibling?.tagName ?? 'none').not.toBe('DIV');
         // Every row but the first follows a divider inside the same box.
+        // Systems and Music share a compact row, or display as full-width
+        // rows through display:contents when the page has more height.
         for (const row of rows.slice(1)) {
-            expect(row.previousElementSibling?.tagName).toBe('DIV');
-            expect(row.previousElementSibling?.getAttribute('role')).toBeNull();
-            expect(row.parentElement).toBe(rows[0].parentElement);
+            const previous = row.previousElementSibling ?? row.parentElement!.previousElementSibling;
+            expect(previous?.tagName).toBe('DIV');
+            expect(previous?.getAttribute('role')).toBeNull();
+            expect(row.closest('[data-testid="vessel-hub-menu"]')).toBe(box);
         }
+        const tools = box.querySelector('.vessel-hub-tools')!;
+        expect(
+            within(tools as HTMLElement)
+                .getAllByRole('button')
+                .map((row) => row.getAttribute('aria-label')),
+        ).toEqual(['Systems', 'Music']);
+        expect(tools.querySelector('.vessel-hub-tool-divider')).toHaveAttribute('aria-hidden', 'true');
     });
 });

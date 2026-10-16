@@ -789,3 +789,46 @@ describe('honest notices', () => {
         expect(AisGuardAlertStore.getWatchNotice()).toBeNull();
     });
 });
+
+describe('independent radar contribution to the shared collision lease', () => {
+    const radar = {
+        key: 'radar:generated:RA:1:episode:1:danger',
+        title: 'Radar collision risk: generated target',
+        body: 'Original qualified radar evidence',
+    };
+    it('an AIS stand-down cannot silence or cancel a sounding radar encounter', async () => {
+        CollisionAlarmService.updateRadar([radar], { armed: true, nowMs: T0 });
+        CollisionAlarmService.update([candidate(123400099)], armed(T0));
+        await CollisionAlarmService.whenIdle();
+        expect(AlarmAudioService.getActiveLeaseCount()).toBe(1);
+        CollisionAlarmService.disarm();
+        await CollisionAlarmService.whenIdle();
+        expect(mocks.audio.stopAlarm).not.toHaveBeenCalled();
+        expect(mocks.notify.cancelSafetyAlert).not.toHaveBeenCalled();
+        CollisionAlarmService.updateRadar([], { armed: false, nowMs: T0 + 1000 });
+        await CollisionAlarmService.whenIdle();
+        expect(mocks.audio.stopAlarm).toHaveBeenCalledOnce();
+        expect(mocks.notify.cancelSafetyAlert).toHaveBeenCalledOnce();
+    });
+    it('a radar acknowledgement cannot silence or clear the independent AIS encounter', async () => {
+        CollisionAlarmService.update([candidate(123400098)], armed(T0));
+        CollisionAlarmService.updateRadar([radar], { armed: true, nowMs: T0 });
+        await CollisionAlarmService.whenIdle();
+        CollisionAlarmService.updateRadar([], { armed: true, nowMs: T0 + 1000 });
+        await CollisionAlarmService.whenIdle();
+        expect(mocks.audio.stopAlarm).not.toHaveBeenCalled();
+        expect(mocks.notify.cancelSafetyAlert).not.toHaveBeenCalled();
+        expect(AisGuardAlertStore.get().some((c) => c.mmsi === 123400098)).toBe(true);
+        AisGuardAlertStore.muteCollision(123400098, T0 + 2000);
+        await CollisionAlarmService.whenIdle();
+        expect(mocks.audio.stopAlarm).toHaveBeenCalledOnce();
+    });
+    it('an unresolved radar loss retains its lock-screen warning after its held sound ends', async () => {
+        CollisionAlarmService.updateRadar([radar], { armed: true, nowMs: T0 });
+        await CollisionAlarmService.whenIdle();
+        CollisionAlarmService.updateRadar([], { armed: true, nowMs: T0 + 1000, lost: true });
+        await CollisionAlarmService.whenIdle();
+        expect(mocks.audio.stopAlarm).toHaveBeenCalledOnce();
+        expect(mocks.notify.cancelSafetyAlert).not.toHaveBeenCalled();
+    });
+});

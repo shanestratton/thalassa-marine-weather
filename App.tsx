@@ -9,6 +9,7 @@ import { useUI } from './context/UIContext';
 // entry import useAuthStore + SignInScreen directly where they need it.
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './services/authIdentityScope';
 import { useHudRecordingActivation } from './hooks/useHudRecording';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
@@ -45,6 +46,7 @@ import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { PlanSignOutButton } from './components/PlanSignOutButton';
 import { DraftConfirmModal } from './components/vessel/DraftConfirmModal';
 import { GlobalEngineHoursReviewGate } from './components/vessel/GlobalEngineHoursReviewGate';
+import { ShoreConsentHost } from './components/anchor-watch/ShoreConsentHost';
 import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
@@ -1135,6 +1137,7 @@ const App: React.FC = () => {
                 Not lazy: an ask must never wait on a chunk download. */}
             <DraftConfirmModal />
             <GlobalEngineHoursReviewGate />
+            <ShoreConsentHost />
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* Active-route status and stop controls live in SystemStatusButton
@@ -1222,6 +1225,22 @@ const App: React.FC = () => {
                             case 'weather_alert':
                                 setPage('dashboard');
                                 break;
+                            case 'overdue_notice':
+                                setPage('vessel');
+                                break;
+                            case 'buddy_notice':
+                                setPage('map');
+                                break;
+                            case 'radar_alarm': {
+                                const radarScope = getAuthIdentityScope();
+                                void import('./services/radar/radarPush')
+                                    .then(({ refreshRadarAlarmPush }) => {
+                                        if (isAuthIdentityScopeCurrent(radarScope)) refreshRadarAlarmPush(data, true);
+                                    })
+                                    .catch(() => undefined);
+                                setPage('map');
+                                break;
+                            }
                             case 'cyclone_notice':
                             case 'cyclone_urgent':
                                 setPage('map');

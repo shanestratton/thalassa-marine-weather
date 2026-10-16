@@ -9,8 +9,8 @@ vi.mock('../services/ShipLogService', () => ({ ShipLogService: { importGPXVoyage
 vi.mock('../context/UIContext', () => ({ useUI: () => ({ setPage: calls.page, previousView: 'vessel' }) }));
 vi.mock('../services/passageHandoff', () => ({ stagePassageRequest: calls.planner, requestPassageMode: vi.fn() }));
 vi.mock('../components/ui/PageHeader', () => ({ PageHeader: () => <div>Import GPX</div> }));
-vi.mock('../utils/system', async (original) => ({
-    ...(await original<typeof import('../utils/system')>()),
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 vi.mock('../utils/createLogger', () => ({ createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }) }));

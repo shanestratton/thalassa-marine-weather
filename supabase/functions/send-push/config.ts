@@ -48,6 +48,9 @@
  * 16-hex key the watchdog derives from the owner) in a thread of their own.
  */
 
+import { parseWeatherWatchNotice } from '../../../utils/weatherWatch.ts';
+import { parseOverdueNotice } from '../../../utils/overdueWatch.ts';
+import { RADAR_RELAY_CONTACT, RADAR_RELAY_EPISODE, RADAR_RELAY_KEY } from '../../../utils/radarRelayContract.ts';
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
 export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
 export const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
@@ -64,6 +67,8 @@ const PI_ALARM_DELIVERY_WINDOW_MS: Record<string, number> = {
     collision_alarm: 3 * 60_000,
     distress_alarm: 10 * 60_000,
     underway_alarm: 3 * 60_000,
+    wake_alarm: 30_000,
+    radar_alarm: 15_000,
 };
 
 export function isCriticalType(type: string): boolean {
@@ -75,6 +80,7 @@ export function isCriticalType(type: string): boolean {
         'geofence_alert', // Vessel left home geofence — safety critical
         'severe_weather_alert', // 50kt+ wind / extreme conditions — safety critical
         'collision_alarm', // The Pi's night watch: a ship closing on the boat (126-04b)
+        'radar_alarm', // Same collision priority, with the existing entitlement gate.
         'distress_alarm', // The Pi's radio hears an active distress beacon (126-04b)
         'underway_alarm', // Pi off-route/chart-ahead watch; evidence stays aboard (133-04)
         'cyclone_urgent', // A cyclone within 300 NM, or its track within 72 h (129-09)
@@ -95,6 +101,10 @@ export function getThreadId(type: string): string {
             return 'thalassa-anchor';
         case 'weather_alert':
             return 'thalassa-weather';
+        case 'buddy_notice':
+            return 'thalassa-buddy';
+        case 'overdue_notice':
+            return 'thalassa-overdue';
         case 'hail':
             return 'thalassa-social';
         case 'collision_alarm':
@@ -103,6 +113,10 @@ export function getThreadId(type: string): string {
             return 'thalassa-distress';
         case 'underway_alarm':
             return 'thalassa-underway';
+        case 'wake_alarm':
+            return 'thalassa-wake-rules';
+        case 'radar_alarm':
+            return 'thalassa-radar';
         case 'cyclone_notice':
         case 'cyclone_urgent':
             return 'thalassa-cyclone';
@@ -134,6 +148,21 @@ const officialExpiry = (data: Record<string, unknown> | undefined): number =>
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
+    if (type === 'overdue_notice') {
+        const notice = parseOverdueNotice(data);
+        return notice ? `overdue:${notice.revision}` : null;
+    }
+    if (
+        type === 'buddy_notice' && typeof data.watch_id === 'string' &&
+        /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(data.watch_id)
+    ) return `buddy-${data.watch_id}`;
+    if (type === 'radar_alarm' && typeof data.contact_key === 'string' && RADAR_RELAY_CONTACT.test(data.contact_key)) {
+        return `radar-${data.contact_key}`;
+    }
+    if (type === 'weather_alert' && Object.hasOwn(data, 'weather_watch')) {
+        const notice = parseWeatherWatchNotice(data, Date.now());
+        return notice ? `wx-${notice.feature}-${notice.boatId}` : null;
+    }
     // Collapse repeated BOLO alerts for the same vessel
     if (type === 'bolo_alert' && data?.mmsi) return `bolo-${data.mmsi}`;
     // Collapse geofence alerts for the same vessel
@@ -146,6 +175,11 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
     if (type === 'underway_alarm' && (data.kind === 'off-route' || data.kind === 'chart-ahead')) {
         return `underway-${data.kind}`;
     }
+    if (
+        type === 'wake_alarm' && typeof data.alarm_key === 'string' &&
+        /^wake-(depth|wind|speed|pressure|coolant|oil|rpm|battery):[0-9a-f]{12}:[0-9]{10,13}$/.test(data.alarm_key) &&
+        data.kind === data.alarm_key.split(':')[0]
+    ) return String(data.kind);
     // One per storm: cyclone-watch's basin-and-number key, "SH37" (129-09).
     if ((type === 'cyclone_notice' || type === 'cyclone_urgent') && isStormKey(data?.storm_key)) {
         return `cyclone-${data.storm_key}`;
@@ -161,7 +195,8 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
 
 /** The two Pi alarms sound like the anchor alarm; everything else keeps the system sound. */
 export function getAlertSound(type: string): string {
-    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm'
+    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm' ||
+            type === 'wake_alarm' || type === 'radar_alarm'
         ? PI_ALARM_SOUND
         : 'default';
 }
@@ -179,6 +214,17 @@ export function getApnsExpiration(
     data?: Record<string, unknown>,
 ): string {
     const nowSeconds = Math.floor(nowMs / 1000);
+    // Informational source facts must not wait at APNs and arrive as fresh news.
+    if (type === 'buddy_notice') return '0';
+    if (type === 'overdue_notice') {
+        const notice = parseOverdueNotice(data, nowMs);
+        return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
+    }
+    if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
+        const notice = parseWeatherWatchNotice(data, nowMs);
+        return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
+    }
+    if (type === 'wake_alarm' || type === 'radar_alarm') return '0'; // Never store a stale instrument/radar alarm at APNs.
     // An official warning is news until it expires (129-06).
     if (type === 'official_warning') {
         const expires = officialExpiry(data);
@@ -216,6 +262,39 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'overdue_notice') {
+        const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+        return !Number.isFinite(created) || created > nowMs || nowMs - created >= 600_000 ||
+            parseOverdueNotice(data, nowMs) === null;
+    }
+    if (type === 'buddy_notice') {
+        const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+        return !Number.isFinite(created) || created > nowMs || nowMs - created >= 30 * 60_000;
+    }
+    if (type === 'radar_alarm') {
+        if (
+            typeof data?.source_at !== 'number' || !Number.isSafeInteger(data.source_at) || data.source_at <= 0 ||
+            data.source_at > nowMs + 1000 || nowMs - data.source_at > 15_000 ||
+            typeof data.alarm_key !== 'string' || !RADAR_RELAY_KEY.test(data.alarm_key) ||
+            data.kind !== data.alarm_key.split(':')[0] ||
+            typeof data.contact_key !== 'string' || !RADAR_RELAY_CONTACT.test(data.contact_key) ||
+            typeof data.episode_id !== 'string' || !RADAR_RELAY_EPISODE.test(data.episode_id) ||
+            typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))
+        ) return true;
+    }
+    if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
+        return !parseWeatherWatchNotice(data, nowMs);
+    }
+    if (type === 'wake_alarm') {
+        const age = data?.kind === 'wake-pressure' ? 120_000 : data?.kind === 'wake-battery' ? 180_000 : 13_000;
+        if (
+            typeof data?.source_at !== 'number' || !Number.isSafeInteger(data.source_at) || data.source_at <= 0 ||
+            data.source_at > nowMs + 1000 || nowMs - data.source_at > age ||
+            typeof data.kind !== 'string' ||
+            !/^wake-(depth|wind|speed|pressure|coolant|oil|rpm|battery)$/.test(data.kind)
+        ) return true;
+        if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return true;
+    }
     // An official warning that expired before the drain reached it is not news (129-06).
     if (type === 'official_warning') {
         const expires = officialExpiry(data);
@@ -247,6 +326,9 @@ export interface ApsInput {
  * nothing.
  */
 export function getInterruptionLevel(type: string, data: Record<string, unknown>): InterruptionLevel | undefined {
+    if (type === 'overdue_notice') return 'active';
+    if (type === 'buddy_notice') return 'passive';
+    if (type === 'wake_alarm') return 'time-sensitive'; // User-enabled preset; no Critical entitlement claim.
     // The quiet boat (129-08): the page goes at once, the all-clear as an ordinary alert.
     if (type === 'boat_quiet') return 'time-sensitive';
     if (type === 'boat_quiet_clear') return 'active';
@@ -272,9 +354,10 @@ export function buildAps(payload: ApsInput, criticalAlertsEntitled: boolean): Re
     }
 
     const sound = getAlertSound(payload.type);
-    if (payload.level) {
-        if (payload.level !== 'passive') aps.sound = sound;
-        aps['interruption-level'] = payload.level;
+    const level = payload.type === 'overdue_notice' ? 'active' : payload.level;
+    if (level) {
+        if (level !== 'passive') aps.sound = sound;
+        aps['interruption-level'] = level;
     } else if (payload.isCritical && criticalAlertsEntitled) {
         // Critical Alert — bypasses DND and silent mode (requires Apple entitlement)
         aps.sound = { critical: 1, name: sound, volume: 1.0 };

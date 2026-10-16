@@ -26,13 +26,23 @@
 import { fetchSelfDocument, type BroadcastDeps } from './anchorBroadcaster.js';
 import { appendSystemsExtra } from './systemsTelemetry.js';
 import { readTelemetrySnapshot, type TelemetrySnapshot } from './trackSignalk.js';
+import {
+    appendWeatherPosition,
+    readWeatherPositionRequest,
+    readWeatherPositionLeaf,
+    weatherPositionProof,
+} from './weatherPosition.js';
+import type { WeatherPositionRequest } from './weatherPositionWire.js';
 
 export const TELEMETRY_RELAY_PATH = '/functions/v1/telemetry-relay';
 export const PUBLISH_INTERVAL_MS = 5_000;
 export const MAX_BACKOFF_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 
-type FetchLike = BroadcastDeps['fetchImpl'];
+type FetchLike = (
+    url: string,
+    init?: Record<string, unknown>,
+) => Promise<Awaited<ReturnType<BroadcastDeps['fetchImpl']>> & { body?: ReadableStream<Uint8Array> | null }>;
 
 export interface TelemetryPublisherDeps {
     fetchImpl: FetchLike;
@@ -145,6 +155,9 @@ export class TelemetryPublisher {
     private lastSentAt: number | null = null;
     /** The bus as last read off Signal K, with its own times (129-08). */
     private lastBus: TelemetrySnapshot | null = null;
+    private weatherRequest: WeatherPositionRequest | null = null;
+    private weatherCredential: string | null = null;
+    private weatherGeneration = 0;
 
     constructor(private readonly deps: TelemetryPublisherDeps) {}
 
@@ -156,6 +169,9 @@ export class TelemetryPublisher {
 
     stop(): void {
         this.running = false;
+        this.weatherRequest = null;
+        this.weatherCredential = null;
+        this.weatherGeneration++;
         if (this.timer) {
             clearTimeout(this.timer);
             this.timer = null;
@@ -214,11 +230,30 @@ export class TelemetryPublisher {
     }
 
     private async attempt(): Promise<PublishOutcome> {
-        if (!this.deps.internetAllowed()) return 'internet-off';
+        if (!this.deps.internetAllowed()) {
+            this.weatherRequest = null;
+            return 'internet-off';
+        }
         const credential = this.deps.credentials();
         if (!credential) return 'not-paired';
         const anonKey = this.deps.anonKey();
         if (!anonKey) return 'no-anon-key';
+        const credentialKey = JSON.stringify([credential.relayId, credential.token, anonKey, this.deps.endpoint]);
+        const generation = this.weatherGeneration;
+        if (credentialKey !== this.weatherCredential) {
+            this.weatherRequest = null;
+            this.weatherCredential = credentialKey;
+        }
+        const stillCurrent = () => {
+            const current = this.deps.credentials();
+            return (
+                generation === this.weatherGeneration &&
+                this.deps.internetAllowed() &&
+                current?.relayId === credential.relayId &&
+                current.token === credential.token &&
+                this.deps.anonKey() === anonKey
+            );
+        };
 
         const now = this.deps.now ?? Date.now;
         const doc = await fetchSelfDocument({
@@ -236,12 +271,45 @@ export class TelemetryPublisher {
         // nothing fresher to send instead, the bus goes as it is, still dated
         // by that clock: the cloud hears the Pi, and nothing old reads as new.
         const snapshot = withBusTime(supplemented ?? bus, bus);
-        if (!snapshot) return 'no-data';
+        // The legacy instrument reader declines a GPS-only (0,0) document.
+        // Its columns stay unknown, while a separately qualified global source
+        // may exchange consent/proof in this same existing telemetry request.
+        const positionSource = this.deps.selfDocument ? readWeatherPositionLeaf(doc, now()) : null;
+        if (!snapshot && !positionSource) return 'no-data';
+        if (!stillCurrent()) {
+            this.weatherRequest = null;
+            return 'not-paired';
+        }
+
+        const wireBody = appendWeatherPosition(
+            {
+                ...(snapshot
+                    ? buildTelemetryBody(
+                          snapshot,
+                          this.deps.deviceLabel,
+                          this.deps.aisWatchExtra?.(),
+                          this.deps.trailingExtra?.(),
+                      )
+                    : {
+                          source: 'pi',
+                          device_label: this.deps.deviceLabel.slice(0, 60),
+                          reported_at: new Date(positionSource!.position.at).toISOString(),
+                          lat: null,
+                          lon: null,
+                      }),
+                // When the Pi sent it, by its own clock: the relay checks
+                // this for age, so a stalled reading still gets through.
+                sent_at: new Date(now()).toISOString(),
+            },
+            positionSource ? weatherPositionProof(doc, credential.relayId, this.weatherRequest, now()) : null,
+        );
+        if (wireBody === null) return 'rejected';
 
         let response: Awaited<ReturnType<FetchLike>>;
         try {
             response = await this.deps.fetchImpl(this.deps.endpoint, {
                 method: 'POST',
+                redirect: 'error',
                 headers: {
                     'Content-Type': 'application/json',
                     apikey: anonKey,
@@ -249,24 +317,22 @@ export class TelemetryPublisher {
                     'X-Thalassa-Pi-Relay-Id': credential.relayId,
                     'X-Thalassa-Pi-Relay-Token': credential.token,
                 },
-                body: JSON.stringify({
-                    ...buildTelemetryBody(
-                        snapshot,
-                        this.deps.deviceLabel,
-                        this.deps.aisWatchExtra?.(),
-                        this.deps.trailingExtra?.(),
-                    ),
-                    // When the Pi sent it, by its own clock: the relay checks
-                    // this for age, so a stalled reading still gets through.
-                    sent_at: new Date(now()).toISOString(),
-                }),
+                body: wireBody,
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });
         } catch {
             return 'unreachable';
         }
-        if (response.status === 401 || response.status === 403) return 'unauthorised';
-        if (!response.ok) return 'rejected';
+        if (response.status === 401 || response.status === 403) {
+            this.weatherRequest = null;
+            return 'unauthorised';
+        }
+        if (!response.ok) {
+            this.weatherRequest = null;
+            return 'rejected';
+        }
+        const request = await readWeatherPositionRequest(response, now());
+        this.weatherRequest = stillCurrent() ? request : null;
         return 'sent';
     }
 }

@@ -71,6 +71,12 @@ import {
 import { NIGHT_SCRIM_Z_INDEX } from '../ui/OverlayPortal';
 import { PiNightWatchStatus, type PiWatchAlarm } from '../../services/piNightWatchStatus';
 import { UnderwayAlarmStore, type UnderwayAlarmCard } from '../../services/underway/underwayAlarmStore';
+import { WakeAlarmStore } from '../../services/alarms/wakeAlarmStore';
+import { RadarAlarmStore } from '../../services/radar/radarAlarmStore';
+import { RadarAlarmCards } from './RadarAlarmCards';
+import { PiRadarAlarmCards } from './PiRadarWatchControls';
+import { PiRadarWatchStateStore } from '../../services/radar/piRadarWatchState';
+const WakeAlarmCards = React.lazy(() => import('./WakeAlarmCards').then((m) => ({ default: m.WakeAlarmCards })));
 
 const UnderwayAlarmCards = React.lazy(() =>
     import('./UnderwayAlarmCards').then((m) => ({ default: m.UnderwayAlarmCards })),
@@ -485,6 +491,36 @@ export const AisGuardAlert: React.FC = () => {
         return UnderwayAlarmStore.subscribe(sync);
     }, []);
     const showingUnderway = underway.cards.length > 0 || underway.notices.length > 0;
+    const [radar, setRadar] = useState(RadarAlarmStore.get);
+    const [piRadar, setPiRadar] = useState(PiRadarWatchStateStore.get);
+    const hasPiRadar = !!piRadar.view;
+    useEffect(() => {
+        if (!hasPiRadar) return;
+        const timer = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [hasPiRadar]);
+    useEffect(() => {
+        const sync = () => {
+            setPiRadar(PiRadarWatchStateStore.get());
+            setNowMs(Date.now());
+        };
+        sync();
+        return PiRadarWatchStateStore.subscribe(sync);
+    }, []);
+    useEffect(() => {
+        const sync = () => {
+            setRadar(RadarAlarmStore.get());
+            setNowMs(Date.now());
+        };
+        sync();
+        return RadarAlarmStore.subscribe(sync);
+    }, []);
+    const [wake, setWake] = useState(WakeAlarmStore.get);
+    useEffect(() => {
+        const sync = () => setWake(WakeAlarmStore.get());
+        sync();
+        return WakeAlarmStore.subscribe(sync);
+    }, []);
 
     // On the Go to it page the followed beacon's card stands aside: it would
     // cover the bearing, and the page carries the same facts and its Silence.
@@ -493,12 +529,28 @@ export const AisGuardAlert: React.FC = () => {
     const shownDistress = view === 'mob' && goTo !== null ? distress.filter((b) => b.mmsi !== goTo) : distress;
 
     const status = notice ? noticeText(notice) : null;
-    if (alerts.length === 0 && !status && shownDistress.length === 0 && piAlarms.length === 0 && !showingUnderway) {
+    if (
+        alerts.length === 0 &&
+        !status &&
+        shownDistress.length === 0 &&
+        piAlarms.length === 0 &&
+        !showingUnderway &&
+        wake.length === 0 &&
+        radar.cards.length === 0 &&
+        !radar.capacity &&
+        !piRadar.view?.alarms.length &&
+        !piRadar.view?.capacity
+    ) {
         return null;
     }
     const alarming =
         piAlarms.length > 0 ||
+        radar.cards.some((c) => !c.cleared) ||
+        !!piRadar.view?.alarms.some((c) => !c.cleared) ||
+        !!piRadar.view?.capacity ||
+        !!(radar.capacity && !radar.capacity.acknowledged) ||
         underway.cards.some((c) => c.sounding) ||
+        wake.some((c) => !c.quiet && !c.muted) ||
         alerts.some((a) => a.collision && !a.collision.cleared) ||
         shownDistress.some((b) => AisGuardAlertStore.distressSounding(b));
     const piDistress = piAlarms.filter((a) => a.kind === 'distress');
@@ -570,13 +622,25 @@ export const AisGuardAlert: React.FC = () => {
                 .map((alert) => (
                     <CollisionCard key={`c-${alert.mmsi}`} alert={alert as CollisionAlertCard} />
                 ))}
+            <RadarAlarmCards state={radar} now={nowMs} />
+            <PiRadarAlarmCards state={piRadar} now={nowMs} />
             {/* Shoal water, then off route (126-02a): under the collision cards, above the guard ring. */}
+            {wake.some((c) => c.preset === 'depth-below-keel') && (
+                <React.Suspense fallback={null}>
+                    <WakeAlarmCards cards={wake.filter((c) => c.preset === 'depth-below-keel')} />
+                </React.Suspense>
+            )}
             {showingUnderway && (
                 <UnderwayCardsBoundary cards={underway.cards} notices={underway.notices}>
                     <React.Suspense fallback={null}>
                         <UnderwayAlarmCards cards={underway.cards} notices={underway.notices} />
                     </React.Suspense>
                 </UnderwayCardsBoundary>
+            )}
+            {wake.some((c) => c.preset !== 'depth-below-keel') && (
+                <React.Suspense fallback={null}>
+                    <WakeAlarmCards cards={wake.filter((c) => c.preset !== 'depth-below-keel')} />
+                </React.Suspense>
             )}
             {alerts
                 .filter((alert) => !alert.collision)

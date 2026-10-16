@@ -73,11 +73,18 @@ describe('Instrument Panel', () => {
     it('lets the next plate heading peek, while the last page stays full height for snap', () => {
         expect(panel).toContain("const sectionHeight = 'h-[calc(100%_-_var(--thalassa-tabbar-height)_-_24px)]';");
         const sections = [...panel.matchAll(/<section\b[\s\S]*?<\/section>/g)].map(([section]) => section);
-        const helm = sections.at(-1)!;
-        expect(helm).toContain('<SectionPlate title="Helm"');
-        expect(helm).toContain('w-full h-full snap-start snap-always');
-        expect(helm).toContain('${sectionPb}');
-        for (const section of sections.slice(0, -1)) expect(section).toContain('w-full ${sectionHeight} snap-start');
+        const helm = sections.find((section) => section.includes('<SectionPlate title="Helm"'));
+        expect(helm).toBeDefined();
+        expect(helm).toContain("w-full ${sectionSizing('Helm')} snap-start snap-always");
+        // Missing/hidden instruments can make any page last. Keep the peek on
+        // every earlier page and the full-height bottom clearance on that actual
+        // last page, including Engine when it is available after Helm.
+        expect(panel).toContain('panelPages.at(-1) === title ? `h-full ${sectionPb}` : sectionHeight');
+        for (const section of sections) {
+            const title = /<SectionPlate title="([^"]+)"/.exec(section)?.[1];
+            expect(title).toBeDefined();
+            expect(section).toContain(`w-full \${sectionSizing('${title}')} snap-start snap-always`);
+        }
     });
 
     it('sets the plate heading at 12 px', () => {

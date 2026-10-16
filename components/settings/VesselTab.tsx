@@ -43,6 +43,7 @@ import { ReleaseVesselDialog } from './ReleaseVesselDialog';
 import { ReleaseResultDialog, type ReleaseOutcome } from './ReleaseResultDialog';
 import { vesselWithSettingsDefaults } from '../../utils/defaultVessel';
 import { clampGpsToBowFt } from '../../utils/gpsAntenna';
+import MarineRadarEquipmentSection from './MarineRadarEquipmentSection';
 
 const SailInventoryEditor = React.lazy(() => import('./SailInventoryEditor'));
 const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
@@ -1347,9 +1348,9 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                 Their local edit buffers must never carry a half-typed value or a
                 display-unit conversion from one vessel into another.
 
-                Five groups, every one a shared Section (one heading style, one card
+                Six groups, every one a shared Section (one heading style, one card
                 width) with h3 sub-sections inside, in the order a skipper fills
-                them in: the boat, her safety kit, her hull, the limits the router
+                them in: the boat, her equipment, her safety kit, her hull, the limits the router
                 keeps, then tanks and crew. The hand-built blocks used to be inset
                 16 pt with a different coloured bar each (UX scorecard run 7). */}
             <React.Fragment key={`vessel-form-${selectedFleetId || 'legacy'}`}>
@@ -1477,6 +1478,19 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                     </SubSection>
                 </Section>
 
+                {!isObserver && (
+                    <Section title="Equipment">
+                        <MarineRadarEquipmentSection
+                            value={vessel?.marineRadar}
+                            vesselId={activeVesselId}
+                            onSave={(marineRadar) => {
+                                const patch = { marineRadar };
+                                if (updateActiveFleetProfile({ profile: patch })) return;
+                                saveLocally({ vessel: vesselWithDefaults(patch) });
+                            }}
+                        />
+                    </Section>
+                )}
                 {/* SAFETY & SAR — entered once here rather than per voyage, then
                     pulled into the float plan. Deliberately NOT shown on the
                     public tracking page: the beacon hex is a credential AMSA

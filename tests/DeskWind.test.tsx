@@ -11,7 +11,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deskWindToggle, windCreditLine, windModelLabel } from '../components/map/deskWind';
 import { DeskMapStrip } from '../components/map/DeskMapStrip';
 import { DESK_MAP_BASE_OPTIONS, MapBaseSelector } from '../components/map/MapBaseSelector';
-import { creditStackPx, CREDITS_SLOT_PX } from '../components/map/creditsStrip';
 import { useDeviceMode } from '../hooks/useDeviceMode';
 import { WIND_OVERLAY_MODELS } from '../services/weather/MultiModelWeatherService';
 
@@ -174,33 +173,23 @@ describe('the credit is in the strip wherever wind draws', () => {
         ).toBe(true);
     });
 
-    it('on Obs: after the radar and Copernicus credits, and lightning and the cloud stack under it', () => {
-        expect(creditStackPx({ rain: true, cmems: true })).toBe(3 * CREDITS_SLOT_PX);
-        expect(creditStackPx({ rain: true, cmems: true, wind: true })).toBe(4 * CREDITS_SLOT_PX);
-        expect(creditStackPx({ rain: false, cmems: false, wind: true, lightning: true })).toBe(2 * CREDITS_SLOT_PX);
-        const pill = hub.match(/<div\s+data-testid="wind-credit"[\s\S]*?<\/div>/);
-        expect(pill).not.toBeNull();
-        expect(pill![0]).toContain('data-map-credit');
-        expect(pill![0]).toContain('windCreditLine(weather.windModel)');
-        expect(hub).toMatch(/creditStackPx\(\{ rain: rainCreditShown, cmems: cmemsAttributionLayers\.length > 0 \}\)/);
+    it('on Obs: one rollup receives the same actual wind source and is cleared by the passage strip', () => {
+        const rollup = hub.match(/<ObsCreditsRollup[\s\S]*?\/>/);
+        expect(rollup).not.toBeNull();
+        expect(rollup![0]).toContain('windCreditLine(weather.windModel)');
+        expect(rollup![0]).toContain('localWindSource(weather.windState)');
         expect(hub).toMatch(/const obsWindCredit =\s*ownshipStartup &&/);
         expect(hub).toMatch(/const ownshipStartup = !embedded && !pickerMode && !planningSurface && !isPinView;/);
-        // The passage strip clears it as it clears the other credits.
-        expect(source('components/passage/PassageHudPane.tsx')).toContain('[data-testid="wind-credit"]');
+        expect(source('components/passage/PassageHudPane.tsx')).toContain('[data-testid="obs-credits-rollup"]');
     });
-
-    // A phone-visible change, pinned (review 2026-10-10): lightning now counts
-    // Copernicus as the two slots its three-line credit takes (at one slot it
-    // lay on the DOI line), then the wind pill.
-    it('lightning sits under the radar, both Copernicus slots and the wind pill', () => {
-        expect(creditStackPx({ cmems: true })).toBe(2 * CREDITS_SLOT_PX);
-        expect(creditStackPx({ rain: true, cmems: true, wind: true })).toBe(4 * CREDITS_SLOT_PX);
-        const lightning = hub.match(
-            /top: creditsStripTop\(\s*creditStackPx\(\{([^}]*)\}\),?\s*\),\s*\}\}\s*>\s*<BlitzortungAttribution/,
-        );
-        expect(lightning).not.toBeNull();
-        expect(lightning![1].replace(/\s+/g, ' ').trim()).toBe(
-            'rain: rainCreditShown, cmems: cmemsAttributionLayers.length > 0, wind: obsWindCredit,',
-        );
+    it('lightning and wind share the fixed-height rollup rather than independent stacked chips', () => {
+        const rollup = source('components/map/ObsCreditsRollup.tsx');
+        expect(hub).toContain('lightning={browseLightningVisible}');
+        expect(rollup).toContain('data-testid="obs-credits-rollup"');
+        expect(rollup).toContain('flex h-[44px]');
+        expect(rollup).toContain('<BlitzortungAttribution visible />');
+        expect(rollup).toContain('{wind}');
+        expect(hub).not.toContain('data-testid="wind-credit"');
+        expect(hub).not.toContain('data-testid="lightning-credit"');
     });
 });

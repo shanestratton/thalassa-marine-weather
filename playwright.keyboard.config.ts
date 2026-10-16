@@ -8,6 +8,16 @@ export default defineConfig({
     testMatch: [
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
+        'wake-rules137-layout.spec.ts',
+        'weather-watch137-layout.spec.ts',
+        'buddy-watch137-layout.spec.ts',
+        'shore-contacts137-layout.spec.ts',
+        'overdue-watch137-layout.spec.ts',
+        'obs-credits137-layout.spec.ts',
+        'radar137-layout.spec.ts',
+        'radar-equipment137-layout.spec.ts',
+        'radar-alarm137-layout.spec.ts',
+        'radar-pi137-layout.spec.ts',
         'course136-layout.spec.ts',
         'timezone136.spec.ts',
         'ais-fleet-layout.spec.ts',
@@ -25,6 +35,7 @@ export default defineConfig({
         'nmea-udp136-layout.spec.ts',
         'signalk136-layout.spec.ts',
         'wind-tide-layout.spec.ts',
+        'tide-footer-layout.spec.ts',
         'vessel-scroll.spec.ts',
         // Menu pages fit one screen; the split-pane Plan and Log front doors fit their pane.
         'menu-pages-fit.spec.ts',
@@ -257,6 +268,11 @@ export default defineConfig({
         // phone). Only SignInScreen and googleSignIn read these, and no other
         // fixture opens the sheet. Google also needs VITE_GOOGLE_OAUTH_CLIENT_ID,
         // which .env.local and the CI job both carry.
-        env: { VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true', VITE_GOOGLE_SIGN_IN_ENABLED: 'true' },
+        env: {
+            VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true',
+            VITE_GOOGLE_SIGN_IN_ENABLED: 'true',
+            // Fictional layout fixtures must never emit production telemetry.
+            VITE_SENTRY_DSN: '',
+        },
     },
 });

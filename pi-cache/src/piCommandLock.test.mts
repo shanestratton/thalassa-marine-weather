@@ -36,6 +36,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test, type TestContext } from 'node:test';
 import express, { type Router } from 'express';
+import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { loadOrCreateIdentity } from './identity.js';
 import { EncDeviceStore, type BoatLanView } from './encDevices.js';
 import {
@@ -60,6 +61,9 @@ import { AIS_WATCH_MAX_DEVICES } from './aisWatchStore.js';
 import { AnchorWatchRunner } from './anchorBroadcaster.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { createRadarRoutes } from './routes/radar.js';
+import { createRadarWatchRoutes } from './routes/radarWatch.js';
+import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
 import { createWeatherRoutes } from './routes/weather.js';
 import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
@@ -277,6 +281,14 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createRemoteAccessRoutes: createRemoteAccessRoutes(),
         createAisWatchRoutes: createAisWatchRoutes(watch),
         createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
+        createWakeRuleRoutes: createWakeRuleRoutes({ keeper: stub, devices }),
+        createRadarRoutes: createRadarRoutes(stub),
+        createRadarWatchRoutes: createRadarWatchRoutes({ watch: stub, enrolled: () => null }),
+        createWeatherPositionRoutes: createWeatherPositionRoutes({
+            devices,
+            selfDocument: () => null,
+            identity: () => null,
+        }),
         createSignalKReadRoutes: createSignalKReadRoutes(
             {
                 notificationSnapshot: () => ({
@@ -355,6 +367,12 @@ test('every route the Pi registers has a row in the table, and every row is a ro
     assert.equal(classOf('POST /api/ais-watch'), 'by body');
     assert.equal(classOf('POST /api/anchor/watch'), 'by body');
     assert.equal(classOf('GET /api/signalk/notifications'), 'read');
+    assert.equal(classOf('GET /api/radar/targets'), 'read');
+    assert.equal(classOf('GET /api/radar/watch'), 'read');
+    assert.equal(classOf('GET /api/weather-watch/position-source'), 'read');
+    assert.equal(classOf('POST /api/radar/watch'), 'command');
+    assert.equal(classOf('POST /api/radar/watch/ack'), 'command');
+    assert.equal(classOf('POST /api/radar/watch/relay-review'), 'command');
     assert.equal(classOf('DELETE /api/anchor/watch'), 'command');
     // A command, but for the internet policy said again as the Pi last took it.
     assert.equal(classOf('POST /api/configure'), 'by body');
@@ -370,7 +388,12 @@ test('every route the Pi registers has a row in the table, and every row is a ro
         assert.equal(classOf(key), 'command', key);
     // The chart door keeps every /api/enc route, the switch keeps its own.
     for (const row of PI_ROUTES) {
-        if (row.path.startsWith('/api/enc') || row.path.startsWith('/api/polars'))
+        if (
+            row.path.startsWith('/api/enc') ||
+            row.path.startsWith('/api/polars') ||
+            row.path.startsWith('/api/radar') ||
+            row.path.startsWith('/api/weather-watch')
+        )
             assert.equal(row.door, 'chart', `${row.method} ${row.path}`);
         else if (row.path === '/api/pi-lock' && row.method === 'POST') assert.equal(row.door, 'lock');
         else assert.equal(row.door, undefined, `${row.method} ${row.path}`);
@@ -1146,7 +1169,7 @@ test('the anchor watch keeps running through a refused stop, and still alarms wh
 
 test('server.ts: the lock is in front of every route, fed the chart door’s devices, the switch mounted, a renewal kept', () => {
     const lock = serverSource.indexOf('app.use(\n    createPiCommandLock({');
-    const json = serverSource.indexOf("app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));");
+    const json = serverSource.indexOf('app.use(createAppJsonParser(UNSAFE_ADMIN_API_ENABLED));');
     const firstRoute = serverSource.indexOf("app.get('/health'");
     assert.ok(lock > 0, 'the lock is mounted at the app level');
     assert.ok(json > 0 && json < lock, 'after the body parser, so a stand-down is read from its body');

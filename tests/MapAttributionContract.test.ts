@@ -176,9 +176,12 @@ describe('map provider attribution contract', () => {
         expect(credit).toContain('data-map-credit');
         expect(credit).toContain('CREDITS_STRIP_POSITION_CLASS');
         const hub = read('components/map/MapHub.tsx');
-        const at = hub.indexOf('<SatelliteIrCredit');
-        expect(at).toBeGreaterThan(-1);
-        expect(hub.slice(at, at + 600)).toContain('creditsStripTop(');
+        const rollup = read('components/map/ObsCreditsRollup.tsx');
+        expect(hub).toContain('satellite={satellite}');
+        expect(hub).toContain('<ObsCreditsRollup');
+        expect(rollup).toContain('<SatelliteIrCredit');
+        expect(rollup).toContain('data-map-credit');
+        expect(rollup).toContain("top: 'calc(env(safe-area-inset-top) + max(44px, 3rem) + 14px)'");
         // The legend says the colours are ours: altered NOAA imagery must not be
         // presented as the unaltered product (NODD terms).
         expect(read('components/map/ObsLayerKey.tsx')).toMatch(/colours added by Thalassa/i);

@@ -89,6 +89,8 @@ interface MapWeatherControlsProps {
      * clear chart. Clear the screen lives in the top-centre map menu (133).
      */
     keepInClearView?: boolean;
+    /** Obs puts these same credits in its one-row rollup; other map surfaces retain their existing credit. */
+    creditsInRollup?: boolean;
 }
 
 /**
@@ -109,6 +111,7 @@ export function MapWeatherControls({
     chartPoint,
     desk,
     keepInClearView,
+    creditsInRollup = false,
 }: MapWeatherControlsProps): React.ReactElement | null {
     // Above the early return: a hook is called on every render or on none.
     const passageLookAheadOn = usePassageLookAheadOn();
@@ -907,7 +910,7 @@ export function MapWeatherControls({
                 non-interactive text, and only the small ⓘ is a tap target.
                 Since 2026-09-06 the credit sits top-centre under the basemap
                 dropdown, clear of the chart's working area altogether. */}
-            {showRainViewerAttribution && (
+            {showRainViewerAttribution && !creditsInRollup && (
                 <div
                     // Centred directly under the basemap dropdown (MapBaseSelector:
                     // top = inset + 8px, trigger h-12) — out of the main viewing
@@ -937,7 +940,7 @@ export function MapWeatherControls({
                     </a>
                 </div>
             )}
-            {showRainForecastAttribution && (
+            {showRainForecastAttribution && !creditsInRollup && (
                 <div
                     className={`${CREDITS_STRIP_POSITION_CLASS} z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
                     style={{ top: creditsStripTop(0) }}

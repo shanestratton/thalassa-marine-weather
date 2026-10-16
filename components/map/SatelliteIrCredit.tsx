@@ -10,6 +10,8 @@ interface SatelliteIrCreditProps {
     onTogglePlay: () => void;
     /** Fixed clock for tests; live it ticks once a minute so the age stays true. */
     nowMs?: number;
+    /** Keep original frame time, coverage and play controls inside the credit sheet. */
+    inline?: boolean;
 }
 
 function useMinuteClock(fixed: number | undefined): number {
@@ -29,7 +31,7 @@ function useMinuteClock(fixed: number | undefined): number {
  * credit NOAA asks for, naming every agency whose satellite is in the mosaic.
  * An image source cannot carry a Mapbox attribution, so this IS the credit.
  */
-export function SatelliteIrCredit({ state, top, onTogglePlay, nowMs }: SatelliteIrCreditProps) {
+export function SatelliteIrCredit({ state, top, onTogglePlay, nowMs, inline = false }: SatelliteIrCreditProps) {
     const now = useMinuteClock(nowMs);
     if (state.status === 'off') return null;
 
@@ -53,8 +55,12 @@ export function SatelliteIrCredit({ state, top, onTogglePlay, nowMs }: Satellite
 
     return (
         <div
-            className={`${CREDITS_STRIP_POSITION_CLASS} z-509 max-w-[calc(100%-120px)] rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
-            style={{ top }}
+            className={
+                inline
+                    ? 'relative rounded-md bg-slate-950/70 px-2 py-1'
+                    : `${CREDITS_STRIP_POSITION_CLASS} z-509 max-w-[calc(100%-120px)] rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`
+            }
+            style={inline ? undefined : { top }}
             data-testid="sat-ir-credit"
             // Cut out of the layer menu's scrim, like every licence credit.
             data-map-credit
