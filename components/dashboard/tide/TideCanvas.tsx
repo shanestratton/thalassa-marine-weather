@@ -65,6 +65,7 @@ export const TideCanvas = React.memo(
             const pixelHeight = Math.max(1, Math.round(h * dpr));
             if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
             if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+            ctx.resetTransform();
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             // Canvas pixels do not inherit the daylight stylesheet. Read the
             // effective display class on each draw, including theme switches.

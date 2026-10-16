@@ -74,6 +74,7 @@ test.beforeEach(async ({ page }) => {
             'restore',
             'clip',
             'setTransform',
+            'resetTransform',
             'reset',
             'beginPath',
         ] as const) {

@@ -193,3 +193,18 @@ unchanged. This tests a hypothesis about the visible composited canvas surface;
 the correct offscreen controls do not rule that path out. Diagnostics also
 retain the graph wrapper's actual CSS rectangle/transform/will-change and
 containment state. Original curve/axis/bounds/error guards remain mandatory.
+
+Compositor source `af2494c7b` passed local 40/40 and the two-case Linux probe
+`38980828931`, including the original case. The full exact-source focused run
+`38981130780` nevertheless reproduces 15 original WebKit tide failures. Its
+early layout artifact `12080383976` is 6213138 bytes, SHA256
+`8de1e0f0b2f44e2459c7c64a35e8e2a77076292ce41d924b970bdf792ff4f014`.
+Those have the same y180/grid-spacing195 native raster despite actual wrapper
+transform none/will-change auto. The narrow probe pass did not establish a
+complete repair, and the full release matrix remains ineligible.
+
+The next candidate explicitly resets the context transform to identity before
+setting the absolute DPR matrix, testing a stale native state-cache path while
+retaining DPR3 and draw frequency. The isolated recorder counts that native
+reset call as well. No unconditional repaint, pixel-threshold relaxation or
+layout change is introduced. Full exact-source validation is still required.
