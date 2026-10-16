@@ -1,4 +1,4 @@
-import { test } from '../../../source/node_modules/@playwright/test';
+import { test } from '../../../source/node_modules/@playwright/test/index.mjs';
 import '../../../source/browser-tests/autorouting-trial.spec';
 
 test.beforeEach(async ({ page }) => {
