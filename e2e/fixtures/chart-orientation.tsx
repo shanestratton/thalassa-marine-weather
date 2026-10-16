@@ -24,8 +24,7 @@
 // Chesapeake-like bay, the beacon on the antimeridian by a Taveuni-like reef.
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import type L from 'leaflet';
-import { leafletRuntime } from '../../utils/leafletRuntime.mjs';
+import { mapboxWindField } from '../../components/map/MapboxWindField';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { MapboxVelocityOverlay } from '../../components/map/MapboxVelocityOverlay';
@@ -77,12 +76,6 @@ const HOME: [number, number] = scene === 'run' ? FJORD : BAY;
 
 // As 127-11b's controller will: the mode first, then the camera.
 setChartOrientation({ turning, target: turning ? bearing : null });
-
-// Every Leaflet map made on this page, so the spec can ask the wind field's own.
-const leafletMaps: L.Map[] = [];
-leafletRuntime.Map.addInitHook(function (this: L.Map) {
-    leafletMaps.push(this);
-});
 
 const centre =
     scene === 'wind' || scene === 'run'
@@ -154,13 +147,14 @@ const fieldDiv = () =>
  * container point, measured after the browser applies the div's transform).
  */
 async function windProbes() {
-    for (let i = 0; i < 100 && !(fieldDiv()?.style.opacity === '1' && leafletMaps.length); i++) {
+    for (let i = 0; i < 100 && !(fieldDiv()?.style.opacity === '1' && mapboxWindField(map)); i++) {
         await new Promise((r) => setTimeout(r, 100));
     }
     await new Promise((r) => setTimeout(r, 400));
     await settle();
     const div = fieldDiv()!;
-    const lmap = leafletMaps[leafletMaps.length - 1];
+    const field = mapboxWindField(map)!;
+    const canvas = field.canvas;
     const box = map.getContainer().getBoundingClientRect();
     const c = map.getCenter();
     const out = [];
@@ -172,12 +166,15 @@ async function windProbes() {
         [-0.4, -0.35],
     ]) {
         const geo = { lng: c.lng + dLng, lat: c.lat + dLat };
-        const at = lmap.latLngToContainerPoint([geo.lat, geo.lng]);
+        const at = field.framePoint([geo.lng, geo.lat]);
         const probe = document.createElement('div');
         probe.style.cssText = `position:absolute;left:${at.x - 1}px;top:${at.y - 1}px;width:2px;height:2px;`;
-        div.appendChild(probe);
+        const surface = document.createElement('div');
+        surface.style.cssText = canvas.style.cssText;
+        surface.appendChild(probe);
+        div.appendChild(surface);
         const r = probe.getBoundingClientRect();
-        probe.remove();
+        surface.remove();
         const p = map.project([geo.lng, geo.lat]);
         out.push({
             geo,
@@ -189,9 +186,9 @@ async function windProbes() {
         probes: out,
         div: {
             inset: div.style.inset,
-            width: div.style.width,
-            height: div.style.height,
-            transform: div.style.transform,
+            width: canvas.style.width,
+            height: canvas.style.height,
+            transform: canvas.style.transform,
         },
         view: { width: box.width, height: box.height },
     };

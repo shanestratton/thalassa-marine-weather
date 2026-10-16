@@ -1488,41 +1488,7 @@ class PiCacheServiceImpl {
         return `${this.baseUrl}/api/passthrough-tile?${params.toString()}`;
     }
 
-    // ── Leaflet Tile Template ──
-
-    /**
-     * Create a Leaflet-compatible tile URL template that routes through the Pi.
-     *
-     * Works because Leaflet replaces {z}/{x}/{y}/{s}/{r} everywhere in the string,
-     * including inside query parameter values. The Pi receives the concrete URL
-     * after Leaflet fills in the placeholders.
-     *
-     * Only safe for "clean" tile URL templates (no `?query=params` in the original).
-     * For URLs with query strings, use Mapbox GL's transformRequest + passthroughTileUrl().
-     *
-     * @param originalTemplate — Leaflet tile URL template, e.g. 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'
-     * @param ttlMs — Cache TTL in milliseconds (default: 30 min)
-     */
-    /**
-     * FALSE while the Pi speaks pinned self-signed TLS.
-     *
-     * Leaflet fetches tiles as <img src>, which goes through WKWebView's
-     * ordinary image loader — NOT through PiTlsPlugin, which is what holds the
-     * pin for the Pi's self-signed certificate. The webview has no CA for that
-     * cert, so every tile request dies in the handshake and renders nothing:
-     * the Log page's maps went white the moment the Pi moved to HTTPS on
-     * 2026-08-07. Over the old http:// base an <img> was fine, which is why
-     * this worked for months and then stopped.
-     *
-     * The cost of leaving it off is real — no Pi tile cache offshore — but a
-     * cached tile that can never be displayed is worth nothing, and a white
-     * chart is a worse failure than an uncached one.
-     *
-     * Flipping this back on requires the tiles to travel over a transport that
-     * can present the pin: a native WKURLSchemeHandler serving a custom
-     * scheme, or a certificate the webview already trusts. The wrapper below
-     * is kept, and correct, for that day.
-     */
+    /** Map-engine image requests cannot present the Pi self-signed TLS pin. */
     private static readonly PI_TILE_PROXY_USABLE = false;
 
     /**
@@ -1543,35 +1509,6 @@ class PiCacheServiceImpl {
      */
     canDisplayProxiedTiles(): boolean {
         return PiCacheServiceImpl.PI_TILE_PROXY_USABLE && this.isAvailable();
-    }
-
-    leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000, contentType = 'image/png'): string {
-        if (!this.canDisplayProxiedTiles()) return originalTemplate;
-        // NEVER proxy tiles over the REMOTE path. The Pi cache earns its keep
-        // on the boat LAN — shared scarce uplink, prefetched cells, offline at
-        // anchor. Reached over the punter's tailnet instead, the same proxy is
-        // a pure detour: phone → Tailscale → the boat's 5G → Pi → upstream →
-        // back over 5G — for tiles the phone could fetch directly on its own
-        // connection. Measured as "the box is instant but the map inside takes
-        // ages" on the Log page from home (Shane, 2026-08-20). `reachable` and
-        // `worth using` are different facts; this is where they part ways.
-        if (this._useRemote) return originalTemplate;
-        // ENCODE the upstream template. It may carry its own query string —
-        // Mapbox requires ?access_token= — and interpolating it raw made
-        // Express on the Pi parse that token as one of the PASSTHROUGH's own
-        // params, truncating `url` at the '?'. The Pi then fetched a tokenless
-        // Mapbox URL, got 401, and every tile came back empty: a silently
-        // white map with working attribution underneath it (Shane 2026-08-07,
-        // Log page). Esri has no query string, which is why this only appeared
-        // when these maps moved to Mapbox.
-        //
-        // The {z}/{x}/{y} placeholders must survive encoding — Leaflet
-        // substitutes them in the FINAL string, after this wrapping.
-        const encoded = encodeURIComponent(originalTemplate).replace(/%7B([zxy])%7D/gi, (_m, axis) => `{${axis}}`);
-        // Content type is not cosmetic here: the Pi stamps the cached response
-        // with it. Satellite tiles are JPEG; labelling them image/png cached
-        // and served a lie.
-        return `${this.baseUrl}/api/passthrough-tile?url=${encoded}&ttl=${ttlMs}&ct=${encodeURIComponent(contentType)}`;
     }
 
     // ── Maintenance ──

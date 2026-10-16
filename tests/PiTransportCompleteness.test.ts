@@ -81,7 +81,7 @@ const RAW_TRANSPORT = /CapacitorHttp\.|(?<![A-Za-z0-9_$])fetch\s*\(|new XMLHttpR
  * `https://${host}:${PI_CACHE_PORT}` literal both slipped past it.
  */
 const PI_URL_CONTEXT =
-    /piCache\.baseUrl|piCacheBase|\$\{piBase\}|unifiedWeatherUrl\s*\(|passthroughUrl\s*\(|passthroughTileUrl\s*\(|leafletTileTemplate\s*\(|getRemoteBaseUrl\s*\(|PI_CACHE_PORT|:3001/;
+    /piCache\.baseUrl|piCacheBase|\$\{piBase\}|unifiedWeatherUrl\s*\(|passthroughUrl\s*\(|passthroughTileUrl\s*\(|getRemoteBaseUrl\s*\(|PI_CACHE_PORT|:3001/;
 
 /**
  * `${base}/api/` USED TO BE IN THAT PATTERN, and it was wrong: the Pi hosts

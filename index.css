@@ -1571,31 +1571,6 @@ body,
     animation: pageEnter 200ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* ── Leaflet MarkerCluster Overrides ── */
-.custom-cluster-icon {
-    background: transparent !important;
-    border: none !important;
-}
-
-.marker-cluster-small,
-.marker-cluster-medium,
-.marker-cluster-large {
-    background: transparent !important;
-}
-
-.marker-cluster-small div,
-.marker-cluster-medium div,
-.marker-cluster-large div {
-    background: transparent !important;
-}
-
-.leaflet-cluster-anim .leaflet-marker-icon,
-.leaflet-cluster-anim .leaflet-marker-shadow {
-    transition:
-        transform 0.25s ease-out,
-        opacity 0.25s ease-out !important;
-}
-
 /* ── Reduced Motion — WCAG 2.1 SC 2.3.3 ──
    Disables ALL motion for users who request it via OS settings.
    Covers Tailwind's animate-* utilities + custom keyframes. */
@@ -3206,10 +3181,8 @@ body,
    surface is white, so the content must own an explicit dark surface. */
 /* Popups always ride ABOVE the overlay canvases — Shane 2026-08-25: wind
    streaks were painting straight over the anchorage verdict card. The
-   velocity overlay div sits at z-index 400 inside the map container (its
-   internal Leaflet panes are scoped by its own stacking context), the
-   Leaflet wind canvas at 5; a popup the punter opened is the top of the
-   map's information order, full stop. */
+   wind canvas sits at z-index 400 inside the map container. An opened popup
+   stays above the field. */
 .mapboxgl-popup {
     z-index: 500;
 }
@@ -3670,117 +3643,6 @@ body,
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
     }
-}
-
-/* Leaflet's upstream `plus-lighter` / `-webkit-optimize-contrast` tile
-   workarounds can turn a fractional iOS WebKit tile join into a bright,
-   ruler-straight horizontal seam across satellite imagery. Keep ordinary
-   interpolation and source compositing inside Ship's Log maps so both the
-   opaque satellite base and transparent seamark grid meet cleanly. */
-.thalassa-log-leaflet-map.leaflet-container img.leaflet-tile {
-    image-rendering: auto;
-    mix-blend-mode: normal;
-}
-
-/* ── Ship's Log Leaflet chrome ─────────────────────────────────────
-   Leaflet ships 2011 web-map furniture: a solid white attribution pill,
-   blue underlined links, white popups, and a pale-grey container that
-   flashes before tiles land — all floating over a dark marine app
-   (Shane 2026-08-12: "the leaflet layout is ugly"). Everything below is
-   scoped to the Log maps. The OSM / OpenSeaMap / Mapbox attribution
-   REMAINS legible — it is a licence condition — restyled, never removed. */
-.thalassa-log-leaflet-map.leaflet-container {
-    background: #0b1220; /* pre-tile void matches the app, not leaflet's #ddd */
-    font-family: inherit;
-}
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution {
-    background: rgba(2, 6, 23, 0.55);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    color: rgba(148, 163, 184, 0.85);
-    font-size: 12px; /* the app's 12 px text floor: 9 px was unreadable (UX scorecard run 6) */
-    font-weight: 600;
-    line-height: 1.6;
-    letter-spacing: 0.02em;
-    padding: 2px 8px;
-    border: none;
-    border-radius: 8px 0 0 0;
-    box-shadow: none;
-}
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution a {
-    color: rgba(125, 211, 252, 0.8);
-    text-decoration: none;
-}
-/* ── Compact attribution — the ⓘ button ──────────────────────────
-   Mapbox GL's compact-attribution pattern applied to Leaflet: collapsed
-   to a small ⓘ circle, the full OSM / OpenSeaMap / Mapbox credit line one
-   tap away (toggle wired in components/map/leafletCompactAttribution.ts).
-   This satisfies the tile licences — credits are collapsed, never removed;
-   MapAttributionContract.test.ts blesses hiding vocabulary ONLY inside this
-   `:not(.is-open)` rule and requires the `.is-open` restore to exist. */
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact:not(.is-open) {
-    position: relative;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    margin: 0 6px 6px 0;
-    border-radius: 9999px;
-    overflow: hidden;
-    cursor: pointer;
-    font-size: 0; /* collapses the credit text; .is-open below restores it */
-}
-.thalassa-log-leaflet-map.leaflet-container
-    .leaflet-control-attribution.thalassa-attribution-compact:not(.is-open)::after {
-    content: 'i';
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: Georgia, 'Times New Roman', serif;
-    font-style: italic;
-    font-weight: 700;
-    font-size: 13px;
-    line-height: 1;
-    color: rgba(148, 163, 184, 0.9);
-}
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact.is-open {
-    font-size: 12px; /* the restore: full credit line, tap again to collapse */
-    cursor: pointer;
-}
-.thalassa-log-leaflet-map .leaflet-popup-content-wrapper {
-    background: rgba(15, 23, 42, 0.92);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    color: #e2e8f0;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-}
-.thalassa-log-leaflet-map .leaflet-popup-content {
-    margin: 10px 12px;
-    font-size: 12px;
-    line-height: 1.5;
-}
-.thalassa-log-leaflet-map .leaflet-popup-tip {
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: none;
-}
-.thalassa-log-leaflet-map a.leaflet-popup-close-button {
-    color: rgba(148, 163, 184, 0.8);
-}
-/* Soft inner vignette so the imagery reads as sitting IN its card rather
-   than pasted on top. Above tiles/overlays (z ~200-600), below the popup
-   pane (700) and controls (1000); inherits the card's rounding. */
-.thalassa-log-leaflet-map::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: 650;
-    pointer-events: none;
-    border-radius: inherit;
-    box-shadow: inset 0 0 28px rgba(2, 6, 23, 0.55);
 }
 
 /* ── The Log page's Mapbox maps (125-13a, logMap.ts) ───────────────

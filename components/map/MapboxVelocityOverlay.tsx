@@ -1,13 +1,13 @@
 /**
- * MapboxVelocityOverlay — Bridges leaflet-velocity-ts onto a Mapbox GL map.
+ * MapboxVelocityOverlay — Draws the selected wind on the existing Mapbox GL map.
  *
  * Data pipeline:
  *   1. Receives the selected model's reactive WindStore grid
  *   2. Converts its current (possibly fractional) forecast frame to U/V records
  *   3. Renders a static wind-speed heatmap below labels
- *   4. Optionally renders animated particles via leaflet-velocity-ts
+ *   4. Optionally renders a native Canvas2D particle field
  *
- * Cleanup: removes the heatmap plus the optional velocity layer/Leaflet overlay.
+ * Cleanup: removes owned canvases, listeners and animation frames.
  *
  * CLOSE-IN MODE (Shane 2026-10-06, z14 over Airlie: "i turned wind on, but
  * nothing showed up"). Once the screen spans under 1.5 cells of a fixed
@@ -21,7 +21,7 @@
  * The instruments are hers from whichever lane carries them: the store (the
  * bus, or the Pi over the LAN), else her own cloud row through the boat chain,
  * which is the only lane Obs reads ashore (Shane 2026-10-07).
- * The two cross-fade, with hysteresis, and the leaflet engine
+ * The two cross-fade, with hysteresis, and the geographic field
  * is torn down rather than left animating underneath.
  *
  * HER WIND ON HER ICON (build 123, W1-WC). Her own wind paints the field only
@@ -50,8 +50,9 @@ import {
     followedBoatSubject,
     lookUpFollowedBoatWind,
 } from './obsBoatInstruments';
-import { WIND_MAX_MS, WIND_PARTICLE_COLORS, WIND_PARTICLE_COLORS_LIGHT, type WindPalette } from './windRamp';
-import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
+import type { WindPalette } from './windRamp';
+import { MapboxWindField } from './MapboxWindField';
+import { windGridFrameToVelocityData } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
 import {
     boatWindZoomFor,
@@ -68,19 +69,11 @@ import {
     type LocalWind,
 } from './closeInWind';
 import { getBoatWindReadout, resolveBoatWindReadout, setBoatWindReadout } from './boatWindReadout';
-import { chartBearing, chartTurning, subscribeChartTurning } from './chartOrientation';
+import { chartBearing } from './chartOrientation';
 import type { WindParticleLayer } from './WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';
 
 const log = createLogger('MapboxVelocityOverlay');
-import type L from 'leaflet';
-import { leafletRuntime } from '../../utils/leafletRuntime.mjs';
-import 'leaflet/dist/leaflet.css';
-
-// NOTE: leaflet-velocity-ts is dynamically imported inside useEffect
-// because it expects window.L to exist at import time.
-// Type declaration is in src/leaflet-velocity-ts.d.ts
-
 interface MapboxVelocityOverlayProps {
     mapboxMap: mapboxgl.Map | null;
     visible: boolean;
@@ -139,16 +132,7 @@ interface MapboxVelocityOverlayProps {
  * out now; the stroke does not have to.
  */
 const PARTICLE_LINE_WIDTH = 1;
-/**
- * Dark ink on the desk's Light base (127-DESKMAP-b) draws a half pixel wider:
- * leaflet-velocity's canvas is not scaled for the screen, so on a Retina or
- * 3x display a 1 px streak is upscaled to a blur whose core only reached 2.8:1
- * on Light's sea (browser-tests/desk-wind-layout.spec.ts). White streaks on the
- * dark bases keep Shane's chosen 1.
- * 2 and 3 px (2026-10-11) only answered an iPhone's DPR 3 on CI's software GL,
- * not a desk: back to 1.5 until Shane has seen a thicker stroke over the land
- * names (the dial above).
- */
+/** The chosen thin Light stroke remains 1.5 CSS px; native Retina backing keeps its core crisp. */
 const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 1.5 : PARTICLE_LINE_WIDTH);
 
 /**
@@ -178,8 +162,8 @@ const PARTICLE_HALO = 'drop-shadow(0 0 0.75px rgba(0, 0, 0, 0.55))';
 const haloFor = (palette: WindPalette) =>
     palette === 'light' ? 'drop-shadow(0 0 0.75px rgba(255, 255, 255, 0.7))' : PARTICLE_HALO;
 // Direction is essential even in the broad synoptic view, so Wind begins at
-// z3 rather than falling back to a speed-only heatmap. The startup guard below
-// protects the third-party renderer from the old delayed-start zoom race.
+// z3 rather than falling back to a speed-only heatmap. The field owns and
+// cancels its RAF synchronously when a mode or viewport changes.
 const MIN_PARTICLE_ZOOM = 3;
 
 /** Preserve the existing z3 synoptic pace as the reference. */
@@ -235,192 +219,9 @@ export function zoomScaledParticleMultiplier(mapboxZoom: number): number {
     return BASE_PARTICLE_MULTIPLIER * (1 - (1 - PARTICLE_MIN_DENSITY) * t);
 }
 
-// ── Helper: Create velocity layer ─────────────────────────────
-
-function createVelocityLayer(
-    data: VelocityGribRecord[],
-    velocityScale: number,
-    particleMultiplier: number,
-    palette: WindPalette,
-): L.Layer {
-    const layer = (
-        leafletRuntime as unknown as Record<string, (...args: unknown[]) => MutableVelocityLayer>
-    ).velocityLayer({
-        displayValues: false, // No mouse readout (overlay has pointer-events: none)
-        data,
-        maxVelocity: WIND_MAX_MS,
-        velocityScale,
-        particleAge: 60,
-        opacity: PARTICLE_FADE,
-        particleMultiplier,
-        // 30, was 15: a 66 ms particle step is visible judder on a 60 Hz
-        // panel — half of Shane's "shaky" (2026-08-21). 33 ms reads as
-        // motion. Still throttled: full-rate RAF measurably warms phones.
-        frameRate: 30,
-        particlelineWidth: lineWidthFor(palette),
-        // White below 20 kt, warning hues from the reef line up (windRamp);
-        // dark ink on a light base. A creation option: a palette change makes
-        // a new layer (the palette effect in the component).
-        colorScale: palette === 'light' ? WIND_PARTICLE_COLORS_LIGHT : WIND_PARTICLE_COLORS,
-    });
-    layer.__palette = palette;
-    // Keep the third-party delayed-start guard attached to every creation
-    // path, including a replacement after an unsupported data update.
-    guardVelocityLayerStartup(layer);
-    return layer;
-}
-
-type MutableVelocityLayer = L.Layer & {
-    __palette?: WindPalette;
-    _windy?: { setData: (data: VelocityGribRecord[]) => void; velocityScale?: number; particleMultiplier?: number };
-    setData?: (data: VelocityGribRecord[]) => void;
-};
-
-/**
- * `leaflet-velocity-ts` creates its Windy instance before it creates the
- * animation bucket used by `Windy.stop()`. A Mapbox zoom can arrive in that
- * small window (particularly when Wind opens at z3), causing the plugin to
- * call `this.animationBucket.clear()` while the bucket is still undefined.
- *
- * The plugin does not expose a lifecycle hook for this, so guard its private
- * startup seam at the one place we create a velocity layer. Once `start()`
- * has run, keep its original particle/bucket cleanup, but correct its RAF
- * ownership: stop() uses clearTimeout, and repeated starts can overwrite the
- * one pending RAF handle without cancelling it.
- */
-type VelocityWindyInternals = {
-    animationBucket?: VelocityBucket;
-    animationLoop?: number | null;
-    start?: (...args: unknown[]) => unknown;
-    stop?: () => void;
-    __thalassaSafeStop?: boolean;
-};
-
-type VelocityBucket = {
-    clear?: () => void;
-    draw?: (ctx: CanvasRenderingContext2D) => void;
-    __inkOver?: boolean;
-};
-
-/**
- * Light's ink, drawn normally (128-LIGHT; Shane 2026-10-13: "yes to all of
- * your questions for 128"). leaflet-velocity strokes each frame's particles
- * straight after setting globalCompositeOperation 'lighter' (Windy.draw: per
- * call, not an option), and the additive blend pales a dark ink wherever
- * trails meet: the 26 kt red came out 0.62-0.92 red in WebKit. So on Light
- * the particle bucket's own draw, the one call that strokes the ink, runs
- * under 'source-over'; the fade before it ('destination-in') stays the
- * library's. start() makes a new bucket, so each start wraps it again. A dark
- * base never comes here: its strokes are the library's, call for call.
- */
-function drawInkOver(bucket: VelocityBucket | undefined): void {
-    const draw = bucket?.draw;
-    if (!bucket || typeof draw !== 'function' || bucket.__inkOver) return;
-    bucket.__inkOver = true;
-    bucket.draw = (ctx) => {
-        ctx.globalCompositeOperation = 'source-over';
-        draw.call(bucket, ctx);
-    };
-}
-
-type VelocityLayerInternals = MutableVelocityLayer & {
-    _windy?: VelocityWindyInternals;
-    onDrawLayer?: (...args: unknown[]) => unknown;
-    __thalassaStartupGuarded?: boolean;
-};
-
-export function guardVelocityLayerStartup(layer: L.Layer): void {
-    const internalLayer = layer as VelocityLayerInternals;
-    if (internalLayer.__thalassaStartupGuarded || typeof internalLayer.onDrawLayer !== 'function') return;
-
-    internalLayer.__thalassaStartupGuarded = true;
-    const originalOnDrawLayer = internalLayer.onDrawLayer;
-
-    internalLayer.onDrawLayer = (...args: unknown[]) => {
-        const result = originalOnDrawLayer.call(internalLayer, ...args);
-        const windy = internalLayer._windy;
-        if (!windy || windy.__thalassaSafeStop || typeof windy.stop !== 'function') return result;
-
-        const originalStop = windy.stop;
-        windy.__thalassaSafeStop = true;
-        const cancelOwnedFrame = () => {
-            // leaflet-velocity-ts 1.2.0 schedules RAF but stops it with
-            // clearTimeout. Cancel its own pending frame, then clear the
-            // handle before delegating so no unrelated timer ID is cleared.
-            // Palette replacements/disable/unmount must not leave a detached
-            // field self-scheduling behind the current chart.
-            if (typeof windy.animationLoop === 'number') {
-                window.cancelAnimationFrame(windy.animationLoop);
-                windy.animationLoop = null;
-            }
-        };
-        const originalStart = windy.start;
-        const inkOver = internalLayer.__palette === 'light';
-        if (typeof originalStart === 'function') {
-            windy.start = (...startArgs: unknown[]) => {
-                // clearAndRestart can start this same Windy again without a
-                // stop. Keep one frame chain rather than losing its old handle.
-                cancelOwnedFrame();
-                const started = originalStart.apply(windy, startArgs);
-                if (inkOver) drawInkOver(windy.animationBucket);
-                return started;
-            };
-        }
-        windy.stop = () => {
-            cancelOwnedFrame();
-            // Before the plugin's delayed `start()` call there is no running
-            // animation to stop. Returning here avoids its unsafe clear().
-            if (!windy.animationBucket) return;
-            originalStop.call(windy);
-        };
-
-        return result;
-    };
-}
-
-function removeVelocityLayer(map: L.Map, layer: L.Layer | null): void {
-    if (layer && map.hasLayer(layer)) map.removeLayer(layer);
-}
-
-function applyVelocityData(
-    map: L.Map,
-    layer: L.Layer | null,
-    data: VelocityGribRecord[],
-    velocityScale: number,
-    particleMultiplier: number,
-    palette: WindPalette,
-): L.Layer {
-    if (!layer) {
-        const created = createVelocityLayer(data, velocityScale, particleMultiplier, palette);
-        created.addTo(map);
-        return created;
-    }
-
-    const mutableLayer = layer as MutableVelocityLayer;
-    if (mutableLayer._windy) {
-        mutableLayer._windy.velocityScale = velocityScale;
-        // Re-read on the next start() via the particuleCount getter.
-        mutableLayer._windy.particleMultiplier = particleMultiplier;
-        mutableLayer._windy.setData(data);
-        return layer;
-    }
-    if (mutableLayer.setData) {
-        mutableLayer.setData(data);
-        return layer;
-    }
-
-    removeVelocityLayer(map, layer);
-    const replacement = createVelocityLayer(data, velocityScale, particleMultiplier, palette);
-    replacement.addTo(map);
-    return replacement;
-}
-
-// ── Close-in helpers ─────────────────────────────────────────
-
-/** Both overlays fade over 0.4 s (the container transition). */
 const CROSSFADE_MS = 400;
-/** The leaflet field fades in 600 ms after setup; the close-in field holds until then. */
-const LEAFLET_FADE_IN_DELAY_MS = 600;
+/** Close-in holds through the geographic field startup/cross-fade. */
+const FIELD_FADE_IN_DELAY_MS = 600;
 /**
  * While the boat is the source, re-read it this often. Its freshness tiers run
  * on the sample clock, but the store only notifies on a sample or a watchdog
@@ -587,33 +388,6 @@ export function sameSeenAt(a: SeenAt, b: SeenAt): boolean {
     );
 }
 
-/**
- * The Leaflet field's CSS transform on a chart that may be turned (127-11a,
- * audit A1). Leaflet is always north-up, so the div is turned by minus the
- * bearing about its centre O, the camera centre: `translate(T) rotate(-B)
- * scale(s)` with T = anchor - O - R(-B) s r, where `anchor` is where Mapbox
- * draws the last synced centre now and `r` is where Leaflet drew it relative
- * to O. At bearing 0 this is exactly the translate (and scale) the overlay
- * always wrote, so a north-up chart is untouched.
- */
-export function velocityOverlayTransform(f: {
-    anchor: { x: number; y: number };
-    origin: { x: number; y: number };
-    r: { x: number; y: number };
-    s: number;
-    bearing: number;
-}): string {
-    const { anchor, origin, r, s, bearing } = f;
-    const scale = Math.abs(s - 1) > 0.001 ? ` scale(${s})` : '';
-    if (!bearing) return `translate(${anchor.x - origin.x - s * r.x}px, ${anchor.y - origin.y - s * r.y}px)${scale}`;
-    const a = (-bearing * Math.PI) / 180;
-    const cos = Math.cos(a);
-    const sin = Math.sin(a);
-    const tx = anchor.x - origin.x - s * (r.x * cos - r.y * sin);
-    const ty = anchor.y - origin.y - s * (r.x * sin + r.y * cos);
-    return `translate(${tx}px, ${ty}px) rotate(${-bearing}deg)${scale}`;
-}
-
 function onScreen(map: mapboxgl.Map, lat: number, lon: number): boolean {
     try {
         const container = map.getContainer();
@@ -640,22 +414,17 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const imported = windGrid?.importedGrib === true;
     const importedLayer = useRef<WindParticleLayer | null>(null);
     const overlayRef = useRef<HTMLDivElement | null>(null);
-    const leafletMapRef = useRef<L.Map | null>(null);
-    const velocityLayerRef = useRef<L.Layer | null>(null);
-    const syncRef = useRef<(() => void) | null>(null);
-    const moveRef = useRef<(() => void) | null>(null);
-    const resizeRef = useRef<(() => void) | null>(null);
-    const zoomEndRef = useRef<(() => void) | null>(null);
+    const fieldRef = useRef<MapboxWindField | null>(null);
     const [particleZoomSupported, setParticleZoomSupported] = useState(() =>
         Boolean(mapboxMap && mapboxMap.getZoom() >= MIN_PARTICLE_ZOOM),
     );
     // Close-in is decided from the settled camera. Seeded on mount, so Obs
-    // opening at z14 never starts the leaflet engine just to park it.
+    // opening at z14 never starts the geographic field just to park it.
     const [closeIn, setCloseIn] = useState(() =>
         Boolean(mapboxMap && visible && particlesEnabled && closeInFor(mapboxMap, windGrid, false)),
     );
-    // Leaflet stays up through the cross-fade into close-in, then is torn down.
-    const [leafletParked, setLeafletParked] = useState(closeIn);
+    // The field stays up through the cross-fade into close-in, then is torn down.
+    const [fieldParked, setFieldParked] = useState(closeIn);
     // Track latest values so the async setup can apply the correct hour
     const windHourRef = useRef(windHour);
     const windGridPropRef = useRef(windGrid);
@@ -665,14 +434,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windGridPropRef.current = windGrid;
     windNowIdxRef.current = windNowIdx;
     boatInstrumentsRef.current = boatInstruments && !imported;
-    const paletteRef = useRef(palette);
-    paletteRef.current = palette;
-    // A turned chart's square field (127-11a) holds today's density only up to
-    // 1.6x today's particle count: 1 north up, below 1 on a portrait phone.
-    const densityRef = useRef(1);
-
-    // Leaflet velocity coerces unknown vectors to zero. The existing WebGL
-    // layer preserves the GRIB bitmap and renders only the file's coverage.
+    // Imported GRIB retains its WebGL renderer, bitmap coverage and separate
+    // particle controls; it never borrows the boat's local instruments.
     const importedParticles = useRef(particlesEnabled);
     importedParticles.current = particlesEnabled;
     useEffect(() => {
@@ -737,7 +500,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const boatZoomRef = useRef(false);
 
     // The OBS wind read is directional at every supported zoom. Wait for the
-    // camera to settle before mounting/unmounting the second map so a z3
+    // camera to settle before mounting/unmounting the particle engine so a z3
     // transition cannot fight Mapbox's zoom animation. The same settle decides
     // close-in, so a mode switch never lands mid-pinch either.
     useEffect(() => {
@@ -770,8 +533,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
 
         updateParticleZoomSupport();
-        // Wait for the camera to settle before starting/stopping the second
-        // map. That keeps an animation-layer transition out of Mapbox's zoom
+        // Wait for the camera to settle before starting/stopping the particle
+        // engine. That keeps an animation-layer transition out of Mapbox's zoom
         // animation.
         mapboxMap.on('zoomend', zoomSettled);
         // The chart shown again (or resized): its resize fires a moveend,
@@ -791,25 +554,25 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     );
     const closeInWantedRef = useRef(closeInWanted);
     closeInWantedRef.current = closeInWanted;
-    const particlesActive = !imported && particlesEnabled && particleZoomSupported && !leafletParked;
+    const particlesActive = !imported && particlesEnabled && particleZoomSupported && !fieldParked;
 
-    // Leaflet's half of the cross-fade. Into close-in: fade its overlay out,
+    // The geographic field's half of the cross-fade. Into close-in: fade its overlay out,
     // and park (tear down) the engine once that has run. Out of close-in: it
     // starts again at once and fades in on its own 600 ms timer.
     useEffect(() => {
         const overlay = overlayRef.current;
         if (!closeInWanted) {
-            setLeafletParked(false);
-            if (overlay && velocityLayerRef.current) overlay.style.opacity = '1';
+            setFieldParked(false);
+            if (overlay && fieldRef.current) overlay.style.opacity = '1';
             return;
         }
         const wasShowing = overlay?.style.opacity === '1';
         if (overlay) overlay.style.opacity = '0';
         if (!wasShowing) {
-            setLeafletParked(true);
+            setFieldParked(true);
             return;
         }
-        const park = setTimeout(() => setLeafletParked(true), CROSSFADE_MS + 50);
+        const park = setTimeout(() => setFieldParked(true), CROSSFADE_MS + 50);
         return () => clearTimeout(park);
     }, [closeInWanted]);
 
@@ -842,7 +605,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
     // ── Her wind on her icon (W1-WC) ──────────────────────────────
     // Wherever the field is not showing her wind (below 14 in close-in, in the
-    // leaflet field further out, or under z3), her own-ship marker carries it.
+    // geographic field further out, or under z3), her own-ship marker carries it.
     // In close-in refreshCloseIn publishes it with the field's own reading;
     // outside it the field is the model's alone, and refreshHerWind does.
     const herWindOn = Boolean(!imported && mapboxMap && visible);
@@ -990,10 +753,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 // (held mid-gesture, boatZoomRef), and her icon takes it in
                 // this same flush (W1-WC). The field lets go first, as in
                 // refreshCloseIn: for its last second it fades out on the
-                // model at the centre, the leaflet field's own wind.
+                // model at the centre, the geographic field's own wind.
                 if (heldHers) owned.setWind(modelWindAtCentre(mapboxMap, windGridPropRef.current, windHourRef.current));
-                // Zoomed out: hold until leaflet has faded in, then fade.
-                owned.release(LEAFLET_FADE_IN_DELAY_MS, forget);
+                // Zoomed out: hold until the geographic field has faded in, then fade.
+                owned.release(FIELD_FADE_IN_DELAY_MS, forget);
             } else {
                 owned.destroy();
                 forget();
@@ -1039,7 +802,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
     }, [herWindOn, boatInstruments, boatLookUp]);
 
-    // Her icon outside close-in (W1-WC): the leaflet field, or none under z3.
+    // Her icon outside close-in (W1-WC): the geographic field, or none under z3.
     // The field there is the model's alone, so her reading rides on her icon:
     // re-read on her instruments' own notifications, a new follow target, and
     // the 2 s re-check while she has a reading out (it ages on its own clock).
@@ -1067,427 +830,43 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // Off with the overlay: nothing of hers is left on her icon.
     useEffect(() => () => setBoatWindReadout(null), []);
 
-    // The selected WindStore grid is the sole particle source. This effect
-    // covers grid/hour updates after Leaflet setup, including the first frame.
-    // If a model switch clears the grid, remove the old model immediately
-    // rather than leaving plausible-looking but incorrectly labelled wind.
-    useEffect(() => {
-        if (!particlesActive) return;
-        const leafletMap = leafletMapRef.current;
-        if (!leafletMap) return;
-
-        const nextData = windGridFrameToVelocityData(windGrid, windHour);
-        if (!nextData) {
-            removeVelocityLayer(leafletMap, velocityLayerRef.current);
-            velocityLayerRef.current = null;
-            if (overlayRef.current) overlayRef.current.style.opacity = '0';
-            return;
-        }
-
-        try {
-            // The colour scale is fixed at creation: a new base's palette
-            // (127-DESKMAP-b) replaces the layer once; the same palette never does.
-            let layer = velocityLayerRef.current as MutableVelocityLayer | null;
-            if (layer && layer.__palette !== palette) {
-                removeVelocityLayer(leafletMap, layer);
-                layer = null;
-            }
-            velocityLayerRef.current = applyVelocityData(
-                leafletMap,
-                layer,
-                nextData,
-                zoomCompensatedVelocityScale(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
-                zoomScaledParticleMultiplier(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM) * densityRef.current,
-                palette,
-            );
-            if (overlayRef.current) {
-                overlayRef.current.style.opacity = closeInWantedRef.current ? '0' : '1';
-                overlayRef.current.style.filter = haloFor(palette);
-            }
-            syncRef.current?.();
-        } catch (err) {
-            // Never leave the previous model painted after a renderer update
-            // fails. A plausible old field with a newly-selected model label is
-            // more dangerous than an honestly empty overlay.
-            removeVelocityLayer(leafletMap, velocityLayerRef.current);
-            velocityLayerRef.current = null;
-            if (overlayRef.current) overlayRef.current.style.opacity = '0';
-            log.error('[VelocityOverlay] Failed to apply selected wind grid:', err);
-        }
-    }, [windHour, windGrid, particlesActive, mapboxMap, palette]);
-
-    // ── Create/destroy particle overlay ──────────────────────────
+    // Each field owns its canvas and RAF. A missing/replaced grid clears old ink immediately.
     useEffect(() => {
         if (!mapboxMap || !visible || !particlesActive) return;
-
-        let cancelled = false;
-        let snapTimer: ReturnType<typeof setTimeout> | null = null;
-        let sizeObserver: ResizeObserver | null = null;
-        let lateBootTimer: ReturnType<typeof setTimeout> | null = null;
-        let stopTurning = () => {};
-
-        const setup = async () => {
-            // Ensure Leaflet is on window BEFORE the plugin loads
-
-            window.L = leafletRuntime as unknown as typeof L;
-            await import('leaflet-velocity-ts');
-
-            // leaflet-velocity-ts includes `zoomanim: undefined` in its
-            // CanvasLayer event map whenever Leaflet animations are disabled.
-            // Leaflet warns once on bind and again on unbind for every mount.
-            // Filter only non-functions at the plugin boundary; all valid
-            // resize/move/zoom callbacks remain untouched.
-            const canvasLayerProto = (
-                leafletRuntime as unknown as {
-                    CanvasLayer?: {
-                        prototype?: {
-                            getEvents?: () => Record<string, unknown>;
-                            __thalassaFiltersInvalidEvents?: boolean;
-                        };
-                    };
-                }
-            ).CanvasLayer?.prototype;
-            if (canvasLayerProto?.getEvents && !canvasLayerProto.__thalassaFiltersInvalidEvents) {
-                const originalGetEvents = canvasLayerProto.getEvents;
-                canvasLayerProto.getEvents = function () {
-                    return Object.fromEntries(
-                        Object.entries(originalGetEvents.call(this)).filter(
-                            ([, listener]) => typeof listener === 'function',
-                        ),
-                    );
-                };
-                canvasLayerProto.__thalassaFiltersInvalidEvents = true;
-            }
-
-            if (cancelled) return;
-
-            const container = mapboxMap.getContainer();
-            // Each field starts north up: no square, so no density cap left
-            // over from one torn down while the chart was turned.
-            densityRef.current = 1;
-
-            // Create overlay div on top of Mapbox
-            const div = document.createElement('div');
-            div.style.cssText = `position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;filter:${haloFor(paletteRef.current)};`;
-            container.appendChild(div);
-            overlayRef.current = div;
-
-            // Create headless Leaflet map (transparent, no tiles, no controls)
-            const center = mapboxMap.getCenter();
-            const zoom = mapboxMap.getZoom();
-            const lMap = leafletRuntime.map(div, {
-                center: [center.lat, center.lng],
-                zoom: zoom + 1,
-                zoomControl: false,
-                attributionControl: false,
-                dragging: false,
-                touchZoom: false,
-                doubleClickZoom: false,
-                scrollWheelZoom: false,
-                boxZoom: false,
-                keyboard: false,
-                zoomAnimation: false,
-                zoomSnap: 0,
-            });
-            leafletMapRef.current = lMap;
-
-            // Make Leaflet fully transparent
-            div.style.background = 'transparent';
-            const leafletContainer = div.querySelector('.leaflet-container') as HTMLElement;
-            if (leafletContainer) leafletContainer.style.background = 'transparent';
-            const tilePane = lMap.getPane('tilePane');
-            if (tilePane) tilePane.style.display = 'none';
-            const mapPane = lMap.getPane('mapPane');
-            if (mapPane) mapPane.style.background = 'transparent';
-
-            // The grid/hour effect may have run before the async Leaflet plugin
-            // was ready. Read the refs here to cover that race, including hour 0.
-            const initialData = windGridFrameToVelocityData(windGridPropRef.current, windHourRef.current);
-            if (initialData) {
-                velocityLayerRef.current = applyVelocityData(
-                    lMap,
-                    null,
-                    initialData,
-                    zoomCompensatedVelocityScale(mapboxMap.getZoom()),
-                    zoomScaledParticleMultiplier(mapboxMap.getZoom()) * densityRef.current,
-                    paletteRef.current,
-                );
-            }
-
-            // ── Anchor-point geo-locking (performance optimised) ──
-            // MOVE/ZOOM events (every frame during a gesture):
-            //   → Lightweight: CSS translate+scale against the last synced view
-            //     (no setView — a setView per zoom frame made the plugin kill
-            //     and re-seed every particle dozens of times per pinch)
-            // MOVEEND (end of gesture — Mapbox fires it after zooms too):
-            //   → Full: setView() + measure + record the new baseline
-            let _syncing = false;
-
-            // The Leaflet view the canvas was last truly projected at, plus
-            // the sub-pixel residual Leaflet rendered it off-centre by.
-            let lastSync: { lat: number; lng: number; zoom: number; rx: number; ry: number } | null = null;
-            // The square's side while the chart may turn (127-11a, A1), else 0:
-            // today's inset:0 div. Leaflet's field is north-up, so on a turned
-            // chart the div turns by minus the bearing about its centre, and a
-            // square of the view's diagonal covers the view at any bearing.
-            let side = 0;
-            // The chart size the square was centred for: a phone turned on
-            // its side swaps w and h and keeps the diagonal, but not the centre.
-            let placedW = 0;
-            let placedH = 0;
-
-            // Full sync — expensive, only at gesture end
-            const syncFull = () => {
-                if (_syncing || !leafletMapRef.current || !mapboxMap || !overlayRef.current) return;
-                _syncing = true;
-                try {
-                    const c = mapboxMap.getCenter();
-                    const zRaw = mapboxMap.getZoom();
-                    const bearing = chartBearing(mapboxMap);
-                    const w = container.clientWidth;
-                    const h = container.clientHeight;
-                    const want = chartTurning() || bearing ? Math.ceil(Math.hypot(w, h)) : 0;
-                    if (w && h && (want !== side || (want && (w !== placedW || h !== placedH)))) {
-                        side = want;
-                        placedW = w;
-                        placedH = h;
-                        const st = overlayRef.current.style;
-                        if (side) {
-                            st.inset = '';
-                            st.left = `${(w - side) / 2}px`;
-                            st.top = `${(h - side) / 2}px`;
-                            st.width = st.height = `${side}px`;
-                        } else {
-                            st.width = st.height = '';
-                            st.inset = '0';
-                        }
-                        // The same density on the bigger canvas, up to 1.6x today's count.
-                        densityRef.current = side ? Math.min(1, (1.6 * w * h) / (side * side)) : 1;
-                        leafletMapRef.current.invalidateSize();
-                    }
-                    // The restart this setView triggers re-reads velocityScale,
-                    // so hand it the zoom-compensated value first.
-                    const windy = (velocityLayerRef.current as MutableVelocityLayer | null)?._windy;
-                    if (windy) {
-                        windy.velocityScale = zoomCompensatedVelocityScale(zRaw);
-                        // The restart re-reads particuleCount, so the density
-                        // ramp has to be handed over in the same breath as the
-                        // speed one — otherwise zooming in thins the motion
-                        // but leaves the swarm.
-                        windy.particleMultiplier = zoomScaledParticleMultiplier(zRaw) * densityRef.current;
-                    }
-                    leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
-
-                    // Measure residual error and correct. The square sits
-                    // centred on the chart, so in its own pixels the centre
-                    // is that much further in.
-                    const mapboxPx = mapboxMap.project([c.lng, c.lat]);
-                    const lx = side ? mapboxPx.x + (side - w) / 2 : mapboxPx.x;
-                    const ly = side ? mapboxPx.y + (side - h) / 2 : mapboxPx.y;
-                    const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
-                    let dx = lx - leafletPx.x;
-                    let dy = ly - leafletPx.y;
-                    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
-                        // A genuine sub-pixel residual is <1 px. Tens of px
-                        // means Leaflet is projecting against a STALE cached
-                        // container size — the startup half-render band
-                        // (Shane's screenshot, 2026-08-21): boot measured the
-                        // container while layout was transiently short, and
-                        // no resize event ever arrived to heal it (mapbox-gl
-                        // resize() early-returns without firing when its own
-                        // transform already matches). Re-measure and
-                        // re-project HERE, which turns every gesture end into
-                        // a heal opportunity instead of a re-application of
-                        // the bad translate.
-                        leafletMapRef.current.invalidateSize();
-                        leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
-                        const healedPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
-                        dx = lx - healedPx.x;
-                        dy = ly - healedPx.y;
-                    }
-                    if (bearing) {
-                        overlayRef.current.style.transform = velocityOverlayTransform({
-                            anchor: mapboxPx,
-                            origin: mapboxPx,
-                            r: { x: -dx, y: -dy },
-                            s: 1,
-                            bearing,
-                        });
-                    } else if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-                        overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
-                    } else {
-                        overlayRef.current.style.transform = '';
-                    }
-                    lastSync = { lat: c.lat, lng: c.lng, zoom: zRaw, rx: -dx, ry: -dy };
-                } catch (_) {
-                    /* velocity canvas not ready yet */
-                }
-                _syncing = false;
-            };
-
-            // Lightweight camera tracking — cheap, runs on every move/zoom
-            // frame. Scales+translates the whole canvas so the field stays
-            // geo-locked through a pinch without touching Leaflet (one real
-            // re-projection then happens at moveend).
-            const trackCamera = () => {
-                if (!leafletMapRef.current || !mapboxMap || !overlayRef.current || !lastSync) return;
-                try {
-                    const cam = mapboxMap.getCenter();
-                    // transform-origin is the div centre, which is exactly
-                    // where the camera centre projects (the div is centred).
-                    overlayRef.current.style.transform = velocityOverlayTransform({
-                        anchor: mapboxMap.project([lastSync.lng, lastSync.lat]),
-                        origin: mapboxMap.project([cam.lng, cam.lat]),
-                        r: { x: lastSync.rx, y: lastSync.ry },
-                        s: Math.pow(2, mapboxMap.getZoom() - lastSync.zoom),
-                        bearing: chartBearing(mapboxMap),
-                    });
-                } catch (_) {
-                    /* ok */
-                }
-            };
-
-            const onResize = () => {
-                leafletMapRef.current?.invalidateSize();
-                syncFull();
-            };
-
-            // Lightweight tracking on every gesture frame, full sync only at end
-            mapboxMap.on('move', trackCamera);
-            mapboxMap.on('moveend', syncFull);
-            mapboxMap.on('zoom', trackCamera);
-            mapboxMap.on('resize', onResize);
-
-            // Observe the container DIRECTLY. The Mapbox 'resize' event alone
-            // is not a reliable heal signal: useMapInit's own ResizeObserver
-            // calls map.resize(), but mapbox-gl early-returns WITHOUT firing
-            // 'resize' when its transform already matches the container — so
-            // a boot-time short-layout transient could leave Leaflet's cached
-            // size stale forever. invalidateSize() no-ops when nothing
-            // changed, so a chatty observer costs nothing.
-            if (typeof ResizeObserver !== 'undefined') {
-                sizeObserver = new ResizeObserver(() => onResize());
-                sizeObserver.observe(container);
-            }
-
-            // Single deferred re-sync after zoom/move ends (replaces heavy 200ms×10 interval)
-            const onViewEnd = () => {
-                if (snapTimer) clearTimeout(snapTimer);
-                snapTimer = setTimeout(() => {
-                    if (cancelled) return;
-                    syncFull();
-                    snapTimer = null;
-                }, 300);
-            };
-            mapboxMap.on('zoomend', onViewEnd);
-            mapboxMap.on('moveend', onViewEnd);
-            // A turning mode on or off re-shapes the div once, at once.
-            stopTurning = subscribeChartTurning(syncFull);
-
-            syncRef.current = syncFull;
-            moveRef.current = trackCamera;
-            resizeRef.current = onResize;
-            zoomEndRef.current = onViewEnd;
-
-            // Initial sync
-            lMap.invalidateSize();
-            syncFull();
-
-            // Delayed re-sync — container may not have final dimensions on first mount.
-            // Fade in AFTER this final sync so particles don't visibly jump.
-            setTimeout(() => {
-                if (cancelled) return;
-                lMap.invalidateSize();
-                syncFull();
-                // Fade in only when a selected-model grid has produced a layer.
-                // Not while close-in holds the screen (a zoom-in mid-boot).
-                if (overlayRef.current && velocityLayerRef.current && !closeInWantedRef.current)
-                    overlayRef.current.style.opacity = '1';
-            }, 600);
-
-            // Second boot pass: a cold-start layout transient that OUTLIVES
-            // the 600 ms retry was exactly the half-render window. Cheap
-            // insurance on top of the ResizeObserver + syncFull self-heal.
-            lateBootTimer = setTimeout(() => {
-                if (cancelled) return;
-                lMap.invalidateSize();
-                syncFull();
-                lateBootTimer = null;
-            }, 2000);
-        };
-
-        setup().catch((err) => log.error('[VelocityOverlay] Setup failed:', err));
-
-        // ── Cleanup ──────────────────────────────────────────────
+        const field = new MapboxWindField(mapboxMap, {
+            palette,
+            filter: haloFor(palette),
+            lineWidth: lineWidthFor(palette),
+            fade: PARTICLE_FADE,
+            velocityScale: zoomCompensatedVelocityScale,
+            particleMultiplier: zoomScaledParticleMultiplier,
+        });
+        fieldRef.current = field;
+        overlayRef.current = field.element;
+        const show = setTimeout(() => {
+            if (windGridPropRef.current && !closeInWantedRef.current) field.element.style.opacity = '1';
+        }, FIELD_FADE_IN_DELAY_MS);
         return () => {
-            cancelled = true;
-            if (snapTimer) {
-                clearTimeout(snapTimer);
-                snapTimer = null;
-            }
-            if (lateBootTimer) {
-                clearTimeout(lateBootTimer);
-                lateBootTimer = null;
-            }
-            if (sizeObserver) {
-                sizeObserver.disconnect();
-                sizeObserver = null;
-            }
-            stopTurning();
-
-            try {
-                if (moveRef.current) {
-                    mapboxMap.off('move', moveRef.current);
-                    mapboxMap.off('zoom', moveRef.current);
-                }
-                if (syncRef.current) mapboxMap.off('moveend', syncRef.current);
-                if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
-                if (zoomEndRef.current) {
-                    mapboxMap.off('zoomend', zoomEndRef.current);
-                    mapboxMap.off('moveend', zoomEndRef.current);
-                }
-            } catch (_) {
-                /* ok */
-            }
-            syncRef.current = null;
-            moveRef.current = null;
-            resizeRef.current = null;
-            zoomEndRef.current = null;
-
-            // Remove heat map from Mapbox
-            // Heat map has its own useEffect lifecycle — don't touch it here
-
-            // Remove velocity layer
-            try {
-                if (velocityLayerRef.current && leafletMapRef.current?.hasLayer(velocityLayerRef.current)) {
-                    leafletMapRef.current.removeLayer(velocityLayerRef.current);
-                }
-            } catch (_) {
-                /* ok */
-            }
-            velocityLayerRef.current = null;
-
-            // Destroy Leaflet map (also detaches its container div)
-            try {
-                if (leafletMapRef.current) {
-                    leafletMapRef.current.remove();
-                }
-            } catch (_) {
-                /* ok */
-            }
-            leafletMapRef.current = null;
-
-            // Remove overlay div (may already be gone after lMap.remove())
-            try {
-                if (overlayRef.current?.parentNode) {
-                    overlayRef.current.parentNode.removeChild(overlayRef.current);
-                }
-            } catch (_) {
-                /* ok */
-            }
-            overlayRef.current = null;
+            clearTimeout(show);
+            field.destroy();
+            if (fieldRef.current === field) fieldRef.current = null;
+            if (overlayRef.current === field.element) overlayRef.current = null;
         };
-    }, [mapboxMap, visible, particlesActive]);
+    }, [mapboxMap, visible, particlesActive, palette]);
+
+    useEffect(() => {
+        const field = fieldRef.current;
+        if (!field) return;
+        try {
+            const data = windGridFrameToVelocityData(windGrid, windHour);
+            field.setData(data);
+            field.element.style.opacity = data && !closeInWantedRef.current ? '1' : '0';
+        } catch (error) {
+            field.setData(null);
+            field.element.style.opacity = '0';
+            log.error('Selected wind could not be displayed', error);
+        }
+    }, [windGrid, windHour, particlesActive, palette, mapboxMap, visible]);
 
     return null;
 };

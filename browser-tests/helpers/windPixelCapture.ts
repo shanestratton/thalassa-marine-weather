@@ -172,7 +172,7 @@ export async function captureWindPair(page: Page) {
     await waitForChartCaptureReady(page);
     const wireOn = await page.screenshot({ animations: 'allow', fullPage: false, timeout: 0 });
     const held = await page.evaluateHandle(() => {
-        const records = [...document.querySelectorAll<HTMLElement>('.leaflet-container')].map((el) => ({
+        const records = [...document.querySelectorAll<HTMLElement>('[data-wind-field="true"]')].map((el) => ({
             el,
             visibility: el.style.visibility,
             priority: el.style.getPropertyPriority('visibility'),

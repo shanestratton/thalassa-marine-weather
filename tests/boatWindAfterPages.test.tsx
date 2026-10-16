@@ -30,47 +30,21 @@ import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WindGrid } from '../services/weather/windGridEncoding';
 
-const mocks = vi.hoisted(() => {
-    const leafletMaps: unknown[] = [];
-    const velocityLayer = vi.fn(() => {
-        const layer = { _windy: { setData: vi.fn() }, addTo: vi.fn() };
-        layer.addTo.mockImplementation((map: { __layers: Set<unknown> }) => {
-            map.__layers.add(layer);
-            return layer;
-        });
-        return layer;
-    });
-    const map = vi.fn(() => {
-        const panes = { tilePane: { style: {} }, mapPane: { style: {} } };
-        const leafletMap = {
-            __layers: new Set<unknown>(),
-            getPane: vi.fn((name: keyof typeof panes) => panes[name] ?? null),
-            hasLayer: vi.fn(),
-            invalidateSize: vi.fn(),
-            latLngToContainerPoint: vi.fn(() => ({ x: 100, y: 80 })),
-            remove: vi.fn(),
-            removeLayer: vi.fn(),
-            setView: vi.fn(),
-        };
-        leafletMap.hasLayer.mockImplementation((layer: unknown) => leafletMap.__layers.has(layer));
-        leafletMap.removeLayer.mockImplementation((layer: unknown) => {
-            leafletMap.__layers.delete(layer);
-            return leafletMap;
-        });
-        leafletMap.remove.mockImplementation(() => leafletMap.__layers.clear());
-        leafletMap.setView.mockReturnValue(leafletMap);
-        leafletMaps.push(leafletMap);
-        return leafletMap;
-    });
-    return {
-        leaflet: { map, velocityLayer },
-        leafletMaps,
-        logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-    };
-});
-
-vi.mock('../utils/leafletRuntime.mjs', () => ({ leafletRuntime: mocks.leaflet }));
-vi.mock('leaflet-velocity-ts', () => ({}));
+const mocks = vi.hoisted(() => ({
+    fields: [] as unknown[],
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
+vi.mock('../components/map/MapboxWindField', () => ({
+    MapboxWindField: class {
+        element = document.createElement('div');
+        setData = vi.fn();
+        destroy = vi.fn(() => this.element.remove());
+        constructor(map: { getContainer(): HTMLElement }) {
+            map.getContainer().appendChild(this.element);
+            mocks.fields.push(this);
+        }
+    },
+}));
 vi.mock('../utils/createLogger', () => ({ createLogger: () => mocks.logger }));
 
 // The instrument store, empty, as it is on Obs ashore.
@@ -666,7 +640,7 @@ describe('her z14 wind after another page: end to end with the real wind pipelin
                 publishes.push({ shown: obs.view.shown, lattice: `${state.grid.width}x${state.grid.height}` });
             lastGrid = state.grid;
         });
-        const leafletEnginesAtStart = () => mocks.leafletMaps.length;
+        const fieldEnginesAtStart = () => mocks.fields.length;
         try {
             // Obs, wind on (useWeatherLayers activates the controller), at her, z14.
             const view = render(<ObsChart map={obs.map} obsShowing />);
@@ -677,7 +651,7 @@ describe('her z14 wind after another page: end to end with the real wind pipelin
             act(() => obs.settleAt(14));
             await pass(1_200);
             expectHerWindPaintsTheField(obs, 'at the start, on Obs');
-            const enginesBefore = leafletEnginesAtStart();
+            const enginesBefore = fieldEnginesAtStart();
             const startPublishes = publishes.length;
 
             if (crossing === 'on-obs') vi.setSystemTime(Date.now() + 2 * 60_000);
@@ -708,8 +682,8 @@ describe('her z14 wind after another page: end to end with the real wind pipelin
             await pass(3_000);
             const onReturn = publishes.slice(startPublishes).filter((p) => p.shown).length;
             const fetchedOnReturn = net.fetchModelWindGrid.mock.calls.length - fetchesBeforeReturn;
-            const leafletStarted = mocks.leafletMaps.length - enginesBefore;
-            const facts = `fetches while hidden: ${fetchedHidden}; grids published while hidden: ${hidden} (${hiddenGrids.map((p) => p.lattice).join(', ')}); fetches after the return: ${fetchedOnReturn}; grids published after it: ${onReturn}; leaflet model engines started: ${leafletStarted}`;
+            const fieldStarted = mocks.fields.length - enginesBefore;
+            const facts = `fetches while hidden: ${fetchedHidden}; grids published while hidden: ${hidden} (${hiddenGrids.map((p) => p.lattice).join(', ')}); fetches after the return: ${fetchedOnReturn}; grids published after it: ${onReturn}; native model engines started: ${fieldStarted}`;
             return { facts, hidden, onReturn, fetchedHidden, fetchedOnReturn };
         } finally {
             unsubscribe();

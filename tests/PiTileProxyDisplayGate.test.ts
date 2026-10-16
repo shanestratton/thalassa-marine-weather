@@ -29,13 +29,6 @@ describe('Pi tile proxy display gate', () => {
         expect(piCache.canDisplayProxiedTiles()).toBe(false);
     });
 
-    it('hands back the untouched template rather than a Pi URL', () => {
-        const original = 'https://tilecache.rainviewer.com/v2/radar/abc/512/{z}/{x}/{y}/4/1_1.png';
-        // Not merely "not a Pi URL" — byte-identical. A rewritten template that
-        // happens to avoid the Pi would still be a silent behaviour change.
-        expect(piCache.leafletTileTemplate(original)).toBe(original);
-    });
-
     it('routes Mapbox tiles on displayability, not reachability', () => {
         // The defect was precisely a correct-looking isAvailable() check at a
         // call site that needed the stronger question, so the call site is the

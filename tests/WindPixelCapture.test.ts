@@ -477,7 +477,7 @@ function mockCapture(
 
 function overlay(visibility = '', priority = '') {
     const element = document.createElement('div');
-    element.className = 'leaflet-container';
+    element.dataset.windField = 'true';
     element.dataset.windPixelTest = 'true';
     element.style.setProperty('visibility', visibility, priority);
     element.style.opacity = '0.75';

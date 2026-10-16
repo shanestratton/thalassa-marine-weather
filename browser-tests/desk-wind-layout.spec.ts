@@ -674,7 +674,7 @@ test.describe('wind on the desk planner', () => {
             // On over Light first, drawing, then Relief + Sat under the running field.
             await setDeskWind(page, true);
             await expect(page.getByTestId('desk-strip-slot-2')).toBeVisible({ timeout: 30_000 });
-            await expect(page.locator('.leaflet-container').first(), 'the field draws over Light').toBeAttached({
+            await expect(page.locator('[data-wind-field="true"]').first(), 'the field draws over Light').toBeAttached({
                 timeout: 30_000,
             });
             await page.getByRole('button', { name: 'Map base: Light' }).click(UNDER_WIND);

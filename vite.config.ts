@@ -788,7 +788,6 @@ export default defineConfig(({ mode }) => {
                             return 'vendor-react';
                         }
                         if (moduleId.includes('/node_modules/@dnd-kit/')) return 'vendor-dnd';
-                        if (moduleId.includes('/node_modules/leaflet/')) return 'vendor-leaflet';
                         if (moduleId.includes('/node_modules/@supabase/')) return 'vendor-supabase';
                         if (moduleId.includes('/node_modules/@sentry/')) return 'vendor-sentry';
                         if (moduleId.includes('/node_modules/mapbox-gl/')) return 'vendor-mapbox';
