@@ -1,7 +1,9 @@
-# Owner-only radar snapshot (held)
+# Owner-only radar snapshot
 
-Apply `20261016165318_pi_radar_owner_snapshot.sql` only after the reviewed radar
-relay migration. This packet adds no producer, cron, notification or live data.
+The reviewed SQL is deployed as `20261016171437_pi_radar_owner_snapshot.sql`,
+after `20261016171434_pi_radar_relay.sql`. The deployed bytes retain the original
+held-file comment for proof provenance. This adds no producer or cron and did
+not create any alarm or notification row.
 
 `pi_radar_owner_snapshot(p_pi_device_id uuid)` is an authenticated
 `SECURITY INVOKER` read through the existing owner RLS. Its fixed header is
@@ -47,3 +49,5 @@ It refuses non-loopback hosts, a different database/port/user/password, URL
 options, nonempty public/auth schemas or a different PostgreSQL version before
 applying source. This mode proves actual engine ACL/read behavior; it does not
 claim concurrent producer transactions or activate product state.
+
+Live verification retained owner-only SELECT, no authenticated table writes, no credential-table SELECT, authenticated-only helper/snapshot/ACK execution and the public snapshot as SECURITY INVOKER. Context/event/queue counts remained zero. The exact104-case source also passed on PostgreSQL17.6 in run38937607714; its immutable proof receipt is outside Git. No Pi was installed and no notification was sent.

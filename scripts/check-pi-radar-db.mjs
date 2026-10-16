@@ -81,7 +81,7 @@ const denied = async (fn, label) => {
 try {
     await db.exec(await read('tests/sql/pi-wake-base.sql'));
     await db.exec(await read('supabase/migrations/20261016154726_pi_wake_keeper_relay.sql'));
-    await db.exec(await read('supabase/held-migrations/20261016162758_pi_radar_relay.sql'));
+    await db.exec(await read('supabase/migrations/20261016171434_pi_radar_relay.sql'));
     eq(
         await as('service_role', null, 'SELECT public.pi_alarm_radar_capability()'),
         1,
@@ -440,7 +440,7 @@ try {
             passed: true,
             concurrencyProven: false,
             notificationsSent: 0,
-            sourceSha256: hash(await read('supabase/held-migrations/20261016162758_pi_radar_relay.sql')),
+            sourceSha256: hash(await read('supabase/migrations/20261016171434_pi_radar_relay.sql')),
         }),
     );
 } finally {

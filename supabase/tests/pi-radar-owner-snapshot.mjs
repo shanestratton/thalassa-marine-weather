@@ -145,8 +145,8 @@ try {
         "ALTER TABLE public.pi_diary_relays ADD COLUMN token_hash text;UPDATE public.pi_diary_relays SET token_hash=repeat('e',64);ALTER TABLE public.pi_diary_relays ENABLE ROW LEVEL SECURITY;DELETE FROM public.push_device_tokens;",
     );
     await db.exec(await read('../migrations/20261016154726_pi_wake_keeper_relay.sql'));
-    await db.exec(await read('../held-migrations/20261016162758_pi_radar_relay.sql'));
-    await db.exec(await read('../held-migrations/20261016165318_pi_radar_owner_snapshot.sql'));
+    await db.exec(await read('../migrations/20261016171434_pi_radar_relay.sql'));
+    await db.exec(await read('../migrations/20261016171437_pi_radar_owner_snapshot.sql'));
     eq(
         await scalar("SELECT prosecdef FROM pg_proc WHERE oid='public.pi_radar_owner_snapshot(uuid)'::regprocedure"),
         false,

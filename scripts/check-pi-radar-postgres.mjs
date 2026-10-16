@@ -106,7 +106,7 @@ try {
     checks++;
     await pool.query(await read('tests/sql/pi-wake-base.sql'));
     await pool.query(await read('supabase/migrations/20261016154726_pi_wake_keeper_relay.sql'));
-    const sql = await read('supabase/held-migrations/20261016162758_pi_radar_relay.sql');
+    const sql = await read('supabase/migrations/20261016171434_pi_radar_relay.sql');
     await pool.query(sql);
     eq(await service('SELECT public.pi_alarm_radar_capability()'), 1, 'closed schema capability');
     const revision = (await call({ family: 'radar', action: 'bind', context, expectedContextRevision: null }))
