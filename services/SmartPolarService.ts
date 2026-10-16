@@ -16,7 +16,7 @@
  */
 import { subscribeLearnerSamples, type LearnerSample } from './smartPolarFeed';
 import { SmartPolarStore } from './SmartPolarStore';
-import { polarNoRpmGate, type PolarTable } from '../pi-cache/src/polarLearningRule';
+import { polarNoRpmGate, type PolarTable } from '../utils/polarLearningRule';
 
 // ── Filter thresholds ──
 const ALT_VOLTAGE_THRESHOLD = 14.2; // Volts — alternator charging spike

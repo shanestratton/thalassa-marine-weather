@@ -15,7 +15,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    CANDIDATE_SHA: '22e0d47ed864faa7ff808882a889a9bd3a041fac'
+    CANDIDATE_SHA: '8863ede5b28927c4585b5f761d3409dbc0b332c8'
     CI: 'true'
     HUSKY: '0'
     NODE_OPTIONS: --max-old-space-size=4096
@@ -41,7 +41,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '22e0d47ed864faa7ff808882a889a9bd3a041fac'
+                  ref: '8863ede5b28927c4585b5f761d3409dbc0b332c8'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -134,7 +134,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '22e0d47ed864faa7ff808882a889a9bd3a041fac'
+                  ref: '8863ede5b28927c4585b5f761d3409dbc0b332c8'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -188,6 +188,7 @@ jobs:
                   node pi-cache/scripts/sync-senc-engine.mjs --check
                   node pi-cache/scripts/sync-lookahead-rule.mjs --check
                   node pi-cache/scripts/sync-offline-weather-sources.mjs --check
+                  node pi-cache/scripts/sync-polar-rule.mjs --check
                   npx tsc --noEmit
             - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
               with:
@@ -250,7 +251,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '22e0d47ed864faa7ff808882a889a9bd3a041fac'
+                  ref: '8863ede5b28927c4585b5f761d3409dbc0b332c8'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020

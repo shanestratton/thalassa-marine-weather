@@ -8,6 +8,8 @@ The phone learner uses the same no-RPM sailing envelope and wind/speed-step fall
 
 The learner requires a settled minute, known STW/SOG and coherent fresh wind. It retains separate civil-day and civil-night aggregates, split at the sun's geometric altitude of −6 degrees, plus a combined aggregate. The app's solar calculation is checked against its existing SunCalc. No additional runtime dependency was added.
 
+The canonical pure rule lives at `utils/polarLearningRule.ts`, inside the browser upload. The independent Pi package receives a generated verbatim copy through `pi-cache/scripts/sync-polar-rule.mjs`; its `--check` verifies source bytes and SHA256. This keeps Vercel builds independent of the excluded Pi runtime tree.
+
 Preferences controls the Pi learner over the paired pinned transport. An unreachable Pi does not become a confirmed off switch: Preferences says when the Pi change was not confirmed. Learning on the Pi also requires the separately opted-in track recorder; this feature does not silently enable location recording.
 
 Routing uses a sufficiently learned day/night grid when a fresh boat position is available, else the combined grid. Phone-only learned cells fill gaps without adding duplicate samples. The existing factory fallback, minimum eight learned cells and learned-speed bounds remain in force. The paired snapshot is cached for offline use and cannot cross a pairing change.
