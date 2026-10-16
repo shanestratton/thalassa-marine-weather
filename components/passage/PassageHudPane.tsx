@@ -148,6 +148,7 @@ import {
     peekRouteForecast,
     routeForecastKey,
     sampleRouteForecast,
+    sampleCoveredRouteWind,
     type RouteForecast,
 } from '../../services/routeForecastSampler';
 import { vesselCruisingSpeedKts } from '../../services/units';
@@ -170,6 +171,7 @@ import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services
 import { useForecastSteeringField } from '../../hooks/useForecastSteeringField';
 import { forecastSteeringAt } from '../../services/routing/forecastSteering';
 import { ForecastSteeringLine } from './ForecastSteeringLine';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 import { triggerHaptic } from '../../utils/system';
@@ -375,6 +377,8 @@ const HOW_WORDS: Record<SpeedHow, string> = {
 const currentWindModel = () => WindStore.getState().model;
 
 const SailingPerformanceHud = React.lazy(() => import('./SailingPerformanceHud'));
+const SailAdviceLine = React.lazy(() => import('./SailAdviceLine'));
+const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 
 const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: TrackingState }> = ({
     open,
@@ -533,6 +537,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const windCoverageHours = usePassageWindCoverageHours();
     const unsyncedLayers = usePassageUnsyncedLayers();
     const vessel = useSettingsStore((st) => st.settings.vessel);
+    const sailOwner = useSyncExternalStore(subscribeSailOwner, getAuthIdentityScope, getAuthIdentityScope);
     const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
     const profileCruiseKts =
         vessel?.cruisingSpeed && Number.isFinite(vessel.cruisingSpeed) && vessel.cruisingSpeed > 0
@@ -1314,6 +1319,27 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // covers one refresh round, so a healthy hourly refetch never flashes it.
     const forecastAgeMs = forecast ? Math.max(0, nowMs - forecast.fetchedAt) : 0;
     const forecastOld = forecastAgeMs > FORECAST_TTL_MS + 5 * 60_000;
+    const sailWind =
+        station &&
+        !station.joining &&
+        !planArrived &&
+        forecastAgeMs <= FORECAST_TTL_MS &&
+        (planHow === 'sail' || planHow === 'tack')
+            ? sampleCoveredRouteWind(forecast, station.alongNm, steeringAtMs)
+            : null;
+    const sailSample =
+        sailWind && sailWind.twsKts !== null && sailWind.twdDeg !== null && forecast
+            ? {
+                  twsKn: sailWind.twsKts,
+                  gustKn: sailWind.gustKts,
+                  twaDeg:
+                      planHow === 'tack'
+                          ? pointingDeg(speedModel)
+                          : Math.abs(((sailWind.twdDeg - station!.bearingDeg + 540) % 360) - 180),
+                  timeMs: steeringAtMs,
+                  sourceKey: `${forecast.model}:${forecast.fetchedAt}:${forecastKey}`,
+              }
+            : null;
     const forecastAgeTag =
         forecastAgeMs < 2 * 3_600_000
             ? `${Math.round(forecastAgeMs / 60_000)}M OLD`
@@ -1648,6 +1674,16 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                 }
                             />
                             <ForecastSteeringLine value={forecastSteering} />
+                            {isSail && vessel?.sailInventory && (
+                                <React.Suspense fallback={null}>
+                                    <SailAdviceLine
+                                        inventory={vessel.sailInventory}
+                                        vesselType={vessel.type}
+                                        scopeKey={`${sailOwner.key}:${sailOwner.generation}:${steeringVesselId ?? 'local'}`}
+                                        sample={sailSample}
+                                    />
+                                </React.Suspense>
+                            )}
                             <Cell
                                 forecast
                                 // The chance rides in the label: a line of its own

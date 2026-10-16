@@ -87,6 +87,8 @@ export interface VesselProfile {
     callSign?: string;
     phoneticName?: string;
     sailNumber?: string;
+    /** Account-owned selected vessel profile; optional, never a rig or yacht default. */
+    sailInventory?: import('../services/sailing/sailInventory').SailInventory;
     crewCount?: number;
     /**
      * Who the crewCount IS — one row per person aboard, kept on the vessel so

@@ -149,6 +149,7 @@ const CARDINALS = [
 ] as const;
 
 const NO_TRACK_ENTRIES: ShipLogEntry[] = [];
+const PassageSailPlans = React.lazy(() => import('./PassageSailPlans'));
 
 const bearingToCardinal = (deg: number): string => {
     return CARDINALS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
@@ -708,6 +709,10 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         !foreignBoat &&
         passageMatchesVoyage &&
         Date.parse(passage.departureTime ?? '') === steeringDepartureMs &&
+        mapRouteCoords.length === passage.routeCoordinates.length &&
+        mapRouteCoords.every(
+            ([lon, lat], i) => lon === passage.routeCoordinates[i][0] && lat === passage.routeCoordinates[i][1],
+        ) &&
         passage.turnWaypoints.length === passage.legs.length + 1;
     const steeringField = useForecastSteeringField({
         points: steeringPoints,
@@ -1108,6 +1113,26 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                             {passage.legs.map((leg, i) => (
                                 <LegRow key={i} leg={leg} index={i} steering={steeringForLeg(i)} />
                             ))}
+                            {steeringMatches && settings.vessel?.type === 'sail' && settings.vessel.sailInventory && (
+                                <React.Suspense fallback={<p role="status">Opening sail advice…</p>}>
+                                    <PassageSailPlans
+                                        vessel={settings.vessel}
+                                        vesselKey={activeVesselId ?? ''}
+                                        coords={steeringPoints}
+                                        model={conditionsQueryModel}
+                                        provider={getForecastModelInfo(glassModel)?.provider ?? conditionsModelLabel}
+                                        satelliteMode={settings.satelliteMode}
+                                        nowMs={clockMs}
+                                        legs={passage.legs.map((leg, i) => ({
+                                            name: `${leg.from} → ${leg.to}`,
+                                            alongNm: passage.turnWaypoints[i].distanceNM,
+                                            timeMs:
+                                                steeringDepartureMs + passage.turnWaypoints[i].timeHours * 3_600_000,
+                                            courseDeg: leg.bearing,
+                                        }))}
+                                    />
+                                </React.Suspense>
+                            )}
                         </div>
                     )}
                 </div>
