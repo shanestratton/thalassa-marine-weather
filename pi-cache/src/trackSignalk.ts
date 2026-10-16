@@ -217,7 +217,8 @@ export function degrees(rad: number | null): number | null {
 function readTrueHeadingExtra(doc: unknown, nowMs: number): Record<string, number> {
     const reading = (path: string, min: number, max: number) => {
         const value = num(doc, path);
-        const at = timestampAt(doc, path, false);
+        const units = valueAt(doc, `${path}.meta.units`);
+        const at = units === undefined || units === 'rad' ? timestampAt(doc, path, false) : null;
         if (
             value === null ||
             value < min ||
@@ -239,8 +240,84 @@ function readTrueHeadingExtra(doc: unknown, nowMs: number): Record<string, numbe
     return {
         heading_true_deg: degrees(magnetic.value + variation.value)!,
         // Preserve the heading sensor's own time, never receipt/report time.
-        heading_true_at_ms: magnetic.at,
+        heading_true_at_ms: Math.min(magnetic.at, variation.at),
     };
+}
+
+/** Original per-leaf clocks for derived instruments. No parent, GPS or HTTP clock substitution. */
+export function readInstrumentClocks(doc: unknown): Record<string, number> {
+    const paths: Record<string, string> = {
+        instrument_sog_at_ms: 'navigation.speedOverGround',
+        instrument_cog_true_at_ms: 'navigation.courseOverGroundTrue',
+        instrument_stw_at_ms: 'navigation.speedThroughWater',
+        instrument_tws_at_ms: 'environment.wind.speedTrue',
+        instrument_twa_signed_at_ms: 'environment.wind.angleTrueWater',
+    };
+    const result: Record<string, number> = {};
+    for (const [key, path] of Object.entries(paths)) {
+        const units = valueAt(doc, `${path}.meta.units`);
+        const expected = path.includes('speed') ? 'm/s' : 'rad';
+        const at = units === undefined || units === expected ? timestampAt(doc, path, false) : null;
+        if (num(doc, path) !== null && at !== null && at > 0) result[key] = at;
+    }
+    return result;
+}
+
+function readLeewayExtra(doc: unknown): Record<string, number | string> {
+    const rad = num(doc, 'navigation.leewayAngle');
+    const units = valueAt(doc, 'navigation.leewayAngle.meta.units');
+    const at = units === undefined || units === 'rad' ? timestampAt(doc, 'navigation.leewayAngle', false) : null;
+    if (rad === null || at === null || at <= 0 || Math.abs(rad) > 20 / RAD_TO_DEG) return {};
+    return {
+        instrument_leeway_deg: rad * RAD_TO_DEG,
+        instrument_leeway_at_ms: at,
+        instrument_leeway_source: 'Signal K navigation.leewayAngle',
+    };
+}
+
+/** One <=120-character scalar preserves the relay's 40-key budget without changing old keys.
+ * Order: SOG, true COG, STW, TWS, signed TWA, RPM clocks; optional explicit leeway degrees/clock. */
+export function readPackedInstrumentTimes(doc: unknown, now: number): string | null {
+    const c = readInstrumentClocks(doc),
+        rpm = readQualifiedRpm(doc, now),
+        l = readLeewayExtra(doc);
+    if (!Object.keys(c).length && !rpm && !Object.keys(l).length) return null;
+    const clock = (value: unknown) =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value < 1e14 ? value : null;
+    return JSON.stringify([
+        clock(c.instrument_sog_at_ms),
+        clock(c.instrument_cog_true_at_ms),
+        clock(c.instrument_stw_at_ms),
+        clock(c.instrument_tws_at_ms),
+        clock(c.instrument_twa_signed_at_ms),
+        clock(rpm?.at),
+        typeof l.instrument_leeway_deg === 'number' ? Math.round(l.instrument_leeway_deg * 1e6) / 1e6 : null,
+        clock(l.instrument_leeway_at_ms),
+    ]);
+}
+
+/** Zero is known only if every reported engine has a fresh, valid zero leaf. */
+export function readQualifiedRpm(doc: unknown, now: number): { value: number; at: number } | null {
+    const engines = valueAt(doc, 'propulsion');
+    if (!engines || typeof engines !== 'object' || Array.isArray(engines)) return null;
+    if (Object.keys(engines).length > 32) return null;
+    const rows = Object.keys(engines)
+        .slice(0, 32)
+        .map((engine) => {
+            const path = `propulsion.${engine}.revolutions`;
+            const units = valueAt(doc, `${path}.meta.units`);
+            const at = units === undefined || units === 'Hz' ? timestampAt(doc, path, false) : null,
+                hz = num(doc, path);
+            return at !== null && at > 0 && at <= now + 1000 && now - at <= 13000 && hz !== null && hz >= 0 && hz <= 500
+                ? { value: hz * 60, at }
+                : null;
+        });
+    return (
+        rows.find((row) => row !== null && row.value > 0) ??
+        (rows.length && rows.every((row) => row !== null)
+            ? { value: 0, at: Math.min(...rows.map((row) => row!.at)) }
+            : null)
+    );
 }
 
 /**
@@ -296,6 +373,11 @@ export function readTrackFix(selfDocument: unknown): TrackFix | null {
     });
     const runningRpm = rpms.find((v) => v !== null && v > 0);
     const engineRpm = runningRpm ?? (rpms.length > 0 && rpms.every((v) => v !== null) ? 0 : null);
+    const evaluatedAt = gpsTimeMs ?? Date.now();
+    const qualifiedRpm = readQualifiedRpm(selfDocument, evaluatedAt);
+    const clocks = readInstrumentClocks(selfDocument);
+    const qualifiedHeading = readTrueHeadingExtra(selfDocument, evaluatedAt);
+    const leeway = readLeewayExtra(selfDocument);
     const anglePath = 'environment.wind.angleTrueWater';
     const angle = liveAt(anglePath) ? num(selfDocument, anglePath) : null;
     const direction = degrees(num(selfDocument, 'environment.wind.directionTrue'));
@@ -325,7 +407,16 @@ export function readTrackFix(selfDocument: unknown): TrackFix | null {
         waterTempC: waterK === null ? null : waterK - KELVIN_OFFSET,
         pressureHpa: pressurePa === null ? null : pressurePa / 100,
         heelDeg: rollRad === null ? null : rollRad * RAD_TO_DEG,
-        engineRpm,
+        engineRpm: qualifiedRpm?.value ?? engineRpm,
+        engineRpmAtMs: qualifiedRpm?.at ?? null,
+        leewayDeg: typeof leeway.instrument_leeway_deg === 'number' ? leeway.instrument_leeway_deg : null,
+        leewayAtMs: typeof leeway.instrument_leeway_at_ms === 'number' ? leeway.instrument_leeway_at_ms : null,
+        leewaySource: typeof leeway.instrument_leeway_source === 'string' ? leeway.instrument_leeway_source : null,
+        sogAtMs: clocks.instrument_sog_at_ms ?? null,
+        cogTrueAtMs: clocks.instrument_cog_true_at_ms ?? null,
+        stwAtMs: clocks.instrument_stw_at_ms ?? null,
+        headingTrueDeg: qualifiedHeading.heading_true_deg ?? null,
+        headingTrueAtMs: qualifiedHeading.heading_true_at_ms ?? null,
         // History still keeps stale legacy colour; only timestamped coherent wind can teach a polar.
         twaDeg: windLive && relative !== null ? Math.abs(((relative + 540) % 360) - 180) : null,
     };
@@ -492,11 +583,13 @@ function readBusAt(selfDocument: unknown, nowMs: number): number | null {
 export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
     const nowMs = now();
     const busAt = readBusAt(selfDocument, nowMs);
+    const instrumentTimes = readPackedInstrumentTimes(selfDocument, nowMs);
     const extra: Record<string, number | string> = {
         // First among the snapshot's keys: the relay keeps the first 40 only.
         ...(busAt !== null ? { bus_at_ms: busAt } : {}),
         ...readGnssExtra(selfDocument, nowMs),
         ...readTrueHeadingExtra(selfDocument, nowMs),
+        ...(instrumentTimes ? { instrument_times_v1: instrumentTimes } : {}),
     };
     // The wind record must deduplicate the actual sensor envelope, not a
     // freshly fetched copy of Signal K's cached value or its current GPS clock.
@@ -594,7 +687,7 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
         waterTempC: waterK === null ? null : waterK - KELVIN_OFFSET,
         pressureHpa: pressurePa === null ? null : pressurePa / 100,
         rudderDeg: signedDegrees(num(selfDocument, 'steering.rudderAngle')),
-        rpm: revolutionsHz === null ? null : revolutionsHz * 60,
+        rpm: readQualifiedRpm(selfDocument, nowMs)?.value ?? (revolutionsHz === null ? null : revolutionsHz * 60),
         voltageV: firstChildNumber(selfDocument, 'electrical.batteries', 'voltage'),
     };
     const anything = Object.entries(snapshot).some(([key, value]) => key !== 'reportedAt' && value !== null);

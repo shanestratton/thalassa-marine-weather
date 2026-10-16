@@ -1,3 +1,4 @@
+import type { InstrumentEvidence, InstrumentMeasurementTimes } from '../services/instruments/measurements';
 /**
  * types/navigation.ts — Navigation & voyage domain types
  *
@@ -233,6 +234,9 @@ export type NmeaDepthReference = 'below-transducer' | 'below-waterline' | 'below
 
 /** Raw NMEA instrument sample (emitted every 5s by NmeaListenerService) */
 export interface NmeaSample {
+    /** Qualified per-sentence readings; absent from legacy samples. */
+    instrumentReadings?: InstrumentEvidence['readings'];
+    measurementTimes?: InstrumentMeasurementTimes;
     timestamp: number;
     tws: number | null;
     /** True wind angle off the bow, 0-180 MAGNITUDE. SmartPolarStore buckets

@@ -49,6 +49,16 @@ import { distanceMetres } from './anchorBroadcaster.js';
 
 /** A candidate point, as read off the bus. */
 export interface TrackFix {
+    /** Optional source clocks: older rows cannot qualify a derived vector. */
+    sogAtMs?: number | null;
+    cogTrueAtMs?: number | null;
+    stwAtMs?: number | null;
+    headingTrueDeg?: number | null;
+    headingTrueAtMs?: number | null;
+    engineRpmAtMs?: number | null;
+    leewayDeg?: number | null;
+    leewayAtMs?: number | null;
+    leewaySource?: string | null;
     lat: number;
     lon: number;
     /** Epoch ms, FROM GPS — never the system clock. Null when the bus has not

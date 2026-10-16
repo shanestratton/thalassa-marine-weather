@@ -10,6 +10,7 @@ import type { RemoteInstrumentSnapshot, RemoteVia } from './NmeaStore';
 import type { NmeaDepthReference } from '../types/navigation';
 import { parseWindHistorySummary } from '../utils/windHistory';
 import { readGnssDiagnostics } from './nmea/gnssDiagnostics';
+import { measurementTimes, unpackInstrumentTimes } from './instruments/measurements';
 
 export type TelemetryWire = Record<string, unknown>;
 
@@ -36,6 +37,7 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
         wire.extra && typeof wire.extra === 'object' && !Array.isArray(wire.extra)
             ? (wire.extra as Record<string, unknown>)
             : {};
+    const instrumentTimes = unpackInstrumentTimes(extra.instrument_times_v1);
     const windHistory = source === 'pi' ? parseWindHistorySummary(extra) : null;
     const boundedText = (value: unknown): string | undefined =>
         typeof value === 'string' && value.trim().length > 0 && value.length <= 120 && !/\p{Cc}/u.test(value)
@@ -80,6 +82,27 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
         deviceLabel,
         reportedAt,
         snapshot: {
+            measurementTimes: measurementTimes({
+                ...instrumentTimes?.times,
+                sog: instrumentTimes?.times.sog ?? extra.instrument_sog_at_ms,
+                cogTrue: instrumentTimes?.times.cogTrue ?? extra.instrument_cog_true_at_ms,
+                stw: instrumentTimes?.times.stw ?? extra.instrument_stw_at_ms,
+                tws: instrumentTimes?.times.tws ?? extra.instrument_tws_at_ms,
+                twaSigned: instrumentTimes?.times.twaSigned ?? extra.instrument_twa_signed_at_ms,
+                rpm: instrumentTimes?.times.rpm ?? extra.instrument_rpm_at_ms,
+                headingTrue: qualifiedHeadingTrue ? headingTrueAt : undefined,
+                twdTrue: extra.wind_twd_at_ms,
+                position: hasPositionTime ? positionSampleAt : undefined,
+                heel: extra.heel_at,
+                leeway: instrumentTimes?.times.leeway ?? extra.instrument_leeway_at_ms,
+            }),
+            ...(instrumentTimes?.times.rpm
+                ? { rpmAtMs: instrumentTimes.times.rpm }
+                : wireNumber(extra.instrument_rpm_at_ms) !== null
+                  ? { rpmAtMs: wireNumber(extra.instrument_rpm_at_ms)! }
+                  : {}),
+            leewayDeg: instrumentTimes?.leewayDeg ?? wireNumber(extra.instrument_leeway_deg),
+            leewaySource: instrumentTimes?.leewaySource ?? boundedText(extra.instrument_leeway_source),
             source,
             via,
             deviceLabel,

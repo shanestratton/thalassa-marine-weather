@@ -154,3 +154,51 @@ test('reopening the same directory keeps the track', () => {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test('derived-instrument source clocks migrate nullable and round-trip without borrowing row time', () => {
+    const { store, dir } = tmpStore();
+    try {
+        store.append([
+            pt(),
+            pt({
+                gpsTimeMs: T0 + 5000,
+                sogAtMs: T0 - 1000,
+                cogTrueAtMs: T0 - 2000,
+                stwAtMs: T0 - 3000,
+                headingTrueDeg: 0,
+                headingTrueAtMs: T0 - 4000,
+                engineRpm: 0,
+                engineRpmAtMs: T0 - 5000,
+                leewayDeg: -2,
+                leewayAtMs: T0 - 6000,
+                leewaySource: 'explicit sensor',
+            }),
+        ]);
+        const rows = store.points({ fromMs: T0, toMs: T0 + 10000 });
+        for (const key of [
+            'sog_at_ms',
+            'cog_true_at_ms',
+            'stw_at_ms',
+            'heading_true_deg',
+            'heading_true_at_ms',
+            'engine_rpm_at_ms',
+            'leeway_deg',
+            'leeway_at_ms',
+            'leeway_source',
+        ])
+            assert.equal(rows[0][key], null);
+        assert.equal(rows[1].heading_true_deg, 0);
+        assert.equal(rows[1].heading_true_at_ms, T0 - 4000);
+        assert.equal(rows[1].engine_rpm_at_ms, T0 - 5000);
+        assert.equal(rows[1].leeway_source, 'explicit sensor');
+        store.close();
+        const reopened = new TrackStore(dir);
+        assert.equal(reopened.points({ fromMs: T0, toMs: T0 + 10000 })[1].stw_at_ms, T0 - 3000);
+        reopened.close();
+    } finally {
+        try {
+            store.close();
+        } catch {}
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});

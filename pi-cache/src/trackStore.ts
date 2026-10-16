@@ -78,16 +78,28 @@ export class TrackStore {
         const columns = new Set(
             (this.db.prepare('PRAGMA table_info(track_points)').all() as { name: string }[]).map((c) => c.name),
         );
-        for (const column of ['engine_rpm', 'twa_deg']) {
+        for (const column of [
+            'engine_rpm',
+            'twa_deg',
+            'sog_at_ms',
+            'cog_true_at_ms',
+            'stw_at_ms',
+            'heading_true_deg',
+            'heading_true_at_ms',
+            'engine_rpm_at_ms',
+            'leeway_deg',
+            'leeway_at_ms',
+        ]) {
             if (!columns.has(column)) this.db.exec(`ALTER TABLE track_points ADD COLUMN ${column} REAL`);
         }
+        if (!columns.has('leeway_source')) this.db.exec('ALTER TABLE track_points ADD COLUMN leeway_source TEXT');
         this.insertStmt = this.db.prepare(`
             INSERT INTO track_points
                 (at_ms, lat, lon, reason, sog_kts, cog_deg, depth_m,
-                 tws_kts, twd_deg, stw_kts, hdg_deg, water_temp_c, pressure_hpa, heel_deg, engine_rpm, twa_deg)
+                 tws_kts, twd_deg, stw_kts, hdg_deg, water_temp_c, pressure_hpa, heel_deg, engine_rpm, twa_deg, sog_at_ms, cog_true_at_ms, stw_at_ms, heading_true_deg, heading_true_at_ms, engine_rpm_at_ms, leeway_deg, leeway_at_ms, leeway_source)
             VALUES
                 (@at_ms, @lat, @lon, @reason, @sog_kts, @cog_deg, @depth_m,
-                 @tws_kts, @twd_deg, @stw_kts, @hdg_deg, @water_temp_c, @pressure_hpa, @heel_deg, @engine_rpm, @twa_deg)
+                 @tws_kts, @twd_deg, @stw_kts, @hdg_deg, @water_temp_c, @pressure_hpa, @heel_deg, @engine_rpm, @twa_deg, @sog_at_ms, @cog_true_at_ms, @stw_at_ms, @heading_true_deg, @heading_true_at_ms, @engine_rpm_at_ms, @leeway_deg, @leeway_at_ms, @leeway_source)
         `);
     }
 
@@ -115,6 +127,15 @@ export class TrackStore {
                     heel_deg: p.heelDeg,
                     engine_rpm: p.engineRpm ?? null,
                     twa_deg: p.twaDeg ?? null,
+                    sog_at_ms: p.sogAtMs ?? null,
+                    cog_true_at_ms: p.cogTrueAtMs ?? null,
+                    stw_at_ms: p.stwAtMs ?? null,
+                    heading_true_deg: p.headingTrueDeg ?? null,
+                    heading_true_at_ms: p.headingTrueAtMs ?? null,
+                    engine_rpm_at_ms: p.engineRpmAtMs ?? null,
+                    leeway_deg: p.leewayDeg ?? null,
+                    leeway_at_ms: p.leewayAtMs ?? null,
+                    leeway_source: p.leewaySource ?? null,
                 });
             }
         });

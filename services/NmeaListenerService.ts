@@ -9,6 +9,7 @@
  */
 import { createLogger } from '../utils/createLogger';
 import type { NmeaSample } from '../types';
+import type { InstrumentReading, InstrumentEvidence } from './instruments/measurements';
 import { Capacitor } from '@capacitor/core';
 import { isOwnShipAisSentence, processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
@@ -214,6 +215,8 @@ const isPlausibleBearing = (v: number) => v >= 0 && v <= 360;
 
 // ── Raw accumulator between emissions ──
 interface RawAccumulator {
+    instrumentReadings: InstrumentEvidence['readings'];
+    positionAt?: number;
     tws: number[];
     twa: number[];
     /** Signed true wind angle, negative to port. Drawable; `twa` is not. */
@@ -1471,6 +1474,8 @@ class NmeaListenerServiceClass {
         this.accumulator.twa.push(angle > 180 ? 360 - angle : angle);
         this.accumulator.twaSigned.push(signed);
         this.accumulator.tws.push(knots);
+        this.instrument('tws', knots, 'knots', undefined, 'NMEA MWV true');
+        this.instrument('twaSigned', signed, 'degrees', 'relative', 'NMEA MWV true');
     }
 
     /**
@@ -1485,6 +1490,13 @@ class NmeaListenerServiceClass {
         const trueDir = parts[2] === 'T' ? parseNmeaNumber(parts[1]) : null;
         const magDir = parts[4] === 'M' ? parseNmeaNumber(parts[3]) : null;
         const direction = trueDir ?? magDir;
+        this.instrument(
+            'twdTrue',
+            trueDir !== null && isPlausibleBearing(trueDir) ? trueDir % 360 : null,
+            'degrees',
+            'true',
+            'NMEA MWD true',
+        );
         if (direction !== null && Number.isFinite(direction) && isPlausibleBearing(direction)) {
             this.accumulator.twd.push(direction % 360);
         }
@@ -1496,6 +1508,7 @@ class NmeaListenerServiceClass {
             const ms = parts[8] === 'M' ? parseNmeaNumber(parts[7]) : null;
             if (knots !== null) this.accumulator.tws.push(knots);
             else if (ms !== null) this.accumulator.tws.push(ms * 1.94384);
+            this.instrument('tws', knots ?? (ms === null ? null : ms * 1.94384), 'knots', undefined, 'NMEA MWD');
         }
     }
 
@@ -1575,7 +1588,24 @@ class NmeaListenerServiceClass {
         // for anything that has to draw the wind. Same split parseMWV makes.
         this.accumulator.twa.push(magnitude);
         this.accumulator.twaSigned.push(side === 'L' ? -magnitude : magnitude);
-        if (this.accumulator.tws.length === 0) this.accumulator.tws.push(knots);
+        this.instrument('twaSigned', side === 'L' ? -magnitude : magnitude, 'degrees', 'relative', 'NMEA VWT');
+        if (this.accumulator.tws.length === 0) {
+            this.accumulator.tws.push(knots);
+            this.instrument('tws', knots, 'knots', undefined, 'NMEA VWT');
+        }
+    }
+
+    /** Qualified single-sentence values never borrow the aggregate/GPS clock. */
+    private instrument(
+        key: keyof InstrumentEvidence['readings'],
+        value: number | null,
+        unit: InstrumentReading['unit'],
+        reference: InstrumentReading['reference'],
+        source: string,
+    ): void {
+        if (value !== null && Number.isFinite(value))
+            this.accumulator.instrumentReadings[key] = { value, at: Date.now(), unit, reference, source };
+        else this.accumulator.instrumentReadings[key] = { value: null, at: Date.now(), unit, reference, source };
     }
 
     /** $xxVHW — Water Speed and Heading */
@@ -1583,6 +1613,7 @@ class NmeaListenerServiceClass {
         // $xxVHW,headTrue,T,headMag,M,stwKts,N,stwKmh,K
         const stw = parseNmeaNumber(parts[5]); // Knots
         if (stw !== null) this.accumulator.stw.push(stw);
+        this.instrument('stw', parts[6] === 'N' ? stw : null, 'knots', 'water', 'NMEA VHW knots');
 
         const heading = parseNmeaNumber(parts[1]);
         if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
@@ -1601,6 +1632,13 @@ class NmeaListenerServiceClass {
         // arrive before the 5-second aggregate is published. An invalid true
         // heading explicitly clears an earlier value from this window.
         this.accumulator.headingTrueAt = Date.now();
+        this.instrument(
+            'headingTrue',
+            reference === 'T' && heading !== null && isPlausibleBearing(heading) ? heading % 360 : null,
+            'degrees',
+            'true',
+            'NMEA true heading',
+        );
         if (reference === 'T' && heading !== null && isPlausibleBearing(heading)) {
             this.accumulator.headingTrue.push(heading === 360 ? 0 : heading);
         } else {
@@ -1629,6 +1667,13 @@ class NmeaListenerServiceClass {
     private parseRPM(parts: string[]) {
         // $xxRPM,source,engineNo,rpm,pitch,status
         const rpm = parseNmeaNumber(parts[3]);
+        this.instrument(
+            'rpm',
+            parts[5] === 'A' && rpm !== null && rpm >= 0 && rpm <= 30000 ? rpm : null,
+            'rpm',
+            undefined,
+            'NMEA RPM valid',
+        );
         if (rpm !== null) {
             this.accumulator.rpm.push(rpm);
             this.hasRpmData = true;
@@ -1715,6 +1760,13 @@ class NmeaListenerServiceClass {
                 if (dropSentinelAxes && value === XDR_ATTITUDE_UNAVAILABLE_DEG) continue;
                 if (name === 'roll') {
                     this.accumulator.heel.push(HEEL_STARBOARD_POSITIVE ? value : -value);
+                    this.instrument(
+                        'heel',
+                        HEEL_STARBOARD_POSITIVE ? value : -value,
+                        'degrees',
+                        'relative',
+                        'NMEA XDR roll',
+                    );
                 } else if (name === 'pitch') {
                     this.accumulator.pitch.push(value);
                 }
@@ -1741,12 +1793,21 @@ class NmeaListenerServiceClass {
         const sog = parseNmeaNumber(parts[7]);
         const cog = parseNmeaNumber(parts[8]);
         if (sog !== null) this.accumulator.sog.push(sog);
+        this.instrument('sog', sog, 'knots', 'ground', 'NMEA RMC');
+        this.instrument(
+            'cogTrue',
+            cog !== null && isPlausibleBearing(cog) ? cog % 360 : null,
+            'degrees',
+            'true',
+            'NMEA RMC true',
+        );
         if (cog !== null && isPlausibleBearing(cog)) this.accumulator.cog.push(cog);
 
         // Extract lat/lon (DDMM.MMMM format → decimal degrees)
         const lat = nmeaLatLon(parts[3], parts[4], 90);
         const lon = nmeaLatLon(parts[5], parts[6], 180);
         if (lat !== null && lon !== null) {
+            this.accumulator.positionAt = Date.now();
             this.accumulator.latitude = lat;
             this.accumulator.longitude = lon;
         }
@@ -1776,6 +1837,7 @@ class NmeaListenerServiceClass {
         const lat = nmeaLatLon(parts[2], parts[3], 90);
         const lon = nmeaLatLon(parts[4], parts[5], 180);
         if (lat !== null && lon !== null) {
+            this.accumulator.positionAt = Date.now();
             this.accumulator.latitude = lat;
             this.accumulator.longitude = lon;
         }
@@ -1837,6 +1899,13 @@ class NmeaListenerServiceClass {
              * then dead while GPS keeps streaming.
              */
             timestamp: this.lastSentenceAt || Date.now(),
+            instrumentReadings: { ...this.accumulator.instrumentReadings },
+            measurementTimes: {
+                ...Object.fromEntries(
+                    Object.entries(this.accumulator.instrumentReadings).map(([key, reading]) => [key, reading!.at]),
+                ),
+                ...(this.accumulator.positionAt ? { position: this.accumulator.positionAt } : {}),
+            },
             tws: avg(this.accumulator.tws),
             twa: avg(this.accumulator.twa),
             twaSigned: avgSigned(this.accumulator.twaSigned),
@@ -1920,6 +1989,7 @@ class NmeaListenerServiceClass {
 
     private freshAccumulator(): RawAccumulator {
         return {
+            instrumentReadings: {},
             tws: [],
             twa: [],
             twaSigned: [],

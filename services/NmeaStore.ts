@@ -16,6 +16,8 @@ import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 import { subscribeAuthIdentityScope } from './authIdentityScope';
+import type { InstrumentEvidence, InstrumentMeasurementTimes } from './instruments/measurements';
+import { evidenceTimes, remoteInstrumentEvidence } from './instruments/evidence';
 import { validGnssValue, type GnssDiagnostics } from './nmea/gnssDiagnostics';
 import {
     freshWindHistorySummary,
@@ -71,6 +73,9 @@ export function reconcileNmeaMetricFreshness(metric: TimestampedMetric, now: num
 
 // ── Full store state ──
 export interface NmeaStoreState {
+    /** Derived instruments use this source-clock evidence, never legacy metric receipt time. */
+    instrumentEvidence?: InstrumentEvidence;
+    measurementTimes?: InstrumentMeasurementTimes;
     // Navigation
     tws: TimestampedMetric; // True Wind Speed (kts)
     twa: TimestampedMetric; // True Wind Angle off the bow, 0-180 magnitude (°)
@@ -144,6 +149,10 @@ export interface RemoteFeed {
 
 /** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
 export interface RemoteInstrumentSnapshot {
+    measurementTimes?: InstrumentMeasurementTimes;
+    rpmAtMs?: number;
+    leewayDeg?: number | null;
+    leewaySource?: string;
     source: 'pi' | 'device';
     /** Which lane it came down; absent means the cloud row. */
     via?: RemoteVia;
@@ -234,6 +243,7 @@ class NmeaStoreClass {
             this.clearWindHistory();
             this.clearGpsDiagnostics();
             this.clearTrueHeading();
+            this.clearInstrumentEvidence();
             this.notify();
         });
     }
@@ -260,6 +270,7 @@ class NmeaStoreClass {
                     this.remoteFeedEndedAt = this.state.remote.receivedAt;
                     this.clearGpsDiagnostics();
                     this.clearTrueHeading();
+                    this.clearInstrumentEvidence();
                 }
                 this.state.remote = null; // the boat itself wins
             }
@@ -396,6 +407,8 @@ class NmeaStoreClass {
             now - this.state.remote.receivedAt <= LAN_REMOTE_HOLD_MS
         )
             return false;
+        this.state.instrumentEvidence = remoteInstrumentEvidence(snapshot);
+        this.state.measurementTimes = evidenceTimes(this.state.instrumentEvidence);
         this.ingestRemoteWind(snapshot, now);
         this.ingestRemoteGnss(snapshot.gnss, now);
         const put = (metric: TimestampedMetric, value: number | null) => {
@@ -513,6 +526,22 @@ class NmeaStoreClass {
             `gateway:${config?.host ?? 'default'}:${config?.port ?? ''}`,
             'Gateway wind samples',
         );
+        const identity = `gateway:${config?.host ?? 'default'}:${config?.port ?? ''}`;
+        const previous =
+            this.state.instrumentEvidence?.identity === identity && this.state.instrumentEvidence.via === 'gateway'
+                ? this.state.instrumentEvidence
+                : undefined;
+        this.state.instrumentEvidence = {
+            identity,
+            via: 'gateway',
+            readings: { ...previous?.readings, ...sample.instrumentReadings },
+            ...(sample.measurementTimes?.position && sample.latitude !== null && sample.longitude !== null
+                ? { position: { lat: sample.latitude, lon: sample.longitude, at: sample.measurementTimes.position } }
+                : previous?.position
+                  ? { position: previous.position }
+                  : {}),
+        };
+        this.state.measurementTimes = evidenceTimes(this.state.instrumentEvidence);
         this.windHistory.add(sample.tws, sample.timestamp);
         this.state.lastAnyUpdate = now;
 
@@ -572,6 +601,11 @@ class NmeaStoreClass {
         this.remoteWindSensor = null;
         this.remoteWindSensorAt = 0;
         this.remoteWindSample = null;
+    }
+
+    private clearInstrumentEvidence(): void {
+        this.state.instrumentEvidence = undefined;
+        this.state.measurementTimes = undefined;
     }
 
     private clearTrueHeading(): void {
@@ -810,6 +844,7 @@ class NmeaStoreClass {
     }
 
     private retireAllMetrics(): void {
+        this.clearInstrumentEvidence();
         const metrics: TimestampedMetric[] = [
             this.state.tws,
             this.state.twa,
