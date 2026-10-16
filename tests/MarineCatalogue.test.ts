@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     areaKey,
+    areaShardBounds,
     cataloguePath,
     LICENCES,
     namePrefix,
@@ -129,6 +130,75 @@ describe('public catalogue geometry, provenance and identity boundary', () => {
     });
 });
 describe('bounded app-owned queries and persistent offline cache', () => {
+    it('admits the north pole and both dateline encodings only in their exact refined leaf', () => {
+        const m = { ...manifest(), shards: ['areas/89_0-2'] };
+        const points = [180, -180].map((lon, i) => ({ ...place(`geonames:${i + 1}`), lat: 90, lon }));
+        expect(parseShard(shard('areas/89_0-2', points), m, 'areas/89_0-2')).toEqual(points);
+        expect(() => parseShard(shard('areas/89_0-0', points), m, 'areas/89_0-0')).toThrow('Wrong catalogue area');
+        const edge = { ...place(), lat: 89, lon: -179 };
+        expect(parseShard(shard('areas/89_0-3', [edge]), m, 'areas/89_0-3')).toEqual([edge]);
+        expect(() => parseShard(shard('areas/89_0-2', [edge]), m, 'areas/89_0-2')).toThrow('Wrong catalogue area');
+    });
+    it('reads dense spatial leaves nearest first, validates their boundaries and restores the entire saved area offline', async () => {
+        const keys = [0, 1, 2, 3].map((q) => `areas/75_103-${q}`);
+        const m = { ...manifest(), shards: keys, count: 4 };
+        h.fetch.mockImplementation(async (url: string) => {
+            if (url.endsWith('manifest.json')) return json(m);
+            const key = decodeURIComponent(
+                new URL(url).pathname
+                    .split('/')
+                    .slice(-2)
+                    .join('/')
+                    .replace(/\.json$/, ''),
+            );
+            const [w, s, e, n] = areaShardBounds(key);
+            return json(
+                shard(key, [{ ...place(`geonames:${keys.indexOf(key) + 1}`), lat: (s + n) / 2, lon: (w + e) / 2 }]),
+            );
+        });
+        const service = await import('../services/marineCatalogue/service');
+        const result = await service.loadMarineCells(['75_103'], ['places'], undefined, false, {
+            lat: 61.8,
+            lon: 27.8,
+        });
+        expect(result).toMatchObject({ partial: false, offlineComplete: true });
+        expect(result.records).toHaveLength(4);
+        expect(h.fetch.mock.calls[1][0]).toContain('/areas/75_103-3.json');
+        expect(h.fetch.mock.calls.every(([url]) => !String(url).includes('61.8'))).toBe(true);
+        vi.resetModules();
+        h.satellite = true;
+        h.fetch.mockClear();
+        const cold = await (
+            await import('../services/marineCatalogue/service')
+        ).loadMarineCells(['75_103'], ['places']);
+        expect(cold).toMatchObject({ partial: false, offlineComplete: true });
+        expect(cold.records).toHaveLength(4);
+        expect(h.fetch).not.toHaveBeenCalled();
+        const wrong = { ...place(), lat: 60.2, lon: 26.2 };
+        expect(() => parseShard(shard('areas/75_103-3', [wrong]), m, 'areas/75_103-3')).toThrow('Wrong catalogue area');
+        expect(cataloguePath('places/202610-fixture/areas/75_103-4.json')).toBe(false);
+    });
+    it('keeps dense areas bounded at sixteen shard reads per source and never claims a partial area is saved', async () => {
+        const keys = Array.from({ length: 64 }, (_, i) => `areas/75_103-${i.toString(4).padStart(3, '0')}`);
+        h.fetch.mockImplementation(async (url: string) => {
+            if (url.endsWith('manifest.json')) return json({ ...manifest(), shards: keys, count: 64 });
+            const key = new URL(url).pathname
+                .split('/')
+                .slice(-2)
+                .join('/')
+                .replace(/\.json$/, '');
+            const [w, s, e, n] = areaShardBounds(key);
+            return json(
+                shard(key, [{ ...place(`geonames:${keys.indexOf(key) + 1}`), lat: (s + n) / 2, lon: (w + e) / 2 }]),
+            );
+        });
+        const result = await (
+            await import('../services/marineCatalogue/service')
+        ).loadMarineCells(['75_103'], ['places']);
+        expect(result).toMatchObject({ partial: true, offlineComplete: false });
+        expect(result.records).toHaveLength(16);
+        expect(h.fetch).toHaveBeenCalledTimes(17);
+    });
     it('refines dense global name prefixes without downloading every matching world shard', async () => {
         const m = {
             ...manifest(),

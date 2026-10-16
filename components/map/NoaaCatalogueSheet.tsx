@@ -150,7 +150,14 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                         held?.sourceHO === 'US' &&
                                         held.edition === cell.edition &&
                                         held.updateNumber === cell.update &&
-                                        held.contentSha256 === cell.chart?.sha256;
+                                        held.contentSha256 === cell.chart?.sha256 &&
+                                        downloads.some(
+                                            (row) =>
+                                                row.id === cell.id &&
+                                                row.installed &&
+                                                !row.withdrawn &&
+                                                row.zipSha256 === cell.zip?.sha256,
+                                        );
                                     return (
                                         <li key={cell.id} className="rounded border border-slate-700 p-3">
                                             <p className="font-semibold">

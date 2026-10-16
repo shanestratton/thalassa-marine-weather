@@ -98,5 +98,40 @@ class BuildTests(unittest.TestCase):
             records = {p["id"] for f in shards for p in json.loads(f.read_text(encoding="utf-8"))["records"]}
             self.assertEqual(len(records), 100)
             self.assertTrue(all(f.stat().st_size <= 4096 for f in shards))
+    def test_dense_finnish_island_area_splits_without_losing_any_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lines = []
+            for index in range(10002):
+                columns = geoline(str(index + 1), f"Coral{index:05}", lat=str(60.1 + index % 2), lon=str(26.1 + (index // 2) % 2)).strip().split("\t")
+                columns[3] = ""
+                lines.append("\t".join(columns) + "\n")
+            generation = b.build(self.fixture(root, "".join(lines)), root / "output")
+            files = list((generation / "areas").glob("*.json"))
+            self.assertEqual(len(files), 4)
+            self.assertTrue(all(file.name.startswith("75_103-") for file in files))
+            records = [record for file in files for record in json.loads(file.read_text(encoding="utf-8"))["records"]]
+            self.assertEqual(len(records), 10002)
+            self.assertEqual(len({record["id"] for record in records}), 10002)
+            self.assertTrue(all(file.stat().st_size <= b.MAX_SHARD_BYTES for file in files))
+            self.assertTrue(all(p.owned("marine-catalogue/v1/places/" + generation.name + "/areas/" + file.name) for file in files))
+
+    def test_area_refinement_preserves_polar_dateline_and_exact_quadrant_edges(self):
+        points = [(90, 180), (90, -180), (89, -180), (88, -180), (89, -179), (88, -179)]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lines = []
+            for index, (lat, lon) in enumerate(points):
+                columns = geoline(str(index + 1), f"Edge{index}", lat=str(lat), lon=str(lon)).strip().split("\t")
+                columns[3] = ""
+                lines.append("\t".join(columns) + "\n")
+            with patch.object(b, "MAX_SHARD_BYTES", 700):
+                generation = b.build(self.fixture(root, "".join(lines)), root / "output")
+            files = list((generation / "areas").glob("*.json"))
+            records = [record for file in files for record in json.loads(file.read_text(encoding="utf-8"))["records"]]
+            self.assertEqual(len(records), len(points))
+            self.assertEqual(len({record["id"] for record in records}), len(points))
+            self.assertTrue(all(file.name.startswith("89_0-") for file in files))
+            self.assertEqual(sum(record["lat"] == 90 for record in records), 2)
 
 if __name__ == "__main__": unittest.main()

@@ -48,11 +48,26 @@ for (const width of [300, 375])
         await page.getByRole('button', { name: 'Read / save shown area' }).click();
         await expect(page.getByRole('status')).toContainText('3 records shown');
         await expect(page.getByRole('status')).toContainText('Area saved for offline use');
+        expect(
+            await page.evaluate(() =>
+                (window as unknown as { catalogueFixtureRequests: string[] }).catalogueFixtureRequests.some((url) =>
+                    url.endsWith('/areas/36_179-3.json'),
+                ),
+            ),
+        ).toBe(true);
         await expect(page.getByText(/Generated Fiji fixture only/).first()).toBeVisible();
         await page.goto('/e2e/fixtures/marine-places.html?offline=1');
         await page.getByRole('textbox').fill('Coral');
         await page.getByRole('button', { name: 'Search marine places' }).click();
         await expect(page.getByRole('button', { name: /Coral Bay 1 —/ })).toBeVisible();
+        await expect(page.getByRole('status')).toContainText('Saved data only');
+        expect(
+            await page.evaluate(
+                () => (window as unknown as { catalogueFixtureRequests: string[] }).catalogueFixtureRequests,
+            ),
+        ).toEqual([]);
+        await page.getByRole('button', { name: 'Read / save shown area' }).click();
+        await expect(page.getByRole('status')).toContainText('3 records shown');
         await expect(page.getByRole('status')).toContainText('Saved data only');
         expect(
             await page.evaluate(

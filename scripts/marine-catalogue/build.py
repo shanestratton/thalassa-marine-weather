@@ -25,6 +25,7 @@ MAX_LINE_BYTES = 8 * 1024**2
 MAX_RECORDS = 2_000_000
 MAX_SHARD_BYTES = 2 * 1024**2
 MAX_OUTPUT_BYTES = 2 * 1024**3
+BUILD_POLICY = b"marine-v1-area-quadtree8-name24"
 LICENCES = {
     "places": "https://creativecommons.org/licenses/by/4.0/",
     "osm": "https://opendatacommons.org/licenses/odbl/1-0/",
@@ -167,7 +168,7 @@ def build(input_manifest, output):
     if source_at.tzinfo is None or source_at > now + dt.timedelta(minutes=5) or source_at < now - dt.timedelta(days=45):
         raise ValueError("Old/future source snapshot; review before monthly publication")
     sources = [checked_input(s, input_manifest.parent, dataset) for s in spec["inputs"]]
-    generation = now.strftime("%Y%m") + "-" + hashlib.sha256(raw).hexdigest()[:16]
+    generation = now.strftime("%Y%m") + "-" + hashlib.sha256(raw + b"\0" + BUILD_POLICY).hexdigest()[:16]
     root = Path(output).resolve() / dataset
     root.mkdir(parents=True, exist_ok=True)
     destination = root / generation
@@ -178,9 +179,9 @@ def build(input_manifest, output):
         database = resources.enter_context(closing(sqlite3.connect(stage / "work.sqlite")))
         database.execute("PRAGMA cache_size=-16384")
         database.execute("PRAGMA max_page_count=524288")  #2GiB scratch database, independent of free disk.
-        database.execute("CREATE TABLE records (id TEXT PRIMARY KEY, area TEXT, json TEXT)")
+        database.execute("CREATE TABLE records (id TEXT PRIMARY KEY, area TEXT, lat REAL, lon REAL, json TEXT)")
         database.execute("CREATE TABLE names (value TEXT, id TEXT, PRIMARY KEY(value,id))")
-        database.execute("CREATE INDEX record_areas ON records(area)")
+        database.execute("CREATE INDEX record_areas ON records(area,lat,lon)")
         admitted = 0
         for source in sources:
             with source.open("rb") as stream:
@@ -195,11 +196,13 @@ def build(input_manifest, output):
                         continue
                     encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
                     # Input order is reviewed: latest/highest-detail NOAA cell last.
-                    inserted = database.execute("INSERT OR IGNORE INTO records VALUES(?,?,?)", (record["id"], area(record["lat"], record["lon"]), encoded))
+                    indexed_lon = (record["lon"] + 180) % 360 - 180
+                    indexed_area = area(record["lat"], record["lon"])
+                    inserted = database.execute("INSERT OR IGNORE INTO records VALUES(?,?,?,?,?)", (record["id"], indexed_area, record["lat"], indexed_lon, encoded))
                     admitted += inserted.rowcount
                     if admitted > MAX_RECORDS: raise ValueError("Admitted record cap exceeded")
                     if inserted.rowcount == 0:
-                        database.execute("UPDATE records SET area=?,json=? WHERE id=?", (area(record["lat"], record["lon"]), encoded, record["id"]))
+                        database.execute("UPDATE records SET area=?,lat=?,lon=?,json=? WHERE id=?", (indexed_area, record["lat"], indexed_lon, encoded, record["id"]))
                     if dataset == "places":
                         for name in [record["name"], *record["aliases"]]:
                             value = normalise(name).replace(" ", "")
@@ -210,21 +213,48 @@ def build(input_manifest, output):
             raise ValueError("Empty / oversized build; old manifest must remain active")
         database.commit()
         total, shard_keys = 0, []
+        class DenseShard(ValueError):
+            pass
+
         def write_shard(key, query, args):
             nonlocal total
             records = [json.loads(row[0]) for row in itertools.islice(database.execute(query, args), 10001)]
             if len(records) > 10000:
-                raise ValueError(f"Too many records in {key}; no truncation")
+                raise DenseShard(f"Too many records in {key}; no truncation")
             body = json.dumps({"schema": 1, "dataset": dataset, "generation": generation, "key": key, "records": records}, ensure_ascii=False, separators=(",", ":")).encode()
-            total += len(body)
-            if len(body) > MAX_SHARD_BYTES or total > MAX_OUTPUT_BYTES:
+            if len(body) > MAX_SHARD_BYTES:
+                raise DenseShard(f"Shard byte cap exceeded: {key}; no truncation")
+            if total + len(body) > MAX_OUTPUT_BYTES:
                 raise ValueError(f"Output cap exceeded: {key}; no truncation")
+            total += len(body)
             path = stage / (key + ".json")
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(body)
             shard_keys.append(key)
+        def area_group(base, south, west, width=2, quadrants=""):
+            north, east = south + width, west + width
+            where = f"area=? AND lat>=? AND lat{'<=' if north == 90 else '<'}? AND lon>=? AND lon<?"
+            args = (base, south, north, west, east)
+            if not database.execute("SELECT 1 FROM records WHERE " + where + " LIMIT 1", args).fetchone():
+                return
+            key = "areas/" + base + ("-" + quadrants if quadrants else "")
+            try:
+                write_shard(key, "SELECT json FROM records WHERE " + where + " ORDER BY id", args)
+            except DenseShard:
+                if len(quadrants) >= 8:
+                    raise ValueError("Dense exact location exceeds cap; review before publishing")
+                half = width / 2
+                for child in range(4):
+                    area_group(
+                        base,
+                        south + (half if child & 2 else 0),
+                        west + (half if child & 1 else 0),
+                        half,
+                        quadrants + str(child),
+                    )
         for key, in database.execute("SELECT DISTINCT area FROM records ORDER BY area").fetchall():
-            write_shard("areas/" + key, "SELECT json FROM records WHERE area=? ORDER BY id", (key,))
+            row, column = map(int, key.split("_"))
+            area_group(key, row * 2 - 90, column * 2 - 180)
         if dataset == "places":
             def names_group(value):
                 query = "SELECT r.json FROM records r JOIN (SELECT DISTINCT id FROM names WHERE value>=? AND value<? LIMIT 10001) n ON n.id=r.id ORDER BY r.id"

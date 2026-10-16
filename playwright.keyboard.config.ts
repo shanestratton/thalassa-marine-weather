@@ -9,6 +9,7 @@ export default defineConfig({
         'ais-fleet-layout.spec.ts',
         'marine-places-layout.spec.ts',
         'paper-charts-layout.spec.ts',
+        'noaa-catalogue-layout.spec.ts',
         'keyboard-layout.spec.ts',
         'daylight-layout.spec.ts',
         // The Glass's compact conditions row: 'Trace' and inch readings stay in their cells.

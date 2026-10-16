@@ -96,9 +96,43 @@ export function nearbyAreaKeys(lat: number, lon: number, radiusNM = 50): string[
     return [...keys];
 }
 export function cataloguePath(path: string): boolean {
-    return /^(places|osm|noaa)\/(?:manifest\.json|[a-z0-9-]{8,48}\/(?:areas\/(?:[0-8]?\d)_(?:1[0-7]\d|[0-9]?\d)|names\/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json)$/.test(
+    return /^(places|osm|noaa)\/(?:manifest\.json|[a-z0-9-]{8,48}\/(?:areas\/(?:[0-8]?\d)_(?:1[0-7]\d|[0-9]?\d)(?:-[0-3]{1,8})?|names\/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json)$/.test(
         path,
     );
+}
+/** Quadrants are SW=0, SE=1, NW=2, NE=3, at most eight refinements. */
+export function areaShardBounds(key: string): [number, number, number, number] {
+    if (!/^areas\/(?:[0-8]?\d)_(?:1[0-7]\d|[0-9]?\d)(?:-[0-3]{1,8})?$/.test(key)) throw new Error('Invalid area leaf');
+    const [base, quadrants = ''] = key.slice(6).split('-');
+    const [row, column] = base.split('_').map(Number);
+    let south = row * 2 - 90,
+        west = column * 2 - 180,
+        width = 2;
+    for (const digit of quadrants) {
+        width /= 2;
+        const quadrant = Number(digit);
+        if (quadrant & 1) west += width;
+        if (quadrant & 2) south += width;
+    }
+    return [west, south, west + width, south + width];
+}
+/** All published leaves for selected public root cells, nearest leaves first locally. */
+export function areaSearchKeys(
+    m: CatalogueManifest,
+    roots: readonly string[],
+    near?: { lat: number; lon: number },
+): string[] {
+    const wanted = new Set(roots);
+    const distance = (key: string) => {
+        if (!near) return 0;
+        const [w, s, e, n] = areaShardBounds(key);
+        const dx =
+            ((((((w + e) / 2 - near.lon + 180) % 360) + 360) % 360) - 180) * Math.cos((near.lat * Math.PI) / 180);
+        return dx * dx + ((s + n) / 2 - near.lat) ** 2;
+    };
+    return m.shards
+        .filter((key) => key.startsWith('areas/') && wanted.has(key.slice(6).split('-')[0]))
+        .sort((a, b) => distance(a) - distance(b) || a.localeCompare(b));
 }
 /** Dense prefixes split into smaller immutable leaves. Never scan every world name. */
 export function nameSearchKeys(m: CatalogueManifest, query: string): string[] {
@@ -237,8 +271,18 @@ export function parseShard(value: unknown, m: CatalogueManifest, key: string): M
     )
         throw new Error('Invalid catalogue shard');
     const ids = new Set<string>();
+    const bounds = key.startsWith('areas/') ? areaShardBounds(key) : null;
     for (const p of s.records) {
-        if (ids.has(p.id) || (key.startsWith('areas/') && areaKey(p.lat, p.lon) !== key.slice(6)))
+        const lon = ((((p.lon + 180) % 360) + 360) % 360) - 180;
+        if (
+            ids.has(p.id) ||
+            (bounds &&
+                (areaKey(p.lat, p.lon) !== key.slice(6).split('-')[0] ||
+                    lon < bounds[0] ||
+                    lon >= bounds[2] ||
+                    p.lat < bounds[1] ||
+                    (bounds[3] === 90 ? p.lat > 90 : p.lat >= bounds[3])))
+        )
             throw new Error('Wrong catalogue area or duplicate identity');
         ids.add(p.id);
     }
