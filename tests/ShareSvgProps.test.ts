@@ -63,7 +63,8 @@ async function productionIcons(shared: boolean): Promise<{ bytes: number; icons:
     };
 }
 function svgTree(markup: string): unknown {
-    const document = new JSDOM(markup, { contentType: 'image/svg+xml' }).window.document;
+    const Parser = new JSDOM('').window.DOMParser;
+    const document = new Parser().parseFromString(markup, 'image/svg+xml');
     expect(document.querySelector('parsererror')).toBeNull();
     const visit = (node: Element): unknown => ({
         tag: node.tagName,
