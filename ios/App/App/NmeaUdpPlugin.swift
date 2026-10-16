@@ -15,6 +15,7 @@ public class NmeaUdpPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
     private let queue = DispatchQueue(label: "com.thalassa.nmea.unicast", qos: .utility)
     private var reader: DispatchSourceRead?
+    private let rebind = NmeaUdpRebindGate()
     private var sessionId: String?
     private var cancelled: Set<String> = []
     private var pending: [[String: Any]] = []
@@ -29,7 +30,7 @@ public class NmeaUdpPlugin: CAPPlugin, CAPBridgedPlugin {
     public override func load() {
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
             object: nil, queue: nil) { [weak self] _ in
-            self?.queue.async { [weak self] in self?.foreground = false; self?.close(reason: "background") }
+            self?.queue.async { [weak self] in self?.foreground = false; self?.rebind.cancelAll(); self?.close(reason: "background") }
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: nil) { [weak self] _ in
@@ -48,48 +49,59 @@ public class NmeaUdpPlugin: CAPPlugin, CAPBridgedPlugin {
             guard self.foreground else { call.reject("UDP listener is paused in the background"); return }
             if self.cancelled.remove(id) != nil { call.reject("UDP listener cancelled"); return }
             self.close(reason: "replaced")
-            var gateway = in_addr()
-            guard inet_pton(AF_INET, host, &gateway) == 1,
-                  let local = Self.wifiAddress(), local.mask.s_addr != 0,
-                  gateway.s_addr & local.mask.s_addr == local.address.s_addr & local.mask.s_addr,
-                  gateway.s_addr != local.address.s_addr,
-                  gateway.s_addr != (local.address.s_addr & local.mask.s_addr),
-                  gateway.s_addr != (local.address.s_addr | ~local.mask.s_addr),
-                  (UInt32(bigEndian: gateway.s_addr) >> 24) > 0,
-                  (UInt32(bigEndian: gateway.s_addr) >> 24) < 224,
-                  (UInt32(bigEndian: gateway.s_addr) >> 24) != 127 else {
-                call.reject("UDP needs a unicast gateway on this phone's Wi-Fi subnet"); return
-            }
-            let descriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-            guard descriptor >= 0 else { call.reject("UDP socket unavailable"); return }
-            guard fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else {
-                Darwin.close(descriptor); call.reject("UDP socket unavailable"); return
-            }
-            var address = sockaddr_in()
-            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            address.sin_family = sa_family_t(AF_INET)
-            address.sin_port = UInt16(port).bigEndian
-            address.sin_addr = local.address
-            let bound = withUnsafePointer(to: &address) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-            guard bound == 0 else { Darwin.close(descriptor); call.reject("UDP port unavailable on Wi-Fi"); return }
-            let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: self.queue)
-            self.sessionId = id; self.reader = source
-            self.pending = []; self.pendingBytes = 0; self.dropped = 0
-            self.windowAt = ProcessInfo.processInfo.systemUptime; self.windowBytes = 0
-            source.setCancelHandler { Darwin.close(descriptor) }
-            source.setEventHandler { [weak self] in self?.receive(descriptor, gateway: gateway, id: id) }
-            source.resume()
-            call.resolve(["sessionId": id, "localAddress": String(cString: inet_ntoa(local.address))])
+            let ticket = self.rebind.replace(id: id, ready: { [weak self] in
+                guard let self = self, self.foreground, self.cancelled.remove(id) == nil else { call.reject("UDP listener cancelled"); return }
+                self.bind(call, id: id, host: host, port: port)
+            }, cancel: { call.reject("UDP listener cancelled") })
+            self.queue.asyncAfter(deadline: .now() + 10) { [weak self] in _ = self?.rebind.cancel(id: id, generation: ticket) }
         }
+    }
+    private func bind(_ call: CAPPluginCall, id: String, host: String, port: Int) {
+        var gateway = in_addr()
+        guard inet_pton(AF_INET, host, &gateway) == 1,
+              let local = Self.wifiAddress(), local.mask.s_addr != 0,
+              gateway.s_addr & local.mask.s_addr == local.address.s_addr & local.mask.s_addr,
+              gateway.s_addr != local.address.s_addr,
+              gateway.s_addr != (local.address.s_addr & local.mask.s_addr),
+              gateway.s_addr != (local.address.s_addr | ~local.mask.s_addr),
+              (UInt32(bigEndian: gateway.s_addr) >> 24) > 0,
+              (UInt32(bigEndian: gateway.s_addr) >> 24) < 224,
+              (UInt32(bigEndian: gateway.s_addr) >> 24) != 127 else {
+            call.reject("UDP needs a unicast gateway on this phone's Wi-Fi subnet"); return
+        }
+        let descriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard descriptor >= 0 else { call.reject("UDP socket unavailable"); return }
+        guard fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else {
+            Darwin.close(descriptor); call.reject("UDP socket unavailable"); return
+        }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = UInt16(port).bigEndian
+        address.sin_addr = local.address
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bound == 0 else { Darwin.close(descriptor); call.reject("UDP port unavailable on Wi-Fi"); return }
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: self.queue)
+        self.sessionId = id; self.reader = source
+        self.pending = []; self.pendingBytes = 0; self.dropped = 0
+        self.windowAt = ProcessInfo.processInfo.systemUptime; self.windowBytes = 0
+        source.setCancelHandler { [weak self] in
+            Darwin.close(descriptor)
+            self?.rebind.descriptorClosed()
+        }
+        source.setEventHandler { [weak self] in self?.receive(descriptor, gateway: gateway, id: id) }
+        source.resume()
+        call.resolve(["sessionId": id, "localAddress": String(cString: inet_ntoa(local.address))])
     }
     @objc func stop(_ call: CAPPluginCall) {
         guard let id = call.getString("sessionId"), UUID(uuidString: id) != nil else { call.reject("Invalid UDP session"); return }
         queue.async { [weak self] in
             guard let self = self else { call.resolve(); return }
+            if self.rebind.cancel(id: id) { call.resolve(); return }
             if self.sessionId == id { self.close(reason: "stopped") }
             else { if self.cancelled.count >= 32 { self.cancelled.removeAll() }; self.cancelled.insert(id) }
             call.resolve()
@@ -97,7 +109,8 @@ public class NmeaUdpPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func close(reason: String) {
         let previous = sessionId
-        sessionId = nil; reader?.cancel(); reader = nil
+        sessionId = nil
+        if let source = reader { rebind.retiringDescriptor(); reader = nil; source.cancel() }
         pending = []; pendingBytes = 0; flushQueued = false
         if let id = previous { notifyListeners("state", data: ["sessionId": id, "reason": reason]) }
     }

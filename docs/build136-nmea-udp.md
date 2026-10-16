@@ -95,3 +95,24 @@ Primary references checked 16 October 2026:
 136-07 direct Signal K settings, authenticated stream and notifications are a
 separate checkpoint. Root owns course/resource HTTP endpoints and the follow/
 unfollow interlocks; this transport adds no autopilot or route-control UI.
+
+## Cancellation-complete replacement
+
+The receiver waits for the old DispatchSource cancellation handler to close
+its descriptor before binding a replacement. A pure serial-queue rebind gate
+fences superseded starts, explicit stops, background cancellation and late
+ten-second deadlines by generation. It does not close a live descriptor early
+or enable SO_REUSEPORT. The gate is compiled into the app through its own source
+entry.
+
+A macOS proof uses that production gate and actual loopback UDP descriptors:
+32 cancel/rebind cycles on the same port, plus superseded/background/generation
+cancellation cases. Run it before claiming this native race verified:
+
+```sh
+swiftc ios/App/App/NmeaUdpRebindGate.swift tests/native/NmeaUdpRebindGateProof.swift -o /tmp/thalassa-udp-rebind-proof
+/tmp/thalassa-udp-rebind-proof
+```
+
+This proof is prepared on Windows; execution and the updated iOS compile remain
+release-Mac checks. It is not a physical iPhone local-network privacy proof.
