@@ -1,0 +1,87 @@
+name: Thalassa 135 native plugin compilation
+
+# Native compile checkpoint only. No Apple credentials, signing, upload or
+# retained app artifact. Full release validation and size gates remain required.
+on:
+    push:
+        branches: ['codex/build-135-native-check']
+        paths: ['.github/workflows/validate-native-135.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-135-native-check
+    cancel-in-progress: false
+jobs:
+    native:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: macos-26
+        timeout-minutes: 40
+        env:
+            CANDIDATE_SHA: 843f7346a0aec0313b106b367b0027150f33af03
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+            VITE_APP_BUILD: '135'
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 843f7346a0aec0313b106b367b0027150f33af03
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Exact source, Xcode and four native build numbers
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
+                  git merge-base --is-ancestor 24ea6c3a682e74d089bb2db6850d707f6c37faf6 HEAD
+                  test -d "$DEVELOPER_DIR"
+                  xcodebuild -version | head -1 | grep -q '^Xcode 26.6'
+                  node --input-type=module <<'NODE'
+                  import {readFileSync} from 'node:fs';
+                  const versions=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(versions.length!==4||versions.some(m=>m[1]!=='135'))throw Error('Four committed native build135 configurations required');
+                  NODE
+            - run: npm ci
+            - name: Public source guard and complete TypeScript/web build
+              run: |
+                  set -euo pipefail
+                  npm run check:beta:source
+                  GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+            - name: Pinned CocoaPods runtime
+              run: |
+                  set -euo pipefail
+                  pinned=$(awk '/^BUNDLED WITH/{getline; gsub(/ /,""); print}' ios/App/Gemfile.lock)
+                  if ! gem install bundler -v "$pinned" --no-document; then
+                      gem install bundler -v "$pinned" --no-document --user-install
+                      echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+                      export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+                  fi
+                  {
+                      echo "BUNDLER_VERSION=$pinned"
+                      echo "BUNDLE_PATH=$RUNNER_TEMP/gems135"
+                      echo "BUNDLE_APP_CONFIG=$RUNNER_TEMP/bundle-config135"
+                      echo "BUNDLE_FROZEN=true"
+                  } >> "$GITHUB_ENV"
+                  BUNDLER_VERSION="$pinned" BUNDLE_PATH="$RUNNER_TEMP/gems135" BUNDLE_APP_CONFIG="$RUNNER_TEMP/bundle-config135" \
+                      BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
+            - name: Capacitor sync through pinned Bundler
+              run: npm run cap:sync
+            - name: Compile actual iPhone native target without signing
+              run: |
+                  set -euo pipefail
+                  xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug \
+                      -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd135-native" \
+                      CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+                  echo 'Native GRIB/observation/encrypted-storage source compiled on the iPhone SDK; no signing or upload.' >> "$GITHUB_STEP_SUMMARY"
