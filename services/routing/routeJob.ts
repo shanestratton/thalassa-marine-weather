@@ -392,6 +392,10 @@ export interface InshoreOrigin {
 }
 
 export interface InshoreRouteResult {
+    /** RAM disclosure only; serialized fields never carry source authority. */
+    tideShortcut?: import('./tideGatedPlanning').TideShortcutView;
+    /** RAM worker hint only; source/clock admission is checked on main. */
+    _tideCandidatePath?: import('../engine/tideGatedSearch').TideGridPath;
     trafficLaneGuidance?: import('../engine/trafficLanes').TrafficLaneGuidance;
     /** Actual current manual/MPA context only; filled by the main service after lease checks. */
     routeAreaCaveats?: string[];
@@ -777,6 +781,27 @@ function routeJobResult(job: RouteJob, timings: RouteJobTimings): InshoreRouteRe
             error: result.error,
             code: result.code,
             cellsUsed,
+        };
+    }
+    if (routeOpts._tideCandidate?.enabled) {
+        // This exact geometry/clock must reach the private main-thread source
+        // verifier. No lead/Seaway promotion or smoothing inherits its window.
+        if (!result._tideCandidatePath)
+            return {
+                error: 'The tide worker returned no exact candidate clock.',
+                code: 'tide-window-unavailable',
+                cellsUsed,
+            };
+        timings.shadowMs = 0;
+        return {
+            polyline: result.polyline,
+            distanceNM: result.distanceNM,
+            cellsUsed,
+            elapsedMs,
+            channelMask: result.channelMask,
+            cautionMask: result.cautionMask,
+            _tideCandidatePath: result._tideCandidatePath,
+            ...routeChartVerdicts(job.layers, result.polyline),
         };
     }
 

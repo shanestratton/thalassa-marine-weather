@@ -210,6 +210,8 @@ export interface SurveyUncheckedCell {
 export interface RouteRequest {
     /** INTERNAL: rebuilt by routeInshore from the current original layer snapshot. */
     _exclusionField?: import('./exclusionField').ExclusionField;
+    /** Plain worker candidate data; main-thread RAM permit remains authority. */
+    _tideCandidate?: import('./tideGatedSearch').TideGatedCandidateRequest;
     /** Private own tracks / APPROVED lanes: optional cost hints only, never water or depth evidence. */
     trackPriors?: readonly import('./trackPriors').TrackRoutingPrior[];
     fromLat: number;
@@ -929,6 +931,8 @@ export interface DryPinTail {
 }
 
 export interface RouteResult {
+    /** Transient worker hint; never a saved navigation/source certificate. */
+    _tideCandidatePath?: import('./tideGatedSearch').TideGridPath;
     trafficLaneGuidance?: import('./trafficLanes').TrafficLaneGuidance;
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     /**

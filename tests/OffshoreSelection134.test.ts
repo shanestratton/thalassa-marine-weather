@@ -84,6 +84,20 @@ async function fixture() {
     };
 }
 describe('final offshore candidate promotion', () => {
+    it('adds only current accepted number-free routing-area caveats to the selected result', async () => {
+        const opts = await fixture(),
+            words = 'No verified marine park dataset is retained; marine park caution is unavailable.';
+        opts.validate.mockImplementation(async (route) => ({
+            route,
+            verified: true,
+            hazardReport: null as never,
+            areaCaveats: [words, 'Private chart coordinates 153.5 -27.5'],
+        }));
+        const selected = await verifyOffshoreSelection(opts);
+        expect(selected.result.environmentNotes).toContain(words);
+        expect(selected.result.environmentNotes?.join(' ')).not.toContain('Private chart coordinates');
+        expect(opts.candidate.result.environmentNotes ?? []).not.toContain(words);
+    });
     it('preserves the modeled clock only for unchanged verified geometry, retaining a private hazard report', async () => {
         const opts = await fixture();
         const selected = await verifyOffshoreSelection(opts);

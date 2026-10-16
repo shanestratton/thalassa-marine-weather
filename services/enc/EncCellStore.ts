@@ -444,6 +444,12 @@ export function peekCellGeoJSON(cellId: string): EncConversionResult | undefined
     if (getRegisteredCell(cellId)?.noaaPackage) return undefined;
     return blobCache.get(encCellStorageIdentity(cellId))?.blob;
 }
+/** Actual existing parse-cache accounting, bound to this borrowed object.
+ * Metadata byte counts cannot mint a resident-view proof. No read/LRU touch. */
+export function readRetainedCellGeoJSONBytes(cellId: string, blob: EncConversionResult): number | null {
+    const held = blobCache.get(encCellStorageIdentity(cellId));
+    return held?.blob === blob && Number.isSafeInteger(held.sizeBytes) && held.sizeBytes > 0 ? held.sizeBytes : null;
+}
 
 function dropBlob(cellId: string): void {
     dropChartFindCell(cellId);
