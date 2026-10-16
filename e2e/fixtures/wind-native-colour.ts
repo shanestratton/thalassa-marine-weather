@@ -1,12 +1,15 @@
 /** Actual production Canvas2D field, deterministic frames, generated grids, no map/network. */
 import { MapboxWindField, type WindFieldMap } from '../../components/map/MapboxWindField';
+import { zoomCompensatedVelocityScale, zoomScaledParticleMultiplier } from '../../components/map/MapboxVelocityOverlay';
 import type { VelocityGribRecord } from '../../components/map/windVelocityFrame';
 if (!import.meta.env.DEV) throw Error('Development fixture only');
 const params = new URLSearchParams(location.search);
 const large = params.has('large');
 const variant = params.get('variant') ?? 'baseline';
-const width = large ? 1440 : 360;
-const height = large ? 835 : 240;
+const performanceRun = params.has('performance');
+const mobile = params.has('mobile');
+const width = performanceRun ? (mobile ? 375 : 1440) : large ? 1440 : 360;
+const height = performanceRun ? (mobile ? 667 : 900) : large ? 835 : 240;
 Object.assign(document.body.style, {
     margin: '12px',
     display: 'grid',
@@ -33,6 +36,7 @@ for (const [name, light, filtered] of [
     ['dark-filter', false, true],
     ['dark-bare', false, false],
 ] as const) {
+    if (performanceRun && name !== (params.get('palette') === 'light' ? 'light-filter' : 'dark-filter')) continue;
     const section = document.createElement('section');
     section.dataset.case = name;
     const label = document.createElement('h2');
@@ -112,8 +116,8 @@ for (const [name, light, filtered] of [
             : '',
         lineWidth: light ? 1.5 : 1,
         fade: 0.98,
-        velocityScale: () => 0.02,
-        particleMultiplier: () => 0.002,
+        velocityScale: performanceRun ? zoomCompensatedVelocityScale : () => 0.02,
+        particleMultiplier: performanceRun ? zoomScaledParticleMultiplier : () => 0.002,
         random: () => (seed = (1664525 * seed + 1013904223) >>> 0) / 2 ** 32,
         requestFrame: (callback) => {
             const next = ++id;
@@ -155,7 +159,7 @@ for (const state of states) {
     const costs: number[] = [];
     const gaps: number[] = [];
     let prior = performance.now();
-    for (let frame = 1; frame <= (large ? 24 : 120); frame++) {
+    for (let frame = 1; frame <= (performanceRun ? 120 : large ? 24 : 120); frame++) {
         if (large)
             await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         const at = performance.now();
