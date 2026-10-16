@@ -105,5 +105,20 @@ Proof checkpoints (local synthetic data only):
   now reads the actual produced Blob using FileReader. The original failed log
   remains `work/validation138-along-final-focused.log`.
 
-Whole-app type and configured production-size proof for this child remain a
-separate step. The frozen parent's results are not reused as proof here.
+The strengthened final browser matrix also passes four cases, comparing the
+loaded report's exact original/final outer bounds and unchanged 85dvh cap.
+The short initial report can be taller when the previously overlapping header
+wraps; this is recorded separately and is not a zero-growth claim for every
+report state. The Glass tide card is unrelated and unchanged. Final proof:
+`work/validation138-along-browser-geometry-corrected.log` and
+`work/along-route138-geometry-final-browser-proof/`.
+
+The HUD and startup/lazy regression set passes 215 cases in six suites:
+`work/validation138-along-hud-lazy-regression.log`.
+Whole-app TypeScript passes at a5af9415aa515cd427debd9bbf36fde452e20fec:
+`work/validation138-along-repaired-tsc.log`. Its earlier two fixture type errors
+are retained in `work/validation138-along-checkpoint-tsc.log`; production types
+needed no change. Subsequent changes only strengthen the geometry test and
+this documentation. Configured production-size proof and composition with
+final 137 remain separate steps. The frozen parent's results are not reused as
+proof for this child.

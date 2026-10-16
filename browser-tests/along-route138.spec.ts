@@ -11,30 +11,33 @@ for (const width of [300, 375])
         });
         await page.goto('/e2e/fixtures/along-route138.html');
         await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
-        const modalGeometry = await page.getByRole('dialog', { name: 'Route report' }).evaluate((node) => {
-            const title = node.querySelector('#trace-report-title')!.parentElement!;
-            const header = title.parentElement!;
-            const actions = header.lastElementChild as HTMLElement;
-            const classes = [header.className, title.className, actions.className];
-            const bounds = () => {
-                const r = node.getBoundingClientRect();
-                return [r.x, r.y, r.width, r.height];
-            };
-            const after = bounds();
-            // The exact three original header classes from parent 331837b.
-            // Temporarily restore them to compare the original outer extent.
-            header.className = 'flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-3';
-            title.className = 'min-w-0';
-            actions.className = 'flex shrink-0 items-center gap-3';
-            const before = bounds();
-            [header.className, title.className, actions.className] = classes;
-            return { before, after, viewport: [innerWidth, innerHeight] };
-        });
-        expect(modalGeometry.after).toEqual(modalGeometry.before);
+        const compareHeader = () =>
+            page.getByRole('dialog', { name: 'Route report' }).evaluate((node) => {
+                const title = node.querySelector('#trace-report-title')!.parentElement!;
+                const header = title.parentElement!;
+                const actions = header.lastElementChild as HTMLElement;
+                const classes = [header.className, title.className, actions.className];
+                const bounds = () => {
+                    const r = node.getBoundingClientRect();
+                    return [r.x, r.y, r.width, r.height];
+                };
+                const after = bounds();
+                // The exact three original header classes from parent 331837b.
+                // Temporarily restore them to compare the original outer extent.
+                header.className =
+                    'flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-3';
+                title.className = 'min-w-0';
+                actions.className = 'flex shrink-0 items-center gap-3';
+                const before = bounds();
+                [header.className, title.className, actions.className] = classes;
+                return { before, after, viewport: [innerWidth, innerHeight] };
+            });
+        const modalGeometry = await compareHeader();
+        expect(modalGeometry.after[2]).toEqual(modalGeometry.before[2]);
         expect(modalGeometry.after[3]).toBeLessThanOrEqual(modalGeometry.viewport[1] * 0.85 + 1);
         await test
             .info()
-            .attach('modal-geometry', { body: JSON.stringify(modalGeometry), contentType: 'application/json' });
+            .attach('initial-modal-geometry', { body: JSON.stringify(modalGeometry), contentType: 'application/json' });
         const title = await page.getByRole('heading', { name: 'Route report', exact: true }).boundingBox();
         const gpx = await page.getByRole('button', { name: '⬇ GPX', exact: true }).boundingBox();
         expect(title && gpx && (title.y + title.height <= gpx.y || title.x + title.width <= gpx.x)).toBe(true);
@@ -47,6 +50,11 @@ for (const width of [300, 375])
         await expect(page.getByTestId('along-route-results')).toContainText('Entirely fictional chart bridge');
         await expect(page.getByTestId('along-route-results')).toContainText('Chart summary · aboard RAM only');
         await expect(page.getByTestId('along-route-results')).toContainText('gust —');
+        const loadedGeometry = await compareHeader();
+        expect(loadedGeometry.after).toEqual(loadedGeometry.before);
+        await test
+            .info()
+            .attach('loaded-modal-geometry', { body: JSON.stringify(loadedGeometry), contentType: 'application/json' });
         expect(
             await page.getByTestId('along-route-results').evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
         ).toBe(true);
