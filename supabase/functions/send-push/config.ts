@@ -64,6 +64,7 @@ const PI_ALARM_DELIVERY_WINDOW_MS: Record<string, number> = {
     collision_alarm: 3 * 60_000,
     distress_alarm: 10 * 60_000,
     underway_alarm: 3 * 60_000,
+    wake_alarm: 30_000,
 };
 
 export function isCriticalType(type: string): boolean {
@@ -103,6 +104,8 @@ export function getThreadId(type: string): string {
             return 'thalassa-distress';
         case 'underway_alarm':
             return 'thalassa-underway';
+        case 'wake_alarm':
+            return 'thalassa-wake-rules';
         case 'cyclone_notice':
         case 'cyclone_urgent':
             return 'thalassa-cyclone';
@@ -146,6 +149,11 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
     if (type === 'underway_alarm' && (data.kind === 'off-route' || data.kind === 'chart-ahead')) {
         return `underway-${data.kind}`;
     }
+    if (
+        type === 'wake_alarm' && typeof data.alarm_key === 'string' &&
+        /^wake-(depth|wind|speed|pressure|coolant|oil|rpm|battery):[0-9a-f]{12}:[0-9]{10,13}$/.test(data.alarm_key) &&
+        data.kind === data.alarm_key.split(':')[0]
+    ) return String(data.kind);
     // One per storm: cyclone-watch's basin-and-number key, "SH37" (129-09).
     if ((type === 'cyclone_notice' || type === 'cyclone_urgent') && isStormKey(data?.storm_key)) {
         return `cyclone-${data.storm_key}`;
@@ -161,7 +169,7 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
 
 /** The two Pi alarms sound like the anchor alarm; everything else keeps the system sound. */
 export function getAlertSound(type: string): string {
-    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm'
+    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm' || type === 'wake_alarm'
         ? PI_ALARM_SOUND
         : 'default';
 }
@@ -179,6 +187,7 @@ export function getApnsExpiration(
     data?: Record<string, unknown>,
 ): string {
     const nowSeconds = Math.floor(nowMs / 1000);
+    if (type === 'wake_alarm') return '0'; // Never store a stale instrument alarm at APNs.
     // An official warning is news until it expires (129-06).
     if (type === 'official_warning') {
         const expires = officialExpiry(data);
@@ -216,6 +225,16 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'wake_alarm') {
+        const age = data?.kind === 'wake-pressure' ? 120_000 : data?.kind === 'wake-battery' ? 180_000 : 13_000;
+        if (
+            typeof data?.source_at !== 'number' || !Number.isSafeInteger(data.source_at) || data.source_at <= 0 ||
+            data.source_at > nowMs + 1000 || nowMs - data.source_at > age ||
+            typeof data.kind !== 'string' ||
+            !/^wake-(depth|wind|speed|pressure|coolant|oil|rpm|battery)$/.test(data.kind)
+        ) return true;
+        if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return true;
+    }
     // An official warning that expired before the drain reached it is not news (129-06).
     if (type === 'official_warning') {
         const expires = officialExpiry(data);
@@ -247,6 +266,7 @@ export interface ApsInput {
  * nothing.
  */
 export function getInterruptionLevel(type: string, data: Record<string, unknown>): InterruptionLevel | undefined {
+    if (type === 'wake_alarm') return 'time-sensitive'; // User-enabled preset; no Critical entitlement claim.
     // The quiet boat (129-08): the page goes at once, the all-clear as an ordinary alert.
     if (type === 'boat_quiet') return 'time-sensitive';
     if (type === 'boat_quiet_clear') return 'active';

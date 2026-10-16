@@ -30,6 +30,7 @@ import { authenticatePiRelay, touchPiRelay } from '../_shared/pi-relay-auth.ts';
 import type { PiAlarmKind, PiAlarmPayload } from './parse.ts';
 import { handlePiAlarmRelay, type PiAlarmEvent, type PiAlarmStore } from './relay.ts';
 import { underwayCapabilityReady } from './underway-capability.ts';
+import { handleWakeRelay, wakeCapabilityReady } from './wake-relay.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -222,6 +223,29 @@ Deno.serve((req) => {
                 ? authenticatePiRelay(admin, credential)
                 : Promise.resolve({ status: 503 as const, error: 'unavailable' }),
         store: admin ? supabaseStore(admin) : null,
+        wake: (body, identity, now) =>
+            handleWakeRelay(body, identity, {
+                capability: () =>
+                    wakeCapabilityReady(
+                        async () => {
+                            if (!admin) return null;
+                            const result = await admin.rpc('pi_alarm_wake_capability');
+                            return result.error ? null : result.data;
+                        },
+                        Deno.env.get('SUPABASE_URL'),
+                        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+                    ),
+                apply: async (owner, request) => {
+                    const result = await admin.rpc('pi_wake_apply', {
+                        p_owner: owner.ownerId,
+                        p_relay: owner.relayId,
+                        p_request: request,
+                    });
+                    if (result.error) throw new Error('Wake transaction unconfirmed');
+                    return result.data;
+                },
+                deliver: deliverNow,
+            }, now),
         underwayEnabled: async () => {
             if (!admin) return false;
             return await underwayCapabilityReady(

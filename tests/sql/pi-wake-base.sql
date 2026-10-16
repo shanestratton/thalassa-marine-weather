@@ -1,0 +1,20 @@
+-- Disposable PostgreSQL/PGlite fixture ONLY. Never run against a product database.
+CREATE ROLE anon;
+CREATE ROLE authenticated;
+CREATE ROLE service_role BYPASSRLS;
+CREATE SCHEMA auth;
+CREATE TABLE auth.users(id uuid PRIMARY KEY);
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated,service_role;
+CREATE TABLE public.pi_diary_relays(relay_id text PRIMARY KEY,owner_id uuid REFERENCES auth.users(id),enabled boolean NOT NULL DEFAULT true);
+CREATE TABLE public.push_device_tokens(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid REFERENCES auth.users(id));
+CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid REFERENCES auth.users(id),notification_type text,title text,body text,data jsonb,sent_at timestamptz,processing_at timestamptz,last_error text,created_at timestamptz DEFAULT now());
+CREATE TABLE public.pi_anchor_sessions(owner_id uuid,expires_at timestamptz,last_heartbeat_at timestamptz,is_dragging boolean,gps_available boolean);
+CREATE TABLE public.anchor_watch_sessions(session_code text PRIMARY KEY,owner_user_id uuid,expires_at timestamptz);
+CREATE TABLE public.anchor_alarm_events(session_code text,user_id uuid,resolved_at timestamptz,created_at timestamptz DEFAULT now());
+CREATE TABLE public.pi_alarm_events(owner_id uuid,kind text,resolved_at timestamptz,acked_at timestamptz,last_seen_at timestamptz DEFAULT now());
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO service_role;
+INSERT INTO auth.users VALUES('00000000-0000-4000-8000-000000000001'),('00000000-0000-4000-8000-000000000099');
+INSERT INTO public.pi_diary_relays VALUES('fictional-relay-identity','00000000-0000-4000-8000-000000000001',true);
+INSERT INTO public.push_device_tokens(user_id) VALUES('00000000-0000-4000-8000-000000000001');

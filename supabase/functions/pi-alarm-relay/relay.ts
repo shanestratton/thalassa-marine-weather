@@ -123,6 +123,8 @@ export interface RelayDeps {
     log?: (message: string) => void;
     /** True only after the separately deployed schema capability RPC reports version 1. */
     underwayEnabled?: () => Promise<boolean>;
+    /** Separate fixed wake family; the existing authenticated door runs first. */
+    wake?: (body: Record<string, unknown>, identity: PiRelayIdentity, now: number) => Promise<Response>;
 }
 
 const CORS: Record<string, string> = {
@@ -396,6 +398,16 @@ export async function handlePiAlarmRelay(req: Request, deps: RelayDeps): Promise
         return identity.status === 401 ? json({ error: 'unauthorised' }, 401) : json({ error: 'unavailable' }, 503);
     }
 
+    if (body.family === 'wake') {
+        if (!deps.wake) return json({ error: 'wake_unavailable' }, 503);
+        try {
+            const response = await deps.wake(body, identity, (deps.now ?? Date.now)());
+            if (response.ok) deps.store.touchRelay(identity.relayId);
+            return response;
+        } catch {
+            return json({ error: 'wake_unavailable' }, 503);
+        }
+    }
     const parsed = parseRelayRequest(body);
     if (!parsed.ok) return json({ error: 'invalid_request', detail: parsed.error }, 400);
     const request = parsed.value;

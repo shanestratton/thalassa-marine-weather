@@ -49,6 +49,7 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createWakeDeliveryGuard, type WakeDeliveryDecision } from './wake-delivery.ts';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 import {
@@ -130,6 +131,7 @@ interface PushPayload {
     threadId: string;
     collapseId: string | null;
     badge?: number;
+    beforeAttempt?: () => Promise<WakeDeliveryDecision>;
 }
 
 interface SendResult {
@@ -137,6 +139,7 @@ interface SendResult {
     tokenInvalid?: boolean;
     statusCode?: number;
     error?: string;
+    retired?: boolean;
 }
 
 async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<SendResult> {
@@ -154,6 +157,16 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
     // ── Retry loop with exponential backoff ──
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
+            const permission = payload.beforeAttempt ? await payload.beforeAttempt() : 'allow';
+            if (permission !== 'allow') {
+                return {
+                    success: false,
+                    retired: permission === 'retire',
+                    error: permission === 'retire'
+                        ? 'Wake alarm retired before delivery'
+                        : 'Wake delivery check unavailable',
+                };
+            }
             const jwt = await getApnsJwt();
 
             const headers: Record<string, string> = {
@@ -256,10 +269,13 @@ serve(async (req: Request) => {
             // delivery contract before advertising its new alarm family.
             const configured = ['APNS_KEY_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID']
                 .every((name) => Boolean(Deno.env.get(name)));
-            return new Response(JSON.stringify({ underway_alarm: configured ? 1 : 0 }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-            });
+            return new Response(
+                JSON.stringify({ underway_alarm: configured ? 1 : 0, wake_alarm: configured ? 1 : 0 }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+                },
+            );
         }
         const { record: webhookRecord } = requestBody;
 
@@ -317,6 +333,29 @@ serve(async (req: Request) => {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
+        const wakeGuard = notification_type === 'wake_alarm'
+            ? createWakeDeliveryGuard(id, async (queueId) => {
+                const result = await supabase.rpc('pi_wake_delivery_current', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            })
+            : undefined;
+        if (wakeGuard) {
+            const permission = await wakeGuard();
+            if (permission === 'unavailable') {
+                await releaseClaim('Wake delivery check unavailable');
+                return new Response(JSON.stringify({ error: 'Wake delivery check unavailable' }), { status: 503 });
+            }
+            if (permission === 'retire') {
+                await supabase.from('push_notification_queue').update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'Wake alarm no longer current',
+                }).eq('id', id);
+                return new Response(JSON.stringify({ sent: 0, message: 'Wake alarm no longer current' }), {
+                    status: 200,
+                });
+            }
+        }
 
         // ── Look up device tokens for the recipient ──
         const { data: tokens, error } = await supabase
@@ -364,6 +403,7 @@ serve(async (req: Request) => {
             threadId: getThreadId(notification_type),
             collapseId: getCollapseId(notification_type, data || {}),
             badge: (badgeCount ?? 0) + 1,
+            ...(wakeGuard ? { beforeAttempt: wakeGuard } : {}),
         };
 
         // ── Send push to all registered devices ──
@@ -383,8 +423,9 @@ serve(async (req: Request) => {
 
         const sent = results.filter((r) => r.success).length;
         const pruned = results.filter((r) => r.tokenInvalid).length;
+        const retired = results.filter((r) => r.retired).length;
 
-        if (sent === 0 && pruned < tokens.length) {
+        if (sent === 0 && pruned + retired < tokens.length) {
             const failure = results.find((result) => !result.success && !result.tokenInvalid);
             await releaseClaim(failure?.error || 'APNs delivery failed');
             return new Response(JSON.stringify({ error: 'APNs delivery failed; queued for retry' }), {
