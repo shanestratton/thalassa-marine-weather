@@ -74,7 +74,11 @@ function TideSource({
                 >
                     {stationLabel}
                 </span>
-                <span className={compact ? 'block w-0 min-w-full truncate underline leading-none' : 'block underline'}>
+                <span
+                    className={
+                        compact ? 'block w-0 min-w-full truncate underline leading-none' : 'block truncate underline'
+                    }
+                >
                     {compact
                         ? `${details.source?.startsWith('saved-') ? 'Saved ' : ''}${details.provider ?? 'Source'} ⓘ`
                         : 'Source and datum'}
