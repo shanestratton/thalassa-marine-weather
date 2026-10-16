@@ -42,6 +42,7 @@ describe('shared radar target policy', () => {
         for (const [name, field] of [
             ['collisionEncounter', 'encounterSha256'],
             ['radarRelayContract', 'relaySha256'],
+            ['radarEncounters', 'modelSha256'],
         ]) {
             const source = read(`utils/${name}.ts`),
                 mirrored = source.replace("from './collisionRule.js'", "from '../collisionRule/collisionRule.js'");
