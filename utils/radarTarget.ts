@@ -101,7 +101,7 @@ function coordinate(raw: string, hemisphere: string, latitude: boolean): number 
         ? (hemisphere === 'S' || hemisphere === 'W' ? -1 : 1) * result
         : null;
 }
-function observationTime(
+export function radarObservationTime(
     raw: string | undefined,
     receivedAt: number,
 ): { at: number; clock: RadarReport['clock'] } | null {
@@ -151,7 +151,7 @@ export function parseRadarSentence(
         referenceRaw = fields[isTtm ? 13 : 9];
     const status = ({ T: 'tracking', Q: 'acquiring', L: 'lost' } as const)[statusRaw as 'T' | 'Q' | 'L'];
     if (!status || (referenceRaw !== '' && referenceRaw !== 'R')) return null;
-    const time = observationTime(fields[isTtm ? 14 : 7], context.receivedAt);
+    const time = radarObservationTime(fields[isTtm ? 14 : 7], context.receivedAt);
     if (!time) return null;
     const acquisitionRaw = isTtm ? (fields[15] ?? '') : '';
     if (!['', 'A', 'M', 'R'].includes(acquisitionRaw)) return null;

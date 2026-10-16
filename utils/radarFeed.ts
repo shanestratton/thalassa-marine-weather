@@ -1,0 +1,223 @@
+import {
+    parseRadarSentence,
+    qualifyRadarReport,
+    radarObservationTime,
+    validRadarFeedId,
+    RADAR_TARGET_CAP,
+    RADAR_REPORT_MAX_AGE_MS,
+    type RadarContact,
+    type RadarOwnship,
+    type RadarReport,
+} from './radarTarget.js';
+
+/** Short, bounded history; collision encounters retain their own unresolved lost state. */
+export const RADAR_HISTORY_MS = 120_000;
+interface Observation {
+    report: RadarReport;
+    /** Captured at ingress: later yaw/navigation must not move an old relative echo. */
+    ownship: RadarOwnship;
+    solution: RadarContact;
+}
+interface Track {
+    TTM?: Observation;
+    TLL?: Observation;
+}
+const decimal = (raw: string | undefined): number | null =>
+    raw && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) && Number.isFinite(Number(raw)) ? Number(raw) : null;
+const within = (value: number | null, min: number, max: number): value is number =>
+    value !== null && value >= min && value <= max;
+const angle = (raw: string | undefined): number | null => {
+    const value = decimal(raw);
+    return within(value, 0, 360) ? value % 360 : null;
+};
+function coordinate(raw: string | undefined, side: string | undefined, lat: boolean): number | null {
+    if (!raw || !(lat ? /^\d{4}(?:\.\d+)?$/ : /^\d{5}(?:\.\d+)?$/).test(raw)) return null;
+    if (!(lat ? ['N', 'S'] : ['E', 'W']).includes(side ?? '')) return null;
+    const encoded = Number(raw),
+        degrees = Math.floor(encoded / 100),
+        minutes = encoded - degrees * 100;
+    const value = degrees + minutes / 60;
+    return minutes < 60 && value <= (lat ? 90 : 180) ? (side === 'S' || side === 'W' ? -1 : 1) * value : null;
+}
+function fieldsOf(raw: unknown): string[] | null {
+    if (
+        typeof raw !== 'string' ||
+        raw.length > 256 ||
+        !/^\$[A-Z0-9]{2}[A-Z]{3},[\x20-\x7e]*\*[0-9a-fA-F]{2}$/.test(raw)
+    )
+        return null;
+    const star = raw.indexOf('*');
+    if (star !== raw.length - 3) return null;
+    let checksum = 0;
+    for (let i = 1; i < star; i++) checksum ^= raw.charCodeAt(i);
+    return checksum === Number.parseInt(raw.slice(star + 1), 16) ? raw.slice(0, star).split(',') : null;
+}
+const measuredMode = (raw: string | undefined): boolean =>
+    raw === undefined || raw === '' || ['A', 'D', 'P', 'R', 'F'].includes(raw);
+const newest = (track: Track): Observation =>
+    [track.TTM, track.TLL]
+        .filter((item): item is Observation => !!item)
+        .sort((a, b) => b.report.at - a.report.at || b.report.receivedAt - a.report.receivedAt)[0];
+
+/** One approved physical input/vessel session. No timers, provider reads or persistence. */
+export class RadarFeed {
+    private navigation: RadarOwnship;
+    private tracks = new Map<string, Track>();
+    private positionAt = 0;
+    private motionAt = 0;
+    private headingAt = 0;
+    constructor(readonly feedId: string) {
+        if (!validRadarFeedId(feedId)) throw Error('Invalid radar feed identity');
+        this.navigation = { feedId, position: null, heading: null, motion: null };
+    }
+    reset(): void {
+        this.navigation = { feedId: this.feedId, position: null, heading: null, motion: null };
+        this.tracks.clear();
+        this.positionAt = this.motionAt = this.headingAt = 0;
+    }
+    private capture(): RadarOwnship {
+        const nav = this.navigation;
+        return {
+            feedId: this.feedId,
+            position: nav.position ? { ...nav.position } : null,
+            heading: nav.heading ? { ...nav.heading } : null,
+            motion: nav.motion ? { ...nav.motion } : null,
+        };
+    }
+    private prune(now: number): void {
+        for (const [key, track] of this.tracks) {
+            const at = newest(track).report.at;
+            if (at > now + 1000 || now - at > RADAR_HISTORY_MS) this.tracks.delete(key);
+        }
+    }
+    /** Original ingress time is supplied once by the transport, never by a later HTTP poll. */
+    ingest(raw: unknown, receivedAt: number, now: number): 'target' | 'navigation' | null {
+        if (
+            !Number.isSafeInteger(receivedAt) ||
+            receivedAt <= 0 ||
+            !Number.isFinite(now) ||
+            receivedAt > now + 1000 ||
+            now - receivedAt > 15_000
+        )
+            return null;
+        const report = parseRadarSentence(raw, { feedId: this.feedId, receivedAt, now });
+        if (report) {
+            this.prune(now);
+            const track = this.tracks.get(report.contactKey) ?? {};
+            const previous = track[report.sentence];
+            if (
+                previous &&
+                (report.at < previous.report.at ||
+                    (report.at === previous.report.at &&
+                        (report.status === 'tracking' || report.receivedAt <= previous.report.receivedAt)))
+            )
+                return null;
+            if (!this.tracks.has(report.contactKey) && this.tracks.size >= RADAR_TARGET_CAP) {
+                const oldest = [...this.tracks].sort(
+                    (a, b) => newest(a[1]).report.at - newest(b[1]).report.at || a[0].localeCompare(b[0]),
+                )[0];
+                this.tracks.delete(oldest[0]);
+            }
+            const ownship = this.capture();
+            track[report.sentence] = { report, ownship, solution: qualifyRadarReport(report, ownship, now) };
+            this.tracks.set(report.contactKey, track);
+            return 'target';
+        }
+        const fields = fieldsOf(raw);
+        if (!fields) return null;
+        const type = fields[0].slice(3);
+        if (!['RMC', 'GGA', 'GLL', 'VTG', 'HDT', 'THS'].includes(type)) return null;
+        const originalTime =
+            type === 'RMC' || type === 'GGA' || type === 'GLL'
+                ? radarObservationTime(fields[type === 'GLL' ? 5 : 1], receivedAt)
+                : { at: receivedAt };
+        if (!originalTime) return null;
+        const at = originalTime.at;
+        if (type === 'HDT' || type === 'THS') {
+            if (at < this.headingAt) return null;
+            this.headingAt = at;
+            const trueDeg = angle(fields[1]);
+            this.navigation.heading =
+                trueDeg !== null && (type === 'HDT' ? fields[2] === 'T' : fields[2] === 'A') ? { trueDeg, at } : null;
+        } else if (type === 'VTG') {
+            if (at < this.motionAt) return null;
+            this.motionAt = at;
+            const knots = fields[6] === 'N' ? decimal(fields[5]) : null;
+            const kmh = fields[8] === 'K' ? decimal(fields[7]) : null;
+            const consistent = knots === null || kmh === null || Math.abs(knots - kmh / 1.852) <= 0.1;
+            const sogKn = knots ?? (kmh === null ? null : kmh / 1.852);
+            const cogTrueDeg = fields[2] === 'T' ? angle(fields[1]) : null;
+            this.navigation.motion =
+                measuredMode(fields[9]) && consistent && within(sogKn, 0, 100)
+                    ? { sogKn, sogAt: at, cogTrueDeg, cogAt: cogTrueDeg === null ? null : at }
+                    : null;
+        } else {
+            let valid = true;
+            if (type === 'RMC') {
+                valid = fields[2] === 'A' && measuredMode(fields[12]) && /^\d{6}$/.test(fields[9] ?? '');
+                if (valid) {
+                    const date = new Date(at);
+                    valid =
+                        Number(fields[9].slice(0, 2)) === date.getUTCDate() &&
+                        Number(fields[9].slice(2, 4)) === date.getUTCMonth() + 1 &&
+                        Number(fields[9].slice(4)) === date.getUTCFullYear() % 100;
+                }
+                if (at >= this.motionAt) {
+                    this.motionAt = at;
+                    const sogKn = decimal(fields[7]),
+                        cogTrueDeg = angle(fields[8]);
+                    this.navigation.motion =
+                        valid && within(sogKn, 0, 100)
+                            ? { sogKn, sogAt: at, cogTrueDeg, cogAt: cogTrueDeg === null ? null : at }
+                            : null;
+                }
+            } else if (type === 'GGA') valid = ['1', '2', '3', '4', '5'].includes(fields[6]);
+            else valid = fields[6] === 'A' && measuredMode(fields[7]);
+            const start = type === 'RMC' ? 3 : type === 'GGA' ? 2 : 1;
+            const lat = coordinate(fields[start], fields[start + 1], true),
+                lon = coordinate(fields[start + 2], fields[start + 3], false);
+            if (at >= this.positionAt) {
+                this.positionAt = at;
+                this.navigation.position = valid && lat !== null && lon !== null ? { lat, lon, at } : null;
+            }
+        }
+        return 'navigation';
+    }
+    /** At most two independent observations per target. Callers group by contactKey and preserve worst risk. */
+    contacts(now: number): RadarContact[] {
+        if (!Number.isFinite(now)) return [];
+        this.prune(now);
+        const contacts: RadarContact[] = [];
+        for (const track of this.tracks.values()) {
+            const latest = newest(track);
+            const observations =
+                latest.report.status !== 'tracking'
+                    ? [latest]
+                    : [track.TTM, track.TLL].filter((item): item is Observation => !!item);
+            for (const { solution } of observations) {
+                const fresh = [solution.at, solution.receivedAt].every(
+                    (at) => at <= now + 1000 && now - at <= RADAR_REPORT_MAX_AGE_MS,
+                );
+                const motionFresh =
+                    fresh &&
+                    solution.motion &&
+                    solution.motion.at <= now + 1000 &&
+                    now - solution.motion.at <= RADAR_REPORT_MAX_AGE_MS;
+                contacts.push({
+                    ...solution,
+                    // Keep the original plotted solution as an aged last observation. Never
+                    // recompute its geometry from later navigation or expose mutable private state.
+                    position: solution.position ? { ...solution.position } : null,
+                    motion: motionFresh ? { ...solution.motion! } : null,
+                    qualifiedAt: motionFresh ? solution.qualifiedAt : null,
+                    motionReason: solution.motion && !motionFresh ? 'dependencies-stale' : solution.motionReason,
+                    fresh,
+                });
+            }
+        }
+        return contacts;
+    }
+    get targetCount(): number {
+        return this.tracks.size;
+    }
+}

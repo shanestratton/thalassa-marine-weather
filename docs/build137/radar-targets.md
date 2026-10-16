@@ -13,3 +13,11 @@ TLL provides position, not velocity. TTM relative motion can become ground motio
 The foundation has generated tests for checksum/field refusal, missing values, units, midnight, original clock aging, same-feed dependency fences, antimeridian geometry and independent vector answers. The mirror has runtime parity tests in Vitest and the Pi Node test runner. No real boat positions or provider requests are used.
 
 Checkpoint proof: 52 Vitest cases and the actual Pi Node/tsx test pass; strict scoped TypeScript for source, mirror and tests passes, and scoped ESLint/Prettier are clean. Whole-app compilation and actual radar feed/display/alarm integration are not claimed by this foundation checkpoint.
+
+## Bounded input accumulator
+
+`RadarFeed` in `utils/radarFeed.ts` holds at most 200 scoped target identities and two independent observations per identity (TTM and TLL). RMC/GGA/GLL/VTG/HDT/THS input is checksum-verified; invalid/manual/simulator navigation, inconsistent units and magnetic-only headings never supply a ground-motion solution. RMC uses its declared UTC date, and all leaf clocks are retained. Invalid-leaf watermarks prevent a delayed older valid frame from reviving a source already reported invalid.
+
+Each radar observation captures its own exact navigation snapshot and plotted solution at ingress. Later yaw cannot rotate it. Polling returns copies, ages the original dependency clocks, and retains an explicitly aged last plotted point for at most two minutes. It cannot refresh the point, motion or active encounter. An acquiring/lost observation suppresses older tracking evidence; a return to tracking needs advancing observation time. Reset retires all navigation and targets. TTM/TLL observations keep independent clocks and motion; consumers must group by `contactKey` and retain the worst valid assessment rather than treating them as two vessels or borrowing a TTM velocity for a different TLL observation.
+
+The accumulator checkpoint passes 64 combined Vitest cases and two actual Pi Node tests, including yaw-after-report, mutation isolation, bounded identity churn, independent TTM/TLL evidence, loss/reacquisition, bad navigation, staleness and source reset. Transport and UI wiring remain subsequent work.
