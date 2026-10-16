@@ -56,6 +56,8 @@ import {
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
 import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
+import { SignalKReadSession } from './signalKReadSession.js';
+import { createSignalKReadRoutes } from './routes/signalKRead.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
@@ -185,6 +187,7 @@ diaryVideoRelay.start();
    gateway's TCP feed directly would burn one of the YDWG-02's three client
    slots permanently, which is a cost this has no business paying. */
 const SIGNALK_ORIGIN = process.env.SIGNALK_ORIGIN || 'http://127.0.0.1:3000';
+const SIGNALK_ALLOW_HTTP_LAN = process.env.THALASSA_SIGNALK_ALLOW_HTTP_LAN === '1';
 const windHistory = new WindHistory({
     cacheDir: CACHE_DIR,
     fetchImpl: fetch,
@@ -272,7 +275,26 @@ if (anchorCredential && SUPABASE_ANON_KEY && APP_API_ENABLED) {
    /api/telemetry poll, so the watch adds no load to Signal K while a phone
    polls. 'At anchor' is this Pi's own anchor watch. A watch that was armed
    when the Pi stopped is armed again at boot, until a phone stands it down. */
-const signalkDocuments = new SharedSignalkReader({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+let signalkRead: SignalKReadSession | null = null;
+try {
+    signalkRead = new SignalKReadSession({
+        origin: SIGNALK_ORIGIN,
+        accessToken: process.env.SIGNALK_ACCESS_TOKEN || undefined,
+        allowInsecureLan: SIGNALK_ALLOW_HTTP_LAN,
+    });
+    void signalkRead.start();
+} catch {
+    // A bad instrument configuration must not stop the watch service or fall
+    // back to an unapproved transport. Readers receive explicit unknowns.
+    console.warn('[signalk] read stream unavailable: review the operator configuration');
+}
+const signalkDocuments = new SharedSignalkReader(
+    { fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN },
+    1500,
+    () =>
+        signalkRead?.readDocuments() ??
+        Promise.resolve({ selfDoc: null, vesselsDoc: null, selfAnswer: null, readAt: Date.now() }),
+);
 /* The night watch wakes the skipper's locked phone (126-04b): each alarm, and
    the open ones every 15 s, go to pi-alarm-relay with the pairing credential
    (lent) and the anon key, to the endpoint from the trust anchor. It obeys the
@@ -319,7 +341,7 @@ if (process.env.THALASSA_SIGNALK_COURSE_WRITES === '1' && process.env.SIGNALK_AC
         courseClient = createSignalKClient({
             origin: SIGNALK_ORIGIN,
             accessToken: process.env.SIGNALK_ACCESS_TOKEN,
-            allowInsecureLan: true,
+            allowInsecureLan: SIGNALK_ALLOW_HTTP_LAN,
         });
     } catch {
         console.warn('[course] route sending unavailable: review the operator configuration');
@@ -981,6 +1003,25 @@ app.use(
 // THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
+    app.use(
+        '/api/signalk',
+        requireAppApi,
+        createSignalKReadRoutes(
+            {
+                notificationSnapshot: () =>
+                    signalkRead?.notificationSnapshot() ?? {
+                        schema: 1,
+                        session: null,
+                        startedAt: null,
+                        state: 'unavailable',
+                        servedAt: Date.now(),
+                        notices: [],
+                        truncated: false,
+                    },
+            },
+            chartDevices,
+        ),
+    );
     app.use('/api/offline-weather', createOfflineWeatherRoutes(new OfflineWeatherStore(cache)));
     app.use('/api/polars', createEncFrontDoor({ devices: chartDevices }), createPolarRoutes(polarLearner));
     app.use('/api/underway-watch', createUnderwayWatchRoutes(underwayWatch, chartDevices));
@@ -1015,6 +1056,7 @@ if (APP_API_ENABLED) {
         '/api/diary',
         '/api/track',
         '/api/underway-watch',
+        '/api/signalk',
         '/api/course',
         '/api/polars',
         '/api/offline-weather',
@@ -1181,6 +1223,7 @@ function shutdown() {
             );
     });
     vaultLink?.stop();
+    signalkRead?.stop();
     windHistory.stop();
     polarLearner.stop();
     underwayWatch.close();

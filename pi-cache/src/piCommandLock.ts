@@ -170,6 +170,7 @@ const ROWS: Row[] = [
     ['POST /api/underway-watch', 'command'],
     ['POST /api/underway-watch/ack', 'command'],
     ['GET /api/course/capability', 'read'],
+    ['GET /api/signalk/notifications', 'read'],
     ['POST /api/course/preview', 'read'],
     ['POST /api/course/activate', 'command'],
     ['POST /api/course/clear', 'command'],
