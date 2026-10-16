@@ -82,7 +82,9 @@ async function open(page: Page, size: { width: number; height: number }, query: 
     await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeVisible();
     // 126-07d: the chart-area line lands once the point has settled (400 ms and
     // the check): every case is measured with it there.
-    await expect(page.getByTestId('move-anchor-area')).toBeAttached();
+    await expect(
+        page.getByTestId(new URLSearchParams(query).has('bottom') ? 'holding-ground-advice' : 'move-anchor-area'),
+    ).toBeAttached();
     return errors;
 }
 
@@ -277,6 +279,30 @@ for (const size of sizes) {
             ),
         ).toBe(1);
         await keyboard(page, 0);
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const size of [
+    { width: 300, height: 568, keyboard: 253 },
+    { width: 375, height: 667, keyboard: 300 },
+    { width: 844, height: 390, keyboard: 200 },
+]) {
+    test(`Charted holding advice stays advisory and fits ${size.width}x${size.height}`, async ({ page }, info) => {
+        const errors = await open(page, size, 'bottom');
+        const advice = page.getByTestId('holding-ground-advice');
+        await expect(advice).toBeVisible();
+        await expect(advice).toContainText('holding may be poor; check');
+        await expectLayout(page, 0);
+        await screenshot(page, info, `holding-advice-${size.width}x${size.height}`);
+        const button = page.getByRole('button', { name: 'Move anchor', exact: true });
+        await expect(button).toBeEnabled();
+        await page.getByRole('textbox', { name: /distance from the boat to the anchor/i }).click();
+        await keyboard(page, size.keyboard);
+        await expect(advice).toBeHidden();
+        await expectLayout(page, size.keyboard);
+        await button.click();
+        await expect(page.getByTestId('outcome')).toHaveText('moved');
         expect(errors).toEqual([]);
     });
 }

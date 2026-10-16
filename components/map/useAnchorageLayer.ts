@@ -27,6 +27,7 @@ import { CONDITION_COLOURS, type ConditionsPlace } from '../../services/anchorag
 import { placeConditionsHtml } from './placeConditionsPresentation';
 import { watchPlaceConditions } from './watchPlaceConditions';
 import { createLogger } from '../../utils/createLogger';
+import { currentHoldingGroundAt } from '../../services/enc/holdingGround';
 
 const log = createLogger('AnchorageLayer');
 
@@ -352,7 +353,11 @@ export function useAnchorageLayer(
                 if (dataRef.current) applyData(map, dataRef.current);
                 const f = dataRef.current?.points.features.find((p) => p.properties.id === popupId.current);
                 const el = popupRef.current?.getElement()?.querySelector('.anch-verdict');
-                if (f && el) el.innerHTML = placeConditionsHtml(cachedPlaceConditions(conditionsPlaceForAnchorage(f)));
+                if (f && el) {
+                    const place = conditionsPlaceForAnchorage(f);
+                    el.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
+                    fillHoldingNote(popupRef.current, place);
+                }
             },
         );
         weatherRefresh.current = weather.changed;
@@ -455,7 +460,17 @@ export function conditionsPlaceForAnchorage(f: GeoJSON.Feature<GeoJSON.Point, An
 }
 
 function verdictShellHtml(): string {
-    return `<div class="anch-verdict">Checking the next 12 hours…</div>`;
+    return `<div class="anch-verdict">Checking the next 12 hours…</div><p class="anch-holding" hidden style="font-size:11px;line-height:1.4;margin:6px 0 0"></p>`;
+}
+
+/** A sibling of the weather verdict: refreshes cannot erase it, and bottom
+ * type never changes the place's score, ranking, availability or colour. */
+function fillHoldingNote(popup: mapboxgl.Popup | null, place: ConditionsPlace) {
+    const node = popup?.getElement()?.querySelector<HTMLElement>('.anch-holding');
+    if (!node) return;
+    const advice = currentHoldingGroundAt(place.lat, place.lon);
+    node.hidden = advice.kind === 'unknown';
+    node.textContent = node.hidden ? '' : advice.text;
 }
 
 /** Fill the verdict block of the OPEN popup once forecast + tables agree.
@@ -473,6 +488,7 @@ async function fillVerdict(
     const feature = data?.points.features.find((f) => f.properties?.id === id);
     if (!feature) return;
     const place = conditionsPlaceForAnchorage(feature);
+    fillHoldingNote(popup, place);
     const initial = el();
     if (initial) initial.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
     await loadPlaceConditions([place]);
@@ -480,4 +496,5 @@ async function fillVerdict(
     const node = el();
     if (!node) return; // popup gone — nobody is reading
     node.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
+    fillHoldingNote(popup, place);
 }

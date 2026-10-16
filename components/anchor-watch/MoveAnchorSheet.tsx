@@ -135,7 +135,7 @@ import { XIcon } from '../Icons';
 import { SwingCircleCanvas, type SwingCanvasModel } from './SwingCircleCanvas';
 import type { AnchorDragHandlers } from './anchorDrag';
 import { bearingToCardinal } from './anchorUtils';
-import { HoldingGroundNote } from './HoldingGroundNote';
+import { HoldingGroundText, useHoldingGroundAdvice } from './HoldingGroundNote';
 
 // The heading rule is shared with the watch itself (126-07c): utils/trueHeading.ts.
 export { freshTrueHeading, HEADING_PREFILL_MAX_AGE_MS };
@@ -548,6 +548,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     // While a finger drags the anchor, the live check follows it; the preview
     // stays centred where it was, so the anchor stays under the finger.
     const plan = drag && boat ? planFromPoint(boat, subject.anchor, drag.at, subject.swingRadius) : fieldsPlan;
+    const holding = useHoldingGroundAdvice(fromAlarm ? NaN : (plan?.target.lat ?? NaN), plan?.target.lon ?? NaN);
     const preview = drag ? drag.from : fieldsPoint;
     const onAnchorDrag: AnchorDragHandlers | undefined = dragOn
         ? {
@@ -959,7 +960,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                     <p
                         id={hintId}
                         data-testid="move-anchor-hint"
-                        className={`text-xs leading-snug text-slate-400 ${noPointWouldDo ? 'hidden' : KEYBOARD_ASIDE} ${firstArea ? HINT_AREA_ASIDE : ''}`}
+                        className={`text-xs leading-snug text-slate-400 ${noPointWouldDo ? 'hidden' : KEYBOARD_ASIDE} ${firstArea || holding.kind !== 'unknown' ? HINT_AREA_ASIDE : ''}`}
                     >
                         {hint}
                     </p>
@@ -995,9 +996,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                             {error}
                         </p>
                     )}
-                    {!fromAlarm && plan && (
-                        <HoldingGroundNote lat={plan.target.lat} lon={plan.target.lon} className={KEYBOARD_ASIDE} />
-                    )}
+                    {!fromAlarm && plan && <HoldingGroundText advice={holding} className={KEYBOARD_ASIDE} />}
                     {/* Side by side at every size, so the pair is one row even at
                         320 px with large text and the keyboard up. The dialog is
                         "Move anchor", so the button says "Move"; its name keeps

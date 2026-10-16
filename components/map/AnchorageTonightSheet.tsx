@@ -25,11 +25,14 @@ import {
 } from '../../services/anchorages/placeConditions';
 import { conditionsPlaceForAnchorage } from './useAnchorageLayer';
 import { triggerHaptic } from '../../utils/system';
+import { HoldingGroundNote } from '../anchor-watch/HoldingGroundNote';
 
 interface RankedRow extends PlaceConditions {
     id: string;
     name: string;
     distanceNM: number;
+    lat: number;
+    lon: number;
 }
 
 export const AnchorageTonightSheet: React.FC<{
@@ -106,7 +109,14 @@ export const AnchorageTonightSheet: React.FC<{
                 if (cancelled) return;
                 const order = { green: 0, amber: 1, unknown: 2, red: 3 };
                 const ranked = candidates
-                    .map((c) => ({ id: c.id, name: c.name, distanceNM: c.distanceNM, ...cachedPlaceConditions(c) }))
+                    .map((c) => ({
+                        id: c.id,
+                        name: c.name,
+                        lat: c.lat,
+                        lon: c.lon,
+                        distanceNM: c.distanceNM,
+                        ...cachedPlaceConditions(c),
+                    }))
                     .sort((a, b) => order[a.light] - order[b.light] || a.distanceNM - b.distanceNM);
                 if (ranked.length === 0) {
                     setState('empty');
@@ -224,6 +234,7 @@ export const AnchorageTonightSheet: React.FC<{
                                             <span className="text-gray-500">{r.distanceNM.toFixed(1)} NM · </span>
                                             {r.reasons.slice(0, 2).join(' · ')}
                                         </div>
+                                        <HoldingGroundNote lat={r.lat} lon={r.lon} className="pl-6 mt-1" />
                                     </button>
                                 );
                             })}

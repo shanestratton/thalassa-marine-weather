@@ -184,6 +184,30 @@ if (areaCase === 'cable' || areaCase === 'worst') {
 }
 
 await settingsModule.awaitSettingsLoaded();
+// Public synthetic bottom only, loaded through the real chart importer/store.
+// Nothing here reads a customer's chart or fetches a chart from a provider.
+if (params.has('bottom')) {
+    const { importCell } = await import('../../services/enc/EncHazardService');
+    await importCell({
+        cellId: 'ZZ5BOTM1',
+        sourceHO: 'ZZ',
+        edition: 1,
+        issued: '2026-10-10',
+        bbox: [5.3, 43.25, 5.42, 43.33],
+        layers: {
+            SBDARE: {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: { NATSUR: '4,9,14,255' },
+                        geometry: { type: 'Polygon', coordinates: [PARK_RING] },
+                    },
+                ],
+            },
+        },
+    });
+}
 const settings = settingsModule.useSettingsStore.getState().settings;
 settingsModule.useSettingsStore.setState({
     settings: { ...settings, units: { ...settings.units, length: params.get('units') === 'ft' ? 'ft' : 'm' } },
