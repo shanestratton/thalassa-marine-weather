@@ -63,7 +63,8 @@ import {
     type CollisionAlertCard,
     type CollisionWatchNotice,
 } from './aisGuardAlertStore';
-import type { CollisionLostDetail, CollisionLostReason } from './AisGuardZone';
+import type { CollisionLostDetail } from './AisGuardZone';
+import { advanceCollisionEncounters, type CollisionEncounter } from '../utils/collisionEncounter';
 import { COLLISION_RULE, collisionShouldSound, type CollisionAssessment } from '../utils/collisionRule';
 import { createLogger } from '../utils/createLogger';
 
@@ -112,19 +113,7 @@ export interface CollisionPassStatus {
 /** How an encounter ended: shown clear, or lost and never shown clear. */
 export type CollisionEnd = { how: 'passed' } | { how: 'lost'; lost: CollisionLostDetail };
 
-interface Encounter {
-    /** The last pass she alarmed: its kind (close quarters or not) is the encounter's. */
-    last: CollisionAlarmCandidate;
-    lastAlarmAt: number;
-    /** The newest pass with a computed CPA (alarming or not): the card's numbers. */
-    latest: CollisionAlarmCandidate;
-    latestAt: number;
-    /** She was in close quarters at some point: the encounter needs her beyond 0.1 NM to end. */
-    everCloseQuarters: boolean;
-    clearSince: number | null;
-    clearPasses: number;
-    lost: { reason: CollisionLostReason; since: number } | null;
-}
+type Encounter = CollisionEncounter<CollisionAlarmCandidate>;
 
 let armedAt: number | null = null;
 const encounters = new Map<number, Encounter>();
@@ -205,72 +194,11 @@ async function localNotice(id: number, text: string): Promise<void> {
     }
 }
 
-/** Why the watch cannot see her this pass, or null when it can. */
-function blindReason(t: CollisionAlarmCandidate | undefined, own: CollisionOwnState): CollisionLostReason | null {
-    if (own === 'no-fix') return 'no-fix';
-    if (own === 'unknown') return 'own-motion-unknown';
-    if (!t) return 'gone';
-    if (t.assessment.rangeOnly) return t.assessment.reason ?? 'target-motion-unknown';
-    return null;
-}
-
-/** Track every encounter against this pass's grades. Returns the ones that ended, and how. */
+/** Advance the shared125 lifecycle, then perform the AIS family's own side effects. */
 function track(targets: CollisionAlarmCandidate[], own: CollisionOwnState, nowMs: number): Map<number, CollisionEnd> {
-    const byMmsi = new Map(targets.map((t) => [t.mmsi, t]));
-    for (const t of targets) {
-        if (!t.assessment.alarm) continue;
-        const e = encounters.get(t.mmsi);
-        encounters.set(t.mmsi, {
-            last: t,
-            lastAlarmAt: nowMs,
-            latest: t,
-            latestAt: nowMs,
-            everCloseQuarters: (e?.everCloseQuarters ?? false) || t.assessment.closeQuarters,
-            clearSince: null,
-            clearPasses: 0,
-            lost: null,
-        });
-    }
-
-    const ended = new Map<number, CollisionEnd>();
-    for (const [mmsi, e] of encounters) {
-        const t = byMmsi.get(mmsi);
-        if (t?.assessment.alarm) continue;
-        const blind = blindReason(t, own);
-        if (blind) {
-            e.clearSince = null;
-            e.clearPasses = 0;
-            e.lost = e.lost?.reason === blind ? e.lost : { reason: blind, since: e.lost?.since ?? nowMs };
-            const cpaDueAt = e.latestAt + Math.max(0, e.latest.assessment.tcpaMin ?? 0) * 60_000;
-            if (nowMs > cpaDueAt + LATCH.lostHoldAfterCpaMs) ended.set(mmsi, { how: 'lost', lost: lostDetail(e)! });
-            continue;
-        }
-        e.lost = null;
-        e.latest = t!;
-        e.latestAt = nowMs;
-        // She is no longer under way and we are stopped: over, however close
-        // she lies, once that holds a full anchored report cycle.
-        const settled = t!.settled === true;
-        const opening =
-            settled ||
-            (t!.opening === true &&
-                (!e.everCloseQuarters || t!.assessment.rangeNm >= COLLISION_RULE.closeQuarters.cpaNm));
-        if (!opening) {
-            e.clearSince = null;
-            e.clearPasses = 0;
-            continue;
-        }
-        e.clearSince ??= nowMs;
-        e.clearPasses += 1;
-        const holdMs = settled ? LATCH.settledAfterMs : LATCH.clearAfterMs;
-        if (nowMs - e.clearSince >= holdMs && e.clearPasses >= LATCH.clearMinPasses) {
-            ended.set(mmsi, { how: 'passed' });
-        }
-    }
+    const ended = advanceCollisionEncounters(encounters, targets, (t) => t.mmsi, own, nowMs);
     for (const [mmsi, end] of ended) {
-        encounters.delete(mmsi);
         AisGuardAlertStore.endEncounter(mmsi);
-        // Never shown clear: whatever reached the lock screen stays there.
         if (end.how === 'lost') keepLockScreenAlert = true;
     }
     return ended;
