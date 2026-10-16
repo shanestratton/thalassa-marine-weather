@@ -1,0 +1,9 @@
+# Build 135: shared Sightings map
+
+Sightings uses the existing Relief + Sat Mapbox helper after Leaflet retirement. Exact mine/crew records remain local DOM markers; no GeoJSON source, feature payload, upload or persistent map cache is created for them. Public basemap requests retain the existing native pinned-transport policy and source credits.
+
+Finite positions only are drawn, including zero coordinates. A minimum circular longitude interval frames unordered sightings across the date line, preserving the original longitude when a world-copy shift is unnecessary. Mine/crew colours and the selected detail action remain. The selected card reads the current item and account selection, sits above the credits band, and cannot cover the native attribution toggle. Custom markers retain actual button roles and 44 px targets.
+
+Known offline or a missing imagery token uses the source-free inline style with no provider token, remote style or tiles. Depending on the engine, the source-free canvas draws the blue background or remains transparent over the existing themed sea; both retain locally projected markers. A failed online style uses the shared helper's plain-sea fallback. Missing WebGL leaves an honest notice and the surrounding list navigation. Off-screen/unmounted maps release markers, resize observers, the extra context and style timer.
+
+Validation: focused Sightings/shared-base/page/attribution tests and actual Chrome/WebKit browser checks at 300 and 375 px. Fictional points and generated public basemap tiles only. The browser proof checks real marker selection, expanded source credit, clear attribution geometry, full remount, local date-line framing, screenshot sea pixels, zero offline remote requests and failed-style marker selection. Browser cases stay in the standard keyboard Sightings spec. No JavaScript budget change.

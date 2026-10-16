@@ -197,6 +197,8 @@ export interface LogMapOptions {
     /** Where the wordmark and the ⓘ sit. A card's bottom corners carry its buttons. */
     credits?: 'top' | 'bottom';
     seamarks?: boolean;
+    /** Known offline: source-free plain sea; no token, style or tile requests. */
+    offline?: boolean;
     /** After the base is in, on every style load (the real one or the fallback). */
     onStyle?: (map: mapboxgl.Map) => void;
 }
@@ -207,7 +209,7 @@ export interface LogMapOptions {
  * nothing is thrown into the page around it.
  */
 export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
-    const { container, token, view, gestures, seamarks = true, onStyle } = options;
+    const { container, token, view, gestures, seamarks = true, offline = false, onStyle } = options;
     const free = gestures === 'free';
     const doubleClickZoom = free && options.doubleClickZoom === true;
     const keyboard = free && options.keyboard === true;
@@ -225,8 +227,8 @@ export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
     try {
         map = new mapboxgl.Map({
             container,
-            accessToken: token,
-            style: LOG_MAP_STYLE,
+            accessToken: offline ? '' : token,
+            style: offline ? (LOG_MAP_FALLBACK_STYLE as unknown as mapboxgl.Style) : LOG_MAP_STYLE,
             ...camera,
             projection: 'mercator',
             attributionControl: false,
@@ -267,7 +269,7 @@ export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
     );
 
     let styleIn = false;
-    let fellBack = false;
+    let fellBack = offline;
     const fallBack = () => {
         if (styleIn || fellBack) return;
         fellBack = true;
@@ -290,7 +292,7 @@ export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
         styleIn = true;
         window.clearTimeout(timer);
         container.dataset.logMapStyle = fellBack ? 'fallback' : 'relief-sat';
-        installLogMapBase(map, token, { seamarks });
+        if (!offline) installLogMapBase(map, token, { seamarks });
         onStyle?.(map);
     });
     map.once('remove', () => window.clearTimeout(timer));
