@@ -48,7 +48,6 @@ import {
     deletePhoto as idbDeletePhoto,
     isIdbPhoto,
     IDB_PHOTO_PREFIX,
-    saveAudio as idbSaveAudio,
     loadAudio as idbLoadAudio,
     deleteAudio as idbDeleteAudio,
     isIdbAudio,
@@ -1550,16 +1549,6 @@ class DiaryServiceClass {
                 await this._removeUncommittedStorageObject(PHOTO_BUCKET, uploadedPath);
             }
         }
-    }
-
-    private async _fileToDataUri(file: File): Promise<string> {
-        // Compress first, then convert to data URI
-        const compressed = await this._compressImage(file);
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(compressed);
-        });
     }
 
     private async _uploadDataUri(dataUri: string, scope: AuthIdentityScope): Promise<string | null> {
@@ -3684,14 +3673,6 @@ class DiaryServiceClass {
         }
     }
 
-    private _invalidateCache(): void {
-        try {
-            localStorage.removeItem(this._storageKey(CACHE_KEY));
-        } catch (e) {
-            log.warn('Cache invalidation failed:', e);
-        }
-    }
-
     private async _refreshFromServer(limit: number, scope: AuthIdentityScope = getAuthIdentityScope()): Promise<void> {
         // Deduplicate concurrent calls — reuse in-flight promise
         const active = this._refreshPromise;
@@ -3913,42 +3894,6 @@ class DiaryServiceClass {
         return { vessel, phone: await phonePromise };
     }
 
-    async getCurrentLocation(): Promise<{ lat: number; lon: number } | null> {
-        // While a voyage is RECORDING, the track's own last accepted fix is
-        // the most-trustworthy position in the app — it cleared the full
-        // shiplog acceptance gate (accuracy + monotonic own-timestamp +
-        // anti-replay). The 31-July bug: an entry composed 6.6 km out in
-        // Moreton Bay pinned at the Newport berth because the one-shot
-        // platform fetch handed back a cached berth fix — while the ship's
-        // log had a live bay fix six seconds earlier.
-        try {
-            const { ShipLogService } = await import('./ShipLogService');
-            if (ShipLogService.isTracking()) {
-                const fix = ShipLogService.getLastAcceptedFix();
-                if (fix && Date.now() - fix.timestamp < 60_000) {
-                    return { lat: fix.latitude, lon: fix.longitude };
-                }
-            }
-        } catch {
-            /* shiplog unavailable — fall through to the one-shot fetch */
-        }
-        try {
-            // Diary compose/save is an explicit foreground action. Keep it on
-            // Capacitor Geolocation so attaching a position cannot also wake the
-            // background tracker or raise an unrelated Motion prompt.
-            const { GpsService } = await import('./GpsService');
-            const pos = await GpsService.requestCurrentForegroundPosition({
-                staleLimitMs: 10_000,
-                timeoutSec: 15,
-            });
-            if (pos) return { lat: pos.latitude, lon: pos.longitude };
-            return null;
-        } catch (e) {
-            log.warn('GPS location failed:', e);
-            return null;
-        }
-    }
-
     /**
      * How much diary media this punter holds in the cloud, straight from
      * storage's own catalog — deliberately no ledger table to drift. The
@@ -4042,30 +3987,6 @@ class DiaryServiceClass {
             return data?.enhanced || null;
         } catch (e) {
             log.error('Gemini enhance failed:', e);
-            return null;
-        }
-    }
-
-    // ── Audio ──────────────────────────────────────────────────
-
-    /**
-     * Persist a new voice memo locally without inflating the diary pending
-     * queue with base64. The returned ref becomes owned only when a caller
-     * saves it as part of a diary entry, so Cancel can discard it cleanly.
-     */
-    async saveAudioForEntry(blob: Blob): Promise<string | null> {
-        if (!blob.size) return null;
-        const scope = getAuthIdentityScope();
-        try {
-            const ref = await idbSaveAudio(blob);
-            if (!isAuthIdentityScopeCurrent(scope)) {
-                await idbDeleteAudio(ref);
-                return null;
-            }
-            this._registerMediaRef(ref, scope);
-            return ref;
-        } catch (error) {
-            log.warn('Could not persist diary audio locally:', error);
             return null;
         }
     }
@@ -4279,14 +4200,6 @@ class DiaryServiceClass {
         });
     }
 
-    async uploadAudio(blob: Blob): Promise<string | null> {
-        const scope = getAuthIdentityScope();
-        if (!isAuthIdentityScopeCurrent(scope)) return null;
-        // As with photos, a fresh memo becomes an IndexedDB ref first. The
-        // durable outbox owns it before any Storage upload can begin.
-        return this.saveAudioForEntry(blob);
-    }
-
     private async _uploadAudioBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
             return null;
@@ -4347,12 +4260,6 @@ class DiaryServiceClass {
                 await this._removeUncommittedStorageObject(AUDIO_BUCKET, uploadedPath);
             }
         }
-    }
-
-    /** Remove an uploaded diary-audio object which no entry has adopted. */
-    private async _removeAudioStorageRef(ref: string): Promise<void> {
-        const path = this._extractStoragePath(ref, AUDIO_BUCKET);
-        if (path) await this._removeUncommittedStorageObject(AUDIO_BUCKET, path);
     }
 
     private async _removeUncommittedStorageRef(ref: string, bucket: string): Promise<void> {
