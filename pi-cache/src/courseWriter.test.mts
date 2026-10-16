@@ -31,10 +31,12 @@ function fixture() {
         corruptRoute: false,
         expireOnSavedRead: false,
         changeOnSave: false,
+        beforeRequest: null as null | ((request: { method: string; target: string }) => Promise<void>),
     };
     const transport: CourseWriterTransport = {
         async requestCourse(request) {
             data.requests.push(structuredClone(request));
+            await data.beforeRequest?.(request);
             if (request.target === 'course' && request.method === 'GET') return structuredClone(data.current);
             if (request.target === 'route' && request.method === 'PUT') {
                 data.resources.set(request.routeId!, structuredClone(request.body as Resource));
@@ -74,7 +76,7 @@ function fixture() {
             },
         },
         now: () => data.now,
-        allowed: () => data.allowed,
+        allowed: async () => data.allowed,
         pilotEngaged: () => data.engaged,
     });
     const activate = async () => {
@@ -187,4 +189,79 @@ test('an unsuccessful replacement keeps the earlier owned course claim', async (
     assert.equal((await writer.clear('device-a', 'follow-1')).cleared, false);
     assert.equal(data.claims.length, 1);
     assert.equal(data.claims[0].routeKey, 'follow-2');
+});
+
+test('an async enrollment revocation during a route write prevents activation', async () => {
+    const { data, activate } = fixture();
+    data.beforeRequest = async (request) => {
+        if (request.target === 'route' && request.method === 'PUT') data.allowed = false;
+    };
+    await assert.rejects(activate(), /authorised/);
+    assert.equal(
+        data.requests.some((r) => r.target === 'activeRoute'),
+        false,
+    );
+});
+
+test('unfollow during exact route verification cancels activation before any course write', async () => {
+    const { writer, data } = fixture();
+    const p = await writer.preview('device-a', ROUTE);
+    let release!: () => void, entered!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+        entered = resolve;
+    });
+    data.beforeRequest = async (request) => {
+        if (request.target === 'route' && request.method === 'GET') {
+            entered();
+            await blocked;
+        }
+    };
+    const activation = writer.activate('device-a', { ...p, pilotInStandby: true, replaceExisting: false });
+    const refused = assert.rejects(activation, /no longer followed/);
+    await started;
+    const clearing = writer.clear('device-a', ROUTE.key);
+    await Promise.resolve(); // permit the asynchronous enrollment check
+    await Promise.resolve();
+    release();
+    await refused;
+    assert.deepEqual(await clearing, { cleared: false, reason: 'not-owned' });
+    assert.equal(
+        data.requests.some((r) => r.target === 'activeRoute'),
+        false,
+    );
+});
+
+test('unfollow while activation is already in flight waits and clears only its confirmed result', async () => {
+    const { writer, data } = fixture();
+    const p = await writer.preview('device-a', ROUTE);
+    let release!: () => void, entered!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+        entered = resolve;
+    });
+    data.beforeRequest = async (request) => {
+        if (request.target === 'activeRoute') {
+            entered();
+            await blocked;
+        }
+    };
+    const activation = writer.activate('device-a', { ...p, pilotInStandby: true, replaceExisting: false });
+    await started;
+    const clearing = writer.clear('device-a', ROUTE.key);
+    await Promise.resolve();
+    await Promise.resolve();
+    release();
+    await activation;
+    assert.equal((await clearing).cleared, true);
+    assert.equal(data.current.activeRoute, null);
+    assert.equal(data.claims.length, 0);
+    assert.deepEqual(
+        data.requests.filter((r) => r.target === 'activeRoute' || r.method === 'DELETE').map((r) => r.method),
+        ['PUT', 'DELETE'],
+    );
 });
