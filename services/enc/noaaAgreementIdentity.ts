@@ -1,0 +1,4 @@
+/** Fixed public government agreement identity, shared with metadata-only Pi checks. */
+export const NOAA_AGREEMENT_URL = 'https://charts.noaa.gov/ENCs/ENC_Agreement.shtml';
+export const NOAA_ENC_ORIGIN = 'https://charts.noaa.gov/ENCs/';
+export const NOAA_AGREEMENT_SHA256 = '175f625ba0ae7b8656bf41010d6e5226b70f66a5a5c00ceff450c2eba2411c24';

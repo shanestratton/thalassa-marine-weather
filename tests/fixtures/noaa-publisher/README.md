@@ -19,3 +19,11 @@ equality with its generated result, including immutable shard hashes and source
 identity. The TypeScript regression passes that same generated object to the
 actual phone contract. Changes require regenerating the fixture and retaining
 the distinction between source issuance and check time.
+
+`generated-revisions.json.txt` retains the exact compact, newline-terminated
+metadata-only revision cohort generated with that index. The `.txt` suffix
+prevents JSON formatting from altering the hashed wire bytes. The Python and
+TypeScript regressions require exact bytes, generation, length and SHA256. This
+is public NOAA metadata, with no chart geometry or private boat data. Existing
+published generations without the optional revisions object remain valid but
+cannot claim a complete edition check.

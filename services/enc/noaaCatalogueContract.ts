@@ -1,4 +1,4 @@
-import { NOAA_AGREEMENT_SHA256, NOAA_AGREEMENT_URL } from './noaaAgreement';
+import { NOAA_AGREEMENT_SHA256, NOAA_AGREEMENT_URL } from './noaaAgreementIdentity';
 
 export type NoaaBounds = [number, number, number, number];
 export interface NoaaObject {
@@ -34,6 +34,8 @@ export interface NoaaCatalogueIndex {
     attribution: string;
     withdrawn: string[];
     shards: Array<NoaaObject & { id: string; bbox: NoaaBounds }>;
+    /** Optional metadata-only revision cohort. Older publishers remain incomplete. */
+    revisions?: NoaaObject;
 }
 const ID = /^US[1-6][A-Z0-9]{5}$/;
 const SHA = /^[a-f0-9]{64}$/;
@@ -55,8 +57,9 @@ function date(v: unknown): v is string {
 function timestamp(v: unknown): v is string {
     return (
         typeof v === 'string' &&
-        /Z$/.test(v) &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(v) &&
         Number.isFinite(Date.parse(v)) &&
+        new Date(v).toISOString().slice(0, 19) === v.slice(0, 19) &&
         Date.parse(v) > 0 &&
         Date.parse(v) <= Date.now() + 300_000
     );
@@ -124,6 +127,19 @@ export function parseNoaaIndex(value: unknown): NoaaCatalogueIndex {
     )
         throw Error('Invalid NOAA catalogue.');
     const seen = new Set<string>();
+    let revisions: NoaaObject | undefined;
+    if (r.revisions !== undefined) {
+        const meta = object(r.revisions);
+        if (
+            Object.keys(meta).sort().join(',') !== 'bytes,key,sha256' ||
+            meta.key !== `generations/${r.generation}/revisions.json` ||
+            typeof meta.sha256 !== 'string' ||
+            !SHA.test(meta.sha256) ||
+            !integer(meta.bytes, 1, 1024 * 1024)
+        )
+            throw Error('Invalid NOAA revision index.');
+        revisions = { key: meta.key as string, sha256: meta.sha256, bytes: meta.bytes };
+    }
     const shards = r.shards.map((raw) => {
         const s = object(raw);
         if (
@@ -153,6 +169,7 @@ export function parseNoaaIndex(value: unknown): NoaaCatalogueIndex {
         attribution: r.attribution,
         withdrawn: r.withdrawn as string[],
         shards,
+        ...(revisions ? { revisions } : {}),
     };
 }
 export function parseNoaaShard(value: unknown, index: NoaaCatalogueIndex): NoaaCatalogueCell[] {

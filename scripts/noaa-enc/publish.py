@@ -18,7 +18,7 @@ PREFIX='noaa-enc/v1/'
 MAX_REMOTE=32*1024**3
 MAX_OBJECTS=40000
 def owned(key):
-    return isinstance(key,str) and bool(re.fullmatch(r'noaa-enc/v1/(?:index\.json|objects/[a-f0-9]{64}\.(?:json|zip)|generations/[a-f0-9]{24}/(?:index\.json|shards/x\d{2}y\d{2}\.json)|agreements/[a-f0-9]{64}\.txt)',key))
+    return isinstance(key,str) and bool(re.fullmatch(r'noaa-enc/v1/(?:index\.json|objects/[a-f0-9]{64}\.(?:json|zip)|generations/[a-f0-9]{24}/(?:index\.json|revisions\.json|shards/x\d{2}y\d{2}\.json)|agreements/[a-f0-9]{64}\.txt)',key))
 def hash_file(path):
     with Path(path).open('rb') as stream: return hashlib.file_digest(stream,'sha256').hexdigest()
 
@@ -75,6 +75,13 @@ def prepare(store,root,generation,agreement,rollback=False):
     terms=agreement.read_bytes().replace(b'\r\n',b'\n').replace(b'\r',b'\n')
     if hashlib.sha256(terms).hexdigest()!=catalogue.AGREEMENT_SHA: raise ValueError('Canonical government agreement changed')
     required={f'generations/{generation.name}/index.json':generation/'index.json'}
+    revisions=index.get('revisions'); revision_body=None; revision_rows={}
+    if revisions is not None:
+        path=generation/'revisions.json'
+        if not isinstance(revisions,dict) or set(revisions)!=set(('key','bytes','sha256')) or revisions.get('key')!=f'generations/{generation.name}/revisions.json' or type(revisions.get('bytes')) is not int or not 0<revisions['bytes']<=1024**2 or not isinstance(revisions.get('sha256'),str) or not re.fullmatch(r'[a-f0-9]{64}',revisions['sha256']) or path.stat().st_size!=revisions['bytes'] or hash_file(path)!=revisions['sha256']: raise ValueError('Revision index changed')
+        revision_body=json.loads(path.read_bytes())
+        if not isinstance(revision_body,dict) or set(revision_body)!=set(('schema','generation','cells')) or revision_body.get('schema')!=1 or revision_body.get('generation')!=generation.name or not isinstance(revision_body.get('cells'),list) or len(revision_body['cells'])!=index['activeCells'] or len(revision_body['cells'])>10000: raise ValueError('Invalid revision coverage')
+        required[revisions['key']]=path
     for region in index['shards']:
         name=region['id']
         if not re.fullmatch(r'x(?:0\d|[12]\d|3[0-5])y(?:0\d|1[0-7])',name) or region['key']!=f'generations/{generation.name}/shards/{name}.json': raise ValueError('Invalid regional path')
@@ -84,6 +91,9 @@ def prepare(store,root,generation,agreement,rollback=False):
         if body.get('schema')!=1 or body.get('generation')!=generation.name or len(body.get('cells',[]))>4096: raise ValueError('Invalid regional catalogue')
         required[region['key']]=path
         for cell in body['cells']:
+            revision={key:cell[key] for key in ('id','edition','update','issued','baseIssued')}
+            if cell['id'] in revision_rows and revision_rows[cell['id']]!=revision: raise ValueError('Conflicting regional revisions')
+            revision_rows[cell['id']]=revision
             if cell['chart'] is None: continue
             for kind,extension in [('chart','json'),('zip','zip')]:
                 obj=cell[kind]
@@ -91,6 +101,7 @@ def prepare(store,root,generation,agreement,rollback=False):
                 path=root/obj['key']
                 if path.stat().st_size!=obj['bytes'] or hash_file(path)!=obj['sha256']: raise ValueError('Immutable conversion/source changed')
                 required[obj['key']]=path
+    if revision_body is not None and revision_body['cells']!=[revision_rows[key] for key in sorted(revision_rows)]: raise ValueError('Revision index differs from regional catalogue')
     agreement_key=f'agreements/{catalogue.AGREEMENT_SHA}.txt'
     agreement_file=root/'agreements'/(catalogue.AGREEMENT_SHA+'.txt')
     agreement_file.parent.mkdir(exist_ok=True)

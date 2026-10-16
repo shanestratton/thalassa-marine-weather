@@ -118,7 +118,12 @@ def generate(catalogue, objects, directory, checked_at):
     directory.mkdir(parents=True,exist_ok=False)
     # Include normalized metadata too: a parser correction must never produce a
     # different immutable index under the previous generation name.
-    identity=hashlib.sha256(json_bytes({'catalogue':catalogue,'objects':objects,'checkedAt':checked_at})).hexdigest()[:24]
+    identity=hashlib.sha256(json_bytes({'format':2,'catalogue':catalogue,'objects':objects,'checkedAt':checked_at})).hexdigest()[:24]
+    revisions=json_bytes({'schema':1,'generation':identity,'cells':[
+        {key:row[key] for key in ('id','edition','update','issued','baseIssued')}
+        for row in sorted(catalogue['cells'],key=lambda row:row['id'])]})
+    if len(catalogue['cells'])>10000 or len(revisions)>1024**2: raise ValueError('Revision catalogue exceeds metadata cap')
+    (directory/'revisions.json').write_bytes(revisions)
     shards={}
     for row in catalogue['cells']:
         cell=dict(row); cell.pop('expectedZipBytes')
@@ -137,6 +142,7 @@ def generate(catalogue, objects, directory, checked_at):
             'sha256':hashlib.sha256(body).hexdigest(),'bbox':[x*10-180,y*10-90,x*10-170,y*10-80]})
     index={key:catalogue[key] for key in ('schema','sourceAt','sourceSha256','sourceUrl','agreementSha256','withdrawn')}
     index.update({'generation':identity,'checkedAt':checked_at,'shards':entries,'activeCells':len(catalogue['cells']),
+        'revisions':{'key':f'generations/{identity}/revisions.json','bytes':len(revisions),'sha256':hashlib.sha256(revisions).hexdigest()},
         'attribution':'Contains NOAA ENC data. Thalassa display is not a certified ECDIS or a substitute for required charts.',
         'agreementUrl':AGREEMENT_URL})
     body=json_bytes(index)

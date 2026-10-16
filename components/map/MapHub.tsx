@@ -351,6 +351,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
 const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
+const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
@@ -6220,6 +6221,14 @@ export const MapHub: React.FC<MapHubProps> = ({
             </Suspense>
 
             <Suspense fallback={null}>
+                {obsShowing && (
+                    <ObsNoticesLayer
+                        map={mapRef.current}
+                        mapReady={mapReady}
+                        active={obsShowing}
+                        enabled={settings.obsNoticesVisible !== false}
+                    />
+                )}
                 {paperChartsOpen && (
                     <PaperChartSheet
                         onClose={closePaperCharts}
@@ -6242,6 +6251,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         satelliteMode={settings.satelliteMode === true}
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
                         onFindChart={() => setChartFindOpen(true)}
+                        notices={{
+                            enabled: settings.obsNoticesVisible !== false,
+                            onChange: (enabled) => updateSettings({ obsNoticesVisible: enabled }),
+                        }}
                         contours={{
                             value: contourSettings,
                             requiredM: encSafetyDepthM,

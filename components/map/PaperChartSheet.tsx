@@ -24,10 +24,12 @@ export interface PaperChartSheetProps {
     onCatalogue?: () => void;
     onFindChart?: () => void;
     contours?: ChartContourControlsProps;
+    notices?: { enabled: boolean; onChange: (enabled: boolean) => void };
 }
 export default function PaperChartSheet(props: PaperChartSheetProps) {
     const [pending, setPending] = React.useState<ChartSourceId | null>(null);
     const live = React.useRef(true);
+    const scopeAtOpen = React.useRef(getAuthIdentityScope());
     React.useEffect(() => {
         live.current = true;
         const unsubscribe = subscribeAuthIdentityScope(props.onClose);
@@ -72,6 +74,26 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             {props.category === null ? 'The slider has a custom setting.' : ''}
                         </p>
                     </fieldset>
+                    {props.notices && (
+                        <section className="space-y-2" aria-label="Browsing notices">
+                            <label className="flex min-h-[44px] items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="h-5 w-5 shrink-0"
+                                    checked={props.notices.enabled}
+                                    onChange={(event) => {
+                                        if (isAuthIdentityScopeCurrent(scopeAtOpen.current))
+                                            props.notices?.onChange(event.target.checked);
+                                    }}
+                                />
+                                Notices on Obs
+                            </label>
+                            <p className="text-xs text-slate-400">
+                                Visible area only from zoom 9. Available geolocated listings are incomplete; no icon
+                                does not mean no warnings. Read the issuer’s current notice.
+                            </p>
+                        </section>
+                    )}
                     {props.contours && <ChartContourControls {...props.contours} />}
                     <section className="space-y-3" aria-label="Paper chart">
                         <h3 className="font-bold">Paper chart</h3>

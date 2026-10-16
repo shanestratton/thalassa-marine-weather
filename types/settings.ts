@@ -232,6 +232,8 @@ export interface UserSettings {
     obsChartBase?: ObsChartBase;
     /** Mariner colour/contour display targets only; never routing/alarm policy. */
     chartContours?: ChartContours | null;
+    /** Default-on public notice anchors in the visible Obs viewport at z>=9. */
+    obsNoticesVisible?: boolean;
     /**
      * Settings → Preferences → Chart: "Show ENC charts when Obs opens"
      * (build 123, W1-01). Off by default, so browse charts keep starting off
