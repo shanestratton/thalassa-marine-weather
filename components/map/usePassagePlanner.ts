@@ -90,6 +90,14 @@ import type { RouteConstraintPoint } from '../../services/routing/routeConstrain
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
+function routingConstraintReason(error: unknown): string | null {
+    if (!error || typeof error !== 'object' || !('code' in error)) return null;
+    if (error.code !== 'route-exclusion' && error.code !== 'exclusion-unavailable') return null;
+    return error instanceof Error && error.message
+        ? error.message
+        : 'Current hard routing constraints could not be checked. Review the source and replan.';
+}
+
 function clearComfortZoneOverlay(map: mapboxgl.Map): void {
     for (const suffix of COMFORT_ZONE_SUFFIXES) {
         const layerId = `comfort-zone-layer${suffix}`;
@@ -1531,6 +1539,18 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // too-short check will bail with the friendly message.
             }
         } catch (err) {
+            const constraintReason = routingConstraintReason(err);
+            if (constraintReason) {
+                if (gen !== computeGenRef.current || !mounted.current) return;
+                setRouteAnalysis(null);
+                setRouteVerification({ status: 'unverified', geometryKey: null, reason: constraintReason });
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Routing constraints held',
+                    message: constraintReason,
+                });
+                return;
+            }
             if (tideShortcutEnabled) {
                 if (gen !== computeGenRef.current || !mounted.current) return;
                 setTideShortcutReview({
@@ -2711,6 +2731,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         return; // Done — skip fresh computation
                     }
                 } catch (cacheError) {
+                    if (routingConstraintReason(cacheError)) throw cacheError;
                     log.warn('[Isochrone BG] Cached candidate could not be verified — computing fresh:', cacheError);
                     isoResultRef.current = null;
                     turnWaypointsRef.current = [];

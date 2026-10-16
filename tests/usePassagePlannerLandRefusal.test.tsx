@@ -129,10 +129,14 @@ const fakeMap = (): unknown =>
 let notices: (PassageNotice | null)[] = [];
 const onNotice = (e: Event) => notices.push((e as CustomEvent<PassageNotice | null>).detail);
 
-async function plan() {
-    stagePassageRequest({ departure: FROM, arrival: TO });
+async function plan(enabled = false, arrival = TO) {
+    stagePassageRequest({ departure: FROM, arrival });
     const mapRef = { current: fakeMap() } as never;
     const rendered = renderHook(() => usePassagePlanner(mapRef, false));
+    if (enabled)
+        await act(async () => {
+            rendered.result.current.setTideShortcutEnabled(true);
+        });
     await act(async () => {
         await rendered.result.current.computePassage();
     });
@@ -151,6 +155,27 @@ describe('the passage planner refuses charted land, as Auto does', () => {
     afterEach(() => {
         window.removeEventListener('thalassa:passage-notice', onNotice);
         clearPassageRequest();
+    });
+
+    it.each([
+        ['route-exclusion', 'returned', false],
+        ['exclusion-unavailable', 'returned', false],
+        ['route-exclusion', 'thrown', false],
+        ['exclusion-unavailable', 'thrown', false],
+        ['route-exclusion', 'returned', true],
+        ['exclusion-unavailable', 'returned', true],
+        ['route-exclusion', 'thrown', true],
+        ['exclusion-unavailable', 'thrown', true],
+    ] as const)('holds %s %s with tide mode %s before any offshore fallback', async (code, form, enabled) => {
+        const message = 'The original current routing-policy check refused this line.';
+        if (form === 'returned') mocks.tryInshore.mockResolvedValue({ error: message, code });
+        else mocks.tryInshore.mockRejectedValue(Object.assign(new Error(message), { code }));
+        const rendered = await plan(enabled, { ...TO, lat: -20.65 });
+        expect(warnings()).toEqual([{ severity: 'warn', title: 'Routing constraints held', message }]);
+        expect(rendered.result.current.routeActionsAvailable).toBe(false);
+        expect(rendered.result.current.routeAnalysis).toBeNull();
+        expect(mocks.crossesLand).not.toHaveBeenCalled();
+        rendered.unmount();
     });
 
     it('a route over a small charted island the satellite check would pass: refused, saying where', async () => {

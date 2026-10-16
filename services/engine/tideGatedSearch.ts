@@ -7,6 +7,8 @@ import { MinHeap, cellCostMultiplier } from './aStar';
 import { haversineM, mPerDegLon } from './geometry';
 import { M_PER_DEG_LAT } from './constants';
 import { trackPriorFactor, TRACK_PRIOR_MIN_FACTOR } from './trackPriors';
+import { trafficLaneStepFactor } from './trafficLanes';
+import { exclusionCostFactor } from './exclusionField';
 import { holdingGeometryRelation, type HoldingBounds } from '../enc/holdingFootprint';
 export interface TideGateAreaWindow {
     fromMs: number;
@@ -380,8 +382,16 @@ export function searchTideGatedCandidate(
                     const n = ny * grid.width + nx,
                         b = position(n),
                         length = haversineM(a[1], a[0], b[1], b[0]),
-                        at = current.at + (length / speedMs) * 1000;
+                        at = current.at + (length / speedMs) * 1000,
+                        course =
+                            ((Math.atan2((b[0] - a[0]) * mPerDegLon((a[1] + b[1]) / 2), (b[1] - a[1]) * M_PER_DEG_LAT) *
+                                180) /
+                                Math.PI +
+                                360) %
+                            360,
+                        trafficFactor = trafficLaneStepFactor(grid, current.index, n, course);
                     if (
+                        !Number.isFinite(trafficFactor) ||
                         at - r.departureMs > r.maxJourneyMs ||
                         !admitted(current.index, current.at, at, allowTide) ||
                         !admitted(n, current.at, at, allowTide) ||
@@ -395,7 +405,12 @@ export function searchTideGatedCandidate(
                     const factor = deep(n)
                         ? cellCostMultiplier(grid.cells[n], grid.preferred[n] === 1) * trackPriorFactor(grid, n)
                         : 1.5;
-                    add(n, id, current.cost + length * factor * centre, at);
+                    add(
+                        n,
+                        id,
+                        current.cost + length * factor * centre * trafficFactor * exclusionCostFactor(grid, n),
+                        at,
+                    );
                 }
         }
         return null;

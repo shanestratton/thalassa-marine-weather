@@ -79,6 +79,18 @@ describe('139 opt-in worker candidate search, never navigation authority', () =>
         expect(r.path.timesMs.at(-1)! - T).toBeCloseTo((r.path.distanceM / ((6 * 1852) / 3600)) * 1000, 1);
         expect(grid.cells).toEqual(before);
     });
+    it('honours original lane flow in the time-labelled neighbor expansion without changing depth', () => {
+        const { grid, request } = fixture(),
+            before = grid.cells.slice();
+        grid.tssLane = new Uint8Array(45).fill(1);
+        grid.tssDirection = new Float32Array(45).fill(90);
+        expect(searchTideGatedCandidate(grid, request, options).kind).toBe('candidate');
+        grid.tssDirection.fill(270);
+        const against = searchTideGatedCandidate(grid, request, options);
+        expect(against.kind).toBe('held');
+        if (against.kind === 'held') expect(against.strict).toBeNull();
+        expect(grid.cells).toEqual(before);
+    });
     it.each(['none', 'insufficient', 'late', 'early-close', 'point-coverage', 'far-station'] as const)(
         'withholds %s windows and keeps the strict route',
         (kind) => {

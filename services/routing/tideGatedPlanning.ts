@@ -67,6 +67,7 @@ export async function planTideGatedShortcut(
         const field = buildExclusionField({
             RESARE: layers.RESARE,
             TSEZNE: layers.TSEZNE,
+            TSSLPT: layers.TSSLPT,
             manual: layers.USER_NOGO,
             marineParks: layers.MPA_CAUTION,
         });
@@ -151,9 +152,24 @@ export async function planTideGatedShortcut(
             arrivalMs: path.timesMs.at(-1)!,
             speedKts: request.speedKts,
             uncertaintyMs: request.uncertaintyMs,
-            sourceSummary: source.permit.sourceSummary,
+            sourceSummary: [
+                source.permit.sourceSummary,
+                output.trafficLaneGuidance === 'charted-flow'
+                    ? 'Planned course checked against original charted traffic-lane flow; no right-of-way or actual-heading claim.'
+                    : output.trafficLaneGuidance === 'orientation-unknown'
+                      ? 'A charted traffic lane has unknown or conflicting orientation. Review the original chart and traffic locally.'
+                      : '',
+                ...context.advisories,
+            ]
+                .filter(Boolean)
+                .join(' '),
         });
-        const result: InshoreRouteResult = { ...output, polyline: points, tideShortcut: view };
+        const result: InshoreRouteResult = {
+            ...output,
+            polyline: points,
+            tideShortcut: view,
+            ...(context.advisories.length ? { routeAreaCaveats: [...context.advisories] } : {}),
+        };
         delete result._tideCandidatePath;
         const exact = JSON.stringify([points, result.distanceNM]);
         let released = false;

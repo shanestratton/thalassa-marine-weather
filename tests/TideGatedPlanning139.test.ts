@@ -182,6 +182,43 @@ describe('current source + actual worker + private preview lifetime', () => {
         expect(h.sourceRelease).toHaveBeenCalledOnce();
         expect(h.contextRelease).toHaveBeenCalledOnce();
     });
+    it.each(['flow', 'opposing', 'unknown'] as const)(
+        'carries original %s traffic-lane context through the actual worker and final private audit',
+        async (kind) => {
+            const source = permit();
+            source.layers.TSSLPT = fc(
+                rect(-0.01, -0.01, 0.01, 0.01, {
+                    acronym: 'TSSLPT',
+                    ...(kind === 'unknown' ? {} : { ORIENT: kind === 'flow' ? 90 : 270 }),
+                }),
+            );
+            h.prepare.mockResolvedValueOnce({ kind: 'ready', permit: source, release: h.sourceRelease });
+            const result = await planTideGatedShortcut(input(), options());
+            expect(result.kind).toBe(kind === 'opposing' ? 'held' : 'preview');
+            if (result.kind !== 'preview') return;
+            expect(result.result.trafficLaneGuidance).toBe(kind === 'flow' ? 'charted-flow' : 'orientation-unknown');
+            expect(await finalizeTideShortcutPreview(result.result)).toBe(true);
+            expect(
+                result.result.tideShortcut?.kind === 'preview' && result.result.tideShortcut.sourceSummary,
+            ).toContain(kind === 'flow' ? 'no right-of-way' : 'unknown or conflicting orientation');
+        },
+    );
+    it('retains actual current area-source caveats in the temporary preview disclosure', async () => {
+        h.readContext.mockResolvedValueOnce({
+            manual: undefined,
+            marineParks: undefined,
+            advisories: ['Retained indicative marine park source is unavailable.'],
+            isCurrent: () => true,
+            release: h.contextRelease,
+        });
+        const result = await planTideGatedShortcut(input(), options());
+        expect(result.kind).toBe('preview');
+        if (result.kind !== 'preview') return;
+        expect(result.result.routeAreaCaveats).toEqual(['Retained indicative marine park source is unavailable.']);
+        expect(result.result.tideShortcut?.kind === 'preview' && result.result.tideShortcut.sourceSummary).toContain(
+            'Retained indicative marine park source is unavailable.',
+        );
+    });
     it('does not publish geometry mutated while the original source reread awaited', async () => {
         h.recheck.mockImplementationOnce(async () => {
             if (h.output?.result && 'polyline' in h.output.result) h.output.result.polyline[1][0] += 0.00001;
