@@ -99,6 +99,8 @@ import { useSquallMap } from './useSquallMap';
 import { useVesselTracker } from './useVesselTracker';
 import { useAvNavCharts } from './useAvNavCharts';
 import { useChartCatalog } from './useChartCatalog';
+import { applyEncOnlyBase } from './encOnlyBase';
+import { CATEGORY_DETAIL, type ChartDisplayCategory } from './chartDisplayCategory';
 import { useLocalCharts } from './useLocalCharts';
 import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
@@ -341,6 +343,8 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 // ── Component ──────────────────────────────────────────────────
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
+const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
@@ -2254,11 +2258,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // was the safe pilot for breaking this file up. Called exactly where the
     // state used to be declared: below mapReady, above chokepointVisible, so
     // hook order is unchanged.
-    const { encCellCount, encReferenceCellCount, encHydration, encNoCoverage } = useEncChartInventory(
-        mapRef,
-        mapReady,
-        encVisible,
-    );
     // OBS opens on Relief (Shane 2026-10-04: "the stitching"), one choice for
     // day and night alike, kept with the account (settings.obsChartBase). The
     // localStorage write below is only EncVectorLayer's synchronous mirror,
@@ -2301,6 +2300,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
+    const [displayCategory, setDisplayCategory] = useState<ChartDisplayCategory | null>(null);
+    const [paperChartsOpen, setPaperChartsOpen] = useState(false);
+    const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
+    const closeNoaaCatalogue = useCallback(() => setNoaaCatalogueOpen(false), []);
+    const closePaperCharts = useCallback(() => setPaperChartsOpen(false), []);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page"). The browsing chart and the plotting
     // surface are the SAME map. The planner maps show the planner's own pick
@@ -2321,16 +2325,22 @@ export const MapHub: React.FC<MapHubProps> = ({
     // over its pale sea the glaze's safe white is a ΔE 3-6 step from no-data
     // water, so uncharted would nearly read as safe (hard rule 1). There the
     // cells draw opaque S-52 bands, the safety contour, marks and soundings.
-    const imageryOn: boolean = shownBase !== 'light';
+    const imageryOn: boolean = shownBase !== 'light' && shownBase !== 'enc';
     // ...and on the desk tracer that chart is the whole open chart: its land,
     // coastline, contours and names as well as the plotting floors, so a NOAA
     // cell reads as a paper chart (127-DESKMAP A3). The desk has no ENC row; the
     // tracer mounts its cells either way. Everywhere else the switch decides.
-    const encMaster = encVisible || (deskPlanner && coordCaptureMode && !imageryOn);
+    const encMaster = encVisible || shownBase === 'enc' || (deskPlanner && coordCaptureMode && !imageryOn);
+    const { encCellCount, encReferenceCellCount, encHydration, encNoCoverage } = useEncChartInventory(
+        mapRef,
+        mapReady,
+        encMaster,
+    );
+
     // Relief is damped under the drawn ENC glaze so two depth colour codes don't
     // fight (reliefBase setReliefPalette); a boolean, so loading cells don't
     // re-run the base pass.
-    const encDrawn = encVisible && encCellCount > 0;
+    const encDrawn = encMaster && encCellCount > 0;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -2474,7 +2484,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     ((map.getLayoutProperty('hybrid-base-layer', 'visibility') as string | undefined) ?? 'visible') !==
                         'none';
                 const duplicateHybridLabels = styleLayers.filter(isBasemapHybridDuplicateLabelLayer);
-                const desiredBaseLabelVisibility = hybridRasterVisible ? 'none' : 'visible';
+                const desiredBaseLabelVisibility = hybridRasterVisible || shownBase === 'enc' ? 'none' : 'visible';
                 for (const layer of duplicateHybridLabels) {
                     if (setVis(layer.id, desiredBaseLabelVisibility)) changed = true;
                 }
@@ -2621,7 +2631,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // and hid every light and buoy for the rest of the session
                 // (W1-01 review). Plotting still gets exactly what the skipper
                 // set; browseDetailLevel holds the rule.
-                const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);
+                const effectiveDeclutter = displayCategory
+                    ? CATEGORY_DETAIL[displayCategory]
+                    : browseDetailLevel(coordCaptureMode, declutter);
                 if (
                     applyChartDetailLevel(map, effectiveDeclutter, {
                         encMasterOff: !encMaster,
@@ -2629,6 +2641,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     })
                 )
                     changed = true;
+                applyEncOnlyBase(map, shownBase === 'enc');
             } catch {
                 /* style mid-swap — re-applied on the next styledata tick */
             }
@@ -2676,6 +2689,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         nightMode,
         encDrawn,
         declutter,
+        displayCategory,
         mapReady,
         encVisible,
         encMaster,
@@ -3236,7 +3250,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         obsStart,
         onLocationSelect,
         pickerMode,
-        encVisible,
+        encVisible: encMaster,
         settingPoint: passage.settingPoint,
         showPassage: passage.showPassage,
         departure: passage.departure,
@@ -3441,7 +3455,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     const skCharts = useAvNavCharts(mapRef, mapReady, planningSurface ? noChartIds : skChartIds, skChartOpacity);
 
     // ── Free Chart Catalog (NOAA, LINZ) ──
-    const chartCatalog = useChartCatalog(mapRef, mapReady, !planningSurface, true);
+    const chartCatalog = useChartCatalog(
+        mapRef,
+        mapReady,
+        !embedded && !pickerMode && !isPinView && shownBase !== 'enc',
+        true,
+        settings.satelliteMode === true,
+    );
 
     // ── Local MBTiles Charts (on-phone, no AvNav needed) ──
     const localCharts = useLocalCharts(
@@ -3453,8 +3473,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Offline OSM raster fallback — renders when offline, invisible when online ──
     useOfflineBaseLayer(mapRef, mapReady, isOnline);
-    const chartsActive =
-        !planningSurface && (skChartIds.size > 0 || chartCatalog.hasEnabledCharts || localChartIds.size > 0);
+    // A public raster service can return transparent/no-data tiles within its
+    // coarse region. Selection alone must not remove the fallback sea marks.
+    const chartsActive = !planningSurface && (skChartIds.size > 0 || localChartIds.size > 0);
     // ENC vector chart actually rendering — master toggle ON and at least one
     // cell imported. Drives the same "another chart source draws its own
     // navaids" switch-offs as `chartsActive` (OSM raster icons + full-mode
@@ -3462,7 +3483,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // global toggle: panning outside ENC coverage with cells loaded shows no
     // OSM seamarks there — accepted; a bbox-aware gate can come with the
     // coverage layer's cell bboxes later.
-    const encActive = encVisible && encCellCount > 0;
+    const encActive = encMaster && encCellCount > 0;
 
     // ── Single-select chart picker ──
     // Only one nautical chart layer visible at a time across all three kinds
@@ -3921,7 +3942,7 @@ export const MapHub: React.FC<MapHubProps> = ({
           ]
         : [];
     const obsKeyProps: ObsLayerKeyProps = {
-        enc: encVisible
+        enc: encMaster
             ? {
                   imageryOn,
                   tideDepthMode: tideDepthMode && !!tideOffsetInfo,
@@ -4038,8 +4059,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                     value={mapBase}
                     onChange={setMapBase}
                     encCellCount={encCellCount}
-                    encVisible={encVisible}
-                    onToggleEnc={toggleEnc}
+                    encVisible={encMaster}
+                    onToggleEnc={() => {
+                        if (shownBase === 'enc') {
+                            setMapBase('relief');
+                            if (encVisible) toggleEnc();
+                        } else toggleEnc();
+                    }}
+                    onCharts={() => setPaperChartsOpen(true)}
                     toggles={nightDimRow ? [nightDimRow] : []}
                     onClearView={clearView.available ? clearView.hide : undefined}
                 />
@@ -4054,6 +4081,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     value={deskBase}
                     onChange={setDeskBase}
                     options={DESK_MAP_BASE_OPTIONS}
+                    onCharts={() => setPaperChartsOpen(true)}
                     encRow={false}
                     toggles={
                         deskSurface
@@ -4406,6 +4434,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     const v = Number(e.target.value);
                                     if (v !== declutter) triggerHaptic('light');
                                     setDeclutter(v);
+                                    setDisplayCategory(null);
                                 }}
                                 aria-label="Chart detail — full at left, minimal at right"
                                 className="detail-scrubber flex-1"
@@ -5368,7 +5397,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onToggleTideDepth={onToggleTideDepth}
                     encCellCount={encCellCount}
                     encReferenceCellCount={encReferenceCellCount}
-                    encVisible={encVisible}
+                    encVisible={encMaster}
                     encHydration={encHydration}
                     encNoCoverage={encNoCoverage}
                     referenceNoticeVisible={!embedded && !pickerMode && !isPinView}
@@ -5639,7 +5668,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     the surfaces where the chart is being USED for navigation
                     work — plotting a route or following a passage — and hides
                     during plain weather browsing. */}
-                {encVisible && !embedded && !pickerMode && !isPinView && (coordCaptureMode || passage.showPassage) && (
+                {encMaster && !embedded && !pickerMode && !isPinView && (coordCaptureMode || passage.showPassage) && (
                     <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
                 )}
 
@@ -6104,6 +6133,33 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </div>
                 )}
+            </Suspense>
+
+            <Suspense fallback={null}>
+                {paperChartsOpen && (
+                    <PaperChartSheet
+                        onClose={closePaperCharts}
+                        bounds={chartCatalog.bounds}
+                        sources={chartCatalog.sources}
+                        onToggle={(id) => {
+                            if (shownBase === 'enc' && !chartCatalog.sources.find((s) => s.id === id)?.enabled) {
+                                if (plannerMap) setDeskBase('light');
+                                else setMapBase('relief');
+                            }
+                            chartCatalog.toggleSource(id);
+                        }}
+                        onOpacity={chartCatalog.setOpacity}
+                        onConsent={chartCatalog.refreshConsent}
+                        category={displayCategory ?? (coordCaptureMode ? (declutter === 0 ? 'all' : null) : 'standard')}
+                        onCategory={(category) => {
+                            setDisplayCategory(category);
+                            setDeclutter(CATEGORY_DETAIL[category]);
+                        }}
+                        satelliteMode={settings.satelliteMode === true}
+                        onCatalogue={() => setNoaaCatalogueOpen(true)}
+                    />
+                )}
+                {noaaCatalogueOpen && <NoaaCatalogueSheet onClose={closeNoaaCatalogue} bounds={chartCatalog.bounds} />}
             </Suspense>
 
             {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}

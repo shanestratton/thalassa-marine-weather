@@ -2,10 +2,10 @@
  * ChartCatalogService — Free nautical chart source management.
  *
  * Manages a catalog of free, publicly-available nautical chart tile sources
- * that can be overlaid on the Thalassa map without any external server.
+ * displayed through fixed public services (NOAA via the bounded same-app proxy).
  *
  * Supported sources:
- *   - NOAA NCDS: US waters, WMTS tiles (zero config)
+ *   - NOAA Chart Display: US waters, traditional chart symbols
  *   - NOAA ECDIS: US waters, IHO S-52 symbology (zero config)
  *   - LINZ: New Zealand waters, WMTS tiles (requires free API key)
  *   - OpenSeaMap: Global seamark overlay (already in base map)
@@ -15,6 +15,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { API_BASE } from './native/apiBase';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -48,6 +49,8 @@ export interface ChartSource {
     maxZoom: number;
     /** Approximate bounding box [west, south, east, north] */
     bounds: [number, number, number, number];
+    /** Coarse source regions only, not a claim that every camera pixel is charted. */
+    coverageAreas?: readonly [number, number, number, number][];
     /** Attribution text required by data license */
     attribution: string;
     /** Is this source currently enabled? */
@@ -61,16 +64,35 @@ export interface ChartSource {
 const STORAGE_KEY = 'thalassa_chart_catalog';
 const LINZ_KEY_STORAGE = 'thalassa_linz_api_key';
 
-// NOAA Chart Display Service — ENC rendered to paper chart style
-// The /exts/MaritimeChartService/MapServer/export path is REQUIRED (standard
-// MapServer/export returns grey tiles). Mapbox replaces {bbox-epsg-3857}.
-const NOAA_NCDS_TILE_URL =
-    'https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=EPSG%3A3857&imageSR=EPSG%3A3857&size=256,256&format=png&transparent=true&f=image&display_params=%7B%22ECDISParameters%22%3A%7B%22version%22%3A%2210.2.1%22%2C%22DynamicParameters%22%3A%7B%22Parameter%22%3A%5B%7B%22name%22%3A%22DisplayDepthUnits%22%2C%22value%22%3A1%7D%5D%7D%7D%7D';
+// Separate NOAAChartDisplay/ENCOnline services, pinned in the Node proxy. Tile
+// coordinates produce coarse Mercator bounds, never an exact vessel position.
+const NOAA_NCDS_TILE_URL = `${API_BASE}/noaa-chart?style=paper&z={z}&x={x}&y={y}`;
 
 // NOAA ENC Online Display — IHO S-52 symbology (electronic chart look)
 // Same service endpoint, different display parameters (S-52 default)
-const NOAA_ECDIS_TILE_URL =
-    'https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=EPSG%3A3857&imageSR=EPSG%3A3857&size=256,256&format=png&transparent=true&f=image';
+const NOAA_ECDIS_TILE_URL = `${API_BASE}/noaa-chart?style=ecdis&z={z}&x={x}&y={y}`;
+const NOAA_REGIONS: readonly [number, number, number, number][] = [
+    [-180, 15, -60, 75],
+    [170, 45, 180, 65],
+    [130, 0, 165, 25],
+    [-175, -20, -165, -9],
+];
+
+/** Camera-only selection. Longitude copies and date-line cameras stay local. */
+export function chartSourceCovers(source: ChartSource, camera: [number, number, number, number] | null): boolean {
+    if (!camera || !camera.every(Number.isFinite) || camera[1] > camera[3]) return false;
+    let [west, , east] = camera;
+    if (east < west) east += 360;
+    const span = east - west;
+    west = ((((west + 180) % 360) + 360) % 360) - 180;
+    east = west + span;
+    return (source.coverageAreas ?? [source.bounds]).some(
+        ([w, s, e, n]) =>
+            camera[1] <= n &&
+            camera[3] >= s &&
+            (span >= 360 || [-360, 0, 360].some((shift) => west <= e + shift && east >= w + shift)),
+    );
+}
 
 // LINZ Data Service — New Zealand hydrographic charts
 // Requires free API key from data.linz.govt.nz
@@ -93,8 +115,9 @@ function buildCatalog(linzKey: string | null): ChartSource[] {
             format: 'png',
             minZoom: 3,
             maxZoom: 18,
-            bounds: [-180, 17, -65, 72], // US waters including Alaska/Hawaii
-            attribution: '© NOAA Office of Coast Survey',
+            bounds: [-180, -20, 180, 75], // Source requests are additionally gated by coarse coverage regions.
+            coverageAreas: NOAA_REGIONS,
+            attribution: '<a href="https://charts.noaa.gov/ENCs/">NOAA-derived display · not official ENC</a>',
             enabled: false,
             opacity: 0.85,
         },
@@ -109,8 +132,9 @@ function buildCatalog(linzKey: string | null): ChartSource[] {
             format: 'png',
             minZoom: 3,
             maxZoom: 18,
-            bounds: [-180, 17, -65, 72],
-            attribution: '© NOAA Office of Coast Survey',
+            bounds: [-180, -20, 180, 75],
+            coverageAreas: NOAA_REGIONS,
+            attribution: '<a href="https://charts.noaa.gov/ENCs/">NOAA-derived display · not official ENC</a>',
             enabled: false,
             opacity: 0.85,
         },
@@ -335,6 +359,7 @@ class ChartCatalogServiceClass {
     }
 
     setOpacity(id: ChartSourceId, opacity: number, scope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!Number.isFinite(opacity)) return;
         if (!this.accepts(scope)) return;
         const src = this.sources.find((s) => s.id === id);
         if (!src) return;

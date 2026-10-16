@@ -23,7 +23,7 @@ const regexRules = (rules: Rule[]) =>
         .filter((rule) => rule.source.startsWith('/('))
         .map((rule) => ({ ...rule, re: new RegExp(`^${rule.source}$`) }));
 
-const API_PATHS = ['/api/ocean/summary', '/api/ocean/rows', '/api/wx', '/api/spread'];
+const API_PATHS = ['/api/ocean/summary', '/api/ocean/rows', '/api/wx', '/api/spread', '/api/noaa-chart'];
 
 describe('vercel.json routing keeps the API reachable', () => {
     it('no regex rewrite sends an API path to a page', () => {

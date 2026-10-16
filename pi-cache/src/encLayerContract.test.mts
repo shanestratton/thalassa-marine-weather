@@ -36,6 +36,7 @@ test('the always-emitted set includes structures and complete sounding-datum cov
         'PONTON',
     ]);
     const { ENC_LAYERS } = await import('./routes/enc.js');
+    assert.equal(new Set(ENC_LAYERS).size, ENC_LAYERS.length, 'one request per GDAL output file, including M_SDAT');
     for (const layer of ENC_ALWAYS_EMITTED_LAYERS) assert.ok(ENC_LAYERS.includes(layer), layer);
 });
 

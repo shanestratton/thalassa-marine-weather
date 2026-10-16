@@ -83,6 +83,22 @@ function loadServiceWorker() {
 }
 
 describe('production service worker', () => {
+    it('leaves NOAA mutable edition checks and immutable originals to their bounded app cache', async () => {
+        const { listeners, fetchMock, caches, names } = loadServiceWorker();
+        for (const path of [
+            'index.json',
+            `generations/${'a'.repeat(24)}/shards/x06y12.json`,
+            `objects/${'b'.repeat(64)}.zip`,
+        ]) {
+            const respondWith = vi.fn();
+            const request = new Request(`https://tiles.thalassatiles.com/noaa-enc/v1/${path}`, { cache: 'no-store' });
+            listeners.get('fetch')?.({ request, respondWith, waitUntil: vi.fn() });
+            await respondWith.mock.calls[0][0];
+            expect(fetchMock).toHaveBeenCalledWith(request);
+        }
+        expect(caches.open).not.toHaveBeenCalledWith(names.runtimeTiles);
+        expect(caches.open).not.toHaveBeenCalledWith(names.offlineTiles);
+    });
     it('never replays or double-caches owned catalogue manifests or shards in the terrain cache', async () => {
         const { listeners, fetchMock, caches, names } = loadServiceWorker();
         for (const path of ['places/manifest.json', 'osm/202610-fixture/areas/36_179.json']) {

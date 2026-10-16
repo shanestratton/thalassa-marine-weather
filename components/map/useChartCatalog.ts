@@ -18,7 +18,12 @@ import {
     type MutableRefObject,
 } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { ChartCatalogService, type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
+import {
+    ChartCatalogService,
+    chartSourceCovers,
+    type ChartSource,
+    type ChartSourceId,
+} from '../../services/ChartCatalogService';
 import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
 import { chartFitBearing } from './chartOrientation';
@@ -50,6 +55,7 @@ export function useChartCatalog(
     mapReady: boolean,
     visible = true,
     sessionSelection = false,
+    paused = false,
 ) {
     const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
     const hydratedSources = useMemo(() => {
@@ -76,6 +82,50 @@ export function useChartCatalog(
     );
     const addedLayersRef = useRef<Set<string>>(new Set());
     const sourceUrlsRef = useRef<Map<string, string>>(new Map());
+    const [bounds, setBounds] = useState<[number, number, number, number] | null>(null);
+    const [consent, setConsent] = useState({ scope: identityScope, accepted: false });
+    const [consentRevision, setConsentRevision] = useState(0);
+    const noaaWanted = sources.some((s) => s.enabled && s.id.startsWith('noaa-'));
+    useEffect(() => {
+        if (!paused)
+            void import('../../services/enc/noaaCatalogue')
+                .then((m) => m.checkNoaaCatalogueWeekly())
+                .catch(() => undefined);
+    }, [identityScope, paused]);
+    useEffect(() => {
+        let live = true;
+        if (noaaWanted)
+            void import('../../services/enc/noaaAgreement')
+                .then((m) => m.noaaAgreementAccepted())
+                .then((accepted) => {
+                    if (live && isAuthIdentityScopeCurrent(identityScope))
+                        setConsent({ scope: identityScope, accepted });
+                })
+                .catch(() => undefined);
+        return () => {
+            live = false;
+        };
+    }, [identityScope, noaaWanted, consentRevision]);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapReady || !map?.getBounds) return;
+        const update = () => {
+            const b = map.getBounds();
+            setBounds(b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] : null);
+        };
+        update();
+        map.on('moveend', update);
+        return () => {
+            map.off('moveend', update);
+        };
+    }, [mapRef, mapReady]);
+    const canDraw = (s: ChartSource) =>
+        visible &&
+        !paused &&
+        s.enabled &&
+        s.tileUrl &&
+        (!s.id.startsWith('noaa-') || (sameScope(consent.scope, identityScope) && consent.accepted)) &&
+        (!mapRef.current?.getBounds || chartSourceCovers(s, bounds));
 
     useLayoutEffect(() => {
         setStoredSources((current) =>
@@ -130,14 +180,14 @@ export function useChartCatalog(
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        const enabledIds = new Set(sources.filter((s) => visible && s.enabled && s.tileUrl).map((s) => s.id));
+        const enabledIds = new Set(sources.filter(canDraw).map((s) => s.id));
 
         // Add new layers
         for (const src of sources) {
             const sourceId = `${SOURCE_PREFIX}${src.id}`;
             const layerId = `${LAYER_PREFIX}${src.id}`;
 
-            if (visible && src.enabled && src.tileUrl) {
+            if (enabledIds.has(src.id) && src.tileUrl) {
                 // Mapbox sources are immutable. A key rotation changes the
                 // tile URL, so remove the old source before adding its safe
                 // replacement.
@@ -160,14 +210,10 @@ export function useChartCatalog(
                     });
 
                     // Insert below sea marks layer if it exists
-                    let beforeLayer: string | undefined;
-                    if (map.getLayer('sea-marks-tiles')) {
-                        beforeLayer = 'sea-marks-tiles';
-                    } else if (map.isStyleLoaded()) {
-                        const layers = map.getStyle()?.layers || [];
-                        const firstSymbol = layers.find((l) => l.type === 'symbol');
-                        beforeLayer = firstSymbol?.id;
-                    }
+                    const layers = map.getStyle()?.layers ?? [];
+                    const beforeLayer =
+                        layers.find((l) => l.id.startsWith('enc-vec-') || l.id === 'sea-marks-tiles')?.id ??
+                        layers.find((l) => l.type === 'symbol')?.id;
 
                     map.addLayer(
                         {
@@ -217,7 +263,8 @@ export function useChartCatalog(
                 sourceUrlsRef.current.delete(id);
             }
         }
-    }, [mapRef, mapReady, sources, visible]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- canDraw is this render's scoped predicate.
+    }, [mapRef, mapReady, sources, visible, paused, consent, identityScope, bounds]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -309,7 +356,7 @@ export function useChartCatalog(
         [identityScope],
     );
 
-    const hasEnabledCharts = visible && sources.some((s) => s.enabled && s.tileUrl);
+    const hasEnabledCharts = sources.some(canDraw);
 
     return {
         sources,
@@ -319,5 +366,7 @@ export function useChartCatalog(
         setOpacity,
         flyToSource,
         updateLinzKey,
+        bounds,
+        refreshConsent: () => setConsentRevision((v) => v + 1),
     };
 }

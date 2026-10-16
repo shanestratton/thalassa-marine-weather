@@ -811,6 +811,35 @@ export async function removeCell(cellId: string): Promise<void> {
     });
 }
 
+/** A catalogue withdrawal may detach only the exact open conversion it
+ * installed. The comparison runs inside the same import lock, so a queued
+ * manual/Pi replacement cannot be deleted by an older weekly check. */
+export async function removeNoaaCatalogueRevision(
+    cellId: string,
+    expected: { edition: number; updateNumber: number; contentSha256: string },
+    assertAuthority: () => void,
+): Promise<boolean> {
+    return serializeCellMutation(cellId, async () => {
+        assertAuthority();
+        const stored = cellMeta.getRegisteredCell(cellId);
+        if (
+            !stored ||
+            !/^US[1-6][A-Z0-9]{5}$/.test(canonicalEncCellId(stored.id)) ||
+            stored.sourceHO !== 'US' ||
+            stored.licence === 'protected' ||
+            stored.edition !== expected.edition ||
+            stored.updateNumber !== expected.updateNumber ||
+            stored.contentSha256 !== expected.contentSha256 ||
+            !/^[a-f0-9]{64}$/.test(expected.contentSha256)
+        )
+            return false;
+        cellMeta.removeCell(stored.id);
+        await cellStore.deleteCellGeoJSON(stored.id);
+        dropIndex(stored.id);
+        return true;
+    });
+}
+
 /**
  * Delete the bytes of a cloud-managed cell while retaining its manifest
  * metadata for re-hydration. Shares the exact import lock so a manifest bump
