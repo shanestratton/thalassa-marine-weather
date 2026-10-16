@@ -15,6 +15,44 @@ test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
         if (!new URLSearchParams(location.search).has('canvasProbe')) return;
         const records = new WeakMap<HTMLCanvasElement, Record<string, number>>();
+        type Bounds = { minX: number; maxX: number; minY: number; maxY: number; points: number };
+        type DrawPass = {
+            atMs: number;
+            cleared: unknown[];
+            fontsStatus: string;
+            theme: Record<string, unknown>;
+            strokes: Array<Record<string, unknown>>;
+            fills: Array<Record<string, unknown>>;
+            texts: Array<Record<string, unknown>>;
+        };
+        const passes = new WeakMap<HTMLCanvasElement, DrawPass[]>();
+        const paths = new WeakMap<CanvasRenderingContext2D, Bounds>();
+        const point = (ctx: CanvasRenderingContext2D, x: unknown, y: unknown) => {
+            if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
+            const path = paths.get(ctx);
+            paths.set(ctx, {
+                minX: Math.min(path?.minX ?? x, x),
+                maxX: Math.max(path?.maxX ?? x, x),
+                minY: Math.min(path?.minY ?? y, y),
+                maxY: Math.max(path?.maxY ?? y, y),
+                points: (path?.points ?? 0) + 1,
+            });
+        };
+        const state = (ctx: CanvasRenderingContext2D) => {
+            const transform = ctx.getTransform();
+            return {
+                alpha: ctx.globalAlpha,
+                composite: ctx.globalCompositeOperation,
+                lineWidth: ctx.lineWidth,
+                strokeStyle: typeof ctx.strokeStyle === 'string' ? ctx.strokeStyle : 'gradient/pattern',
+                fillStyle: typeof ctx.fillStyle === 'string' ? ctx.fillStyle : 'gradient/pattern',
+                shadowBlur: ctx.shadowBlur,
+                font: ctx.font,
+                textAlign: ctx.textAlign,
+                textBaseline: ctx.textBaseline,
+                transform: [transform.a, transform.b, transform.c, transform.d, transform.e, transform.f],
+            };
+        };
         const record = (canvas: HTMLCanvasElement) => {
             let row = records.get(canvas);
             if (!row) {
@@ -37,6 +75,7 @@ test.beforeEach(async ({ page }) => {
             'clip',
             'setTransform',
             'reset',
+            'beginPath',
         ] as const) {
             const original = Reflect.get(proto, method);
             if (typeof original !== 'function') continue;
@@ -49,6 +88,43 @@ test.beforeEach(async ({ page }) => {
                 if (method === 'reset') row.saveDepth = 0;
                 if (args.some((value) => typeof value === 'number' && !Number.isFinite(value)))
                     row.nonFiniteCommands = (row.nonFiniteCommands ?? 0) + 1;
+                if (method === 'clearRect') {
+                    const history = passes.get(this.canvas) ?? [];
+                    if (history.length < 4) {
+                        const style = getComputedStyle(this.canvas.parentElement ?? this.canvas);
+                        history.push({
+                            atMs: performance.now(),
+                            cleared: args,
+                            fontsStatus: document.fonts.status,
+                            theme: {
+                                htmlClass: document.documentElement.className,
+                                daylight: this.canvas.closest('.display-light') !== null,
+                                color: style.color,
+                                fontFamily: style.fontFamily,
+                                fontSans: style.getPropertyValue('--font-sans'),
+                                cyan400: style.getPropertyValue('--color-cyan-400'),
+                                textPrimary: style.getPropertyValue('--text-primary'),
+                            },
+                            strokes: [],
+                            fills: [],
+                            texts: [],
+                        });
+                        passes.set(this.canvas, history);
+                    }
+                }
+                if (method === 'beginPath') paths.delete(this);
+                if (method === 'moveTo' || method === 'lineTo') point(this, args[0], args[1]);
+                if (method === 'arc' && args.slice(0, 3).every((n) => typeof n === 'number')) {
+                    const [x, y, radius] = args as number[];
+                    point(this, x - radius, y - radius);
+                    point(this, x + radius, y + radius);
+                }
+                const pass = passes.get(this.canvas)?.at(-1);
+                if (pass && method === 'stroke' && !pass.strokes.some((s) => s.lineWidth === this.lineWidth))
+                    pass.strokes.push({ ...state(this), path: paths.get(this) });
+                if (pass && method === 'fill' && pass.fills.length < 4)
+                    pass.fills.push({ ...state(this), path: paths.get(this) });
+                if (pass && method === 'fillText' && pass.texts.length < 6) pass.texts.push({ ...state(this), args });
                 return Reflect.apply(original, this, args);
             });
         }
@@ -74,6 +150,7 @@ test.beforeEach(async ({ page }) => {
                 saveDepth: 0,
                 nonFiniteCommands: 0,
                 ...record(canvas),
+                drawPasses: passes.get(canvas) ?? [],
             }),
             configurable: true,
         });
@@ -143,7 +220,7 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                         const commands =
                             (
                                 window as unknown as {
-                                    __tideCanvasCommands?: (canvas: HTMLCanvasElement) => Record<string, number>;
+                                    __tideCanvasCommands?: (canvas: HTMLCanvasElement) => Record<string, unknown>;
                                 }
                             ).__tideCanvasCommands?.(el) ?? {};
                         const rect = (element: Element | null) => {

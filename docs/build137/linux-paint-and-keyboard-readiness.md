@@ -124,3 +124,18 @@ from the draw path. Integer backing-store assignments remain idempotent. This
 separates CSS layout sizing from bitmap paint without extra repaint loops,
 changing the card's bounds or changing any real-pixel requirement. Exact-source
 Linux proof is required before accepting this sizing candidate.
+
+Static-sizing source `78676bf57` passed all 40 local Chrome/WebKit tide-footer
+cases, but Linux diagnostic run `38979184594` still fails the original compact
+case with the same grid-only pixels and unchanged bounds/state. Its artifact
+`12079853186` is 440088 bytes, SHA256
+`3408c0ef0629be6c403da6578baed8f211c06473b9e9a79291499eaf3b59995c`.
+The sizing change is therefore not accepted as a rendering repair.
+
+The isolated recorder next retains at most four draw-pass summaries: path
+bounds for grid/glow/curve and fills, native stroke/fill colours and context
+state, each hour-label position/font, document font-loading status, and theme
+class/CSS variable readiness. All native calls keep their original receiver
+and arguments; there are no extra product draws or pixel reads during draw.
+The original compact case remains free of method interception, so a probe-only
+pass cannot satisfy acceptance.
