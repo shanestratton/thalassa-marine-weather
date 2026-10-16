@@ -128,12 +128,12 @@ export default function ObsNoticesLayer({ map, mapReady, active, enabled }: ObsN
                         .setLngLat([n.lon, n.lat])
                         .setDOMContent(content)
                         .addTo(map);
-                    const close = popup.getElement().querySelector<HTMLButtonElement>('.mapboxgl-popup-close-button');
+                    const close = popup.getElement()?.querySelector<HTMLButtonElement>('.mapboxgl-popup-close-button');
                     if (close) {
                         Object.assign(close.style, { minWidth: '44px', minHeight: '44px' });
                         close.focus({ preventScroll: true });
                     }
-                    const panel = popup.getElement().querySelector<HTMLElement>('.mapboxgl-popup-content');
+                    const panel = popup.getElement()?.querySelector<HTMLElement>('.mapboxgl-popup-content');
                     if (panel) panel.style.maxHeight = 'none';
                 });
                 const marker = new mapboxgl.Marker({ element: el }).setLngLat([n.lon, n.lat]).addTo(map);
