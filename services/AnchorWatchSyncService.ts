@@ -17,6 +17,7 @@ import { supabase, isSupabaseConfigured } from './supabase';
 import { PushNotificationService } from './PushNotificationService';
 import { AnchorSafetyNotificationService } from './AnchorSafetyNotificationService';
 import type { AnchorPosition, VesselPosition, AnchorWatchConfig } from './AnchorWatchService';
+import type { AnchorSafeZone } from '../utils/anchorSafeZone';
 import { createLogger } from '../utils/createLogger';
 import {
     authScopedStorageKey,
@@ -42,6 +43,11 @@ export interface SyncState {
 }
 
 export interface PositionBroadcast {
+    safeAreaRevision?: string;
+    safeAreaVesselId?: string | null;
+    safeZone?: AnchorSafeZone | null;
+    /** Present only when the current publisher actually applies the shared area rule. */
+    safeZoneWatch?: 'phone' | 'pi';
     type: 'position';
     vessel: VesselPosition;
     anchor: AnchorPosition;

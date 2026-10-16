@@ -41,6 +41,7 @@ vi.mock('../hooks/useKeyboardScroll', () => ({ useKeyboardScroll: () => ({ curre
 vi.mock('../services/AnchorWatchService', () => ({
     AnchorWatchService: {
         getSnapshot: vi.fn(),
+        getSafeZoneEditToken: vi.fn().mockResolvedValue('phone-watch-token'),
         isWatching: vi.fn().mockReturnValue(true),
         startWatch: vi.fn(),
         stopWatch: vi.fn(),
@@ -118,7 +119,8 @@ vi.mock('../services/anchorPiWatchKeeper', () => ({
 
 import { AnchorWatchPage } from '../components/AnchorWatchPage';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
-import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
+import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
+import { anchorZonePosition } from '../utils/anchorSafeZone';
 import { clearPiCommandRefusal, notePiCommandRefusal } from '../services/piCommandRefusal';
 import { toast } from '../components/Toast';
 
@@ -155,6 +157,8 @@ function watchingSnapshot(): AnchorWatchSnapshot {
 describe('Pi watch offer — real render', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.mocked(AnchorWatchService.getSafeZoneEditToken).mockResolvedValue('phone-watch-token');
+        vi.mocked(probePiWatchCapability).mockResolvedValue({ capable: true, reason: null, hasFix: true });
         const snap = watchingSnapshot();
         vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(snap);
         vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValue(true);
@@ -219,6 +223,78 @@ describe('Pi watch offer — real render', () => {
         } finally {
             said.mockRestore();
             clearPiCommandRefusal();
+        }
+    });
+    function areaSnapshot() {
+        const snap = watchingSnapshot(),
+            anchor = snap.anchorPosition!;
+        return {
+            ...snap,
+            safeZone: {
+                version: 1 as const,
+                kind: 'polygon' as const,
+                anchor: { latitude: anchor.latitude, longitude: anchor.longitude },
+                vertices: [
+                    [-10, -10],
+                    [10, -10],
+                    [10, 10],
+                    [-10, 10],
+                ].map(([x, y]) => anchorZonePosition(anchor, x, y)!),
+            },
+        };
+    }
+    it('keeps the phone custom-area watch when an older Pi only supports the circle', async () => {
+        vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(areaSnapshot());
+        render(<AnchorWatchPage onBack={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Yes — the Pi watches' }));
+        await waitFor(() => expect(probePiWatchCapability).toHaveBeenCalledTimes(2));
+        expect(AnchorPiWatchKeeper.begin).not.toHaveBeenCalled();
+        expect(AnchorWatchService.stopWatch).not.toHaveBeenCalled();
+    });
+    it.each(['custom', 'circle'])(
+        'hands a compatible Pi the exact explicit %s boundary before stopping the phone',
+        async (kind) => {
+            const snap: AnchorWatchSnapshot = areaSnapshot();
+            if (kind === 'circle') snap.safeZone = null;
+            vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(snap);
+            vi.mocked(probePiWatchCapability).mockResolvedValue({
+                capable: true,
+                reason: null,
+                hasFix: true,
+                safeZoneVersion: 1,
+            });
+            render(<AnchorWatchPage onBack={vi.fn()} />);
+            fireEvent.click(await screen.findByRole('button', { name: 'Yes — the Pi watches' }));
+            await waitFor(() => expect(AnchorWatchService.stopWatch).toHaveBeenCalledOnce());
+            expect(AnchorPiWatchKeeper.begin).toHaveBeenCalledWith(
+                expect.objectContaining({ safeZone: snap.safeZone }),
+                { isCurrent: expect.any(Function) },
+            );
+            expect(vi.mocked(AnchorWatchService.stopWatch).mock.invocationCallOrder[0]).toBeGreaterThan(
+                vi.mocked(AnchorPiWatchKeeper.begin).mock.invocationCallOrder[0],
+            );
+        },
+    );
+    it('keeps the phone watch after remote acceptance if its own revision retired while waiting', async () => {
+        vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(areaSnapshot());
+        vi.mocked(probePiWatchCapability).mockResolvedValue({
+            capable: true,
+            reason: null,
+            hasFix: true,
+            safeZoneVersion: 1,
+        });
+        vi.mocked(AnchorPiWatchKeeper.begin).mockImplementationOnce(async () => {
+            vi.mocked(AnchorWatchService.getSafeZoneEditToken).mockResolvedValue('replacement-watch');
+            return true;
+        });
+        const said = vi.spyOn(toast, 'error');
+        try {
+            render(<AnchorWatchPage onBack={vi.fn()} />);
+            fireEvent.click(await screen.findByRole('button', { name: 'Yes — the Pi watches' }));
+            await waitFor(() => expect(said).toHaveBeenCalledWith(expect.stringContaining('phone watch was kept')));
+            expect(AnchorWatchService.stopWatch).not.toHaveBeenCalled();
+        } finally {
+            said.mockRestore();
         }
     });
 });

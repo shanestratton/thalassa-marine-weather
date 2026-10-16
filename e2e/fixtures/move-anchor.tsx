@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
 import type { RemoteFeed } from '../../services/NmeaStore';
+import { anchorZonePosition } from '../../utils/anchorSafeZone';
 import '../../index.css';
 
 if (!import.meta.env.DEV) throw new Error('The move-anchor fixture is available only through the development server.');
@@ -332,7 +333,26 @@ const snapshot: AnchorWatchSnapshot = alarm
 
 // The watch is the service's to move; here it only records what it was asked.
 const fixture = { moves: [] as Array<[number, number]> };
+const manualArea = params.has('safeArea')
+    ? {
+          version: 1 as const,
+          kind: 'polygon' as const,
+          anchor: { latitude: snapshot.anchorPosition!.latitude, longitude: snapshot.anchorPosition!.longitude },
+          vertices: [
+              [-15, -15],
+              [15, -15],
+              [15, 15],
+              [-15, 15],
+          ].map(([x, y]) => anchorZonePosition(snapshot.anchorPosition!, x, y)!),
+      }
+    : null;
+if (manualArea) snapshot.safeZone = manualArea;
 Object.assign(window, { __moveAnchorFixture: fixture });
+service.AnchorWatchService.getSafeZoneEditToken = async () => 'synthetic-safe-area-token';
+service.AnchorWatchService.clearSafeZoneForMove = async () => {
+    document.body.dataset.areaCleared = 'true';
+    return { ok: true };
+};
 service.AnchorWatchService.relocateAnchor = async (lat: number, lon: number) => {
     fixture.moves.push([lat, lon]);
     return { ok: true };
@@ -417,6 +437,11 @@ function Fixture() {
                         ashore,
                         alarm: false,
                         gpsLost: false,
+                        safeZone: manualArea,
+                    }}
+                    onPiClearSafeArea={async () => {
+                        document.body.dataset.areaCleared = 'true';
+                        return { ok: true };
                     }}
                     onPiMove={async (lat, lon) => {
                         fixture.moves.push([lat, lon]);

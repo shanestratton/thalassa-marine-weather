@@ -34,6 +34,8 @@ import { getPairing, pinnedPiRequest } from './PiPairingService';
 import { notePiCommandRefusalIn } from './piCommandRefusal';
 import { supabase } from './supabase';
 import { createLogger } from '../utils/createLogger';
+import { sameAnchorSafeArea, isAnchorAreaRevision, type AnchorSafeZone } from '../utils/anchorSafeZone';
+import { anchorAssignmentSafeArea, captureAnchorAreaLease } from './anchorSafeAreaAssignment';
 
 const log = createLogger('AnchorPiHandoff');
 
@@ -42,6 +44,9 @@ const log = createLogger('AnchorPiHandoff');
 export const RENEW_INTERVAL_MS = 60 * 60 * 1000;
 
 export interface PiWatchAssignment {
+    safeZone?: AnchorSafeZone | null;
+    safeAreaRevision?: string;
+    safeAreaVesselId?: string | null;
     sessionCode: string;
     anchorLat: number;
     anchorLon: number;
@@ -61,22 +66,57 @@ function relayFunctionUrl(): string | null {
  * Step 1. Returns false rather than throwing: a failed handoff must degrade to
  * the phone keeping the watch itself, never to no watch at all.
  */
-export async function authoriseRelay(relayId: string, sessionCode: string): Promise<boolean> {
+export async function authoriseRelay(
+    relayId: string,
+    sessionCode: string,
+    assignment?: PiWatchAssignment,
+): Promise<boolean> {
     const url = relayFunctionUrl();
     if (!url || !supabase) return false;
     try {
+        const lease = assignment?.safeZone !== undefined ? await captureAnchorAreaLease() : null;
+        if (assignment?.safeZone !== undefined && !lease) return false;
+        if (lease && assignment?.safeAreaVesselId !== lease.vesselId) return false;
+        const safeArea = assignment ? anchorAssignmentSafeArea(assignment) : null;
+        if (assignment?.safeZone !== undefined && !safeArea) return false;
+        if (assignment?.safeZone !== undefined && !isAnchorAreaRevision(assignment.safeAreaRevision)) return false;
         const { data: session } = await supabase.auth.getSession();
         const token = session?.session?.access_token;
         if (!token) return false;
+        if (lease && !lease.current()) return false;
 
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ action: 'authorise', relay_id: relayId, session_code: sessionCode }),
+            ...(lease ? { signal: AbortSignal.timeout(8000) } : {}),
+            body: JSON.stringify({
+                action: 'authorise',
+                relay_id: relayId,
+                session_code: sessionCode,
+                ...(assignment?.safeZone !== undefined
+                    ? {
+                          safe_area: safeArea,
+                          safe_area_revision: assignment.safeAreaRevision,
+                          safe_area_vessel_id: assignment.safeAreaVesselId,
+                      }
+                    : {}),
+            }),
         });
         if (!response.ok) {
             log.warn(`Relay authorisation refused (HTTP ${response.status})`);
             return false;
+        }
+        if (lease) {
+            const reply = (await response.json()) as Record<string, unknown>;
+            if (
+                !lease.current() ||
+                reply.safeZoneVersion !== 1 ||
+                !Object.prototype.hasOwnProperty.call(reply, 'safe_area') ||
+                !sameAnchorSafeArea(reply.safe_area, safeArea) ||
+                reply.safe_area_revision !== assignment?.safeAreaRevision ||
+                reply.safe_area_vessel_id !== assignment?.safeAreaVesselId
+            )
+                return false;
         }
         return true;
     } catch (err) {
@@ -123,11 +163,53 @@ export async function sendAssignmentToPi(
 ): Promise<PiAssignAnswer> {
     let status: number;
     let data: unknown;
+    let boundaryLease: Awaited<ReturnType<typeof captureAnchorAreaLease>> = null;
+    let expectedWatchRevision: string | undefined;
+    if (assignment.safeZone !== undefined) {
+        try {
+            boundaryLease = await captureAnchorAreaLease();
+            if (
+                !boundaryLease ||
+                assignment.safeAreaVesselId !== boundaryLease.vesselId ||
+                !isAnchorAreaRevision(assignment.safeAreaRevision) ||
+                !anchorAssignmentSafeArea(assignment)
+            )
+                return { taken: false, status: 409, error: 'The paired safe-area assignment is invalid or changed.' };
+            const capability = await pinnedPiRequest({
+                url: `${piBaseUrl.replace(/\/$/, '')}/api/anchor/capability`,
+                connectTimeout: 3000,
+                readTimeout: 5000,
+                responseType: 'text',
+            });
+            const parsed = (
+                typeof capability.data === 'string' ? JSON.parse(capability.data) : capability.data
+            ) as Record<string, unknown> | null;
+            if (
+                capability.status < 200 ||
+                capability.status >= 300 ||
+                parsed?.safeZoneVersion !== 1 ||
+                typeof parsed.watchRevision !== 'string' ||
+                !boundaryLease.current()
+            )
+                return {
+                    taken: false,
+                    status: 409,
+                    error: 'This Pi watches the circle; custom-area support has not been confirmed.',
+                };
+            expectedWatchRevision = parsed.watchRevision;
+        } catch {
+            return {
+                taken: false,
+                status: 409,
+                error: 'The Pi area capability could not be verified. The assignment was not sent.',
+            };
+        }
+    }
     try {
         const res = await pinnedPiRequest({
             url: `${piBaseUrl.replace(/\/$/, '')}/api/anchor/watch`,
             method: 'POST',
-            data: assignment,
+            data: expectedWatchRevision ? { ...assignment, expectedWatchRevision } : assignment,
             ...timeouts,
         });
         status = Number(res?.status);
@@ -137,7 +219,35 @@ export async function sendAssignmentToPi(
         log.warn(`Pi did not answer the watch assignment at ${piBaseUrl}: ${message}`);
         return { taken: false, status: null, error: message };
     }
-    if (status >= 200 && status < 300) return { taken: true };
+    if (status >= 200 && status < 300) {
+        if (assignment.safeZone !== undefined) {
+            try {
+                const reply = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
+                const area = anchorAssignmentSafeArea(assignment);
+                if (
+                    !area ||
+                    reply?.safeZoneVersion !== 1 ||
+                    !Object.prototype.hasOwnProperty.call(reply, 'safeArea') ||
+                    !sameAnchorSafeArea(reply.safeArea, area) ||
+                    reply.safeAreaRevision !== assignment.safeAreaRevision ||
+                    reply.safeAreaVesselId !== assignment.safeAreaVesselId ||
+                    !boundaryLease?.current()
+                )
+                    return {
+                        taken: false,
+                        status: null,
+                        error: 'The Pi did not confirm the exact custom-area/circle boundary. Its assignment is unverified.',
+                    };
+            } catch {
+                return {
+                    taken: false,
+                    status: null,
+                    error: 'The Pi boundary acknowledgement could not be read. Its assignment is unverified.',
+                };
+            }
+        }
+        return { taken: true };
+    }
     const error = piErrorText(data);
     log.warn(`Pi would not take the watch (HTTP ${status})${error ? `: ${error}` : ''}`);
     const notSetUp = notePiCommandRefusalIn({ status, data }, () => getPairing()?.boatName) !== null;
@@ -180,8 +290,18 @@ export async function handOffToPi(
     piBaseUrl: string,
     /** Told once the cloud took the authorisation: that alone renews the Pi's week (126-03b). */
     onAuthorised?: () => void,
+    isCurrent: () => boolean | Promise<boolean> = () => true,
 ): Promise<boolean> {
-    if (!(await authoriseRelay(relayId, assignment.sessionCode))) return false;
+    if (!(await isCurrent())) return false;
+    const lease = assignment.safeZone !== undefined ? await captureAnchorAreaLease() : null;
+    if (assignment.safeZone !== undefined && !lease) return false;
+    if (assignment.safeZone !== undefined) {
+        if (!(await authoriseRelay(relayId, assignment.sessionCode, assignment))) return false;
+    } else {
+        if (!(await authoriseRelay(relayId, assignment.sessionCode))) return false;
+    }
     onAuthorised?.();
-    return assignWatchToPi(assignment, piBaseUrl);
+    if ((lease && !lease.current()) || !(await isCurrent())) return false;
+    const taken = await assignWatchToPi(assignment, piBaseUrl);
+    return taken && (!lease || lease.current()) && (await isCurrent());
 }

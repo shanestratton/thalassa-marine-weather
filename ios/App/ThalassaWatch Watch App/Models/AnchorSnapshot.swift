@@ -39,6 +39,10 @@ struct AnchorSnapshot: Codable, Equatable {
     let bearingFromAnchor: Double
     let watchStartedAt: Double?
     let alarmTriggeredAt: Double?
+    /// Phone-validated drawing only, normalized to the enclosing circle.
+    /// Watch-local GPS checks only the circle; these never drive local haptics.
+    let safeAreaOutline: [[Double]]?
+    let safeAreaWedges: [[Double]]?
 
     /// Convenience: how full is the swing circle? 0..1+ where >1 = drag.
     var radiusFraction: Double {
@@ -77,5 +81,19 @@ struct AnchorSnapshot: Codable, Equatable {
         self.bearingFromAnchor = (dict["bearingFromAnchor"] as? Double) ?? 0
         self.watchStartedAt = dict["watchStartedAt"] as? Double
         self.alarmTriggeredAt = dict["alarmTriggeredAt"] as? Double
+        let outline = dict["safeAreaOutline"] as? [[Double]]
+        self.safeAreaOutline = outline.flatMap { points in
+            guard (3...64).contains(points.count), points.allSatisfy({ p in
+                p.count == 2 && p.allSatisfy(\.isFinite) && hypot(p[0], p[1]) <= 1.001
+            }) else { return nil }
+            return points
+        }
+        let wedges = dict["safeAreaWedges"] as? [[Double]]
+        self.safeAreaWedges = self.safeAreaOutline == nil ? wedges.flatMap { items in
+            guard (1...8).contains(items.count), items.allSatisfy({ w in
+                w.count == 2 && w.allSatisfy(\.isFinite) && w[0] >= 0 && w[0] < 360 && w[1] >= 0.5 && w[1] <= 359
+            }) else { return nil }
+            return items
+        } : nil
     }
 }

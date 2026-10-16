@@ -54,6 +54,8 @@ import {
     DiaryRelayValidationError,
 } from './diaryRelayOutbox.js';
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
+import { assignmentSafeArea, normalizeAnchorAssignment } from './anchorZoneContract.js';
+import { reviewAnchorAreaChange } from './anchorAreaAdmission.js';
 import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
@@ -949,7 +951,14 @@ app.get('/api/anchor/capability', requireAppApi, async (_req, res) => {
           : !hasFix
             ? 'Signal K on this Pi cannot see the vessel right now'
             : null;
-    res.json({ capable: paired && !!SUPABASE_ANON_KEY && hasFix, paired, hasFix, reason });
+    res.json({
+        capable: paired && !!SUPABASE_ANON_KEY && hasFix,
+        paired,
+        hasFix,
+        reason,
+        safeZoneVersion: 1,
+        watchRevision: anchorWatch.watchRevision(),
+    });
 });
 
 /**
@@ -1026,7 +1035,7 @@ app.get('/api/telemetry', requireAppApi, async (req, res) => {
 // "Send a test from the Pi" through the push path (126-04b).
 app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch, { test: () => piAlarmRelay.test() }));
 
-app.post('/api/anchor/watch', requireAppApi, (req, res) => {
+app.post('/api/anchor/watch', requireAppApi, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const sessionCode = typeof body.sessionCode === 'string' ? body.sessionCode.trim() : '';
     const anchorLat = Number(body.anchorLat);
@@ -1059,6 +1068,57 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     // shows "--" rather than failing.
     const rodeLength = Number(body.rodeLength);
     const waterDepth = Number(body.waterDepth);
+    const previous = anchorWatch.current();
+    const assignment = normalizeAnchorAssignment(
+        {
+            sessionCode,
+            anchorLat,
+            anchorLon,
+            swingRadius,
+            rodeLength: Number.isFinite(rodeLength) && rodeLength > 0 ? rodeLength : undefined,
+            waterDepth: Number.isFinite(waterDepth) && waterDepth > 0 ? waterDepth : undefined,
+            ...(body.safeZone !== undefined
+                ? {
+                      safeZone: body.safeZone as never,
+                      safeAreaRevision: body.safeAreaRevision as string,
+                      safeAreaVesselId: body.safeAreaVesselId as string | null,
+                  }
+                : {}),
+        },
+        previous,
+    );
+    if (!assignment)
+        return res.status(400).json({
+            status: 'error',
+            error: 'Review the safe area with the exact anchor and circle; clearing it must be explicit.',
+        });
+    const safeArea = assignmentSafeArea(assignment);
+    const areaEdit = assignment.safeZone !== undefined || Boolean(previous?.safeZone);
+    const stillPaired = () => {
+        const still = diaryRelayOutbox.lendAnchorCredentials();
+        return still?.relayId === lent.relayId && still?.token === lent.token;
+    };
+    const review = areaEdit
+        ? await reviewAnchorAreaChange(assignment, previous, body.expectedWatchRevision, {
+              now: Date.now,
+              revision: () => anchorWatch.watchRevision(),
+              dragging: () => anchorWatch.isDragging(),
+              paired: stillPaired,
+              enrolled: async () => (await chartDevices.verify(req.get(CHART_DEVICE_HEADER))).state === 'enrolled',
+              readFix: () => currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, selfDocument }),
+          })
+        : { ok: true as const, unchanged: false, revision: anchorWatch.watchRevision() };
+    if (!review.ok) return res.status(409).json({ status: 'error', error: review.error });
+    if (review.unchanged) {
+        return res.json({
+            status: 'ok',
+            watch: anchorWatch.describe(),
+            safeZoneVersion: 1,
+            safeArea,
+            safeAreaRevision: assignment.safeAreaRevision,
+            safeAreaVesselId: assignment.safeAreaVesselId,
+        });
+    }
     // A device not set up, while the Pi enforces (129-12): the lock let this
     // through only to start a watch or renew the running one unchanged, and a
     // renewal leaves it running as it is, drag count and all.
@@ -1070,14 +1130,13 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
             .status(409)
             .json({ status: 'error', error: 'A Pi update is being staged. The watch has not been started.' });
     }
+    if (areaEdit && (anchorWatch.watchRevision() !== review.revision || !stillPaired() || anchorWatch.isDragging()))
+        return res
+            .status(409)
+            .json({ status: 'error', error: 'The paired watch changed before the area could be adopted.' });
     anchorWatch.start(
         {
-            sessionCode,
-            anchorLat,
-            anchorLon,
-            swingRadius,
-            rodeLength: Number.isFinite(rodeLength) && rodeLength > 0 ? rodeLength : undefined,
-            waterDepth: Number.isFinite(waterDepth) && waterDepth > 0 ? waterDepth : undefined,
+            ...assignment,
         },
         {
             url: canonicalAnchorRelayEndpoint(SUPABASE_ORIGIN),
@@ -1091,7 +1150,14 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     // was ever told, and whether something later told it to stop. Both were
     // silent, so both were guessed at.
     console.log(`⚓ Anchor watch STARTED for session ${sessionCode} (r=${swingRadius}m)`);
-    return res.json({ status: 'ok', watch: anchorWatch.describe() });
+    return res.json({
+        status: 'ok',
+        watch: anchorWatch.describe(),
+        safeZoneVersion: 1,
+        safeArea,
+        safeAreaRevision: assignment.safeAreaRevision,
+        safeAreaVesselId: assignment.safeAreaVesselId,
+    });
 });
 
 app.delete('/api/anchor/watch', requireAppApi, (_req, res) => {

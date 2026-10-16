@@ -1,5 +1,6 @@
 import { AlarmAudioService } from './AlarmAudioService';
 import { AnchorWatchService } from './AnchorWatchService';
+import { parseAnchorSafeZone } from '../utils/anchorSafeZone';
 import {
     AnchorWatchSyncService,
     type PositionBroadcast,
@@ -138,6 +139,12 @@ export class ShoreWatchAlarmServiceClass {
             )
                 return;
             if (data.isAlarm !== true && data.isAlarm !== false) return;
+            if (
+                data.safeZone != null &&
+                (!['phone', 'pi'].includes(data.safeZoneWatch ?? '') ||
+                    !parseAnchorSafeZone(data.safeZone, { ...data.anchor, radiusM: data.swingRadius }).ok)
+            )
+                return;
             this.lastEventAt = data.timestamp;
             this.gpsUnavailable = false;
             this.emit({ position: data, lastContactAt: Math.min(now, data.timestamp, fixAt), stale: false });
@@ -243,6 +250,8 @@ export class ShoreWatchAlarmServiceClass {
                     swingRadius: boat.swingRadius,
                     isAlarm: boat.state === 'alarm',
                     config: boat.config,
+                    safeZone: boat.safeZone ?? null,
+                    ...(boat.safeZone ? { safeZoneWatch: 'phone' as const } : {}),
                 });
                 this.lastBoatBroadcastAt = now;
             }

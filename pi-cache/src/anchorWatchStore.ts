@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AnchorWatchAssignment } from './anchorBroadcaster.js';
+import { normalizeAnchorAssignment } from './anchorZoneContract.js';
 
 export interface SavedAnchorWatch {
     assignment: AnchorWatchAssignment;
@@ -42,7 +43,8 @@ export function fileAnchorWatchStore(cacheDir: string): AnchorWatchStore {
                     value.expiresAt > value.sessionExpiresAt
                 )
                     return null;
-                return value;
+                const assignment = normalizeAnchorAssignment(a);
+                return assignment ? { ...value, assignment } : null;
             } catch {
                 return null;
             }
