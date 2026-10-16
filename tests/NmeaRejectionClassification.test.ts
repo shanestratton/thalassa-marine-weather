@@ -20,7 +20,6 @@ import { classifyNmeaRejection, validateNmeaSentence } from '../services/nmea/nm
 
 // Verbatim from the boat's Signal K output, checksums confirmed by hand.
 const REAL_UNSUPPORTED = [
-    '$YDGLL,2711.7056,S,15306.3337,E,225126.00,A,A*7A',
     '$YDZDA,225126.12,04,09,2026,,*64',
     '$YDHTD,V,,,M,N,,,,,,,,,A,,,*7D',
     '$YDDTM,W84,,0000.0000,N,00000.0000,E,0.00,W84*65',

@@ -44,8 +44,9 @@ Primary references:
 
 - [Signal K security](https://signalk.org/specification/1.7.0/doc/security.html)
   specifies TLS and Bearer authentication; plaintext remains insecure.
-- [Signal K server Course API](https://demo.signalk.org/documentation/api/)
-  and Resources API describe the v2 course and owned route resources. Runtime
+- [Signal K server Course API](https://raw.githubusercontent.com/SignalK/signalk-server/master/docs/develop/rest-api/course_api.md)
+  and [Resources API](https://raw.githubusercontent.com/SignalK/signalk-server/master/docs/develop/rest-api/resources_api.md)
+  describe the v2 course and owned route resources. Runtime
   support must be checked; unsupported servers receive no invented capability.
 
 No deployment or native version change is included.

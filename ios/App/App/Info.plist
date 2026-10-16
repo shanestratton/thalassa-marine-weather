@@ -166,6 +166,6 @@
 		<string>_thalassa-cache._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Thalassa uses local network access to discover Signal K servers on your boat's network for nautical chart overlays and instrument data.</string>
+	<string>Thalassa uses local network access to connect to your boat's Pi, Signal K server and NMEA gateway for charts and instrument data.</string>
 </dict>
 </plist>

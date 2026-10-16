@@ -325,7 +325,8 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
        ashore or while the Pi reboots. It is simply no longer preferred when
        something better is bolted to the vessel. */
     const boat = useBarometerSource(isOpen);
-    const usingBoat = boat.source === 'boat';
+    const usingGateway = boat.source === 'gateway';
+    const usingBoat = boat.source === 'boat' || usingGateway;
 
     const phoneSamples: PressureSample[] = barometer.getStationSamples();
     const phoneLatest = barometer.getLatestSample();
@@ -387,19 +388,23 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
     const sev = tendency ? SEVERITY_UI[tendency.severity] : SEVERITY_UI.calm;
     const accent = tendency ? sev.dot : 'var(--day-ui-success, #6ee7b7)';
 
-    const sourceChip = usingBoat
-        ? { text: 'BOAT', cls: 'bg-teal-400/15 text-teal-300' }
-        : hasSensor
-          ? { text: 'iPHONE', cls: 'bg-emerald-400/15 text-emerald-300' }
-          : { text: 'FORECAST', cls: 'bg-sky-400/15 text-sky-300' };
+    const sourceChip = usingGateway
+        ? { text: 'GATEWAY', cls: 'bg-teal-400/15 text-teal-300' }
+        : usingBoat
+          ? { text: 'BOAT', cls: 'bg-teal-400/15 text-teal-300' }
+          : hasSensor
+            ? { text: 'iPHONE', cls: 'bg-emerald-400/15 text-emerald-300' }
+            : { text: 'FORECAST', cls: 'bg-sky-400/15 text-sky-300' };
 
-    const subLabel = usingBoat
-        ? 'BOAT SENSOR · continuous'
-        : hasSensor
-          ? calibrated
-              ? 'MSL · calibrated'
-              : 'STATION · uncalibrated'
-          : 'Model MSL pressure';
+    const subLabel = usingGateway
+        ? 'SENSOR · reference not declared'
+        : usingBoat
+          ? 'BOAT SENSOR · continuous'
+          : hasSensor
+            ? calibrated
+                ? 'MSL · calibrated'
+                : 'STATION · uncalibrated'
+            : 'Model MSL pressure';
 
     const statusRead = (() => {
         if (tendency) return tendency.read;
@@ -503,7 +508,8 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
                         <span className="absolute right-0">+12 h</span>
                     </div>
                     <div className="mt-1 text-[11px] text-white/40">
-                        <span className="text-white/70">━</span> measured {usingBoat ? 'on the boat' : 'on this phone'}
+                        <span className="text-white/70">━</span> measured{' '}
+                        {usingGateway ? 'from the gateway' : usingBoat ? 'on the boat' : 'on this phone'}
                         &ensp;
                         <span className="text-white/50">┄</span> forecast ahead
                     </div>

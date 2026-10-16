@@ -30,6 +30,10 @@ const SUPPORTED_INSTRUMENT_SENTENCES = new Set([
     'RMC',
     'GGA',
     'MTW',
+    'MDA',
+    'VLW',
+    'GLL',
+    'VTG',
 ]);
 
 export interface ValidatedNmeaSentence {
@@ -83,7 +87,10 @@ export function validateNmeaSentence(sentence: unknown): ValidatedNmeaSentence |
 
     let kind: ValidatedNmeaSentence['kind'];
     let type: string;
-    if (instrumentMatch && SUPPORTED_INSTRUMENT_SENTENCES.has(instrumentMatch[1])) {
+    if (/^\$PCDIN,/.test(raw) && raw.length <= 120 && hasChecksum) {
+        kind = 'instrument';
+        type = 'PCDIN';
+    } else if (instrumentMatch && SUPPORTED_INSTRUMENT_SENTENCES.has(instrumentMatch[1])) {
         kind = 'instrument';
         type = instrumentMatch[1];
     } else if (aisMatch) {

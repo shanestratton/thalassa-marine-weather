@@ -73,6 +73,7 @@ export function reconcileNmeaMetricFreshness(metric: TimestampedMetric, now: num
 
 // ── Full store state ──
 export interface NmeaStoreState {
+    distanceLog?: NmeaSample['distanceLog'];
     /** Derived instruments use this source-clock evidence, never legacy metric receipt time. */
     instrumentEvidence?: InstrumentEvidence;
     measurementTimes?: InstrumentMeasurementTimes;
@@ -411,6 +412,7 @@ class NmeaStoreClass {
         )
             return false;
         this.state.instrumentEvidence = remoteInstrumentEvidence(snapshot);
+        this.state.distanceLog = undefined;
         this.state.measurementTimes = evidenceTimes(this.state.instrumentEvidence);
         this.ingestRemoteWind(snapshot, now);
         this.ingestRemoteGnss(snapshot.gnss, now);
@@ -522,6 +524,7 @@ class NmeaStoreClass {
     /** Ingest an NmeaSample from the listener */
     private ingestSample(sample: NmeaSample): void {
         const now = sample.timestamp;
+        if (sample.distanceLog) this.state.distanceLog = { ...sample.distanceLog };
         if (this.state.gpsSource !== 'NMEA gateway') this.clearGpsDiagnostics();
         this.state.gpsSource = 'NMEA gateway';
         const config = NmeaListenerService.getSavedConfig?.();
@@ -537,6 +540,11 @@ class NmeaStoreClass {
         this.state.instrumentEvidence = {
             identity,
             via: 'gateway',
+            ...(sample.engineTelemetry
+                ? { engine: sample.engineTelemetry }
+                : previous?.engine
+                  ? { engine: previous.engine }
+                  : {}),
             readings: { ...previous?.readings, ...sample.instrumentReadings },
             ...(sample.measurementTimes?.position && sample.latitude !== null && sample.longitude !== null
                 ? { position: { lat: sample.latitude, lon: sample.longitude, at: sample.measurementTimes.position } }
@@ -607,6 +615,7 @@ class NmeaStoreClass {
     }
 
     private clearInstrumentEvidence(): void {
+        this.state.distanceLog = undefined;
         this.state.instrumentEvidence = undefined;
         this.state.measurementTimes = undefined;
     }

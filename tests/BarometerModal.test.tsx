@@ -63,6 +63,17 @@ const hourly = Array.from({ length: 13 }, (_, i) => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('BarometerModal controls', () => {
+    it('uses gateway sensor pressure without applying the phone offset or claiming a sea-level datum', () => {
+        const sample = { t: Date.now(), hpa: 1008 };
+        baro.offset = 100;
+        baro.boat = { source: 'gateway', samples: [sample], latest: sample, reason: null };
+        render(<BarometerModal isOpen onClose={() => {}} hourly={hourly as never} forecastPressure={1013.4} />);
+        expect(screen.getByText('GATEWAY')).toBeInTheDocument();
+        expect(screen.getByText('1008.0')).toBeInTheDocument();
+        expect(screen.getByText('SENSOR · reference not declared')).toBeInTheDocument();
+        expect(screen.queryByText('SET')).not.toBeInTheDocument();
+        expect(baro.calibrateTo).not.toHaveBeenCalled();
+    });
     it('shows the forecast reading with an honest source when there is no sensor', async () => {
         render(<BarometerModal isOpen onClose={() => {}} hourly={hourly as never} forecastPressure={1013.4} />);
         expect(screen.getByText('1013.4')).toBeInTheDocument();

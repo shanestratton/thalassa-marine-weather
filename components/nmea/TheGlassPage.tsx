@@ -1791,10 +1791,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                             it was a blank paragraph under the dial for
                                             VoiceOver to stop on (UX scorecard run 9). */}
                                             {(baro.source === 'boat' ||
+                                                baro.source === 'gateway' ||
                                                 baro.source === 'phone' ||
                                                 baroSetHand !== null) && (
                                                 <p className="text-[10px] font-bold text-gray-500">
                                                     {baro.source === 'boat' && 'Boat sensor'}
+                                                    {baro.source === 'gateway' &&
+                                                        `${baro.sourceLabel ?? 'Gateway'} · sensor pressure`}
                                                     {baro.source === 'phone' && 'This device'}
                                                     {baroSetHand !== null && ' · pale hand = 3 h ago'}
                                                 </p>
@@ -2007,6 +2010,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                             tone="text-white"
                                         />
                                     </div>
+                                    {state.distanceLog &&
+                                        nowMs - state.distanceLog.at >= -1000 &&
+                                        nowMs - state.distanceLog.at <= 13_000 && (
+                                            <p className="text-xs text-gray-400 text-center">
+                                                Gateway water log {state.distanceLog.totalNm?.toFixed(1) ?? '—'} NM ·
+                                                since reset {state.distanceLog.tripNm?.toFixed(1) ?? '—'} NM
+                                            </p>
+                                        )}
                                     <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
                                         <Sparkline
                                             history={sogChart.history}

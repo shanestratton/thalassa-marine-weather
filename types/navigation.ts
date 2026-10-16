@@ -229,11 +229,14 @@ export interface PolarData {
     matrix: number[][];
 }
 
-export type NmeaDepthSource = 'DBT' | 'DPT';
+export type NmeaDepthSource = 'DBT' | 'DPT' | 'PCDIN';
 export type NmeaDepthReference = 'below-transducer' | 'below-waterline' | 'below-keel';
 
 /** Raw NMEA instrument sample (emitted every 5s by NmeaListenerService) */
 export interface NmeaSample {
+    engineTelemetry?: import('../services/instruments/engineTelemetry').EngineTelemetry;
+    /** Receiver's water-referenced log, distinct from this app's SOG trip integration. */
+    distanceLog?: { totalNm: number | null; tripNm: number | null; reference: 'water'; at: number };
     /** Qualified per-sentence readings; absent from legacy samples. */
     instrumentReadings?: InstrumentEvidence['readings'];
     measurementTimes?: InstrumentMeasurementTimes;
