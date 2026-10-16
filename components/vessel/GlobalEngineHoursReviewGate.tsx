@@ -39,7 +39,11 @@ export function GlobalEngineHoursReviewGate() {
     if (!offer || !isAuthIdentityScopeCurrent(offer.scope)) return null;
     return (
         <Suspense fallback={null}>
-            <Sheet offer={offer} onClose={() => setOffer(null)} />
+            <Sheet
+                key={`${offer.scope.generation}:${offer.counter.voyageId}:${offer.counter.atMs}`}
+                offer={offer}
+                onClose={() => setOffer(null)}
+            />
         </Suspense>
     );
 }
