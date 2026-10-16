@@ -113,6 +113,7 @@ await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimatio
 for (const state of states) {
     state.field.setData(state.records);
     for (let frame = 1; frame <= (large ? 24 : 120); frame++) {
+        if (large) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         const callbacks = [...state.frames.values()];
         state.frames.clear();
         callbacks.forEach((callback) => callback(frame * 40));
