@@ -8,6 +8,7 @@ import { WakeKeeperStore } from './wakeKeeper/store.js';
 import {
     wakeHash,
     wakePairingId,
+    wakeEnrollmentRevision,
     type WakeBinding,
     type WakePairIdentity,
     type WakeConfigurationRequest,
@@ -360,4 +361,95 @@ test('an atomic external configuration revision is adopted on the next owned tic
     assert.equal(status.reason, 'off');
     assert.equal(status.proof, null);
     assert.equal(status.rules[1].active, false);
+});
+test('another currently enrolled phone can review/replace/clear the same owner/pair/feed using exact CAS and its own enrollment', async (t) => {
+    const f = await fixture(t),
+        other = {
+            ...device,
+            id: '00000000-0000-4000-8000-000000000004',
+            enrolledAt: new Date(start - 30_000).toISOString(),
+        };
+    f.data.devices.push(other);
+    const a = await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    const b = (await f.keeper.sensors(other)).binding!;
+    assert.equal(b.deviceId, other.id);
+    const seen = await f.keeper.status(other);
+    assert.equal(seen.configuration?.binding.deviceId, device.id);
+    assert.equal(seen.binding?.deviceId, other.id);
+    const clear = { schema: 1 as const, expectedRevision: a.revision, binding: b, rulesDigest: a.rulesDigest };
+    await assert.rejects(f.keeper.clear({ ...clear, expectedRevision: null }, other), { code: 'conflict' });
+    await assert.rejects(f.keeper.clear({ ...clear, rulesDigest: '0'.repeat(64) }, other), { code: 'conflict' });
+    await assert.rejects(f.keeper.clear({ ...clear, binding: { ...b, feedId: b.feedId.replace(/.$/, '0') } }, other), {
+        code: 'conflict',
+    });
+    await assert.rejects(
+        f.keeper.clear(
+            {
+                ...clear,
+                binding: {
+                    ...b,
+                    enrollmentRevision: wakeEnrollmentRevision({ ...other, enrolledAt: new Date(start).toISOString() }),
+                },
+            },
+            other,
+        ),
+        { code: 'binding' },
+    );
+    await assert.rejects(f.keeper.clear({ ...clear, binding: f.binding }, other), { code: 'binding' });
+    for (const altered of [
+        { ...b, ownerId: '00000000-0000-4000-8000-000000000099' },
+        {
+            ...b,
+            piDeviceId: '00000000-0000-4000-8000-000000000098',
+            feedId: 'pi:00000000-0000-4000-8000-000000000098:' + 'a'.repeat(24),
+        },
+        { ...b, pairingId: 'b'.repeat(64) },
+    ])
+        await assert.rejects(f.keeper.clear({ ...clear, binding: altered }, other), { code: 'binding' });
+    await f.keeper.clear(clear, other);
+    assert.equal(await f.store.load(), null);
+    const armedAgain = await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    const replacement = await f.keeper.configure(request(b, undefined, armedAgain.revision), other);
+    assert.equal(replacement.binding.deviceId, other.id);
+    f.data.devices = f.data.devices.filter((d) => d.id !== other.id);
+    await assert.rejects(
+        f.keeper.clear(
+            { schema: 1, expectedRevision: replacement.revision, binding: b, rulesDigest: replacement.rulesDigest },
+            other,
+        ),
+        { code: 'binding' },
+    );
+    assert.equal((await f.store.load())?.revision, replacement.revision);
+});
+test('a rejected CAS cannot clear an existing active rule or restart its confirmation history', async (t) => {
+    const f = await fixture(t),
+        body = request(f.binding, 'wind-above');
+    body.rules[1].minimumDurationMs = 0;
+    body.rulesDigest = wakeHash(wakeRulesCanonical(body.rules, 2));
+    const saved = await f.keeper.configure(body, device);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    const before = await f.keeper.status(device);
+    assert.equal(before.rules[1].active, true);
+    await assert.rejects(f.keeper.configure({ ...body, expectedRevision: null }, device), { code: 'conflict' });
+    let status = await f.keeper.status(device);
+    assert.equal(status.rules[1].active, true);
+    assert.equal(status.rules[1].lastAt, before.rules[1].lastAt);
+    assert.equal(status.proof, null);
+    await assert.rejects(
+        f.keeper.clear(
+            { schema: 1, expectedRevision: null, binding: f.binding, rulesDigest: saved.rulesDigest },
+            device,
+        ),
+        { code: 'conflict' },
+    );
+    status = await f.keeper.status(device);
+    assert.equal(status.rules[1].active, true);
+    assert.equal(status.configuration?.revision, saved.revision);
+    f.data.now += 1000;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    assert.equal((await f.keeper.status(device)).rules[1].active, true);
+    assert.ok((await f.keeper.status(device)).proof);
 });

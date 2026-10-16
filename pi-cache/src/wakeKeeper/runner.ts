@@ -15,7 +15,6 @@ import {
     parseWakeConfigurationRequest,
     parseWakeClearRequest,
     validWakePair,
-    wakeBindingKey,
     wakeEnrollmentRevision,
     wakeFeedId,
     wakePairKey,
@@ -88,6 +87,14 @@ export class PiWakeKeeper {
         this.proof = null;
         this.proofUntil = 0;
         if (clearDocument) this.document = null;
+    }
+    private freezeMutation(): void {
+        this.mutations++;
+        this.epoch++;
+        this.proof = null;
+        this.proofUntil = 0;
+        // A rejected CAS is not a source measurement or a configuration change.
+        // Preserve active/confirmation/history state until a change commits.
     }
     private initialize(): Promise<void> {
         return (this.loadPromise ??= this.deps.store.load().then(
@@ -468,8 +475,7 @@ export class PiWakeKeeper {
             )
                 throw new WakeKeeperError('binding');
         }
-        this.mutations++;
-        this.retire();
+        this.freezeMutation();
         try {
             const config = await this.deps.store.configure(
                 request,
@@ -497,11 +503,10 @@ export class PiWakeKeeper {
         if (
             old &&
             wakePairKey(old.binding) === wakePairKey(request.binding) &&
-            (old.rulesDigest !== request.rulesDigest || wakeBindingKey(old.binding) !== wakeBindingKey(request.binding))
+            (old.rulesDigest !== request.rulesDigest || old.binding.feedId !== request.binding.feedId)
         )
             throw new WakeKeeperError('conflict');
-        this.mutations++;
-        this.retire();
+        this.freezeMutation();
         try {
             await this.deps.store.clear(request.binding, request.expectedRevision, () =>
                 this.current(request.binding, false),
