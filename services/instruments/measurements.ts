@@ -31,7 +31,7 @@ export interface InstrumentEvidence {
     /** One boat/feed generation; never combine values from another boat or account. */
     identity: string;
     /** Stable configured vessel identity for the voyage meter; session identity still fences live samples. */
-    meterIdentity?: string;
+    meterIdentity?: string | null;
     via: 'gateway' | 'lan' | 'cloud' | 'signalk';
     readings: Partial<Record<Exclude<InstrumentMeasurementKey, 'position'>, InstrumentReading>>;
     position?: { lat: number; lon: number; at: number };
@@ -122,20 +122,27 @@ export function unpackInstrumentTimes(
     }
 }
 
-export function unpackRpmSource(value: unknown): { rpmEngineCount: number; rpmEngineId?: string } | null {
+export function unpackRpmSource(
+    value: unknown,
+): { rpmEngineCount: number; rpmEngineId?: string; rpmVesselKey?: string } | null {
     if (typeof value !== 'string' || value.length > 120) return null;
     try {
         const row: unknown = JSON.parse(value);
         if (
             !Array.isArray(row) ||
-            row.length !== 2 ||
+            ![2, 3].includes(row.length) ||
+            (row.length === 3 && (typeof row[2] !== 'string' || !/^[a-f0-9]{24}$/.test(row[2]))) ||
             !Number.isInteger(row[0]) ||
             row[0] < 1 ||
             row[0] > 32 ||
             !(row[1] === null || (typeof row[1] === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(row[1])))
         )
             return null;
-        return { rpmEngineCount: row[0], ...(row[1] !== null ? { rpmEngineId: row[1] } : {}) };
+        return {
+            rpmEngineCount: row[0],
+            ...(row[1] !== null ? { rpmEngineId: row[1] } : {}),
+            ...(row.length === 3 ? { rpmVesselKey: row[2] } : {}),
+        };
     } catch {
         return null;
     }

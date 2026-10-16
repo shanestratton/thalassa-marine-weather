@@ -41,7 +41,12 @@ export function remoteInstrumentEvidence(snapshot: RemoteInstrumentSnapshot): In
     return {
         ...(snapshot.engineTelemetry ? { engine: snapshot.engineTelemetry } : {}),
         identity: snapshot.windHistoryIdentity ?? `remote:${snapshot.source}:${snapshot.deviceLabel ?? 'unknown'}`,
-        ...(snapshot.meterIdentity ? { meterIdentity: snapshot.meterIdentity } : {}),
+        meterIdentity:
+            snapshot.via === 'signalk'
+                ? (snapshot.meterIdentity ?? null)
+                : snapshot.source === 'pi' && snapshot.rpmVesselKey
+                  ? `signalk-vessel:${snapshot.rpmVesselKey}`
+                  : null,
         via: snapshot.via ?? 'cloud',
         readings,
         ...(typeof times.position === 'number' &&

@@ -163,7 +163,15 @@ it('a magnetic wind direction is never relabelled true, and invalid RPM status n
 });
 
 it('the fully populated actual supplement/history/AIS path preserves every scalar through the existing relay bounds', () => {
-    const d: { navigation: Record<string, unknown>; environment: Record<string, unknown>; propulsion: unknown } = doc();
+    const d: {
+        uuid: string;
+        navigation: Record<string, unknown>;
+        environment: Record<string, unknown>;
+        propulsion: unknown;
+    } = {
+        uuid: 'urn:mrn:signalk:uuid:fictional-full-pipeline',
+        ...doc(),
+    };
     const propulsion = d.propulsion as { main: Record<string, unknown> };
     Object.assign(propulsion.main, {
         runTime: leaf(36000),
@@ -214,10 +222,12 @@ it('the fully populated actual supplement/history/AIS path preserves every scala
     expect(String(extra.instrument_times_v1).length).toBeLessThanOrEqual(120);
     expect(String(extra.engine_metrics_v1).length).toBeLessThanOrEqual(120);
     expect(extra.engine_metrics_v1).toBeDefined();
+    expect(JSON.parse(String(extra.engine_metrics_v1))[0]).toBe(2);
     const parsed = parseTelemetryBody(body, NOW);
     if (!parsed.ok) throw Error(parsed.error);
     expect(parsed.row.extra).toEqual(extra);
     expect(snapshotFromWire({ ...parsed.row }, 'lan')!.snapshot.measurementTimes?.rpm).toBe(NOW - 2000);
+    expect(snapshotFromWire({ ...parsed.row }, 'lan')!.snapshot.rpmVesselKey).toMatch(/^[a-f0-9]{24}$/);
     expect(unpackInstrumentTimes(extra.instrument_times_v1)?.leewayDeg).toBeCloseTo((-0.03 * 180) / Math.PI, 5);
 });
 it.each(['[]', '[1,2,3,4,5,6,0,null]', '[1,2,3,4,5,6,30,7]', '[1,2,3,4,5,"6",null,null]', 'x'.repeat(121)])(

@@ -25,6 +25,8 @@
  *            pressure fields. Other boats will have it.
  */
 
+import { createHash } from 'node:crypto';
+import { validSignalKSelf } from './signalkProtocol.js';
 import { fetchSelfDocument, type BroadcastDeps } from './anchorBroadcaster.js';
 import { readSystemsExtra } from './systemsTelemetry.js';
 import { DEFAULT_TRACK_RULES, type TrackFix } from './trackRecorder.js';
@@ -335,6 +337,10 @@ export function readQualifiedRpm(
 }
 
 /** Only one identified engine qualifies these meters; no mixing values across propulsion children. */
+function engineVesselKey(doc: unknown): string | undefined {
+    const self = valueAt(doc, 'uuid');
+    return validSignalKSelf(self) ? createHash('sha256').update(self).digest('hex').slice(0, 24) : undefined;
+}
 export function readEngineMetrics(doc: unknown, now: number): string | null {
     const rpm = readQualifiedRpm(doc, now);
     if (rpm?.engineCount !== 1 || !rpm.engineId) return null;
@@ -366,11 +372,13 @@ export function readEngineMetrics(doc: unknown, now: number): string | null {
     const clocks = rows.flatMap((row) => (row ? [row.at] : []));
     if (!clocks.length) return null;
     const base = Math.max(...clocks);
+    const vesselKey = engineVesselKey(doc);
     const packed = JSON.stringify([
-        1,
+        vesselKey ? 2 : 1,
         rpm.engineId,
         base,
         ...rows.flatMap((row) => (row ? [row.value, base - row.at] : [null, null])),
+        ...(vesselKey ? [vesselKey] : []),
     ]);
     return packed.length <= 120 ? packed : null;
 }
@@ -643,6 +651,7 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
     const instrumentTimes = readPackedInstrumentTimes(selfDocument, nowMs);
     const rpmSource = readQualifiedRpm(selfDocument, nowMs);
     const engineMetrics = readEngineMetrics(selfDocument, nowMs);
+    const vesselKey = engineVesselKey(selfDocument);
     const extra: Record<string, number | string> = {
         // First among the snapshot's keys: the relay keeps the first 40 only.
         ...(busAt !== null ? { bus_at_ms: busAt } : {}),
@@ -650,7 +659,13 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
         ...readTrueHeadingExtra(selfDocument, nowMs),
         ...(instrumentTimes ? { instrument_times_v1: instrumentTimes } : {}),
         ...(rpmSource?.engineCount && !engineMetrics
-            ? { instrument_rpm_source_v1: JSON.stringify([rpmSource.engineCount, rpmSource.engineId ?? null]) }
+            ? {
+                  instrument_rpm_source_v1: JSON.stringify([
+                      rpmSource.engineCount,
+                      rpmSource.engineId ?? null,
+                      ...(vesselKey ? [vesselKey] : []),
+                  ]),
+              }
             : {}),
         ...(engineMetrics ? { engine_metrics_v1: engineMetrics } : {}),
     };

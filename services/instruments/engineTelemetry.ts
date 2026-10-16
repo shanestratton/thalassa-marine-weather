@@ -5,6 +5,7 @@ export interface EngineMetric {
 }
 export interface EngineTelemetry {
     engineId: string;
+    vesselKey?: string;
     runTime?: EngineMetric;
     coolant?: EngineMetric;
     oilPressure?: EngineMetric;
@@ -15,8 +16,10 @@ export function parseEngineTelemetry(raw: unknown, now: number): EngineTelemetry
         const row: unknown = JSON.parse(raw);
         if (
             !Array.isArray(row) ||
-            row.length !== 9 ||
-            row[0] !== 1 ||
+            !(
+                (row.length === 9 && row[0] === 1) ||
+                (row.length === 10 && row[0] === 2 && typeof row[9] === 'string' && /^[a-f0-9]{24}$/.test(row[9]))
+            ) ||
             typeof row[1] !== 'string' ||
             !/^[A-Za-z0-9_.-]{1,64}$/.test(row[1]) ||
             !Number.isSafeInteger(row[2]) ||
@@ -25,6 +28,7 @@ export function parseEngineTelemetry(raw: unknown, now: number): EngineTelemetry
         )
             return undefined;
         const result: EngineTelemetry = { engineId: row[1] };
+        if (row[0] === 2) result.vesselKey = row[9];
         const fields = [
             ['runTime', 0, 3_153_600_000],
             ['coolant', -60, 200],
@@ -50,7 +54,7 @@ export function parseEngineTelemetry(raw: unknown, now: number): EngineTelemetry
             if (at <= 0) return undefined;
             result[key] = { value, at };
         }
-        return Object.keys(result).length > 1 ? result : undefined;
+        return fields.some(([key]) => result[key] !== undefined) ? result : undefined;
     } catch {
         return undefined;
     }
