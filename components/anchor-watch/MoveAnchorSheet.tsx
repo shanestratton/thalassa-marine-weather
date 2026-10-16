@@ -136,6 +136,7 @@ import { SwingCircleCanvas, type SwingCanvasModel } from './SwingCircleCanvas';
 import type { AnchorDragHandlers } from './anchorDrag';
 import { bearingToCardinal } from './anchorUtils';
 import { HoldingGroundText, useHoldingGroundAdvice } from './HoldingGroundNote';
+import type { AnchorSafeZone } from '../../utils/anchorSafeZone';
 
 // The heading rule is shared with the watch itself (126-07c): utils/trueHeading.ts.
 export { freshTrueHeading, HEADING_PREFILL_MAX_AGE_MS };
@@ -260,6 +261,7 @@ export function planAnchorMove(
 
 /** The watch the Pi keeps, as Shore Watch hears it from the Pi (126-07a). */
 export interface PiMoveSource {
+    safeZone?: AnchorSafeZone | null;
     /** Where the Pi is watching now, from its latest report. */
     anchor: LatLonPoint;
     /** The boat as the Pi last reported her. */
@@ -297,6 +299,7 @@ export type MoveAnchorSheetProps = SheetCallbacks &
               pi: PiMoveSource;
               /** Sends the new point to the Pi (the page wires it to the keeper). */
               onPiMove: (lat: number, lon: number) => Promise<PiMoveResult>;
+              onPiClearSafeArea?: () => Promise<{ ok: true } | { ok: false; error: string }>;
           }
     );
 
@@ -330,6 +333,7 @@ const PI_IDLE: PiPhase = { kind: 'idle' };
 function piCanvasModel(pi: PiMoveSource): SwingCanvasModel {
     return {
         state: pi.alarm ? 'alarm' : 'watching',
+        safeZone: pi.safeZone,
         anchorPosition: { latitude: pi.anchor.latitude, longitude: pi.anchor.longitude },
         vesselPosition: pi.boatFix && { latitude: pi.boatFix.latitude, longitude: pi.boatFix.longitude },
         swingRadius: pi.swingRadius,
@@ -427,6 +431,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const fromAlarm = props.mode === 'alarm';
     const pi = props.mode === 'pi' ? props.pi : null;
     const snapshot = props.mode === 'pi' ? null : props.snapshot;
+    const customArea = snapshot?.safeZone ?? pi?.safeZone;
     const unit: LengthUnit = useSettingsStore((state) => (state.settings.units?.length === 'ft' ? 'ft' : 'm'));
     // Settings → Vessel → Dimensions: the boat's GPS antenna aft of the bow (126-07c).
     const antennaM = useSettingsStore((state) => gpsToBowMetres(state.settings.vessel));
@@ -485,7 +490,12 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const [error, setError] = useState<string | null>(null);
     const [zoneToken, setZoneToken] = useState<string | null>(null);
     const [zoneCleared, setZoneCleared] = useState(false);
+    const areaKey = JSON.stringify([customArea, snapshot?.watchStartedAt, pi?.anchor, pi?.swingRadius]);
+    const areaKeyRef = useRef(areaKey);
+    areaKeyRef.current = areaKey;
     useEffect(() => {
+        setZoneCleared(false);
+        setZoneToken(null);
         if (!snapshot?.safeZone) return;
         let live = true;
         void AnchorWatchService.getSafeZoneEditToken().then((token) => {
@@ -494,7 +504,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         return () => {
             live = false;
         };
-    }, [snapshot?.safeZone]);
+    }, [areaKey, snapshot?.safeZone]);
     // 126-07d: the last chart-area answer, and the point it was about.
     const [area, setArea] = useState<{ at: { lat: number; lon: number }; check: AnchorAreaCheck } | null>(null);
     const areaAskedRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -649,6 +659,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         !fixStale &&
         !busy &&
         !drag &&
+        (!customArea || zoneCleared) &&
         (!fromAlarm || !!verdict?.ok) &&
         (!pi || (!!piVerdict?.ok && !piAwaiting && piPhase.kind !== 'moved'));
     // Too early, or a track this phone did not see: no point would pass, so how
@@ -1008,7 +1019,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                             {error}
                         </p>
                     )}
-                    {snapshot?.safeZone && !zoneCleared && (
+                    {customArea && !zoneCleared && (
                         <div className="space-y-1 rounded-lg border border-cyan-500/40 p-2 text-sm">
                             <p>
                                 The custom safe area will not move with the mark. Clear it explicitly to return to the
@@ -1016,14 +1027,19 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                             </p>
                             <button
                                 type="button"
-                                disabled={busy || !zoneToken}
+                                disabled={busy || (props.mode === 'pi' ? !props.onPiClearSafeArea : !zoneToken)}
                                 className="min-h-11 w-full rounded-lg border border-cyan-300 px-2 font-bold"
                                 onClick={async () => {
-                                    if (!zoneToken) return;
+                                    if (props.mode === 'pi' ? !props.onPiClearSafeArea : !zoneToken) return;
+                                    const reviewedAreaKey = areaKey;
                                     setBusy(true);
                                     setError(null);
                                     try {
-                                        const result = await AnchorWatchService.clearSafeZoneForMove(zoneToken);
+                                        const result =
+                                            props.mode === 'pi'
+                                                ? await props.onPiClearSafeArea!()
+                                                : await AnchorWatchService.clearSafeZoneForMove(zoneToken!);
+                                        if (areaKeyRef.current !== reviewedAreaKey) return;
                                         if (result.ok) setZoneCleared(true);
                                         else setError(result.error);
                                     } catch (caught) {

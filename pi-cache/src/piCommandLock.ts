@@ -77,6 +77,9 @@ export type PiRouteClass = 'read' | 'raise' | 'command';
 export type PiLockMode = 'observe' | 'enforce';
 
 export interface AnchorWatchFact {
+    safeZone?: unknown;
+    safeAreaRevision?: string;
+    safeAreaVesselId?: string | null;
     sessionCode: string;
     anchorLat: number;
     anchorLon: number;
@@ -125,7 +128,10 @@ function anchorWatchClass(body: unknown, facts: PiRouteFacts): PiRouteClass {
         b.sessionCode.trim() === running.sessionCode &&
         Number(b.anchorLat) === running.anchorLat &&
         Number(b.anchorLon) === running.anchorLon &&
-        Number(b.swingRadius) === running.swingRadius;
+        Number(b.swingRadius) === running.swingRadius &&
+        JSON.stringify(b.safeZone ?? null) === JSON.stringify(running.safeZone ?? null) &&
+        (b.safeAreaRevision ?? null) === (running.safeAreaRevision ?? null) &&
+        (b.safeAreaVesselId ?? null) === (running.safeAreaVesselId ?? null);
     return unchanged ? 'raise' : 'command';
 }
 

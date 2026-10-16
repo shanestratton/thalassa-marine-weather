@@ -43,6 +43,8 @@ export interface SyncState {
 }
 
 export interface PositionBroadcast {
+    safeAreaRevision?: string;
+    safeAreaVesselId?: string | null;
     safeZone?: AnchorSafeZone | null;
     /** Present only when the current publisher actually applies the shared area rule. */
     safeZoneWatch?: 'phone' | 'pi';

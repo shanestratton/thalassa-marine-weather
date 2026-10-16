@@ -863,21 +863,53 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             toast.error('The anchor position is not settled yet — try again in a moment.');
             return;
         }
-        if (snap.safeZone) {
-            toast.error(
-                'This Pi handoff watches the circle. Keep this phone watching the custom area, or explicitly choose circle only in Safe area before handing over.',
-            );
-            return;
-        }
         setPiHandoffBusy(true);
         try {
+            const frameKey = JSON.stringify([
+                snap.state,
+                snap.watchStartedAt,
+                snap.anchorPosition,
+                snap.swingRadius,
+                snap.safeZone ?? null,
+            ]);
+            const zoneToken = snap.safeZone !== undefined ? await AnchorWatchService.getSafeZoneEditToken() : null;
+            const current = async () => {
+                if (!zoneToken) return true;
+                const now = AnchorWatchService.getSnapshot();
+                return (
+                    frameKey ===
+                        JSON.stringify([
+                            now.state,
+                            now.watchStartedAt,
+                            now.anchorPosition,
+                            now.swingRadius,
+                            now.safeZone ?? null,
+                        ]) && zoneToken === (await AnchorWatchService.getSafeZoneEditToken())
+                );
+            };
+            let boundaryProtocol = false;
+            if (snap.safeZone !== undefined) {
+                const capability = await probePiWatchCapability();
+                boundaryProtocol = capability.safeZoneVersion === 1;
+                if (snap.safeZone && !boundaryProtocol) {
+                    toast.error(
+                        'This Pi watches the circle. Keep the custom-area watch on this phone, or explicitly choose Circle only in Area before handing over.',
+                    );
+                    return;
+                }
+                if (!(await current())) {
+                    toast.error('The watch changed. Review the handoff again.');
+                    return;
+                }
+            }
             const code = syncState?.sessionCode ?? (await AnchorWatchSyncService.createSession());
             if (!code) {
                 toast.error('Could not start a shore-watch session — check your connection.');
                 return;
             }
             const askedAt = Date.now();
-            const took = await AnchorPiWatchKeeper.begin({
+            const assignment = {
+                ...(boundaryProtocol ? { safeZone: snap.safeZone ?? null } : {}),
                 sessionCode: code,
                 anchorLat: anchor.latitude,
                 anchorLon: anchor.longitude,
@@ -886,7 +918,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 // skipper actually set. The Pi cannot know either.
                 rodeLength: snap.config?.rodeLength,
                 waterDepth: snap.config?.waterDepth,
-            });
+            };
+            const took = boundaryProtocol
+                ? await AnchorPiWatchKeeper.begin(assignment, { isCurrent: current })
+                : await AnchorPiWatchKeeper.begin(assignment);
             if (!took) {
                 // Her Pi takes a watch only from her own devices while it keeps one (129-12): in its words.
                 const refused = piCommandRefusalWords(Date.now(), askedAt);
@@ -894,6 +929,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     refused
                         ? `${refused} This phone is still keeping the watch.`
                         : 'The Pi would not take the watch — this phone is still keeping it.',
+                );
+                return;
+            }
+            if (!(await current())) {
+                toast.error(
+                    'The Pi assignment needs review; this phone watch was kept because the watch context changed.',
                 );
                 return;
             }
@@ -1666,6 +1707,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             showPiMove && canMovePiAnchor && shoreData
                 ? {
                       anchor: { latitude: shoreData.anchor.latitude, longitude: shoreData.anchor.longitude },
+                      safeZone: shoreData.safeZone,
                       boatFix: shoreData.vessel,
                       swingRadius: shoreData.swingRadius,
                       rodeLength: shoreData.config?.rodeLength,
@@ -1855,6 +1897,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         mode="pi"
                         pi={piMoveSource}
                         onPiMove={handlePiMove}
+                        onPiClearSafeArea={() =>
+                            AnchorPiWatchKeeper.clearSafeArea({
+                                boatFix: shoreData?.vessel ?? null,
+                                alarm: shoreStatusIsAlarm,
+                                gpsLost: shoreGpsLost,
+                            })
+                        }
                         onClose={() => setShowPiMove(false)}
                         onMoved={handlePiMoved}
                     />

@@ -2,6 +2,8 @@
 
 This source checkpoint builds on the canonical geometry rule in `506c8c455`. It adds an explicit manual editor, phone alarm adoption and recovery, Shore Watch drawing, and bounded drawing on the compiled Watch target. Pi assignment/relay storage and the held database contract follow as a separate source checkpoint; this is not complete build 139-06 release acceptance.
 
+The later [staged transport checkpoint](anchor-safe-area-transport.md) adds compatible Pi handoff and the held relay contract. The circle-only Pi limitation described below records this phone checkpoint's state; the later source requires an exact new-protocol acknowledgement before handoff.
+
 ## Manual boundary and recovery
 
 The existing anchor radar has an **Area** control. The lazy sheet supports finger/tap polygon corners and up to eight true-bearing exclusion wedges. All geometry goes through the canonical parser; no chart data is read or copied. The explicit **Use area** action requires a recent boat fix inside the proposed area. **Circle only** explicitly removes a custom boundary. The circle remains the native backstop.
