@@ -45,12 +45,14 @@ import {
 import {
     GLAZE_MIN_ZOOM,
     getMergedVectorData,
+    getDisplayCoverage,
     hasAnyDisplayCells,
     setMergeInteractionProbe,
     subscribe as subscribeToEnc,
     subscribeGeometryUpgrades,
     type EncMergedVectorData,
 } from '../../services/enc/EncHazardService';
+import { clearMergedData } from '../../services/enc/mergedDataCache';
 import { encDisplayScale, ENC_MERGE_MIN_ZOOM } from './encDisplayScale';
 import { setEncDisplayState } from './encDisplayState';
 import { chartTurning } from './chartOrientation';
@@ -108,6 +110,8 @@ export function windowFor(map: mapboxgl.Map, plotting = false): Bbox {
  * load) is one wasted time-sliced merge.
  */
 export function prewarmEncMerge(map: mapboxgl.Map): void {
+    // Public packages require the displayed cohort to detach before admission.
+    if (getDisplayCoverage().some((cell) => cell.noaaPackage)) return;
     try {
         if (map.getZoom() < ENC_MERGE_MIN_ZOOM || !hasAnyDisplayCells()) return;
         const now = Date.now();
@@ -171,6 +175,7 @@ export function useEncVectorLayer(
      *  re-merges once the view actually escapes them. */
     const mergedWindowRef = useRef<Bbox | null>(null);
     const mergedZoomRef = useRef(0);
+    const packageAppliedRef = useRef(false);
     /** The exact merged-data object last pushed to Mapbox. The merge
      *  cache is selection-keyed, so window escapes and zoom crossings
      *  over the SAME cell set return the identical object — re-running
@@ -429,6 +434,26 @@ export function useEncVectorLayer(
 
             try {
                 const win = windowFor(map, plotting);
+                const packageView = getDisplayCoverage().some(
+                    (cell) =>
+                        cell.noaaPackage &&
+                        cell.bbox[0] <= win[2] &&
+                        cell.bbox[2] >= win[0] &&
+                        cell.bbox[1] <= win[3] &&
+                        cell.bbox[3] >= win[1],
+                );
+                if (packageView || packageAppliedRef.current) {
+                    // Clear the Mapbox source and our borrowed reference before
+                    // the service releases the old package lease/adopts new parts.
+                    if (mountedRef.current) {
+                        detachEncFeatureClickHandlers(map);
+                        unmountEncVectorLayer(map);
+                        mountedRef.current = false;
+                    }
+                    lastAppliedRef.current = null;
+                    clearMergedData();
+                    packageAppliedRef.current = false;
+                }
                 report('loading');
                 log.info(
                     `[apply] merge start z=${map.getZoom().toFixed(1)} win=${win.map((v) => v.toFixed(2)).join(',')}`,
@@ -477,6 +502,7 @@ export function useEncVectorLayer(
                     mountedRef.current = true;
                 }
                 lastAppliedRef.current = data;
+                packageAppliedRef.current = packageView;
                 setEncOverviewMode(map, scale.overview);
                 // Always-on by default — explicit toggle from the FAB flips it.
                 setEncVectorVisibility(map, visible);

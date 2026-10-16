@@ -177,10 +177,11 @@ async function saveCache(value: Cache, scope: AuthIdentityScope): Promise<void> 
 export async function savedNoaaDownloads(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<NoaaDownload[]> {
     const { value } = await Preferences.get({ key: key(DOWNLOAD_KEY, scope) });
     current(scope);
-    if (!value || value.length > 32 * 1024) return [];
+    if (!value) return [];
+    if (value.length > 32 * 1024) throw Error('Saved NOAA storage index exceeds its bound.');
     try {
         const rows: unknown = JSON.parse(value);
-        if (!Array.isArray(rows) || rows.length > 32) return [];
+        if (!Array.isArray(rows) || rows.length > 32) throw Error('Invalid saved NOAA storage index.');
         const prefix = await archivePrefix(scope);
         if (
             rows.some(
@@ -199,6 +200,7 @@ export async function savedNoaaDownloads(scope: AuthIdentityScope = getAuthIdent
                     !Number.isInteger(r.bytes) ||
                     r.bytes < 1 ||
                     r.bytes > ARCHIVE_CAP ||
+                    (r.packages === undefined && r.bytes > 32 * 1024 * 1024) ||
                     (r.packages !== undefined &&
                         (!Array.isArray(r.packages) ||
                             r.packages.length > 32 ||
@@ -223,11 +225,12 @@ export async function savedNoaaDownloads(scope: AuthIdentityScope = getAuthIdent
             rows.reduce((n, row) => n + row.bytes, 0) > ARCHIVE_CAP ||
             new Set(rows.map((r) => r.zipSha256)).size !== rows.length
         )
-            return [];
+            throw Error('Invalid saved NOAA storage reservation.');
         current(scope);
         return rows as NoaaDownload[];
     } catch {
-        return [];
+        current(scope);
+        throw Error('Saved NOAA storage reservations could not be verified.');
     }
 }
 async function saveDownloads(rows: NoaaDownload[], scope: AuthIdentityScope): Promise<void> {
@@ -506,13 +509,18 @@ export function removeNoaaDownload(record: NoaaDownload): Promise<void> {
         try {
             await Filesystem.deleteFile({ path: held.path, directory: directory() });
         } catch (error) {
-            // A reserved original-only record may correspond to a write that
-            // never completed. Confirm absence; other I/O failures keep quota.
-            const exists = await Filesystem.stat({ path: held.path, directory: directory() }).then(
-                () => true,
-                () => false,
-            );
-            if (exists) throw error;
+            // Unknown I/O is not proof of absence: keep the reservation.
+            try {
+                await Filesystem.stat({ path: held.path, directory: directory() });
+            } catch (statError) {
+                if (!/not exist|ENOENT|File does not exist/i.test(String(statError))) throw statError;
+                await saveDownloads(
+                    rows.filter((row) => row !== held),
+                    scope,
+                );
+                return;
+            }
+            throw error;
         }
         await saveDownloads(
             rows.filter((row) => row !== held),

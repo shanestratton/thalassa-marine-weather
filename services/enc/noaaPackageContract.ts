@@ -178,10 +178,12 @@ export function parseNoaaPackage(value: unknown): NoaaPackage {
             return fail();
         hashes.add(part.sha256);
         bytes += part.bytes;
+        const layersInPart = new Set<string>();
         for (const raw of part.spans) {
             const s = obj(raw);
             if (
                 typeof s.layer !== 'string' ||
+                layersInPart.has(s.layer) ||
                 !counts.has(s.layer) ||
                 s.first !== next.get(s.layer) ||
                 !int(s.count, 250000) ||
@@ -190,6 +192,7 @@ export function parseNoaaPackage(value: unknown): NoaaPackage {
                 return fail();
             const end = (s.first as number) + s.count;
             if (end > counts.get(s.layer)!) return fail();
+            layersInPart.add(s.layer);
             next.set(s.layer, end);
             features += s.count;
         }

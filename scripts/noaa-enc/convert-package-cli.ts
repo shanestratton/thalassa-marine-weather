@@ -2,6 +2,7 @@
  * Server artifact only; no provider fetch or publisher access. */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { convertOneCell } from '../../pi-cache/src/s57Converter.js';
 import { partitionNoaaRecords } from './partition-records';
 import type { EncConversionResult } from '../../services/enc/types';
@@ -17,8 +18,9 @@ if (
 )
     throw Error('Pass official cell.000, new output directory, edition, update, retained ZIP SHA256.');
 await fs.mkdir(output, { recursive: false });
-const work = await fs.mkdtemp(path.join(output, '.convert-'));
-if (path.dirname(path.resolve(work)) !== path.resolve(output) || !path.basename(work).startsWith('.convert-'))
+const temporaryRoot = path.resolve(tmpdir());
+const work = await fs.mkdtemp(path.join(temporaryRoot, 'noaa-package-'));
+if (path.dirname(path.resolve(work)) !== temporaryRoot || !path.basename(work).startsWith('noaa-package-'))
     throw Error('Unsafe owned temporary directory.');
 try {
     const converted = await convertOneCell(path.resolve(input), work, { strictMetadata: true });
@@ -32,6 +34,8 @@ try {
     )
         throw Error('Official source identity/count differs from reviewed catalogue.');
     const result = partitionNoaaRecords(source, zipSha256);
+    if (result.manifest.bytes + Buffer.byteLength(JSON.stringify(result.manifest)) > 128 * 1024 * 1024)
+        throw Error('NOAA package output exceeds its total bound.');
     for (let i = 0; i < result.parts.length; i++)
         await fs.writeFile(path.join(output, `${result.manifest.parts[i].sha256}.json`), result.parts[i], {
             flag: 'wx',

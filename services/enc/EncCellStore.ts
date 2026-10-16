@@ -28,6 +28,7 @@
  *  - clearAllGeoJSON()             → delete the entire directory
  */
 
+import { clearMergedData, mergedPinnedBytes } from './mergedDataCache';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
@@ -35,7 +36,7 @@ import { createLogger } from '../../utils/createLogger';
 import { prepareChartStore, purgeWebDiskCache } from '../nativeStorage';
 import * as vault from './boatCellVault';
 import { chartLicenceOf, isOpenChartCell } from './chartLicence';
-import { listRegisteredCells, putCell } from './EncCellMetadata';
+import { getRegisteredCell, listRegisteredCells, putCell } from './EncCellMetadata';
 import type { ChartLicence, EncConversionResult } from './types';
 import {
     canonicalEncCellId,
@@ -271,6 +272,8 @@ const BLOB_CACHE_MAX = 128;
 const BLOB_CACHE_MAX_BYTES = 48 * 1024 * 1024; // JSON text — heap ≈ few ×
 const BLOB_CACHE_MIN_KEEP = 4;
 let blobCacheBytes = 0;
+const packageResident = new Map<symbol, number>();
+const packageBytes = (): number => [...packageResident.values()].reduce((a, b) => a + b, 0);
 
 /**
  * The budget while the skipper is PLOTTING. 2026-08-09, from Shane's log
@@ -312,8 +315,17 @@ let blobBudgetBytes = BLOB_CACHE_MAX_BYTES;
  * back BEFORE the skipper starts drawing.
  */
 export function setBlobCachePlottingMode(plotting: boolean): void {
+    clearMergedData();
     blobBudgetBytes = plotting ? BLOB_CACHE_PLOTTING_BYTES : BLOB_CACHE_MAX_BYTES;
-    while (shouldEvictBlob(blobCache.size, blobCacheBytes, BLOB_CACHE_MAX, blobBudgetBytes)) {
+    while (
+        shouldEvictBlob(
+            blobCache.size,
+            blobCacheBytes,
+            BLOB_CACHE_MAX,
+            Math.max(0, blobBudgetBytes - packageBytes() - (packageResident.size ? mergedPinnedBytes() : 0)),
+            packageResident.size ? 0 : BLOB_CACHE_MIN_KEEP,
+        )
+    ) {
         const oldest = blobCache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         dropBlob(oldest);
@@ -336,6 +348,38 @@ export function releaseBlobCache(): number {
         dropped += 1;
     }
     return dropped;
+}
+
+/** A package lease counts retained view geometry AND its one-part decode
+ * transient against the SAME byte budget. It never gets a min-entry bypass.
+ * Callers release only after borrowed indexes/merged geometry are detached. */
+export function reserveNoaaResident(initialBytes: number): { resize: (bytes: number) => void; release: () => void } {
+    const token = Symbol();
+    const resize = (bytes: number): void => {
+        if (
+            !Number.isSafeInteger(bytes) ||
+            bytes < 0 ||
+            bytes > 16 * 1024 * 1024 ||
+            packageBytes() - (packageResident.get(token) ?? 0) + bytes + mergedPinnedBytes() > blobBudgetBytes
+        )
+            throw Error('NOAA chart view exceeds the shared resident limit. Zoom in.');
+        packageResident.set(token, bytes);
+        while (blobCacheBytes + packageBytes() + mergedPinnedBytes() > blobBudgetBytes && blobCache.size) {
+            const oldest = blobCache.keys().next().value;
+            if (oldest === undefined) break;
+            dropBlob(oldest);
+        }
+    };
+    resize(initialBytes);
+    return {
+        resize,
+        release: () => {
+            packageResident.delete(token);
+        },
+    };
+}
+export function noaaResidentBytes(): number {
+    return packageBytes();
 }
 
 /** The budget in force, for tests and the [perf] line. */
@@ -387,6 +431,7 @@ function touchBlob(cellId: string): EncConversionResult | undefined {
 /** Already-loaded chart bytes only. Display advice must never start a disk,
  * Pi, cloud or WAN read, or copy protected geometry out of this RAM cache. */
 export function peekCellGeoJSON(cellId: string): EncConversionResult | undefined {
+    if (getRegisteredCell(cellId)?.noaaPackage) return undefined;
     return blobCache.get(encCellStorageIdentity(cellId))?.blob;
 }
 
@@ -404,7 +449,15 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
     dropBlob(key);
     blobCache.set(key, { blob, sizeBytes });
     blobCacheBytes += sizeBytes;
-    while (shouldEvictBlob(blobCache.size, blobCacheBytes, BLOB_CACHE_MAX, blobBudgetBytes)) {
+    while (
+        shouldEvictBlob(
+            blobCache.size,
+            blobCacheBytes,
+            BLOB_CACHE_MAX,
+            Math.max(0, blobBudgetBytes - packageBytes() - (packageResident.size ? mergedPinnedBytes() : 0)),
+            packageResident.size ? 0 : BLOB_CACHE_MIN_KEEP,
+        )
+    ) {
         const oldest = blobCache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         dropBlob(oldest);
@@ -476,6 +529,7 @@ export async function readCellRaw(
     | { kind: 'text'; text: string }
     | { kind: 'missing'; notFound: boolean }
 > {
+    if (getRegisteredCell(cellId)?.noaaPackage) return { kind: 'missing', notFound: false };
     const cached = touchBlob(cellId);
     if (cached) return { kind: 'cached', blob: cached };
     const held = await vault.getText(cellId);
@@ -666,6 +720,21 @@ export function parseAndCacheCellText(cellId: string, text: string): EncConversi
  * that are already local.
  */
 export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
+    const packageCell = getRegisteredCell(cellId);
+    if (packageCell?.noaaPackage) {
+        try {
+            const { readNoaaPackage } = await import('./noaaPackageStore');
+            const manifest = await readNoaaPackage(packageCell);
+            for (const p of manifest.parts)
+                await Filesystem.stat({
+                    path: `${packageCell.noaaPackage.path}/${p.sha256}.json`,
+                    directory: openDirectory(),
+                });
+            return true;
+        } catch {
+            return false;
+        }
+    }
     if (touchBlob(cellId) || vault.has(cellId)) return true;
     if (!isOpenId(cellId)) return false;
     try {

@@ -19,6 +19,20 @@ import { Capacitor } from '@capacitor/core';
 import type { EncMergedVectorData } from './EncHazardService';
 
 const cache = new Map<string, EncMergedVectorData>();
+const cleanups = new Map<string, () => void>();
+export function setMergedCleanup(key: string, cleanup: () => void): void {
+    if (!cache.has(key)) {
+        cleanup();
+        return;
+    }
+    cleanups.get(key)?.();
+    cleanups.set(key, cleanup);
+}
+function dispose(key: string): void {
+    cleanups.get(key)?.();
+    cleanups.delete(key);
+}
+
 // 2 → 4 (closing audit): keys are zoom-BUCKETED, so a z11↔z13 excursion
 // holds three distinct keys for the same water — 2 slots evicted merges
 // that were about to be re-requested. 4 holds a realistic excursion;
@@ -166,6 +180,7 @@ export function putMergedData(
 
     for (const dead of planMergeEviction([...cache.keys()], (k) => cellSets.get(k), key)) {
         cache.delete(dead);
+        dispose(dead);
         cellSets.delete(dead);
     }
 
@@ -178,6 +193,7 @@ export function putMergedData(
         const oldest = cache.keys().next().value;
         if (oldest === undefined || oldest === key) break;
         cache.delete(oldest);
+        dispose(oldest);
         cellSets.delete(oldest);
     }
 }
@@ -185,6 +201,7 @@ export function putMergedData(
 /** Drop every cached merge (registry version change / reset). */
 export function clearMergedData(): void {
     cache.clear();
+    for (const key of cleanups.keys()) dispose(key);
     cellSets.clear();
     // Sizes are only stable within a registry version, and this is called on
     // the version change.

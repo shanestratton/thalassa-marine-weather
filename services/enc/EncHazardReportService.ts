@@ -44,7 +44,7 @@ import { lineString as turfLineString, point as turfPoint } from '@turf/helpers'
 
 import { createLogger } from '../../utils/createLogger';
 import * as cellMeta from './EncCellMetadata';
-import { getIndexForCell } from './EncHazardService';
+import { getIndexForCell, releaseIndexForCell } from './EncHazardService';
 import type { EncCatzoc, EncHazard, EncHazardType } from './types';
 import type { BBoxEntry } from './types';
 import { ENC_HAZARD_DEPTH_M, isStructureClass } from './types';
@@ -490,67 +490,71 @@ export async function findHazardsAlongRoute(
     for (const cell of candidateCells) {
         let index;
         try {
-            index = await getIndexForCell(cell.id);
+            index = await getIndexForCell(cell.id, queryBBox);
         } catch (err) {
             log.warn(`could not load index for ${cell.id}`, err);
             continue;
         }
         if (!index) continue;
 
-        const candidates: BBoxEntry[] = index.searchInBBox(queryBBox);
+        try {
+            const candidates: BBoxEntry[] = index.searchInBBox(queryBBox);
 
-        for (const entry of candidates) {
-            const type = reportableHazardType(entry.hazard, shoalDepthM);
-            if (!type) continue; // LNDARE / deep water — covered by the validator.
+            for (const entry of candidates) {
+                const type = reportableHazardType(entry.hazard, shoalDepthM);
+                if (!type) continue; // LNDARE / deep water — covered by the validator.
 
-            const { repr, distNm, side } = nearestApproach(entry.hazard, entry, route);
-            if (distNm > bufferNm) continue;
-            // Shoals only within the tighter drift band (not the full 1 NM): an
-            // off-track shoal a keelboat could realistically reach on a wide tack.
-            if (type === 'shallow' && distNm > shoalBandNm) continue;
+                const { repr, distNm, side } = nearestApproach(entry.hazard, entry, route);
+                if (distNm > bufferNm) continue;
+                // Shoals only within the tighter drift band (not the full 1 NM): an
+                // off-track shoal a keelboat could realistically reach on a wide tack.
+                if (type === 'shallow' && distNm > shoalBandNm) continue;
 
-            const key = dedupeKey(entry.hazard.layer, repr);
-            const existing = seen.get(key);
-            if (existing && existing.distanceNm <= distNm) continue;
+                const key = dedupeKey(entry.hazard.layer, repr);
+                const existing = seen.get(key);
+                if (existing && existing.distanceNm <= distNm) continue;
 
-            const catzoc = index.queryCatzocAt(repr.lat, repr.lon);
+                const catzoc = index.queryCatzocAt(repr.lat, repr.lon);
 
-            seen.set(key, {
-                cellId: cell.id,
-                sourceHO: cell.sourceHO,
-                hazardType: type,
-                representativePoint: repr,
-                distanceNm: distNm,
-                side,
-                minDepthM: entry.hazard.minDepthM,
-                description: entry.hazard.description,
-                catzoc,
-            });
-        }
-
-        // ── COALNE proximity ──────────────────────────────────────
-        // For each cell, compute the closest coastline approach
-        // anywhere along the route. We collapse to one entry per
-        // cell so a coastal route doesn't fill the report with
-        // hundreds of "0.4 NM from coast" rows.
-        const coastlines = index.searchCoastlinesInBBox(queryBBox);
-        if (coastlines.length > 0) {
-            const closest = closestCoastlineApproach(route, coastlines, bufferNm);
-            if (closest) {
-                const catzoc = index.queryCatzocAt(closest.point.lat, closest.point.lon);
-                const key = `coast@${cell.id}`;
                 seen.set(key, {
                     cellId: cell.id,
                     sourceHO: cell.sourceHO,
-                    hazardType: 'coast',
-                    representativePoint: closest.point,
-                    distanceNm: closest.distNm,
-                    side: closest.side,
-                    minDepthM: null,
-                    description: 'Charted coastline',
+                    hazardType: type,
+                    representativePoint: repr,
+                    distanceNm: distNm,
+                    side,
+                    minDepthM: entry.hazard.minDepthM,
+                    description: entry.hazard.description,
                     catzoc,
                 });
             }
+
+            // ── COALNE proximity ──────────────────────────────────────
+            // For each cell, compute the closest coastline approach
+            // anywhere along the route. We collapse to one entry per
+            // cell so a coastal route doesn't fill the report with
+            // hundreds of "0.4 NM from coast" rows.
+            const coastlines = index.searchCoastlinesInBBox(queryBBox);
+            if (coastlines.length > 0) {
+                const closest = closestCoastlineApproach(route, coastlines, bufferNm);
+                if (closest) {
+                    const catzoc = index.queryCatzocAt(closest.point.lat, closest.point.lon);
+                    const key = `coast@${cell.id}`;
+                    seen.set(key, {
+                        cellId: cell.id,
+                        sourceHO: cell.sourceHO,
+                        hazardType: 'coast',
+                        representativePoint: closest.point,
+                        distanceNm: closest.distNm,
+                        side: closest.side,
+                        minDepthM: null,
+                        description: 'Charted coastline',
+                        catzoc,
+                    });
+                }
+            }
+        } finally {
+            releaseIndexForCell(index);
         }
     }
 

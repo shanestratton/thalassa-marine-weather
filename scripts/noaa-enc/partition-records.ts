@@ -88,7 +88,18 @@ export function partitionNoaaRecords(
         }
     }
     flush();
+    if (Buffer.byteLength(JSON.stringify(manifest)) > 128 * 1024)
+        throw Error('NOAA package metadata exceeds its bound.');
     parseNoaaPackage(manifest);
-    parts.forEach((text, i) => parseNoaaPart(JSON.parse(text), manifest, manifest.parts[i]));
+    parts.forEach((text, i) => {
+        const parsed = parseNoaaPart(JSON.parse(text), manifest, manifest.parts[i]);
+        for (const record of parsed.records)
+            for (let ordinal = 0; ordinal < record.count; ordinal++) {
+                const original =
+                    source.layers[record.layer as keyof typeof source.layers]!.features[record.first + ordinal];
+                if (JSON.stringify(original) !== JSON.stringify(record.features[ordinal]))
+                    throw Error('NOAA feature value/order changed during partition.');
+            }
+    });
     return { manifest, parts };
 }

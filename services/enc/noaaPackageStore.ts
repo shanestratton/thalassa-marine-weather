@@ -11,9 +11,11 @@ export interface NoaaPackageReference {
     manifestSha256: string;
     path: string;
 }
-const staged = new WeakMap<NoaaPackageReference, NoaaPackage>();
+const staged = new WeakMap<NoaaPackageReference, { manifest: NoaaPackage; scope: AuthIdentityScope }>();
 export function assertStagedNoaaPackage(manifest: NoaaPackage, ref: NoaaPackageReference): void {
-    if (staged.get(ref) !== manifest) throw Error('NOAA package has not passed complete local verification.');
+    const held = staged.get(ref);
+    if (!held || held.manifest !== manifest) throw Error('NOAA package has not passed complete local verification.');
+    current(held.scope);
     staged.delete(ref);
 }
 const directory = (): Directory => (Capacitor.isNativePlatform() ? Directory.Library : Directory.Data);
@@ -63,7 +65,15 @@ export async function stageNoaaPackage(
     download: (object: NoaaObject) => Promise<Uint8Array>,
     assertAuthority: () => void,
 ): Promise<NoaaPackageReference> {
+    if (manifestText.length > 128 * 1024 || encoded(manifestText).length > 128 * 1024)
+        throw Error('NOAA package manifest exceeds its bound.');
+    const check = (): void => {
+        current(scope);
+        assertAuthority();
+    };
     parseNoaaPackage(manifest);
+    if (JSON.stringify(parseNoaaPackage(JSON.parse(manifestText))) !== JSON.stringify(manifest))
+        throw Error('NOAA package manifest value changed.');
     if (
         encoded(manifestText).length !== manifestObject.bytes ||
         (await noaaPackageSha(encoded(manifestText))) !== manifestObject.sha256
@@ -72,41 +82,67 @@ export async function stageNoaaPackage(
     const store = await import('./EncCellStore');
     await store.storeReady();
     const path = await noaaPackagePath(manifestObject.sha256, scope);
-    assertAuthority();
+    check();
     // The reserved directory is the durable journal. Write its manifest first;
     // after a kill, every planned byte remains charged until exact cleanup.
-    await Filesystem.writeFile({
-        path: `${path}/manifest.json`,
-        directory: directory(),
-        encoding: Encoding.UTF8,
-        data: manifestText,
-        recursive: true,
-    });
-    assertAuthority();
-    await verifiedText(`${path}/manifest.json`, manifestObject);
-    assertAuthority();
-    for (const part of manifest.parts) {
-        assertAuthority();
-        const bytes = await download(part);
-        assertAuthority();
-        if (bytes.length !== part.bytes || (await noaaPackageSha(bytes)) !== part.sha256)
-            throw Error('NOAA part checksum changed.');
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        await store.parseNoaaPartOffThread(text, manifest, part);
-        assertAuthority();
+    let existingManifest = false;
+    try {
+        await verifiedText(`${path}/manifest.json`, manifestObject);
+        existingManifest = true;
+    } catch {
+        check();
+    }
+    if (!existingManifest) {
         await Filesystem.writeFile({
-            path: `${path}/${part.sha256}.json`,
+            path: `${path}/manifest.json`,
             directory: directory(),
             encoding: Encoding.UTF8,
-            data: text,
+            data: manifestText,
             recursive: true,
         });
-        assertAuthority();
-        await verifiedText(`${path}/${part.sha256}.json`, part);
-        assertAuthority();
+        check();
+        await verifiedText(`${path}/manifest.json`, manifestObject);
+        check();
+    }
+    // Installation decode uses the same resident ledger as rendered/query views.
+    const lease = store.reserveNoaaResident(NOAA_PART_BYTES);
+    try {
+        for (const part of manifest.parts) {
+            check();
+            let saved: string | undefined;
+            try {
+                saved = await verifiedText(`${path}/${part.sha256}.json`, part);
+            } catch {
+                check();
+            }
+            if (saved !== undefined) {
+                await store.parseNoaaPartOffThread(saved, manifest, part);
+                check();
+                continue;
+            }
+            const bytes = await download(part);
+            check();
+            if (bytes.length !== part.bytes || (await noaaPackageSha(bytes)) !== part.sha256)
+                throw Error('NOAA part checksum changed.');
+            const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+            await store.parseNoaaPartOffThread(text, manifest, part);
+            check();
+            await Filesystem.writeFile({
+                path: `${path}/${part.sha256}.json`,
+                directory: directory(),
+                encoding: Encoding.UTF8,
+                data: text,
+                recursive: true,
+            });
+            check();
+            await verifiedText(`${path}/${part.sha256}.json`, part);
+            check();
+        }
+    } finally {
+        lease.release();
     }
     const ref = { owner: scope.key, manifestSha256: manifestObject.sha256, path };
-    staged.set(ref, manifest);
+    staged.set(ref, { manifest, scope });
     return ref;
 }
 export async function readNoaaPackage(cell: EncCell): Promise<NoaaPackage> {

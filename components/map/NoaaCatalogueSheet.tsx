@@ -150,6 +150,7 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                         zipObject = cell.zip ?? cell.package?.zip;
                                     const same =
                                         held?.sourceHO === 'US' &&
+                                        (!held.noaaPackage || held.noaaPackage.owner === scope.key) &&
                                         held.edition === cell.edition &&
                                         held.updateNumber === cell.update &&
                                         held.contentSha256 === chartObject?.sha256 &&
@@ -221,7 +222,7 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                                         ? 'Withdrawn by NOAA. This catalogue-installed conversion was detached; original ZIP retained for reference.'
                                                         : row.installed
                                                           ? 'Unaltered original ZIP retained on this device.'
-                                                          : 'Original ZIP saved; conversion not installed.'}
+                                                          : 'Download incomplete; reserved storage remains until removed.'}
                                                 </p>
                                                 <button
                                                     type="button"
