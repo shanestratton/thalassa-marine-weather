@@ -89,19 +89,19 @@ describe('Route Tracer durable verification', () => {
         });
     });
 
-    it('never releases a tide-gated leg without a completed tide result', () => {
+    it('never releases a tide-gated leg without an approved navigation source', () => {
         expect(
             evaluateTraceRelease(points, 'ready', [verdict('danger', true)], new Set([0]), {
                 ...context,
                 tideWindowLabel: null,
             }).reason,
-        ).toContain('tide-window check');
+        ).toContain('Tidal clearance is unverified');
         expect(
             evaluateTraceRelease(points, 'ready', [verdict('danger', true)], new Set([0]), {
                 ...context,
                 tideWindowLabel: '',
             }).reason,
-        ).toContain('Tide data is unavailable');
+        ).toContain('Tidal clearance is unverified');
     });
 
     // 127-C-c decision 11: a route checked on her licensed charts, which open
@@ -188,8 +188,8 @@ describe('Route Tracer durable verification', () => {
             }),
         ).toBeNull();
 
-        // A tide-gated check DID verify a specific departure — drift past the
-        // 30-minute tolerance invalidates it; drift inside it does not.
+        // A saved tide window cannot bypass the fixed provider-use boundary,
+        // even while its departure and old freshness window still match.
         const tideGated = evaluateTraceRelease(
             points,
             'ready',
@@ -203,13 +203,13 @@ describe('Route Tracer durable verification', () => {
                 ...castOffContext,
                 voyageDepartureMs: context.departureMs + 3_600_000,
             }),
-        ).toContain('planned departure changed');
+        ).toContain('unverified tidal clearance');
         expect(
             traceCastOffBlockReason(tideGated, points, {
                 ...castOffContext,
                 voyageDepartureMs: context.departureMs + 10 * 60_000,
             }),
-        ).toBeNull();
+        ).toContain('unverified tidal clearance');
     });
 });
 

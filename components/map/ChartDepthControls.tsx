@@ -116,7 +116,7 @@ export function ChartDepthControls({
                               }${tideOffsetInfo.stationName ? ` · ${tideOffsetInfo.stationName}` : ''}${
                                   tideOffsetInfo.approx ? ' · approx' : ''
                               }${tideScrubQ > 0 ? ' · tap for now' : ''}`
-                            : 'LIVE DEPTH — no tide data, showing chart datum'}
+                            : 'CHART DATUM — tidal clearance unverified'}
                     </button>
                     {tideOffsetInfo && (
                         <div

@@ -84,7 +84,7 @@ describe('ChartDepthControls', () => {
         const input = props({ tideOffsetInfo: null });
         render(<ChartDepthControls {...input} />);
 
-        expect(screen.getByText('LIVE DEPTH — no tide data, showing chart datum')).toBeInTheDocument();
+        expect(screen.getByText('CHART DATUM — tidal clearance unverified')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: /Live tide depth is on/ }));
         expect(input.onToggleTideDepth).toHaveBeenCalledOnce();
         expect(screen.queryByRole('slider')).not.toBeInTheDocument();

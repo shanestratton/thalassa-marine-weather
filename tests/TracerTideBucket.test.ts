@@ -51,7 +51,7 @@ const gated = (at: { lat: number; lon: number }): TraceLegVerdict => ({
     nudgeTo: null,
 });
 
-describe('the tracer asks for tides at the bucket centre, never at the charted sounding', () => {
+describe('the tracer keeps charted soundings aboard and does not use informational tide data for clearance', () => {
     beforeEach(() => {
         wt.at.length = 0;
         wt.chartDatum = 'LAT';
@@ -61,11 +61,11 @@ describe('the tracer asks for tides at the bucket centre, never at the charted s
     it('the per-leg tide window', async () => {
         for (const spot of SOUNDINGS) {
             clearTideCache();
-            await tideWindowLabelFor(1.4, 2.4, { lat: spot.lat, lon: spot.lon }, Date.now());
-            expect(wt.at.at(-1), `${spot.lat},${spot.lon}`).toEqual(spot.bucket);
+            expect(await tideWindowLabelFor(1.4, 2.4, { lat: spot.lat, lon: spot.lon }, Date.now())).toBeNull();
         }
         expect(wt.at.flat()).not.toContain(-22.3011);
         expect(wt.at.flat()).not.toContain(-76.4521);
+        expect(wt.at).toEqual([]);
     });
 
     it("the report's common departure window (and the Log's re-check)", async () => {
@@ -74,8 +74,8 @@ describe('the tracer asks for tides at the bucket centre, never at the charted s
             2.4,
             { departureMs: Date.now() },
         );
-        expect(label).not.toBeNull();
-        expect(wt.at).toEqual(SOUNDINGS.map((spot) => spot.bucket));
+        expect(label).toBeNull();
+        expect(wt.at).toEqual([]);
     });
 
     it('does not request or credit tides without matching chart-datum proof', async () => {

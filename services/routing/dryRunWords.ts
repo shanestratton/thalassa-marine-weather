@@ -23,6 +23,7 @@
  */
 import type { DryRun, PinOffWater } from '../engine/types';
 import type { TraceFollowStatus } from '../traceVerification';
+import { navigationTideSourceAvailable } from '../tides/navigationUse';
 
 /** Every dry-stretch line starts with this — the follow gate's marker. */
 export const DRY_RUN_CAVEAT_PREFIX = 'Red on this route';
@@ -326,6 +327,11 @@ export function savedDryRuns(v: unknown): DryRun[] | undefined {
             ...(finite(r.floatsWorkedMs) ? { floatsWorkedMs: r.floatsWorkedMs } : {}),
         };
         if (!usable(run)) return undefined;
+        if (!navigationTideSourceAvailable()) {
+            run.tide = null;
+            delete run.floats;
+            delete run.floatsWorkedMs;
+        }
         out.push(run);
     }
     return out;
