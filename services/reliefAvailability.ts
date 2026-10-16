@@ -1,4 +1,7 @@
 /** Exact sparse display tiles, emitted from finite provider seafloor masks. */
+// Reviewed AU build ceiling116,388 DEM/index objects. This is arithmetic
+// metadata admission; phone tile, byte and saved-area caps remain separate.
+export const RELIEF_AVAILABILITY_MAX_PAIRS = 58194;
 export interface ReliefAvailability {
     schema: 1;
     region: string;
@@ -52,7 +55,7 @@ export function parseReliefAvailability(
         if (prior && (z < prior[0] || (z === prior[0] && (y < prior[1] || (y === prior[1] && first <= prior[3] + 1)))))
             return null;
         count += last - first + 1;
-        if (count > 50000) return null;
+        if (count > RELIEF_AVAILABILITY_MAX_PAIRS) return null;
         rows.push([z, y, first, last]);
     }
     return count === value.tilePairs ? { schema: 1, ...expected, tilePairs: count, rows } : null;
