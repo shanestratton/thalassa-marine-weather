@@ -28,20 +28,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [keyboard]
+        suite: [keyboard, production]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 'aa200d597abfe6453b0cd89442a2171adbd922d3'
+          ref: 'c3daa53f0d7319c52cb0573ecbff5c1716fe487d'
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: npm
       - name: Verify source
-        run: test "$(git rev-parse HEAD)" = 'aa200d597abfe6453b0cd89442a2171adbd922d3'
+        run: test "$(git rev-parse HEAD)" = 'c3daa53f0d7319c52cb0573ecbff5c1716fe487d'
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit
+      - name: Actual storage recovery and unchanged relief source contracts
+        if: matrix.suite == 'keyboard'
+        run: npx vitest run tests/OfflineReliefStorage.test.ts tests/OfflineReliefPlan.test.ts tests/InitialReliefMapStyle.test.ts
       - name: Actual offline restart and complete trip flow in both engines
         if: matrix.suite == 'keyboard'
         run: npx playwright test browser-tests/offline-relief.spec.ts browser-tests/plan-page-fit.spec.ts --config playwright.keyboard.config.ts --grep 'saved terrain renders|your trips, a four-leg trip and the next leg at 1024x768' --workers=1 --retries=0 --repeat-each=2 --trace=retain-on-failure
