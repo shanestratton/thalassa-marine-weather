@@ -1,0 +1,11 @@
+# Confirmed followed-route handoff: core checkpoint
+
+The Pi core uses Signal K's fixed v2 [Resources API](https://github.com/SignalK/signalk-server/blob/master/docs/develop/rest-api/resources_api.md) and [Course API](https://github.com/SignalK/signalk-server/blob/master/docs/develop/rest-api/course_api.md). It saves and reads back the exact followed line before activating its own generated UUID resource. Coordinates are not simplified, rounded or thinned. It does not call autopilot engagement, steering or Course API configuration endpoints.
+
+A preview makes read requests only. The one-use confirmation lasts30 seconds and binds the device, route digest and previously observed course. Activation requires the skipper's pilot-in-standby check and refuses a reported engaged pilot. Changed authority, geometry, current course or an expired confirmation stops activation. A Pi-local operation guard serializes this writer's mutations.
+
+Ownership is persisted before the uncertain activation request. A lost reply retains its claim for later reconciliation; it never triggers another automatic activation. Earlier ownership is retained through a failed replacement. At most eight uncertain claims are accepted, with strict fixed field bounds. Clearing matches the device, route key, generated resource and confirmed start time before issuing a course clear, then reads back the result. A different observed course is retained.
+
+The stock Course API has no conditional compare-and-clear operation. Another helm can change its course between a GET and DELETE, so the preflight check is not an atomic lock against other Signal K clients. Clearing also does not silence an independent NMEA destination source; Signal K documents that such a source may repopulate navigation. These limitations need explicit helm context in the final interface, and must not be described as a guarantee that Thalassa controls the vessel's pilot.
+
+This checkpoint has eight pure state-machine regressions and a clean Pi TypeScript check. The shared bounded/authenticated HTTP adapter has separate twelve-test loopback/redirect proof. Durable ownership storage, enrolled HTTP endpoints, the final phone confirmation/follow-state wiring and their combined native/boat checks remain pending. Nothing is installed aboard, activated or released by this checkpoint.
