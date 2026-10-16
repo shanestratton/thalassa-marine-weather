@@ -1,4 +1,5 @@
 name: Thalassa 133 read-only beta status
+# Read after successful signing/upload/processing run 38858217604.
 on:
     push:
         branches: ['codex/build-133-tester-status']
