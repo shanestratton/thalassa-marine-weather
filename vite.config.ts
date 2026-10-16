@@ -25,6 +25,7 @@ import {
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { shareClassNames } from './scripts/share-class-names.mjs';
+import { shareUiStrings } from './scripts/share-ui-strings.mjs';
 import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
 import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
 import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
@@ -629,6 +630,7 @@ export default defineConfig(({ mode }) => {
             shareSvgProps(__dirname),
             shareSvgPaths(__dirname),
             shareClassNames(__dirname),
+            shareUiStrings(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
