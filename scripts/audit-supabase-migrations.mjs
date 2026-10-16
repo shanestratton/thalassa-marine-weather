@@ -78,6 +78,9 @@ const entries = (await readdir(migrationDirectory, { withFileTypes: true }))
 
 const errors = [];
 const versions = new Map();
+// CREATE OR REPLACE keeps the existing overload ACL. Only a previously audited
+// exact declaration can rely on that; a new overload still starts with PUBLIC.
+const protectedDefiners = new Set();
 
 for (const filename of entries) {
     if (grandfathered.has(filename)) continue;
@@ -97,6 +100,13 @@ for (const filename of entries) {
     }
 
     const sql = await readFile(path.join(migrationDirectory, filename), 'utf8');
+    for (const dropped of sql.matchAll(/DROP\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?(?:([a-z0-9_]+)\.)?([a-z0-9_]+)\s*\(/gi)) {
+        const prefix = (dropped[1] ?? 'public').toLowerCase() + '.' + dropped[2].toLowerCase() + '(';
+        for (const identity of protectedDefiners) if (identity.startsWith(prefix)) protectedDefiners.delete(identity);
+    }
+    for (const dropped of sql.matchAll(/DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?([a-z0-9_]+)/gi)) {
+        for (const identity of protectedDefiners) if (identity.startsWith(dropped[1].toLowerCase() + '.')) protectedDefiners.delete(identity);
+    }
 
     // ── RLS must not be switched off on a PostgREST-exposed table ──────────
     // A comment asserting "only service-role touches this" is intent, not
@@ -131,26 +141,35 @@ for (const filename of entries) {
     for (const chunk of sql.split(/\$\$;/)) {
         if (!/SECURITY\s+DEFINER/i.test(chunk)) continue;
 
-        const declared = chunk.match(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?([a-z0-9_]+)/i);
+        const declared = chunk.match(
+            /CREATE\s+(?:(OR\s+REPLACE)\s+)?FUNCTION\s+(?:([a-z0-9_]+)\.)?([a-z0-9_]+)\s*\(([\s\S]*?)\)\s+RETURNS\b/i,
+        );
         if (!declared) continue;
-        const fn = declared[1];
-
-        // `SET search_path = a, b` is the house style; `SET search_path TO 'a', 'b'`
-        // is what pg_get_functiondef emits, and a migration regenerated from a
-        // live body (20260905100000, 20260905101000) carries the latter. Same
-        // meaning; both pass.
-        if (!/SET\s+search_path\s*(=|TO)/i.test(chunk)) {
-            errors.push(`${filename}: ${fn}() is SECURITY DEFINER without SET search_path`);
+        const schema = (declared[2] ?? 'public').toLowerCase();
+        const fn = declared[3].toLowerCase();
+        const label = schema + '.' + fn;
+        const identity = label + '(' + declared[4].trim().toLowerCase().replace(/\s+/g, ' ').replace(/\s*,\s*/g, ',') + ')';
+        const qualified = schema === 'public' ? '(?:public\\.)?' + fn : schema + '\\.' + fn;
+        const statements = sql.split(';');
+        const explicitAcl = statements.some(statement =>
+            /\b(?:REVOKE|GRANT)\b/i.test(statement) &&
+            /\bON\s+FUNCTION\b/i.test(statement) &&
+            new RegExp('(?:^|[\\s,])' + qualified + '\\s*(?:\\(|\\bTO\\b|\\bFROM\\b)', 'i').test(statement.split(/\bON\s+FUNCTION\b/i)[1] ?? ''),
+        );
+        const schemaAcl = statements.some(statement =>
+            new RegExp('\\bREVOKE\\s+ALL\\s+ON\\s+ALL\\s+FUNCTIONS\\s+IN\\s+SCHEMA\\s+' + schema + '\\b[\\s\\S]*?\\bFROM\\s+PUBLIC\\b', 'i').test(statement),
+        );
+        const inheritedAcl = Boolean(declared[1]) && protectedDefiners.has(identity);
+        const pinned = /SET\s+search_path\s*(=|TO)/i.test(chunk);
+        if (!pinned) {
+            errors.push(filename + ': ' + label + '() is SECURITY DEFINER without SET search_path');
         }
-        // Reachability has to be stated somewhere in the file — either the
-        // default PUBLIC grant is revoked, or execution is granted to named
-        // roles deliberately. Silence means it inherited PUBLIC.
-        const revoked = new RegExp(`REVOKE[\\s\\S]{0,400}?ON\\s+FUNCTION\\s+(?:public\\.)?${fn}\\b`, 'i').test(sql);
-        const granted = new RegExp(`GRANT[\\s\\S]{0,400}?ON\\s+FUNCTION\\s+(?:public\\.)?${fn}\\b`, 'i').test(sql);
-        if (!revoked && !granted) {
+        if (!explicitAcl && !schemaAcl && !inheritedAcl) {
             errors.push(
-                `${filename}: ${fn}() is SECURITY DEFINER with no REVOKE/GRANT — it inherits EXECUTE TO PUBLIC`,
+                filename + ': ' + label + '() is SECURITY DEFINER with no REVOKE/GRANT — it inherits EXECUTE TO PUBLIC',
             );
+        } else if (pinned) {
+            protectedDefiners.add(identity);
         }
     }
 }

@@ -300,11 +300,26 @@ verify_jwt = false
 # leaves the Edge runtime; a Supabase user JWT is not this producer's identity.
 verify_jwt = false
 
-# Held137 weather cron sources retain the gateway JWT check AND an exact
-# service-role POST check. No caller can request a coordinate/provider URL.
 [functions.morning-briefing]
+# Held weather work retains gateway JWT and exact service-role POST checks.
 verify_jwt = true
 [functions.nowcast-watch]
+# Held weather work cannot accept a caller coordinate or provider URL.
 verify_jwt = true
 [functions.convective-watch]
+# Held weather work retains gateway JWT and exact service-role POST checks.
+verify_jwt = true
+
+[functions.anchor-alert-messaging]
+# Shore recipient confirmation/revocation uses an explicit one-use nonce POST;
+# invitations verify the current owner, work/proof actions require the service key.
+# New messaging stays disabled by default in both environment and database control.
+verify_jwt = false
+
+[functions.telegram-webhook]
+# Telegram supplies its fixed webhook secret; absent/invalid secrets fail before parsing.
+verify_jwt = false
+
+[functions.overdue-watch]
+# Overdue work is service-only and retains both gateway JWT and exact service auth.
 verify_jwt = true

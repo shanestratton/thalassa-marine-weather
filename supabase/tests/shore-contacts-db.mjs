@@ -116,7 +116,7 @@ try {
  INSERT INTO public.anchor_alarm_events VALUES('${event}',NULL,'${session}','${owner}',NULL,'drag',now(),NULL);
  GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO service_role;`);
     await db.exec(
-        await readFile(new URL('../held-migrations/20261016174406_shore_contacts.sql', import.meta.url), 'utf8'),
+        await readFile(new URL('../migrations/20261016194554_shore_contacts.sql', import.meta.url), 'utf8'),
     );
     eq((await list()).emailReady, false, 'default off');
     eq((await list()).contacts, [], 'empty own hull');

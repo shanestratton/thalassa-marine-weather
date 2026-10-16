@@ -113,10 +113,10 @@ try {
  CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid,notification_type text,title text,body text,data jsonb);CREATE TABLE public.push_device_tokens(user_id uuid,platform text);INSERT INTO public.push_device_tokens VALUES('${owner}','ios');GRANT SELECT ON public.boats TO authenticated;
  GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO service_role;`);
     await db.exec(
-        await readFile(new URL('../held-migrations/20261016174406_shore_contacts.sql', import.meta.url), 'utf8'),
+        await readFile(new URL('../migrations/20261016194554_shore_contacts.sql', import.meta.url), 'utf8'),
     );
     await db.exec(
-        await readFile(new URL('../held-migrations/20261016182715_overdue_watch.sql', import.meta.url), 'utf8'),
+        await readFile(new URL('../migrations/20261016194559_overdue_watch.sql', import.meta.url), 'utf8'),
     );
 
     const status = () => user('SELECT public.overdue_watch_status($1)', [boat]);
