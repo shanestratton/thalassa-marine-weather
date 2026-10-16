@@ -1,0 +1,147 @@
+name: Build138 isolated reviewed-route transaction proof
+on:
+  push:
+    branches: ["codex/build-138-replan-db-validation"]
+    paths: [".github/workflows/validate-replan138-db.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: replan138-isolated-transaction-proof
+  cancel-in-progress: false
+jobs:
+  transaction:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: route_replan138_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d route_replan138_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: source
+    env:
+      PGLITE_MODULE_PATH: ""
+      THALASSA_DISPOSABLE_REPLAN_TEST: "1"
+      DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/route_replan138_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: controls
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8bc51feb76a1d824f3347053c15a46265a001607
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact source and single controlled fixture definition
+        working-directory: .
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = 8bc51feb76a1d824f3347053c15a46265a001607
+          test "$(git -C controls rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C source status --porcelain)"
+          test "$(git -C controls diff --name-only 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD)" = .github/workflows/validate-replan138-db.yml
+          mkdir -p "$RUNNER_TEMP/replan138-proof"
+          git -C source rev-parse HEAD > "$RUNNER_TEMP/replan138-proof/SOURCE_SHA.txt"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/replan138-proof/DEFINITION_SHA.txt"
+          sha256sum controls/.github/workflows/validate-replan138-db.yml > "$RUNNER_TEMP/replan138-proof/DEFINITION_SHA256.txt"
+          docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/replan138-proof/POSTGRES_IMAGE_ID.txt"
+          node --version > "$RUNNER_TEMP/replan138-proof/NODE_VERSION.txt"
+          cd source
+          test "$(sha256sum supabase/held-migrations/20261016182725_reviewed_route_replan.sql | cut -d ' ' -f 1)" = 180c5424a90297cdfdb34d028ff50f30dd469c51fd2279b05f4b9fc83d460e20
+          sha256sum supabase/tests/route-replan-db.mjs supabase/held-migrations/20261016182725_reviewed_route_replan.sql supabase/migrations/20260908150000_voyage_plan_links_author_stamp.sql > "$RUNNER_TEMP/replan138-proof/SHA256SUMS"
+      - name: Install exact isolated PostgreSQL client without project dependencies
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/replan138-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          test "$(node -p "require('$RUNNER_TEMP/replan138-pg/node_modules/pg/package.json').version")" = 8.16.3
+          sha256sum "$RUNNER_TEMP/replan138-pg/package-lock.json" > "$RUNNER_TEMP/replan138-proof/CLIENT_LOCK_SHA256.txt"
+      - name: Require exact PostgreSQL version and a fresh empty local fixture database
+        timeout-minutes: 2
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/replan138-pg/node_modules/pg/lib/index.js
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE' | tee "$RUNNER_TEMP/replan138-proof/PREFLIGHT.txt"
+          import assert from 'node:assert/strict';
+          import {pathToFileURL} from 'node:url';
+          const url=new URL(process.env.DATABASE_URL);
+          assert.equal(process.env.THALASSA_DISPOSABLE_REPLAN_TEST,'1');
+          assert.equal(url.protocol,'postgresql:');
+          assert.equal(url.hostname,'127.0.0.1');
+          assert.equal(url.port,'5432');
+          assert.equal(url.pathname,'/route_replan138_test');
+          assert.equal(url.username,'postgres');
+          assert.equal(url.password,'fixture-only-password');
+          assert.equal(url.search,'');
+          assert.equal(url.hash,'');
+          const pg=await import(pathToFileURL(process.env.PG_MODULE_PATH).href);
+          const Client=pg.Client??pg.default.Client;
+          const client=new Client({connectionString:url.href,connectionTimeoutMillis:5000,query_timeout:10000});
+          await client.connect();
+          try {
+            const {rows:[r]}=await client.query("SELECT current_database() AS db,current_user AS role,current_setting('server_version_num') AS version,(SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND c.relkind IN ('r','p','v','m','f')) AS relations,(SELECT count(*)::int FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname NOT IN ('public','information_schema')) AS namespaces,(SELECT count(*)::int FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')) AS product_roles");
+            assert.equal(r.db,'route_replan138_test');
+            assert.equal(r.role,'postgres');
+            assert.equal(r.version,'170006');
+            assert.equal(r.relations,0);
+            assert.equal(r.namespaces,0);
+            assert.equal(r.product_roles,0);
+            console.log(JSON.stringify({...r,disposable:true,productConnections:false}));
+          } finally {await client.end();}
+          NODE
+      - name: Actual fixture privacy checks and two sixteen-session route replacement races
+        timeout-minutes: 4
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/replan138-pg/node_modules/pg/lib/index.js
+        run: |
+          set -euo pipefail
+          timeout 180s node supabase/tests/route-replan-db.mjs 2>&1 | tee "$RUNNER_TEMP/replan138-proof/CONCURRENCY.txt"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const report=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/replan138-proof/CONCURRENCY.txt','utf8').trim());
+          assert.equal(report.engine,'PostgreSQL16-session races');
+          assert.equal(report.checks,39);
+          assert.equal(report.migrationSha256,'180c5424a90297cdfdb34d028ff50f30dd469c51fd2279b05f4b9fc83d460e20');
+          assert.equal(report.productionMutations,false);
+          assert.equal(report.preflight.version,'170006');
+          assert.equal(report.preflight.relations,0);
+          assert.equal(report.preflight.namespaces,0);
+          assert.equal(report.preflight.product_roles,0);
+          assert.equal(report.races.length,2);
+          for(const race of report.races){
+            assert.equal(race.sessions,16);
+            assert.equal(race.distinctBackends,16);
+            assert.equal(new Set(race.backendPids).size,16);
+            assert.equal(race.blockedSessions,16);
+          }
+          NODE
+      - name: Verify unchanged source after disposable database proof
+        if: always()
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 8bc51feb76a1d824f3347053c15a46265a001607
+          test -z "$(git status --porcelain)"
+      - name: Preserve isolated proof and identities
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build138-replan-transaction-proof
+          path: ${{ runner.temp }}/replan138-proof/
+          retention-days: 7
+          if-no-files-found: error
