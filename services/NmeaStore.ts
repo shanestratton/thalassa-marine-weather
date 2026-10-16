@@ -149,6 +149,7 @@ export interface RemoteFeed {
 
 /** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
 export interface RemoteInstrumentSnapshot {
+    engineTelemetry?: import('./instruments/engineTelemetry').EngineTelemetry;
     measurementTimes?: InstrumentMeasurementTimes;
     rpmAtMs?: number;
     rpmEngineId?: string;

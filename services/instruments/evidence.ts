@@ -33,6 +33,7 @@ export function remoteInstrumentEvidence(snapshot: RemoteInstrumentSnapshot): In
         if (readings.leeway) readings.leeway.source = snapshot.leewaySource;
     }
     return {
+        ...(snapshot.engineTelemetry ? { engine: snapshot.engineTelemetry } : {}),
         identity: snapshot.windHistoryIdentity ?? `remote:${snapshot.source}:${snapshot.deviceLabel ?? 'unknown'}`,
         via: snapshot.via ?? 'cloud',
         readings,

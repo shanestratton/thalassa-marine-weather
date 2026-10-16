@@ -333,6 +333,47 @@ export function readQualifiedRpm(
     );
 }
 
+/** Only one identified engine qualifies these meters; no mixing values across propulsion children. */
+export function readEngineMetrics(doc: unknown, now: number): string | null {
+    const rpm = readQualifiedRpm(doc, now);
+    if (rpm?.engineCount !== 1 || !rpm.engineId) return null;
+    const root = `propulsion.${rpm.engineId}`;
+    const fields = [
+        ['runTime', 's', 0, 3_153_600_000, 1, 0],
+        ['coolantTemperature', 'K', 213.15, 473.15, 1, -273.15],
+        ['oilPressure', 'Pa', 0, 5_000_000, 0.001, 0],
+    ] as const;
+    const rows = fields.map(([leaf, unit, low, high, scale, offset]) => {
+        const path = `${root}.${leaf}`,
+            value = num(doc, path),
+            units = valueAt(doc, `${path}.meta.units`),
+            at = timestampAt(doc, path, false);
+        if (
+            value === null ||
+            value < low ||
+            value > high ||
+            (units !== undefined && units !== unit) ||
+            at === null ||
+            !Number.isSafeInteger(at) ||
+            at <= 0 ||
+            at > now ||
+            now - at > 13_000
+        )
+            return null;
+        return { value: Math.round((value * scale + offset) * 1000) / 1000, at };
+    });
+    const clocks = rows.flatMap((row) => (row ? [row.at] : []));
+    if (!clocks.length) return null;
+    const base = Math.max(...clocks);
+    const packed = JSON.stringify([
+        1,
+        rpm.engineId,
+        base,
+        ...rows.flatMap((row) => (row ? [row.value, base - row.at] : [null, null])),
+    ]);
+    return packed.length <= 120 ? packed : null;
+}
+
 /**
  * Build a track fix from a Signal K self document.
  *
@@ -598,15 +639,17 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
     const busAt = readBusAt(selfDocument, nowMs);
     const instrumentTimes = readPackedInstrumentTimes(selfDocument, nowMs);
     const rpmSource = readQualifiedRpm(selfDocument, nowMs);
+    const engineMetrics = readEngineMetrics(selfDocument, nowMs);
     const extra: Record<string, number | string> = {
         // First among the snapshot's keys: the relay keeps the first 40 only.
         ...(busAt !== null ? { bus_at_ms: busAt } : {}),
         ...readGnssExtra(selfDocument, nowMs),
         ...readTrueHeadingExtra(selfDocument, nowMs),
         ...(instrumentTimes ? { instrument_times_v1: instrumentTimes } : {}),
-        ...(rpmSource?.engineCount
+        ...(rpmSource?.engineCount && !engineMetrics
             ? { instrument_rpm_source_v1: JSON.stringify([rpmSource.engineCount, rpmSource.engineId ?? null]) }
             : {}),
+        ...(engineMetrics ? { engine_metrics_v1: engineMetrics } : {}),
     };
     // The wind record must deduplicate the actual sensor envelope, not a
     // freshly fetched copy of Signal K's cached value or its current GPS clock.

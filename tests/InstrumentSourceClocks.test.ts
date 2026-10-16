@@ -164,6 +164,12 @@ it('a magnetic wind direction is never relabelled true, and invalid RPM status n
 
 it('the fully populated actual supplement/history/AIS path preserves every scalar through the existing relay bounds', () => {
     const d: { navigation: Record<string, unknown>; environment: Record<string, unknown>; propulsion: unknown } = doc();
+    const propulsion = d.propulsion as { main: Record<string, unknown> };
+    Object.assign(propulsion.main, {
+        runTime: leaf(36000),
+        coolantTemperature: leaf(353.15),
+        oilPressure: leaf(300000),
+    });
     d.navigation.position = { ...leaf({ latitude: 30, longitude: -60 }), $source: 'x'.repeat(120) };
     d.navigation.gnss = {
         satellites: { ...leaf(12), $source: 'x'.repeat(120) },
@@ -206,6 +212,8 @@ it('the fully populated actual supplement/history/AIS path preserves every scala
     expect(Object.keys(extra).length).toBeLessThanOrEqual(40);
     expect(JSON.stringify(extra).length).toBeLessThan(4096);
     expect(String(extra.instrument_times_v1).length).toBeLessThanOrEqual(120);
+    expect(String(extra.engine_metrics_v1).length).toBeLessThanOrEqual(120);
+    expect(extra.engine_metrics_v1).toBeDefined();
     const parsed = parseTelemetryBody(body, NOW);
     if (!parsed.ok) throw Error(parsed.error);
     expect(parsed.row.extra).toEqual(extra);

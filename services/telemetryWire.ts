@@ -11,6 +11,7 @@ import type { NmeaDepthReference } from '../types/navigation';
 import { parseWindHistorySummary } from '../utils/windHistory';
 import { readGnssDiagnostics } from './nmea/gnssDiagnostics';
 import { measurementTimes, unpackInstrumentTimes, unpackRpmSource } from './instruments/measurements';
+import { parseEngineTelemetry } from './instruments/engineTelemetry';
 
 export type TelemetryWire = Record<string, unknown>;
 
@@ -38,6 +39,16 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             ? (wire.extra as Record<string, unknown>)
             : {};
     const instrumentTimes = unpackInstrumentTimes(extra.instrument_times_v1);
+    const packedEngine = parseEngineTelemetry(extra.engine_metrics_v1, Date.now());
+    const legacyRpmSource = unpackRpmSource(extra.instrument_rpm_source_v1);
+    const rpmSource =
+        legacyRpmSource ?? (packedEngine ? { rpmEngineCount: 1, rpmEngineId: packedEngine.engineId } : {});
+    const engineTelemetry =
+        packedEngine &&
+        (!legacyRpmSource ||
+            (legacyRpmSource.rpmEngineCount === 1 && legacyRpmSource.rpmEngineId === packedEngine.engineId))
+            ? packedEngine
+            : undefined;
     const windHistory = source === 'pi' ? parseWindHistorySummary(extra) : null;
     const boundedText = (value: unknown): string | undefined =>
         typeof value === 'string' && value.trim().length > 0 && value.length <= 120 && !/\p{Cc}/u.test(value)
@@ -82,7 +93,8 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
         deviceLabel,
         reportedAt,
         snapshot: {
-            ...(unpackRpmSource(extra.instrument_rpm_source_v1) ?? {}),
+            ...rpmSource,
+            engineTelemetry,
             measurementTimes: measurementTimes({
                 ...instrumentTimes?.times,
                 sog: instrumentTimes?.times.sog ?? extra.instrument_sog_at_ms,

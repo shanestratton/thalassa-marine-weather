@@ -27,6 +27,7 @@ export const INSTRUMENT_MEASUREMENT_KEYS = [
 export type InstrumentMeasurementKey = (typeof INSTRUMENT_MEASUREMENT_KEYS)[number];
 export type InstrumentMeasurementTimes = Partial<Record<InstrumentMeasurementKey, number>>;
 export interface InstrumentEvidence {
+    engine?: import('./engineTelemetry').EngineTelemetry;
     /** One boat/feed generation; never combine values from another boat or account. */
     identity: string;
     via: 'gateway' | 'lan' | 'cloud';
