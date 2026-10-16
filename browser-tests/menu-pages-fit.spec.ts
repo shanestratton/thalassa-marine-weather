@@ -26,6 +26,7 @@ import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { SETTINGS_STATE_WORDS } from '../components/settings/menuStatusWords';
 import { expectPalette } from './helpers/palette';
 import { crewCountWords, crewInvitedWords } from '../components/vesselHub/crewCardWords';
+import { writeFile } from 'node:fs/promises';
 
 test.use({
     serviceWorkers: 'block',
@@ -328,46 +329,138 @@ const PANES = [
 ];
 
 test.describe('Vessel page', () => {
-    for (const width of [300, 375]) {
-        test(`Systems and Music remain reachable at ${width}px with 130% text`, async ({ page, baseURL }, info) => {
-            await open(page, baseURL, { width, height: 667, view: 'vessel' });
-            await expect(page.getByRole('button', { name: 'Systems', exact: true })).toBeVisible({ timeout: 25000 });
-            await page.addStyleTag({ content: 'html{font-size:130% !important}' });
-            await settle(page);
-            const systems = page.getByRole('button', { name: 'Systems', exact: true }),
-                music = page.getByRole('button', { name: 'Music', exact: true });
-            // Larger text may need the page's existing native scroller. Use
-            // its lower resting point, as in the short-screen check below;
-            // WebKit's touch-device driver does not support mouse wheels.
-            await page.locator('.vessel-hub-port').evaluate((port) => port.scrollTo({ top: port.scrollHeight }));
-            await settle(page);
-            await wholeRows(page, '.vessel-hub-tools > button', await floor(page));
-            const measure = await page.locator('.vessel-hub-tools').evaluate((tools) => {
-                const rows = [...tools.querySelectorAll<HTMLElement>(':scope > button')];
-                const boxes = rows.map((row) => row.getBoundingClientRect());
-                return {
-                    horizontal: Math.abs(boxes[0].top - boxes[1].top) < 1 && boxes[0].right <= boxes[1].left + 1,
-                    whole: rows.map((row) => {
-                        const label = row.querySelector<HTMLElement>('.hub-row-label')!;
-                        return label.scrollWidth <= label.clientWidth + 1;
-                    }),
-                    overflow: document.documentElement.scrollWidth - window.innerWidth,
-                };
+    for (const width of [300, 375, 430]) {
+        for (const large of [false, true]) {
+            test(`Systems and Music remain reachable at ${width}px with ${large ? '130%' : 'normal'} text`, async ({
+                page,
+                baseURL,
+            }, info) => {
+                await open(page, baseURL, { width, height: 667, view: 'vessel' });
+                await expect(page.getByRole('button', { name: 'Systems', exact: true })).toBeVisible({
+                    timeout: 25000,
+                });
+                if (large) await page.addStyleTag({ content: 'html{font-size:130% !important}' });
+                await settle(page);
+                const systems = page.getByRole('button', { name: 'Systems', exact: true }),
+                    music = page.getByRole('button', { name: 'Music', exact: true });
+                // Larger text may need the page's existing native scroller. Use
+                // its lower resting point, as in the short-screen check below;
+                // WebKit's touch-device driver does not support mouse wheels.
+                await page.locator('.vessel-hub-port').evaluate((port) => port.scrollTo({ top: port.scrollHeight }));
+                await settle(page);
+                await wholeRows(page, '.vessel-hub-tools > button', await floor(page));
+                const measure = await page.locator('.vessel-hub-tools').evaluate((tools) => {
+                    const rows = [...tools.querySelectorAll<HTMLElement>(':scope > button')];
+                    const boxes = rows.map((row) => row.getBoundingClientRect());
+                    return {
+                        horizontal: Math.abs(boxes[0].top - boxes[1].top) < 1 && boxes[0].right <= boxes[1].left + 1,
+                        whole: rows.map((row) => {
+                            const label = row.querySelector<HTMLElement>('.hub-row-label')!;
+                            return label.scrollWidth <= label.clientWidth + 1;
+                        }),
+                        overflow: document.documentElement.scrollWidth - window.innerWidth,
+                        rows: rows.map((row) => {
+                            const rect = (selector: string) => {
+                                const el = row.querySelector<HTMLElement>(selector)!;
+                                const r = el.getBoundingClientRect();
+                                const s = getComputedStyle(el);
+                                return {
+                                    x: r.x,
+                                    y: r.y,
+                                    width: r.width,
+                                    height: r.height,
+                                    font: s.fontSize,
+                                    line: s.lineHeight,
+                                    display: s.display,
+                                };
+                            };
+                            const r = row.getBoundingClientRect();
+                            return {
+                                row: { x: r.x, y: r.y, width: r.width, height: r.height },
+                                icon: rect('.hub-row-icon'),
+                                svg: rect('.hub-row-icon svg'),
+                                label: rect('.hub-row-label'),
+                                status: rect('.hub-row-status'),
+                                chevron: rect('.hub-row-chevron svg'),
+                            };
+                        }),
+                        surrounding: [...document.querySelectorAll<HTMLElement>('.vessel-hub-menu > .hub-row')].map(
+                            (row) => {
+                                const rect = (selector: string) => {
+                                    const el = row.querySelector<HTMLElement>(selector)!;
+                                    const r = el.getBoundingClientRect();
+                                    return { x: r.x, width: r.width, height: r.height };
+                                };
+                                return {
+                                    name: row.ariaLabel,
+                                    icon: rect('.hub-row-icon'),
+                                    svg: rect('.hub-row-icon svg'),
+                                    label: rect('.hub-row-label'),
+                                    status: rect('.hub-row-status'),
+                                };
+                            },
+                        ),
+                        footprint: (() => {
+                            const port = document.querySelector('.vessel-hub-port')!;
+                            const page = document.querySelector('.vessel-hub-surface')!;
+                            const r = page.getBoundingClientRect();
+                            return {
+                                page: { x: r.x, y: r.y, width: r.width, height: r.height },
+                                scroll: {
+                                    width: document.documentElement.scrollWidth,
+                                    height: document.documentElement.scrollHeight,
+                                },
+                                port: {
+                                    width: port.clientWidth,
+                                    height: port.clientHeight,
+                                    scrollWidth: port.scrollWidth,
+                                    scrollHeight: port.scrollHeight,
+                                },
+                            };
+                        })(),
+                    };
+                });
+                await writeFile(
+                    info.outputPath('geometry.json'),
+                    JSON.stringify({ width, large, browser: info.project.name, ...measure }),
+                );
+                expect(measure.horizontal).toBe(true);
+                expect(measure.whole).toEqual([true, true]);
+                expect(measure.overflow).toBeLessThanOrEqual(1);
+                for (const key of ['icon', 'svg', 'label', 'status'] as const) {
+                    expect(measure.rows[0][key].y, `${key}: paired vertical alignment`).toBeCloseTo(
+                        measure.rows[1][key].y,
+                        2,
+                    );
+                    for (const row of measure.surrounding) {
+                        expect(measure.rows[0][key].x, `${row.name}: shared ${key} left edge`).toBeCloseTo(
+                            row[key].x,
+                            2,
+                        );
+                        if (key === 'icon' || key === 'svg') {
+                            expect(measure.rows[0][key].width, `${row.name}: shared ${key} width`).toBeCloseTo(
+                                row[key].width,
+                                2,
+                            );
+                            expect(measure.rows[0][key].height, `${row.name}: shared ${key} height`).toBeCloseTo(
+                                row[key].height,
+                                2,
+                            );
+                        }
+                    }
+                }
+                await expect(systems).toHaveAccessibleDescription('Tanks, batteries & power');
+                await expect(music).toHaveAccessibleDescription('Apple Music & speakers');
+                await page.screenshot({ path: info.outputPath('vessel-systems-music.png') });
+                await systems.click();
+                await expect(page.getByRole('dialog', { name: 'Boat systems' })).toBeVisible();
+                await page.keyboard.press('Escape');
+                await expect(page.getByRole('dialog', { name: 'Boat systems' })).toHaveCount(0);
+                await expect(systems).toBeFocused();
+                await music.click();
+                await expect(page.getByRole('heading', { name: 'Apple Music', exact: true })).toBeVisible();
             });
-            expect(measure.horizontal).toBe(true);
-            expect(measure.whole).toEqual([true, true]);
-            expect(measure.overflow).toBeLessThanOrEqual(1);
-            await expect(systems).toHaveAccessibleDescription('Tanks, batteries & power');
-            await expect(music).toHaveAccessibleDescription('Apple Music & speakers');
-            await page.screenshot({ path: info.outputPath('vessel-systems-music.png') });
-            await systems.click();
-            await expect(page.getByRole('dialog', { name: 'Boat systems' })).toBeVisible();
-            await page.keyboard.press('Escape');
-            await expect(page.getByRole('dialog', { name: 'Boat systems' })).toHaveCount(0);
-            await expect(systems).toBeFocused();
-            await music.click();
-            await expect(page.getByRole('heading', { name: 'Apple Music', exact: true })).toBeVisible();
-        });
+        }
     }
     for (const size of [...PHONES, ...LANDSCAPE]) {
         test(`fits one screen, one menu box, at ${size.name}`, async ({ page, baseURL }) => {
