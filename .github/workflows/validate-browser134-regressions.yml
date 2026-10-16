@@ -44,7 +44,7 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - name: Actual offline restart and complete trip flow in both engines
         if: matrix.suite == 'keyboard'
-        run: npx playwright test browser-tests/offline-relief.spec.ts browser-tests/plan-page-fit.spec.ts --config playwright.keyboard.config.ts --grep 'saved terrain renders|your trips, a four-leg trip and the next leg at 1024x768' --workers=1 --retries=0 --repeat-each=2
+        run: npx playwright test browser-tests/offline-relief.spec.ts browser-tests/plan-page-fit.spec.ts --config playwright.keyboard.config.ts --grep 'saved terrain renders|your trips, a four-leg trip and the next leg at 1024x768' --workers=1 --retries=0 --repeat-each=2 --trace=retain-on-failure
       - name: Build configured production app
         if: matrix.suite == 'production'
         run: GITHUB_SHA="$(git rev-parse HEAD)" npm run build
