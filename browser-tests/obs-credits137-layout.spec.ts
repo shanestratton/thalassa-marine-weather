@@ -87,6 +87,20 @@ for (const width of [300, 375, 430])
             expect(warned!.height).toBe(44);
             expect(warned!.x + warned!.width).toBeLessThanOrEqual(mob!.x - 4);
             expect(await row.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+            // Keep the full provider name and both usable targets when the warning adds its marker.
+            for (const target of [
+                page.getByRole('button', { name: 'Credits; layer status needs review' }),
+                row.getByRole('link'),
+            ]) {
+                expect((await target.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+                expect(await target.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+                expect(
+                    await target.evaluate((el) => {
+                        const r = el.getBoundingClientRect();
+                        return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+                    }),
+                ).toBe(true);
+            }
 
             expect(await page.evaluate(() => window.__creditsFixture.bounds())).toEqual(before);
             expect(outbound).toEqual([]);

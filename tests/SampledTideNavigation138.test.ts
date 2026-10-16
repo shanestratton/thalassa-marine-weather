@@ -1,5 +1,5 @@
 /** Fictional authority records test the gate, never real source/rights proof. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     assessSampledTideNavigation,
     isReviewedStationTideEstimate,
@@ -8,10 +8,18 @@ import {
     type TideNavigationContext,
 } from '../services/tides/sampledTideNavigation';
 import type { SampledTideSeries } from '../services/tides/sampledTideContract';
+import { bindAdapterSampledTideSeries, type AdapterSampleReadEvidence } from '../services/tides/sampledTideAcquisition';
 import { blendNearbyReviewedTides, isReviewedSpatialTideEstimate } from '../services/tides/nearbySampledTides';
+import { reviewWaterInterval, isReviewedWaterInterval } from '../services/tides/reviewedWaterInterval';
+import {
+    reviewTideWait,
+    recheckTideWaitForAcceptance,
+    type CompleteHoldingFacts,
+    type CompleteHoldingReader,
+} from '../services/routing/tideWaitReview';
 const T = Date.parse('2026-10-17T06:00:00Z'),
     HOUR = 3600000;
-const source = (): SampledTideSeries => ({
+const rawSource = (): SampledTideSeries => ({
     schema: 1,
     kind: 'sampled-prediction',
     provider: 'NOAA',
@@ -34,6 +42,24 @@ const source = (): SampledTideSeries => ({
         { timeMs: T + HOUR / 2, heightM: 1.1 },
     ],
 });
+const acquire = (raw: SampledTideSeries, changes: Partial<AdapterSampleReadEvidence> = {}): SampledTideSeries => {
+    const value = bindAdapterSampledTideSeries(
+        raw,
+        {
+            provider: 'NOAA',
+            productId: 'fictional-dense-product',
+            requestUrl: 'https://tidesandcurrents.noaa.gov/',
+            responseUrl: 'https://tidesandcurrents.noaa.gov/',
+            receivedAtMs: T,
+            bodySha256: 'a'.repeat(64),
+            ...changes,
+        },
+        T,
+    );
+    if (!value) throw Error('Invalid synthetic acquisition fixture');
+    return value;
+};
+const source = () => acquire(rawSource());
 const context = (): TideNavigationContext => ({
     lifetimeKey: 'fictional-owner/boat/lifetime-1',
     lat: 0,
@@ -88,16 +114,226 @@ const authority = (): SampledTideAuthority => ({
     ],
 });
 describe('independently reviewed sampled navigation authority', () => {
+    it('requires the independent adapter binding and keeps it out of copies and storage', () => {
+        const bound = source();
+        for (const copy of [rawSource(), { ...bound }, JSON.parse(JSON.stringify(bound))])
+            expect(assessSampledTideNavigation(copy, context(), authority())).toMatchObject({
+                kind: 'unavailable',
+                reason: 'Independent acquisition provenance unavailable.',
+            });
+        expect(Object.isFrozen(bound)).toBe(true);
+        expect(Object.isFrozen(bound.samples)).toBe(true);
+        expect(Object.isFrozen(bound.samples[0])).toBe(true);
+        expect(() => {
+            bound.samples[0].heightM = 99;
+        }).toThrow();
+        expect(assessSampledTideNavigation(bound, context(), authority()).kind).toBe('reviewed-station-estimate');
+    });
+    it('checks actual request and response origins/paths independently of the DTO attribution', () => {
+        const reviewed = authority();
+        reviewed.sources = reviewed.sources.map((s) => ({
+            ...s,
+            sourceUrlPrefix: 'https://tidesandcurrents.noaa.gov/reviewed',
+        }));
+        const good = {
+            requestUrl: 'https://tidesandcurrents.noaa.gov/reviewed/station',
+            responseUrl: 'https://tidesandcurrents.noaa.gov/reviewed/station',
+        };
+        expect(assessSampledTideNavigation(acquire(rawSource(), good), context(), reviewed).kind).toBe(
+            'reviewed-station-estimate',
+        );
+        for (const endpoint of [
+            'https://tidesandcurrents.noaa.gov.attacker.invalid/reviewed/station',
+            'https://www.tidesandcurrents.noaa.gov/reviewed/station',
+            'https://tidesandcurrents.noaa.gov/reviewed-sibling/station',
+        ]) {
+            for (const key of ['requestUrl', 'responseUrl'] as const)
+                expect(
+                    assessSampledTideNavigation(acquire(rawSource(), { ...good, [key]: endpoint }), context(), reviewed)
+                        .kind,
+                ).toBe('unavailable');
+        }
+        for (const changes of [
+            { provider: 'WorldTides' as const },
+            { productId: 'payload-claimed-product' },
+            { receivedAtMs: T + 1 },
+            { bodySha256: 'unverified' },
+            { responseUrl: 'https://tidesandcurrents.noaa.gov/reviewed/%2e%2e/elsewhere' },
+            { requestUrl: 'https://secret@tidesandcurrents.noaa.gov/reviewed/station' },
+            { requestUrl: 'https://tidesandcurrents.noaa.gov/reviewed/station?key=secret' },
+        ])
+            expect(() => acquire(rawSource(), { ...good, ...changes })).toThrow(
+                'Invalid synthetic acquisition fixture',
+            );
+    });
+    it('proposes a wait only from a complete trusted holding adapter, then rereads it for explicit acceptance', async () => {
+        const c = {
+            ...context(),
+            use: 'holding' as const,
+            fromMs: T,
+            untilMs: T + HOUR / 2,
+            boatId: 'fictional-boat',
+            routeIdentity: 'fictional-own-route',
+            holdingAlongNm: 5,
+            gateAlongNm: 6,
+            radiusM: 100,
+        };
+        const reviews = authority();
+        reviews.ties = reviews.ties.map((r) => ({ ...r, use: 'holding' }));
+        const options = { signal: new AbortController().signal, assertCurrent: () => {}, now: () => T };
+        const water = await reviewWaterInterval([source()], c, options, reviews);
+        const limits = { draftM: 1, ukcM: 0.5, maxWindKts: 15, maxGustKts: 20, maxWaveM: 1 };
+        const facts: CompleteHoldingFacts = {
+            lifetimeKey: c.lifetimeKey,
+            chartContentKey: c.chartContentKey,
+            lat: c.lat,
+            lon: c.lon,
+            radiusM: 100,
+            readAtMs: T,
+            completeCircleAndApproach: true,
+            minimumChartedDepthM: 5,
+            datumId: c.targetDatumId,
+            datumEpoch: c.targetDatumEpoch,
+            hazards: 'clear',
+            permission: 'allowed',
+            bottom: 'charted',
+            bottomIsPointSample: false,
+            weather: {
+                source: 'Fictional interval weather',
+                originalIssueMs: T - HOUR,
+                expiresAtMs: T + HOUR,
+                maxIssueAgeMs: 3 * HOUR,
+                fromMs: c.fromMs,
+                untilMs: c.untilMs,
+                completeIntervalAndExposure: true,
+                maxWindKts: 5,
+                maxGustKts: 7,
+                maxWaveM: 0.2,
+            },
+        };
+        let reads = 0;
+        const reader: CompleteHoldingReader = async () => {
+            reads++;
+            return facts;
+        };
+        expect((await reviewTideWait(c, limits, water, options)).kind).toBe('unavailable');
+        const draft = await reviewTideWait(c, limits, water, options, reader);
+        expect(draft).toMatchObject({
+            kind: 'proposed-wait',
+            needsExplicitAcceptance: true,
+            actualHoldingVerified: false,
+        });
+        expect(await recheckTideWaitForAcceptance(draft, c, limits, water, options, reader)).toEqual({
+            lat: 0,
+            lon: 0.01,
+            name: 'Wait',
+        });
+        expect(reads).toBe(2);
+        expect(
+            await recheckTideWaitForAcceptance(JSON.parse(JSON.stringify(draft)), c, limits, water, options, reader),
+        ).toBeNull();
+        expect(await recheckTideWaitForAcceptance({ ...draft }, c, limits, water, options, reader)).toBeNull();
+        expect(
+            await recheckTideWaitForAcceptance(draft, { ...c, boatId: 'other' }, limits, water, options, reader),
+        ).toBeNull();
+        expect((await reviewTideWait({ ...c, holdingAlongNm: 7 }, limits, water, options, reader)).kind).toBe(
+            'unavailable',
+        );
+        for (const partial of [
+            { ...facts, completeCircleAndApproach: false },
+            { ...facts, bottomIsPointSample: true },
+            { ...facts, permission: 'unknown' as const },
+            { ...facts, bottom: 'unknown' as const },
+            { ...facts, weather: null },
+            { ...facts, minimumChartedDepthM: 1 },
+        ]) {
+            expect((await reviewTideWait(c, limits, water, options, async () => partial)).kind).toBe('unavailable');
+        }
+        expect(
+            (
+                await reviewTideWait(c, limits, water, options, async () => ({
+                    ...facts,
+                    weather: { ...facts.weather!, maxWindKts: 30 },
+                }))
+            ).kind,
+        ).toBe('unavailable');
+        expect(await recheckTideWaitForAcceptance(draft, c, limits, water, options, async () => null)).toBeNull();
+        expect((await reviewTideWait(c, limits, water, options, async () => ({ ...facts, radiusM: NaN }))).kind).toBe(
+            'unavailable',
+        );
+        expect(
+            (
+                await reviewTideWait(c, limits, water, options, async () => ({
+                    ...facts,
+                    weather: { ...facts.weather!, originalIssueMs: T - 10 * HOUR },
+                }))
+            ).kind,
+        ).toBe('unavailable');
+        const briefWater = await reviewWaterInterval(
+            [acquire({ ...source(), expiresAtMs: T + 1000 })],
+            c,
+            options,
+            reviews,
+        );
+        let clockReads = 0;
+        expect(
+            (
+                await reviewTideWait(
+                    c,
+                    limits,
+                    briefWater,
+                    { ...options, now: () => (clockReads++ ? T + 2000 : T) },
+                    reader,
+                )
+            ).kind,
+        ).toBe('unavailable');
+        vi.useFakeTimers();
+        try {
+            const hung = reviewTideWait(c, limits, water, options, async () => new Promise(() => {}));
+            const assertion = expect(hung).rejects.toThrow('30 seconds');
+            await vi.advanceTimersByTimeAsync(30001);
+            await assertion;
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    it('checks a whole sampled interval rather than just its endpoints and preserves adverse low/high bounds', async () => {
+        const c = { ...context(), fromMs: T, untilMs: T + HOUR / 2 };
+        const options = { signal: new AbortController().signal, assertCurrent: () => {} };
+        const result = await reviewWaterInterval([source()], c, options, authority());
+        expect(result?.checkedInstants).toBe(3);
+        expect(result?.minLowM).toBeCloseTo(-0.7);
+        expect(result?.maxHighM).toBeCloseTo(1.7);
+        expect(isReviewedWaterInterval(result, c)).toBe(true);
+        expect(isReviewedWaterInterval(JSON.parse(JSON.stringify(result)), c)).toBe(false);
+        expect(isReviewedWaterInterval({ ...result }, c)).toBe(false);
+        expect(isReviewedWaterInterval(result, { ...c, lifetimeKey: 'other-generation' })).toBe(false);
+        const gap = acquire({
+            ...source(),
+            samples: [
+                { timeMs: T, heightM: 0 },
+                { timeMs: T + HOUR, heightM: 2 },
+            ],
+        });
+        expect(await reviewWaterInterval([gap], { ...c, untilMs: T + HOUR }, options, authority())).toBeNull();
+        expect(await reviewWaterInterval([source()], { ...c, fromMs: T - 1 }, options, authority())).toBeNull();
+        expect(await reviewWaterInterval([source()], c, options)).toBeNull();
+        const controller = new AbortController();
+        controller.abort();
+        await expect(
+            reviewWaterInterval([source()], c, { ...options, signal: controller.signal }, authority()),
+        ).rejects.toThrow();
+    });
     it('blends only two or three independently tied stations without shrinking the source envelope or renewing the oldest issue', () => {
         const reviewed = authority();
-        const other = {
+        const other = acquire({
             ...source(),
             stationId: 'fictional-station-b',
             datumId: 'fictional-station-b-MLLW',
             lon: 0.02,
             sourceAtMs: T - 12 * HOUR,
             samples: source().samples.map((p) => ({ ...p, heightM: p.heightM + 2 })),
-        };
+        });
         reviewed.ties = [
             ...reviewed.ties,
             {
@@ -119,18 +355,19 @@ describe('independently reviewed sampled navigation authority', () => {
         expect(blend?.stations).toHaveLength(2);
         expect(isReviewedSpatialTideEstimate(blend, context())).toBe(true);
         expect(isReviewedSpatialTideEstimate(JSON.parse(JSON.stringify(blend)), context())).toBe(false);
+        expect(isReviewedSpatialTideEstimate({ ...blend }, context())).toBe(false);
         expect(blendNearbyReviewedTides([first], context())).toBeNull();
         expect(blendNearbyReviewedTides([first, first], context())).toBeNull();
         expect(blendNearbyReviewedTides([first, second, first, second], context())).toBeNull();
         expect(blendNearbyReviewedTides([first, JSON.parse(JSON.stringify(second))], context())).toBeNull();
         expect(blendNearbyReviewedTides([first, second], { ...context(), lifetimeKey: 'next-generation' })).toBeNull();
         expect(blendNearbyReviewedTides([first, second], { ...context(), nowMs: T + HOUR })).toBeNull();
-        const thirdSource = {
+        const thirdSource = acquire({
             ...source(),
             stationId: 'fictional-station-c',
             datumId: 'fictional-station-c-MLLW',
             lat: 0.01,
-        };
+        });
         reviewed.ties = [
             ...reviewed.ties,
             {
@@ -146,8 +383,8 @@ describe('independently reviewed sampled navigation authority', () => {
     it('uses split reviewed dateline scope without a world-spanning station transfer', () => {
         const c = { ...context(), lon: 179.99 },
             reviewed = authority();
-        const a = { ...source(), lon: 179.98 },
-            b = { ...source(), stationId: 'dateline-b', datumId: 'dateline-b-MLLW', lon: -179.98 };
+        const a = acquire({ ...source(), lon: 179.98 }),
+            b = acquire({ ...source(), stationId: 'dateline-b', datumId: 'dateline-b-MLLW', lon: -179.98 });
         const coverage: [number, number, number, number][] = [
             [179.95, -0.05, 180, 0.05],
             [-180, -0.05, -179.95, 0.05],
@@ -179,6 +416,7 @@ describe('independently reviewed sampled navigation authority', () => {
         expect(Object.isFrozen(result)).toBe(true);
         expect(isReviewedStationTideEstimate(result, context())).toBe(true);
         expect(isReviewedStationTideEstimate(JSON.parse(JSON.stringify(result)), context())).toBe(false);
+        expect(isReviewedStationTideEstimate({ ...result }, context())).toBe(false);
         expect(isReviewedStationTideEstimate({ navigationEligible: true, heightM: 99 }, context())).toBe(false);
         expect(
             isReviewedStationTideEstimate(result, { ...context(), lifetimeKey: 'fictional-owner/boat/lifetime-2' }),
@@ -200,12 +438,19 @@ describe('independently reviewed sampled navigation authority', () => {
         ).toBe('unavailable');
     });
     it('requires WorldTides written permission rather than treating it as public-agency data', () => {
-        const payload = {
-            ...source(),
-            provider: 'WorldTides' as const,
-            sourceUrl: 'https://www.worldtides.info/',
-            licenceUrl: 'https://www.worldtides.info/terms',
-        };
+        const payload = acquire(
+            {
+                ...source(),
+                provider: 'WorldTides' as const,
+                sourceUrl: 'https://www.worldtides.info/',
+                licenceUrl: 'https://www.worldtides.info/terms',
+            },
+            {
+                provider: 'WorldTides',
+                requestUrl: 'https://www.worldtides.info/',
+                responseUrl: 'https://www.worldtides.info/',
+            },
+        );
         const reviewed = authority();
         reviewed.sources = reviewed.sources.map((r) => ({
             ...r,
@@ -238,12 +483,12 @@ describe('independently reviewed sampled navigation authority', () => {
         expect(assessSampledTideNavigation(source(), context(), reviewed).kind).toBe('unavailable');
     });
     it('refuses absent epochs, conflicting reviews, expired scope, distant points and missing original clocks', () => {
-        expect(assessSampledTideNavigation({ ...source(), datumEpoch: null }, context(), authority()).kind).toBe(
-            'unavailable',
-        );
-        expect(assessSampledTideNavigation({ ...source(), sourceAtMs: null }, context(), authority()).kind).toBe(
-            'unavailable',
-        );
+        expect(
+            assessSampledTideNavigation(acquire({ ...source(), datumEpoch: null }), context(), authority()).kind,
+        ).toBe('unavailable');
+        expect(
+            assessSampledTideNavigation(acquire({ ...source(), sourceAtMs: null }), context(), authority()).kind,
+        ).toBe('unavailable');
         expect(assessSampledTideNavigation(source(), { ...context(), lat: 1 }, authority()).kind).toBe('unavailable');
         const reviewed = authority();
         reviewed.ties = [reviewed.ties[0], reviewed.ties[0]];
@@ -256,13 +501,13 @@ describe('independently reviewed sampled navigation authority', () => {
         expect(assessSampledTideNavigation(source(), context(), stale).kind).toBe('unavailable');
     });
     it('enforces the reviewed cadence at interpolation instead of stretching a missing knot', () => {
-        const payload = {
+        const payload = acquire({
             ...source(),
             samples: [
                 { timeMs: T, heightM: 0 },
                 { timeMs: T + HOUR, heightM: 2 },
             ],
-        };
+        });
         expect(assessSampledTideNavigation(payload, context(), authority()).kind).toBe('unavailable');
         expect(assessSampledTideNavigation(payload, { ...context(), atMs: T }, authority()).kind).toBe(
             'reviewed-station-estimate',
