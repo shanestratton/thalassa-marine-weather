@@ -100,6 +100,8 @@ export function getThreadId(type: string): string {
             return 'thalassa-anchor';
         case 'weather_alert':
             return 'thalassa-weather';
+        case 'buddy_notice':
+            return 'thalassa-buddy';
         case 'hail':
             return 'thalassa-social';
         case 'collision_alarm':
@@ -143,6 +145,10 @@ const officialExpiry = (data: Record<string, unknown> | undefined): number =>
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
+    if (
+        type === 'buddy_notice' && typeof data.watch_id === 'string' &&
+        /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(data.watch_id)
+    ) return `buddy-${data.watch_id}`;
     if (type === 'radar_alarm' && typeof data.contact_key === 'string' && RADAR_RELAY_CONTACT.test(data.contact_key)) {
         return `radar-${data.contact_key}`;
     }
@@ -201,6 +207,8 @@ export function getApnsExpiration(
     data?: Record<string, unknown>,
 ): string {
     const nowSeconds = Math.floor(nowMs / 1000);
+    // Informational source facts must not wait at APNs and arrive as fresh news.
+    if (type === 'buddy_notice') return '0';
     if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
         const notice = parseWeatherWatchNotice(data, nowMs);
         return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
@@ -243,6 +251,10 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'buddy_notice') {
+        const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+        return !Number.isFinite(created) || created > nowMs || nowMs - created >= 30 * 60_000;
+    }
     if (type === 'radar_alarm') {
         if (
             typeof data?.source_at !== 'number' || !Number.isSafeInteger(data.source_at) || data.source_at <= 0 ||
@@ -298,6 +310,7 @@ export interface ApsInput {
  * nothing.
  */
 export function getInterruptionLevel(type: string, data: Record<string, unknown>): InterruptionLevel | undefined {
+    if (type === 'buddy_notice') return 'passive';
     if (type === 'wake_alarm') return 'time-sensitive'; // User-enabled preset; no Critical entitlement claim.
     // The quiet boat (129-08): the page goes at once, the all-clear as an ordinary alert.
     if (type === 'boat_quiet') return 'time-sensitive';

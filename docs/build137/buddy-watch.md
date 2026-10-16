@@ -61,15 +61,17 @@ The phone credits [Data: AISHub contributors](https://www.aishub.net).
 
 Before activation, root must review/apply this migration, prove the actual
 PostGIS distance adapter and PostgreSQL concurrent CAS/quota cases, verify the
-deployed fixed `buddy-watch` function, and integrate the separate ordinary
-`buddy_notice` sender type. The prepared `createBuddyDeliveryGuard` must run
-before **each** APNs attempt through `buddy_notice_delivery(queueId)`. Sender
-integration must use ordinary, silent priority, a separate buddy thread/collapse
-identity and at most30minute TTL; no critical/time-sensitive setting. The SQL
+deployed fixed `buddy-watch` function and the separately reviewed sender source.
+The composed `buddy_notice` sender calls `createBuddyDeliveryGuard` before token
+lookup and before **each** APNs attempt through `buddy_notice_delivery(queueId)`.
+It uses passive, silent delivery and a separate buddy thread/collapse identity.
+Queue rows expire after30minutes and APNs cannot store a notice for later
+delivery; no critical/time-sensitive setting is used. The SQL
 guard rechecks current owner/boat/configuration, source/delivery rights, receipt,
 original report and latest state. Opt-out/removal/transfer or a newer assessment
 retires an old queued notice. Delivery outages remain retryable; false retires.
-No shared sender/dispatch configuration is changed by this isolated packet.
+This sender source is integrated and tested but has not been deployed. The live
+sender and all buddy activation gates remain unchanged.
 
 The exact cron command/schedule, a successful recent full function sweep,
 deployed function version and separately reviewed sender version must all prove

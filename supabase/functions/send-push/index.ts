@@ -52,6 +52,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createWakeDeliveryGuard, type WakeDeliveryDecision } from './wake-delivery.ts';
 import { createWeatherWatchDeliveryGuard } from './weather-watch-delivery.ts';
 import { createRadarDeliveryGuard } from './radar-delivery.ts';
+import { createBuddyDeliveryGuard } from './buddy-delivery.ts';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 import {
@@ -411,6 +412,34 @@ serve(async (req: Request) => {
             }
         }
 
+        // A persisted buddy row still needs current owner/boat, consent and
+        // source entitlement before this lookup and again before every attempt.
+        const buddyGuard = notification_type === 'buddy_notice'
+            ? createBuddyDeliveryGuard(id, data ?? {}, async (queueId) => {
+                const result = await supabase.rpc('buddy_notice_delivery', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            })
+            : undefined;
+        if (buddyGuard) {
+            const decision = await buddyGuard();
+            if (decision === 'unavailable') {
+                await releaseClaim('Buddy notice delivery check unavailable');
+                return new Response(JSON.stringify({ error: 'Buddy notice delivery check unavailable' }), {
+                    status: 503,
+                });
+            }
+            if (decision === 'retire') {
+                await supabase.from('push_notification_queue').update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'Buddy notice no longer current',
+                }).eq('id', id);
+                return new Response(JSON.stringify({ sent: 0, message: 'Buddy notice no longer current' }), {
+                    status: 200,
+                });
+            }
+        }
+
         // ── Look up device tokens for the recipient ──
         const { data: tokens, error } = await supabase
             .from('push_device_tokens')
@@ -457,8 +486,8 @@ serve(async (req: Request) => {
             threadId: getThreadId(notification_type),
             collapseId: getCollapseId(notification_type, data || {}),
             badge: (badgeCount ?? 0) + 1,
-            ...(wakeGuard || radarGuard || weatherGuard
-                ? { beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard }
+            ...(wakeGuard || radarGuard || weatherGuard || buddyGuard
+                ? { beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard ?? buddyGuard }
                 : {}),
         };
 

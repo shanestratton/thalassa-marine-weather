@@ -1,5 +1,5 @@
 import { createWakeDeliveryGuard } from './wake-delivery.ts';
-/** Prepared integration only: sender must call this before EVERY APNs attempt.
+/** The sender calls this before the token lookup and EVERY APNs attempt.
  * An ordinary, silent informational family; never critical/time-sensitive. */
 export function createBuddyDeliveryGuard(
     queueId: unknown,
