@@ -130,3 +130,22 @@ series title and real US5CA1LK record. Python must reproduce the exact generated
 index fixture; the app must parse that same object and reject the historical bad
 title. This closes the earlier synthetic-browser-only metadata gap. Invalid
 UTC syntax, impossible calendar/time values and future-of-check issuance fail.
+
+## First bounded batch result
+
+The reviewed first 64 active IDs were attempted separately under
+`/srv/weather/thalassa-noaa/batches/first64-61509e0c7243`, using frozen source
+`58060295e117464c239c6bf14f0f42230c6a3c07` and the same pinned converter/image.
+Eleven cells completed, preserving 6,109,492 bytes of original ZIPs and
+30,556,030 bytes of converted charts. US1GLBDD (edition 1, update 4) then failed:
+the pinned GDAL `ogrinfo` process segfaulted. One explicitly authorized diagnostic
+replay of the exact retained source confirmed the same failure; kernel logs
+identified both segfaults. Its ZIP SHA256 is
+`dfdf5e042b1da19e6fec73c17b00440d2c905507054902fe4130f00a5194af4c`.
+
+The batch stopped without generating or publishing a new catalogue. The failed
+cell stays unready, originals/receipts and diagnostic output are retained, and
+no layers or resource gates were bypassed. Source acquisition remains stopped
+pending a reviewed GDAL/source diagnosis. Stage failures now include a bounded,
+control-sanitized public-source stderr/stdout excerpt so the useful converter
+reason is preserved without dumping commands or environment values.
