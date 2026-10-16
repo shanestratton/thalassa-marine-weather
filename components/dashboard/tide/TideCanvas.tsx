@@ -63,9 +63,6 @@ export const TideCanvas = React.memo(
             const pixelHeight = Math.max(1, Math.round(h * dpr));
             if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
             if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-            canvas.style.width = `${w}px`;
-            canvas.style.height = `${h}px`;
-
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -266,7 +263,7 @@ export const TideCanvas = React.memo(
 
         return (
             <div ref={containerRef} className="absolute inset-0">
-                <canvas ref={canvasRef} className="absolute inset-0" />
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             </div>
         );
     },

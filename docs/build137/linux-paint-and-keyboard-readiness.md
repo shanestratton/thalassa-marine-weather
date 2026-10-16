@@ -104,3 +104,23 @@ with the same backing size and DPR transform, paints a known rectangle into
 that control and immediately reads one pixel. It never paints into the product
 canvas. All original product cases remain uninstrumented and retain their
 existing real-pixel, layout, page-error and no-expansion guards.
+
+The two-case state-only Linux probe `38978712187` on `bd8ce5924` distinguishes
+the grid-only defect from a completely transparent surface: the failed original
+case retains 168 nontransparent CSS-pixel equivalents, none above alpha 128,
+and maximum alpha 15. Its canvas and container are both 276.5 by 81 CSS pixels;
+the transform is 3 by 3 without skew or translation, global alpha is 1,
+compositing is source-over, and the elements have no opacity/clip/transform
+change. The isolated recorder has balanced saves/restores, no clip/reset and no
+nonfinite arguments; its fresh control paints immediately while the product
+still has grid-only pixels. Its third product draw passes. Artifact
+`12080057449` is 440124 bytes, SHA256
+`147c6889d5fc59b17f5e56f2364b65dae6fbe3e7db6e9a8c94ba2091ef331fa7`.
+This is diagnostic evidence, not release acceptance or a proven root cause.
+
+The next narrow product candidate lets static full-size CSS size the absolute
+canvas before layout is read, removing imperative CSS width/height assignments
+from the draw path. Integer backing-store assignments remain idempotent. This
+separates CSS layout sizing from bitmap paint without extra repaint loops,
+changing the card's bounds or changing any real-pixel requirement. Exact-source
+Linux proof is required before accepting this sizing candidate.
