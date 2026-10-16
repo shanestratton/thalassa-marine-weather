@@ -18,6 +18,12 @@ const props = {
 let width = 276.5,
     height = 81;
 let resize: () => void;
+let frames = new Map<number, FrameRequestCallback>();
+const paint = () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach((callback) => callback(0));
+};
 const originalResizeObserver = globalThis.ResizeObserver;
 const context = () =>
     new Proxy(
@@ -38,6 +44,13 @@ beforeEach(() => {
     width = 276.5;
     height = 81;
     vi.stubGlobal('devicePixelRatio', 3);
+    frames = new Map();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.set(++nextFrame, callback);
+        return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
     globalThis.ResizeObserver = class {
         constructor(callback: ResizeObserverCallback) {
             resize = () => callback([], this);
@@ -70,20 +83,25 @@ describe('tide backing-store lifetime', () => {
         const setWidth = vi.spyOn(HTMLCanvasElement.prototype, 'width', 'set');
         const setHeight = vi.spyOn(HTMLCanvasElement.prototype, 'height', 'set');
         const view = render(<TideCanvas {...props} />);
+        act(paint);
         const canvas = view.container.querySelector('canvas')!;
         expect(canvas.width).toBe(830);
         expect(canvas.height).toBe(243);
         act(() => {
             resize();
             resize();
+            paint();
         });
         expect(setWidth).toHaveBeenCalledTimes(1);
         expect(setHeight).toHaveBeenCalledTimes(1);
-        expect(ctx.setTransform).toHaveBeenCalledTimes(3);
+        expect(ctx.setTransform).toHaveBeenCalledTimes(2);
         expect(ctx.setTransform).toHaveBeenLastCalledWith(3, 0, 0, 3, 0, 0);
-        expect(ctx.clearRect).toHaveBeenCalledTimes(3);
+        expect(ctx.clearRect).toHaveBeenCalledTimes(2);
         height = 100;
-        act(() => resize());
+        act(() => {
+            resize();
+            paint();
+        });
         expect(setWidth).toHaveBeenCalledTimes(1);
         expect(setHeight).toHaveBeenCalledTimes(2);
         expect(canvas.height).toBe(300);
@@ -94,10 +112,14 @@ describe('tide backing-store lifetime', () => {
         const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as never);
         const setWidth = vi.spyOn(HTMLCanvasElement.prototype, 'width', 'set');
         render(<TideCanvas {...props} />);
+        act(paint);
         expect(getContext).not.toHaveBeenCalled();
         expect(setWidth).not.toHaveBeenCalled();
         height = 81;
-        act(() => resize());
+        act(() => {
+            resize();
+            paint();
+        });
         expect(getContext).toHaveBeenCalledOnce();
         expect(ctx.clearRect).toHaveBeenCalledOnce();
     });
@@ -106,11 +128,23 @@ describe('tide backing-store lifetime', () => {
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as never);
         const setWidth = vi.spyOn(HTMLCanvasElement.prototype, 'width', 'set');
         const view = render(<TideCanvas {...props} />);
+        act(paint);
         const first = structuredClone(vi.mocked(ctx.lineTo).mock.calls);
         vi.mocked(ctx.lineTo).mockClear();
         view.rerender(<TideCanvas {...props} domainBuffer={0.8} />);
+        act(paint);
         expect(ctx.clearRect).toHaveBeenCalledTimes(2);
         expect(vi.mocked(ctx.lineTo).mock.calls).not.toEqual(first);
         expect(setWidth).toHaveBeenCalledOnce();
+    });
+    it('retires a scheduled paint when its host unmounts', () => {
+        const ctx = context();
+        const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as never);
+        const view = render(<TideCanvas {...props} />);
+        expect(frames.size).toBe(1);
+        view.unmount();
+        act(paint);
+        expect(frames.size).toBe(0);
+        expect(getContext).not.toHaveBeenCalled();
     });
 });

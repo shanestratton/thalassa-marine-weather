@@ -10,6 +10,51 @@ test.beforeEach(async ({ page }) => {
     const errors: string[] = [];
     errorsByPage.set(page, errors);
     page.on('pageerror', (error) => errors.push(error.message));
+    // Observe commands without adding a draw, reading pixels during drawing,
+    // changing arguments or changing the original assertion outcome.
+    await page.addInitScript(() => {
+        if (!new URLSearchParams(location.search).has('canvasProbe')) return;
+        const records = new WeakMap<HTMLCanvasElement, Record<string, number>>();
+        const record = (canvas: HTMLCanvasElement) => {
+            let row = records.get(canvas);
+            if (!row) {
+                row = {};
+                records.set(canvas, row);
+            }
+            return row;
+        };
+        const proto = CanvasRenderingContext2D.prototype;
+        for (const method of ['clearRect', 'stroke', 'fill', 'fillText', 'moveTo', 'lineTo', 'arc'] as const) {
+            const original = Reflect.get(proto, method);
+            if (typeof original !== 'function') continue;
+            Reflect.set(proto, method, function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+                const row = record(this.canvas);
+                row[method + 'Calls'] = (row[method + 'Calls'] ?? 0) + 1;
+                row.lastCommandMs = performance.now();
+                if (args.some((value) => typeof value === 'number' && !Number.isFinite(value)))
+                    row.nonFiniteCommands = (row.nonFiniteCommands ?? 0) + 1;
+                return Reflect.apply(original, this, args);
+            });
+        }
+        for (const dimension of ['width', 'height'] as const) {
+            const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, dimension);
+            if (!descriptor?.set || !descriptor.configurable) continue;
+            const set = descriptor.set;
+            Object.defineProperty(HTMLCanvasElement.prototype, dimension, {
+                ...descriptor,
+                set(this: HTMLCanvasElement, value: number) {
+                    const row = record(this);
+                    row[dimension + 'Writes'] = (row[dimension + 'Writes'] ?? 0) + 1;
+                    row.lastResizeMs = performance.now();
+                    set.call(this, value);
+                },
+            });
+        }
+        Object.defineProperty(window, '__tideCanvasCommands', {
+            value: (canvas: HTMLCanvasElement) => ({ nonFiniteCommands: 0, ...record(canvas) }),
+            configurable: true,
+        });
+    });
     await applyWideFonts(page);
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
@@ -62,7 +107,14 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                                     axis++;
                             }
                         const transform = ctx.getTransform();
+                        const commands =
+                            (
+                                window as unknown as {
+                                    __tideCanvasCommands?: (canvas: HTMLCanvasElement) => Record<string, number>;
+                                }
+                            ).__tideCanvasCommands?.(el) ?? {};
                         return {
+                            ...commands,
                             atMs: performance.now(),
                             curve: curve / devicePixelRatio ** 2,
                             axis: axis / devicePixelRatio ** 2,
@@ -294,4 +346,19 @@ test('short all-day card keeps the full four-event table in its source disclosur
     await expect(events).toContainText('Low 10:00 · 0.4 m');
     await expect(events).toContainText('High 16:00 · 2.0 m');
     await expect(events).toContainText('Low 22:00 · 0.4 m');
+});
+
+test('diagnostic canvas command trace retains the actual compact curve requirement', async ({ page }, info) => {
+    await page.setViewportSize({ width: 300, height: 640 });
+    await page.goto('/e2e/fixtures/wind-tide.html?mode=dark&provenance=1&height=85&late=1&canvasProbe=1');
+    await expect(page.getByTestId('tide-source-disclosure')).toBeVisible();
+    const pixels = await drawnPixels(
+        page.getByTestId('tide-plot').locator('canvas'),
+        page.getByTestId('tide-caption-band'),
+        info,
+    );
+    expect(pixels.visibleHeight).toBeGreaterThan(10);
+    expect(pixels.curve).toBeGreaterThan(100);
+    expect(pixels.axis).toBeGreaterThan(30);
+    await page.screenshot({ path: info.outputPath('canvas-command-probe.png') });
 });

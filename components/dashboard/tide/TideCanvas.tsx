@@ -242,15 +242,23 @@ export const TideCanvas = React.memo(
         }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, topBandPx, rightInsetPx]);
 
         useEffect(() => {
-            draw();
             const container = containerRef.current;
             if (!container) return;
-
-            const ro = new ResizeObserver(() => draw());
+            // Caption measurements can replace the plot geometry during the
+            // layout/observer cycle. Paint once on its following frame and
+            // cancel obsolete requests when that geometry changes again.
+            let frame = 0;
+            const scheduleDraw = () => {
+                cancelAnimationFrame(frame);
+                frame = requestAnimationFrame(draw);
+            };
+            scheduleDraw();
+            const ro = new ResizeObserver(scheduleDraw);
             ro.observe(container);
-            const themeObserver = new MutationObserver(() => draw());
+            const themeObserver = new MutationObserver(scheduleDraw);
             themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
             return () => {
+                cancelAnimationFrame(frame);
                 ro.disconnect();
                 themeObserver.disconnect();
             };

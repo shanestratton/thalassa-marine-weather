@@ -65,3 +65,22 @@ This is a controlled candidate for the repeated surface-recreation path, not a
 claim that the Linux cause is resolved. A new exact-source Linux pixel run must
 pass before acceptance. Its Tide/Wake evidence is uploaded before the separate
 graphics benchmark command so a persistent failure is available immediately.
+
+The idempotent-size candidate `cf5d13ceb` passed all 70 local Chrome/WebKit
+tide/wind-tide cases but left 14 blank WebKit tide cases in Linux run
+`38976959026`. Artifact `12078963668` was available before the graphics command
+finished: 5641162 bytes, SHA256
+`ec3b8d9b8848a7abbab4c758d79f4c52c659ea7e8af7d8389273b3a9ea2bb68a`.
+Its failed compact samples remain zero for five seconds with an 830 by 243
+backing store and a 3 by 3 transform; the context-loss API is unavailable (-1).
+The size change alone is insufficient and is not treated as a successful repair.
+
+The following candidate coalesces effect, ResizeObserver and theme requests into
+one animation-frame paint after layout, and cancels obsolete paints on cleanup.
+Four lifecycle regressions and the four official-tide tests pass, including
+unmount cancellation. A separate diagnostic case opts into a bounded command
+recorder for method counts, finite numeric arguments and backing-size writes.
+All original cases run without that recorder, so instrumentation cannot be the
+reason their rendering passes. The diagnostic retains the original actual
+curve, axis and visible-space thresholds and adds no artificial draw. Exact
+source Linux proof is still required.
