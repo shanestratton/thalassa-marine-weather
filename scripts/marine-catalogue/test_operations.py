@@ -77,6 +77,27 @@ class OperationsTests(unittest.TestCase):
         with self.assertRaises(ValueError): acquire.validate(bad)
         bad = copy.deepcopy(plan); bad["sources"][0]["maxBytes"] = 129 * 1024**3
         with self.assertRaises(ValueError): acquire.validate(bad)
+    def test_dated_osm_snapshot_is_explicit_valid_and_keeps_exact_host_boundary(self):
+        source = {"url": "https://download.geofabrik.de/australia-oceania-261015.osm.pbf", "format": "osm-pbf", "maxBytes": 2 * 1024**3, "maxExpandedBytes": 512 * 1024**2}
+        plan = {"schema": 1, "dataset": "osm", "coverage": "Reviewed dated fixture", "sources": [source]}
+        acquire.validate(plan)
+        for url in ("https://download.geofabrik.de/australia-oceania-260231.osm.pbf", "https://download.geofabrik.de.evil.test/australia-oceania-261015.osm.pbf", "https://download.geofabrik.de/australia-oceania-261015.osm.pbf?position=private"):
+            bad = copy.deepcopy(plan)
+            bad["sources"][0]["url"] = url
+            with self.assertRaises(ValueError):
+                acquire.validate(bad)
+
+    def test_old_or_future_dated_osm_download_never_starts_a_request(self):
+        class Opener:
+            def open(self, *args, **kwargs):
+                raise AssertionError("An unreviewed snapshot must not reach the provider")
+        today = acquire.dt.datetime.now(acquire.dt.timezone.utc).date()
+        with tempfile.TemporaryDirectory() as temporary:
+            for day in (today - acquire.dt.timedelta(days=46), today + acquire.dt.timedelta(days=1)):
+                source = {"url": "https://download.geofabrik.de/australia-oceania-" + day.strftime("%y%m%d") + ".osm.pbf", "maxBytes": 1000}
+                with self.assertRaisesRegex(ValueError, "Old/future OSM"):
+                    acquire.download(source, Path(temporary) / "source.osm.pbf", Opener())
+
     def test_transport_unknown_length_overflow_and_redirect_cleanup(self):
         class Response(io.BytesIO):
             headers = {}

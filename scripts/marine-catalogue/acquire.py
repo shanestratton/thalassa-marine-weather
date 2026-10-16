@@ -35,9 +35,12 @@ def validate(plan):
         if set(s) != {"url", "format", "maxBytes", "maxExpandedBytes"}:
             raise ValueError("Unexpected source plan fields")
         u = urlparse(s["url"])
-        paths = {"places": r"/export/dump/(?:allCountries|[A-Z]{2})\.zip", "osm": r"/[a-z0-9/_-]+-latest\.osm\.pbf", "noaa": r"/ENCs/(?:All_ENCs|US[A-Z0-9]+)\.zip"}
+        paths = {"places": r"/export/dump/(?:allCountries|[A-Z]{2})\.zip", "osm": r"/[a-z0-9/_-]+-(?:latest|\d{6})\.osm\.pbf", "noaa": r"/ENCs/(?:All_ENCs|US[A-Z0-9]+)\.zip"}
         if u.scheme != "https" or u.hostname != build.HOSTS[plan["dataset"]] or u.query or u.fragment or u.username or u.password or not re.fullmatch(paths[plan["dataset"]], u.path) or s["format"] != expected:
             raise ValueError("Source host/path/format refused")
+        dated = re.search(r"-(\d{6})\.osm\.pbf$", u.path) if plan["dataset"] == "osm" else None
+        if dated:
+            dt.datetime.strptime(dated[1], "%y%m%d")  # Reject impossible calendar dates in reviewed snapshot URLs.
         if any(type(s[k]) is not int or s[k] <= 0 or s[k] > (64 * 1024**3 if k == "maxBytes" else LIMIT) for k in ("maxBytes", "maxExpandedBytes")):
             raise ValueError("Invalid source byte cap")
     if sum(s["maxBytes"] for s in plan["sources"]) > TRANSPORT_LIMIT or sum(s["maxExpandedBytes"] for s in plan["sources"]) > LIMIT:
@@ -55,6 +58,13 @@ def verify_noaa_agreement(opener=None):
         raise ValueError("NOAA agreement changed: review source terms and app acceptance version before publication")
 
 def download(source, target, opener=None):
+    url = urlparse(source["url"])
+    dated = re.search(r"-(\d{6})\.osm\.pbf$", url.path) if url.hostname == "download.geofabrik.de" else None
+    if dated:
+        day = dt.datetime.strptime(dated[1], "%y%m%d").date()
+        today = dt.datetime.now(dt.timezone.utc).date()
+        if day > today or day < today - dt.timedelta(days=45):
+            raise ValueError("Old/future OSM snapshot; review a current dated source before acquisition")
     opener = opener or urllib.request.build_opener(NoRedirect())
     request = urllib.request.Request(source["url"], headers={"User-Agent": "ThalassaPublicCatalogue/135", "Accept-Encoding": "identity"})
     deadline, total = time.monotonic() + 3600, 0
