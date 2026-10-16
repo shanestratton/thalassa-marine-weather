@@ -123,7 +123,7 @@ describe('CMEMS schema-v2 client trust boundary', () => {
         const fetchMock = vi.fn(async (url: string) =>
             url.includes('manifest-v2.json')
                 ? new Response(JSON.stringify(manifest), { headers: { 'content-type': 'application/json' } })
-                : new Response(bytes, {
+                : new Response(new Uint8Array(bytes).buffer, {
                       headers: { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) },
                   }),
         );
