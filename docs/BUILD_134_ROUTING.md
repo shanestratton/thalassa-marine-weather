@@ -1,6 +1,6 @@
 # Build 134 routing integration
 
-Local implementation on `codex/build-134-routing`, based on `a2fe4ce32d62798b2824ba62df531d9aecbd0156`. This document records source behavior, not a live deployment, benchmark success, physical-device check or TestFlight upload.
+Local implementation on `codex/build-134-routing`, incorporating the frozen build 133 corrections from `6e2ee4ad203b60d7ddbcb377f29708b6420684ff`. This document records source behavior, not a benchmark success, physical-device check or TestFlight upload. Weather backend deployments are recorded separately in [the integration record](BUILD_134.md).
 
 ## 134-02: chart planning environment and vessel rules
 
@@ -18,7 +18,7 @@ Passage cards, tablet data, share text and PDFs use the same estimated beating/r
 
 Inshore/Auto routes without a propulsion model show an explicitly labeled all-engine scenario. Their estimate does not claim that the skipper will motor the entire passage. The unused ResourceCalculator, which guessed 15% motoring for sailboats, is retired. No fuel-rate PGN learning or electric-propulsion model is introduced.
 
-Focused synthetic tests cover field wiring, missing coverage, clock offsets, account/cache ownership, short-hop handoff, raw-path motor attribution, missing-wind uncertainty, unit conversion and reserves. The real Serene Summer performance benchmark still requires actual route/forecast data and the selected polar; generic/database/chosen-polar synthetic replays are separate evidence. No boat-specific routing constants are introduced.
+Focused synthetic tests cover field wiring, missing coverage, clock offsets, account/cache ownership, short-hop handoff, raw-path motor attribution, missing-wind uncertainty, unit conversion and reserves. Own-boat tracks and the selected polar are staged privately outside Git; the real Serene Summer performance benchmark still requires as-issued forecast access and execution. Generic/database/chosen-polar synthetic replays are separate evidence. No boat-specific routing constants are introduced.
 
 ## 134-04: wave limits and route comfort
 
@@ -34,4 +34,4 @@ One named GFS batch of at most 25 points provides absolute-time wind, actual gus
 
 The shared `departureScore` used by Plan Your Day and passage suggestions now also accepts rain, percent upwind, adverse ocean current and beta comfort. Optional terms count only when all comparable candidates have complete coverage; missing data cannot improve an option's rank. These are uncalibrated comparison weights, not ETA or safety guarantees. Missing and omitted terms remain visible. No multi-model spread flag is added.
 
-Hops below 15 NM compare one verified inshore line rather than requesting offshore substitutes. Its chart masks/shallow runs stay only in the local operation closure. Tide timing calls the existing build-128 `leaveSpots`, `leaveCurves`, `leaveWindow` and `leaveChosen`, with the same datum-guarded tide service and bucket privacy. A different geometry cannot inherit its tide verdict. Red chart hazards block the option. An offshore candidate without verified chart tide evidence remains tide-unknown; the weather ranking never clears a tide gate.
+Hops below 15 NM compare one verified inshore line rather than requesting offshore substitutes. Its chart masks/shallow runs stay only in the local operation closure. Tide timing retains the existing `leaveSpots`, `leaveCurves`, `leaveWindow` and `leaveChosen` contracts and bucket privacy, behind the fixed closed provider-use boundary inherited from build 133. No WorldTides clearance is available. A different geometry cannot inherit a tide verdict. Red chart hazards block the option. An offshore candidate without verified chart tide evidence remains tide-unknown; the weather ranking never clears a tide gate.
