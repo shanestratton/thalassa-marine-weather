@@ -32,6 +32,29 @@ class Store:
         self.puts.append(key); self.data[key]=body
 
 class Pipeline(unittest.TestCase):
+    def test_actual_series_title_is_not_a_date_and_exact_generated_index_matches_app_fixture(self):
+        fixtures=Path(__file__).resolve().parents[2]/'tests'/'fixtures'/'noaa-publisher'
+        raw=(fixtures/'real-metadata.xml').read_bytes()
+        self.assertIn(b'>ENC Product Catalog</c:DateTime>',raw)
+        parsed=c.parse_catalogue(raw)
+        self.assertEqual(parsed['sourceAt'],'2026-10-16T04:59:07Z')
+        with tempfile.TemporaryDirectory() as directory:
+            index=c.generate(parsed,{},Path(directory)/'generation','2026-10-16T06:00:00Z')
+            self.assertEqual(index,json.loads((fixtures/'generated-index.json').read_bytes()))
+    def test_metadata_timestamp_requires_real_utc_calendar_values_and_preserves_issuance(self):
+        for stamp in ['ENC Product Catalog','2026-02-30T00:00:00Z','2026-10-16','2026-10-16T25:00:00Z','2026-10-16T04:59:07+00:00','1970-01-01T00:00:00Z']:
+            with self.assertRaises(ValueError): c.parse_catalogue(xml(record()).replace(b'2026-10-16T04:59:07Z',stamp.encode()))
+        fixtures=Path(__file__).resolve().parents[2]/'tests'/'fixtures'/'noaa-publisher'
+        raw=(fixtures/'real-metadata.xml').read_bytes()
+        with self.assertRaises(ValueError): c.parse_catalogue(raw.replace(b'>ENC Product Catalog</c:DateTime>',b'>another invalid series timestamp</c:DateTime>'))
+        parsed=c.parse_catalogue(xml(record()))
+        with tempfile.TemporaryDirectory() as directory:
+            for checked in ['not a date','2026-10-16T04:00:00Z']:
+                with self.assertRaises(ValueError): c.generate(parsed,{},Path(directory)/'invalid',checked)
+            index=c.generate(parsed,{},Path(directory)/'valid','2026-10-16T12:00:00Z')
+            self.assertEqual(index['sourceAt'],'2026-10-16T04:59:07Z')
+            corrected=c.generate({**parsed,'sourceAt':'2026-10-16T04:59:08Z'},{},Path(directory)/'corrected','2026-10-16T12:00:00Z')
+            self.assertNotEqual(index['generation'],corrected['generation'])
     def test_real_catalogue_shape_revisions_and_withdrawals(self):
         parsed=c.parse_catalogue(xml(record(),record('US5CA16M','46.1',None)))
         self.assertEqual(parsed['cells'][0]['update'],10)  # Not float1.1.

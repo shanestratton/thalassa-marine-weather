@@ -24,6 +24,14 @@ def iso_date(value):
     dt.date.fromisoformat(value)
     return value
 
+def iso_timestamp(value):
+    if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z',value): raise ValueError('Invalid NOAA metadata timestamp')
+    instant=dt.datetime.fromisoformat(value.replace('Z','+00:00'))
+    if instant.timestamp()<=0: raise ValueError('Invalid NOAA metadata timestamp')
+    return value
+
+def timestamp_value(value): return dt.datetime.fromisoformat(iso_timestamp(value).replace('Z','+00:00'))
+
 def segments(bbox):
     w,s,e,n=bbox
     return [[w,s,e,n]] if w<e else [[w,s,180,n],[-180,s,e,n]]
@@ -55,7 +63,10 @@ def parse_catalogue(raw):
     root=ET.fromstring(raw)
     if root.tag != '{'+NS['g']+'}DS_Series': raise ValueError('Unexpected NOAA catalogue root')
     rows,withdrawn,seen=[],[],set()
-    source_at=root.findtext('./g:seriesMetadata/g:MD_Metadata/g:dateStamp/c:DateTime',namespaces=NS)
+    series_stamp=root.findtext('./g:seriesMetadata/g:MD_Metadata/g:dateStamp/c:DateTime',namespaces=NS)
+    # The actual NOAA series element puts its title in DateTime. This known
+    # placeholder is not an issuance date; use validated cell metadata instead.
+    source_at=None if series_stamp in (None,'ENC Product Catalog') else iso_timestamp(series_stamp)
     for record in root.findall('.//g:MD_Metadata',NS):
         title=record.findtext('./g:identificationInfo//g:title/c:CharacterString',namespaces=NS)
         if not title: continue
@@ -63,6 +74,8 @@ def parse_catalogue(raw):
         if not CELL.fullmatch(title) or title in seen: raise ValueError('Invalid/duplicate NOAA identity')
         seen.add(title)
         if len(seen)>MAX_CELLS: raise ValueError('NOAA catalogue count exceeds cap')
+        stamp=iso_timestamp(record.findtext('./g:dateStamp/c:DateTime',namespaces=NS))
+        if source_at is None or timestamp_value(stamp)>timestamp_value(source_at): source_at=stamp
         box=extent(record)
         if box is None:
             withdrawn.append(title)
@@ -84,8 +97,6 @@ def parse_catalogue(raw):
         rows.append({'id':title,'title':name,'bbox':box,'edition':int(match[1]),'update':int(match[2]),
             'issued':iso_date(dates.get('publication')),'baseIssued':iso_date(dates.get('revision')),
             'scale':scale,'sourceUrl':url,'expectedZipBytes':round(size)})
-        stamp=record.findtext('./g:dateStamp/c:DateTime',namespaces=NS)
-        if stamp and (source_at is None or stamp>source_at): source_at=stamp
     if not rows or not source_at: raise ValueError('NOAA catalogue has no active coverage/date')
     return {'schema':1,'sourceUrl':CATALOGUE_URL,'sourceAt':source_at,'sourceSha256':hashlib.sha256(raw).hexdigest(),
         'agreementSha256':AGREEMENT_SHA,'cells':sorted(rows,key=lambda x:x['id']),'withdrawn':sorted(withdrawn)}
@@ -102,9 +113,12 @@ def json_bytes(value): return (json.dumps(value,sort_keys=True,separators=(',','
 
 def generate(catalogue, objects, directory, checked_at):
     """Only validated conversion receipts become installable objects."""
+    if timestamp_value(catalogue['sourceAt'])>timestamp_value(checked_at)+dt.timedelta(minutes=5): raise ValueError('NOAA source date is later than the actual catalogue check')
     directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=False)
-    identity=hashlib.sha256(json_bytes({'catalogue':catalogue['sourceSha256'],'objects':objects,'checkedAt':checked_at})).hexdigest()[:24]
+    # Include normalized metadata too: a parser correction must never produce a
+    # different immutable index under the previous generation name.
+    identity=hashlib.sha256(json_bytes({'catalogue':catalogue,'objects':objects,'checkedAt':checked_at})).hexdigest()[:24]
     shards={}
     for row in catalogue['cells']:
         cell=dict(row); cell.pop('expectedZipBytes')
