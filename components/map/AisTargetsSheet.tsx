@@ -9,6 +9,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { AisCoverageNotice } from './AisCoverageNotice';
 
 export function AisTargetsSheet({
     onClose,
@@ -86,6 +87,7 @@ export function AisTargetsSheet({
                 details.
             </p>
             <div className="min-h-0 flex-1 overflow-y-auto space-y-2">
+                <AisCoverageNotice />
                 {rows.length === 0 && (
                     <p className="p-4 text-sm text-slate-300">No targets match the display filters.</p>
                 )}
@@ -108,7 +110,7 @@ export function AisTargetsSheet({
                             CPA {assessment?.cpaNm == null ? '—' : `${assessment.cpaNm.toFixed(2)} NM`}
                         </span>
                         <span className="block text-xs text-slate-400">
-                            MMSI {mmsi} · {p.source === 'local' ? 'Boat receiver' : 'Internet'}
+                            MMSI {mmsi} · {p.source === 'local' ? 'Boat receiver' : 'Internet · informational, silent'}
                             {p.aisClass ? ` · Class ${String(p.aisClass)}` : ''} ·{' '}
                             {age === null
                                 ? 'Age unknown'

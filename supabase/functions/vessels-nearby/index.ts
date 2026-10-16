@@ -35,6 +35,11 @@ interface NormalizedVessel {
     heading: number | null;
     navStatus: number | null;
     updatedAt: string;
+    draught: number | null;
+    eta: string | null;
+    safetyText: string | null;
+    safetyTextAt: string | null;
+    dataSource: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,6 +63,8 @@ function optionalInteger(value: unknown, min: number, max: number): number | nul
 function optionalText(value: unknown, maxLength: number): string | null | undefined {
     if (value === null || value === undefined) return null;
     if (typeof value !== 'string' || value.length > maxLength) return undefined;
+    // Intentionally strip control characters from untrusted display text.
+    // deno-lint-ignore no-control-regex
     const cleaned = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim();
     return cleaned || null;
 }
@@ -87,7 +94,7 @@ function normalizeVessel(value: unknown, nowMs: number): NormalizedVessel | null
     const navStatus = optionalInteger(value.nav_status, 0, 15);
     const updatedAtMs = typeof value.updated_at === 'string' ? Date.parse(value.updated_at) : NaN;
     const freshTimestamp = Number.isFinite(updatedAtMs) &&
-        updatedAtMs > nowMs - 2 * 60 * 60 * 1_000 &&
+        updatedAtMs > nowMs - 15 * 60 * 1_000 &&
         updatedAtMs <= nowMs + 2 * 60 * 1_000;
 
     if (
@@ -120,6 +127,20 @@ function normalizeVessel(value: unknown, nowMs: number): NormalizedVessel | null
         heading,
         navStatus,
         updatedAt: new Date(updatedAtMs).toISOString(),
+        draught: finiteNumber(value.draught_m, 0.1, 25.5),
+        eta: typeof value.eta === 'string' && /^\d{2}-\d{2} \d{2}:\d{2}$/.test(value.eta) ? value.eta : null,
+        safetyText: optionalText(value.safety_text, 161) ?? null,
+        safetyTextAt: typeof value.safety_text_at === 'string' && Number.isFinite(Date.parse(value.safety_text_at)) &&
+                Date.parse(value.safety_text_at) <= nowMs + 60000 && Date.parse(value.safety_text_at) > nowMs - 900000
+            ? value.safety_text_at
+            : null,
+        dataSource: value.data_source === 'aishub'
+            ? 'AISHub'
+            : value.data_source === 'receiver'
+            ? 'Relayed receiver'
+            : value.data_source === 'aisstream'
+            ? 'AISStream'
+            : 'Internet AIS',
     };
 }
 
@@ -154,8 +175,8 @@ Deno.serve(async (req: Request) => {
         const url = new URL(req.url);
         const lat = parseCoordinate(url.searchParams.get('lat'), 'lat');
         const lon = parseCoordinate(url.searchParams.get('lon'), 'lon');
-        const radiusNm = parseBoundedNumber(url.searchParams.get('radius') ?? '25', 0.5, 100);
-        const limit = parseBoundedInteger(url.searchParams.get('limit') ?? '250', 1, 250);
+        const radiusNm = parseBoundedNumber(url.searchParams.get('radius') ?? '25', 0.5, 200);
+        const limit = parseBoundedInteger(url.searchParams.get('limit') ?? '500', 1, 500);
 
         if (lat === null || lon === null || radiusNm === null || limit === null) {
             return respond({ error: 'Invalid coordinate, radius, or limit bounds' }, 400);
@@ -182,14 +203,28 @@ Deno.serve(async (req: Request) => {
         const supabase = createClient(supabaseUrl, serviceKey, {
             auth: { persistSession: false, autoRefreshToken: false },
         });
+        const { data: coverage, error: coverageError } = await supabase.rpc('request_ais_fleet_area', {
+            request_owner: caller.userId,
+            query_lat: lat,
+            query_lon: lon,
+        }).abortSignal(AbortSignal.timeout(5000));
+        if (coverageError || !coverage || !['held', 'queued', 'recent', 'limited'].includes(coverage.state)) {
+            return respond({ error: 'AIS coverage service unavailable' }, 503);
+        }
+        if (coverage.state === 'held') {
+            return respond({ type: 'FeatureCollection', features: [], coverage }, 200, {
+                'Cache-Control': 'private, max-age=5',
+                Vary: 'Authorization',
+            });
+        }
 
         // Spatial query using ST_DWithin on geography column
-        const { data, error } = await supabase.rpc('vessels_nearby', {
+        const { data, error } = await supabase.rpc('vessels_nearby_v135', {
             query_lat: lat,
             query_lon: lon,
             radius_m: radiusMeters,
             max_results: limit,
-        });
+        }).abortSignal(AbortSignal.timeout(5000));
 
         if (error) {
             console.error('vessels_nearby RPC error:', error);
@@ -225,13 +260,20 @@ Deno.serve(async (req: Request) => {
                 heading: v.heading,
                 navStatus: v.navStatus,
                 updatedAt: v.updatedAt,
-                source: 'aisstream', // Distinguishes from local NMEA AIS
+                source: 'cloud',
+                dataSource: v.dataSource,
+                informational: true,
+                draught: v.draught,
+                eta: v.eta,
+                safetyText: v.safetyTextAt ? v.safetyText : null,
+                safetyTextAt: v.safetyTextAt,
             },
         }));
 
         const geojson = {
             type: 'FeatureCollection',
             features,
+            coverage: { ...coverage, truncated: features.length === limit },
         };
 
         return respond(geojson, 200, {

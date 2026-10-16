@@ -22,9 +22,10 @@ import WebSocket from 'ws';
 import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
 import { isGuardianWatchdogEnabled, startWatchdog } from './watchdog.js';
-import { getAishubStats, startAishubPoller } from './aishub.js';
 import { resolveBoundingBoxes } from './boundingBox.js';
 import { fleetFeedCorsHeaders, getFleetFeedStats, handleFleetFeed, setFleetFeedCors } from './fleetFeed.js';
+import { createClient } from '@supabase/supabase-js';
+import { getFleetAisStats, postgresFleetPollStore, startFleetAishubPoller } from './fleetAishub.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -174,6 +175,10 @@ function connect(): void {
         const raw = data.toString();
 
         const record = parseAisStreamMessage(raw);
+        if (record) {
+            record.data_source = 'aisstream';
+            if (record.lat !== undefined) record.position_at = new Date().toISOString();
+        }
         if (record) {
             parsedCount++;
             db.enqueue(record);
@@ -383,7 +388,8 @@ const healthServer = http.createServer((req, res) => {
             staleReconnects,
             staleThresholdMs: STALE_THRESHOLD_MS,
             guardianWatchdogEnabled: guardianWatchdogStarted,
-            aishub: getAishubStats(),
+            aishub: getFleetAisStats(),
+            fleetAis: getFleetAisStats(),
             fleetFeed: getFleetFeedStats(),
             // Ops alarm, not a user metric: if this reads false the crowd feed
             // is refusing every batch, and the cause is env rather than code.
@@ -416,9 +422,7 @@ function logStats(): void {
             `Errors: ${dbStats.totalErrors} | ` +
             `Last msg: ${staleSec}s ago | ` +
             `Stale reconnects: ${staleReconnects}` +
-            (getAishubStats().enabled
-                ? ` | AISHub: ${getAishubStats().lastAccepted}/${getAishubStats().lastRecords} rows, ${getAishubStats().pollErrors} errs`
-                : ''),
+            ` | Fleet AIS: ${getFleetAisStats().state}, ${getFleetAisStats().accepted} accepted, ${getFleetAisStats().errors} errors`,
     );
 }
 
@@ -499,21 +503,22 @@ db.start();
 if (AISSTREAM_ENABLED) connect();
 
 // ── AISHub aggregate feed (earned by feeding a station) ──
-// Gated on the API key: absent, the worker behaves exactly as before. With
-// it, the aggregate — every contributing station's coverage — fills the same
-// VesselDB at AISHub's rationed one-poll-per-minute cadence. Bounds reuse
-// the first configured bounding box so the two sources watch the same water.
+// An API key alone never starts a provider request. Each request needs the
+// shared database claim and reviewed licence gate. Rotating, bounded boxes
+// follow active fleet interests, independently of legacy AISStream boxes.
 const AISHUB_API_KEY = process.env.AISHUB_API_KEY;
 if (AISHUB_API_KEY) {
-    const box = (BOUNDING_BOXES as number[][][])[0];
-    if (Array.isArray(box) && box.length === 2) {
-        startAishubPoller(db, {
-            apiKey: AISHUB_API_KEY,
-            bounds: { latMin: box[0][0], lonMin: box[0][1], latMax: box[1][0], lonMax: box[1][1] },
-        });
-    } else {
-        console.error('[AISHUB] Cannot derive bounds from BOUNDING_BOXES — poller not started');
-    }
+    const url = process.env.SUPABASE_URL,
+        key = process.env.SUPABASE_SERVICE_KEY;
+    if (url && key)
+        startFleetAishubPoller(
+            db,
+            postgresFleetPollStore(
+                createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }),
+            ),
+            AISHUB_API_KEY,
+        );
+    else console.error('[AISHUB] Fleet claim service not configured; provider polling held');
 } else {
     console.log('[AISHUB] Aggregate feed off — set AISHUB_API_KEY when the station earns its key');
 }

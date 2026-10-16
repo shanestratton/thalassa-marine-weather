@@ -22,6 +22,29 @@ export interface VesselRecord {
     dimension_b?: number;
     dimension_c?: number;
     dimension_d?: number;
+    draught_m?: number;
+    eta?: string;
+    position_at?: string;
+    safety_text?: string;
+    safety_text_at?: string;
+    data_source?: 'aishub' | 'receiver' | 'aisstream';
+}
+
+/** AIS ETA has no year. Unknown/invalid values remain absent, never a fabricated date. */
+export function aisEta(month: number, day: number, hour: number, minute: number): string | undefined {
+    if (
+        ![month, day, hour, minute].every(Number.isInteger) ||
+        month < 1 ||
+        month > 12 ||
+        day < 1 ||
+        day > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+    )
+        return undefined;
+    return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 /** AISStream messages are small; reject oversized frames before JSON parsing. */
@@ -134,6 +157,7 @@ export function parseAisStreamMessage(raw: string): VesselRecord | null {
         const payload = message.ShipStaticData;
         if (!isRecord(payload) || payload.Valid !== true || !validMmsi(payload.UserID)) return null;
         const dimension = isRecord(payload.Dimension) ? payload.Dimension : {};
+        const eta = isRecord(payload.Eta) ? payload.Eta : {};
 
         return {
             mmsi: payload.UserID,
@@ -147,6 +171,8 @@ export function parseAisStreamMessage(raw: string): VesselRecord | null {
             dimension_b: optionalInteger(dimension.B, 0, 511),
             dimension_c: optionalInteger(dimension.C, 0, 63),
             dimension_d: optionalInteger(dimension.D, 0, 63),
+            draught_m: finiteInRange(payload.MaximumStaticDraught, 0.1, 25.5),
+            eta: aisEta(Number(eta.Month), Number(eta.Day), Number(eta.Hour), Number(eta.Minute)),
         };
     }
 

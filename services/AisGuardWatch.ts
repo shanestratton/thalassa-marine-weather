@@ -178,6 +178,7 @@ export function gradeCollisionTargets(
         // A beacon's MMSI is the distress alarm's (125-02), never a collision target.
         if (distressKindOfMmsi(mmsi) !== null) continue;
         const source = typeof p.source === 'string' ? p.source : null;
+        if (p.informational === true && source !== 'local') continue;
         if (!collisionSourceCanAlarm(source)) continue;
         const age = reportAgeSec(p, nowMs);
         const sogKn = aisSogKn(p.sog);
@@ -274,6 +275,7 @@ export function runGuardCheck(nowMs: number = Date.now()): number {
         features.push(f);
     }
     for (const f of internetFresh) {
+        if (f.properties?.informational === true) continue;
         const mmsi = Number(f.properties?.mmsi);
         if (Number.isFinite(mmsi) && seen.has(mmsi)) continue;
         features.push(f);

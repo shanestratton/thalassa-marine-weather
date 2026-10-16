@@ -22,6 +22,21 @@ function mockClient(upsert: ReturnType<typeof vi.fn>): SupabaseClient {
 }
 
 describe('VesselDB flush ownership', () => {
+    it('does not remember a dropped static change when the persisted write budget is exhausted', async () => {
+        const upsert = vi
+            .fn()
+            .mockResolvedValueOnce({ error: null, data: { written: 0, limited: true } })
+            .mockResolvedValueOnce({ error: null, data: { written: 1, limited: false } });
+        const db = new VesselDB(mockClient(upsert));
+        const record = { mmsi: 123456789, draught_m: 7.2, eta: '12-31 23:59' };
+        db.enqueue(record);
+        await db.flush();
+        db.enqueue(record);
+        await db.flush();
+        expect(upsert).toHaveBeenCalledTimes(2);
+        expect(upsert.mock.calls[1][0][0]).toMatchObject({ draught_m: 7.2, eta: '12-31 23:59' });
+        expect(db.getStats()).toMatchObject({ budgetLimited: 1, totalUpserts: 1 });
+    });
     it('requeues a failed batch and retries it without losing the vessel', async () => {
         const upsert = vi
             .fn()
@@ -92,6 +107,27 @@ describe('VesselDB flush ownership', () => {
  * genuine move, or starving the 24 h stale-vessel sweep.
  */
 describe('VesselDB writes only material change', () => {
+    it('partial position reports retain static identity and never resend unchanged draught/ETA', async () => {
+        const write = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(write));
+        const position = { mmsi: 123456789, lat: 50, lon: 0, sog: 0 };
+        db.enqueue({ ...position, name: 'FICTIONAL', draught_m: 1.8, eta: '10-20 12:00' });
+        await db.flush();
+        for (let i = 0; i < 20; i++) {
+            db.enqueue(position);
+            await db.flush();
+        }
+        db.enqueue({ mmsi: position.mmsi, name: 'FICTIONAL', draught_m: 1.8, eta: '10-20 12:00' });
+        await db.flush();
+        expect(write).toHaveBeenCalledTimes(1);
+        db.enqueue({ ...position, sog: 2 });
+        await db.flush();
+        expect(write.mock.calls[1][0][0]).not.toHaveProperty('draught_m');
+        expect(write.mock.calls[1][0][0]).not.toHaveProperty('eta');
+        db.enqueue({ mmsi: position.mmsi, draught_m: 2.1 });
+        await db.flush();
+        expect(write.mock.calls[2][0][0]).toMatchObject({ draught_m: 2.1 });
+    });
     const still = { mmsi: 503101240, lat: -27.20525, lon: 153.09304, sog: 0.1, cog: 12, heading: 15 };
 
     it('does not rewrite a moored boat that reports the same position again', async () => {
@@ -235,7 +271,7 @@ describe('VesselDB never nulls a field the message did not carry', () => {
         db.enqueue({ mmsi: 2, name: 'OTHER' });
         await db.flush();
         expect((client as unknown as { rpc: ReturnType<typeof vi.fn> }).rpc).toHaveBeenCalledWith(
-            'merge_vessels',
+            'merge_vessels_bounded',
             expect.objectContaining({ rows: expect.any(Array) }),
         );
     });

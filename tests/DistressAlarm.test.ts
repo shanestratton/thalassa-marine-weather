@@ -172,6 +172,28 @@ describe("the plan's fixtures, through the real decoder and store", () => {
         expect(distressLines(beacon, T0).canGoTo).toBe(true);
     });
 
+    it.each([SART, MOB, EPIRB])(
+        'a positioned internet message14 activates%s silently and retains its observation age',
+        async (mmsi) => {
+            const feature = cloudFeature(mmsi, 15, 6);
+            Object.assign(feature.properties!, {
+                informational: true,
+                safetyText: 'SART ACTIVE',
+                safetyTextAt: T0 - 60000,
+            });
+            const [beacon] = pass(T0, [feature]);
+            expect(beacon).toMatchObject({
+                mmsi,
+                state: 'active',
+                sounds: false,
+                source: 'cloud',
+                heardAt: T0 - 6 * 60000,
+            });
+            await settle();
+            expect(mocks.audio.startAlarm).not.toHaveBeenCalled();
+            expect(mocks.notify.scheduleSafetyAlert).not.toHaveBeenCalled();
+        },
+    );
     it('an internet-only 970 does NOT sound: red, silent, relayed, with its age', async () => {
         const [beacon] = pass(T0, [cloudFeature(SART, 14, 6)]);
         expect(beacon).toMatchObject({ mmsi: SART, state: 'active', sounds: false, source: 'cloud' });
