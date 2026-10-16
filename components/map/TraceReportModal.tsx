@@ -27,11 +27,13 @@ import { haversineNm } from '../../services/isochrone/geodesy';
 import { estimateRouteFuel } from '../../services/isochrone/routeStats';
 import { vesselIsochroneConfig } from '../../services/routing/isochronePolicy';
 import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
+import type { PointOnlyWaitIntent } from '../../services/routing/passageTideWaitAcceptance';
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
 
 const RouteMeteogram = React.lazy(() => import('../weather/RouteMeteogram'));
 const AlongRouteReport = React.lazy(() => import('./AlongRouteReport'));
+const PassageTideReview = React.lazy(() => import('./PassageTideReview'));
 
 interface Props {
     open: boolean;
@@ -68,6 +70,8 @@ interface Props {
     /** Chosen departure (epoch ms), null/absent = leave now. Anchors the
      *  per-waypoint ETAs + weather (the tide labels are anchored upstream). */
     departureMs?: number | null;
+    traceEditEpoch?: number;
+    onCommitTideWait?: (intent: PointOnlyWaitIntent) => boolean;
 }
 
 /** Decimal degrees → degrees-decimal-minutes with hemisphere (the marine
@@ -179,6 +183,8 @@ export const TraceReportModal: React.FC<Props> = ({
     draftM,
     cruisingSpeedKts,
     departureMs,
+    traceEditEpoch,
+    onCommitTideWait,
 }) => {
     const [exporting, setExporting] = React.useState(false);
     const [exportMsg, setExportMsg] = React.useState<string | null>(null);
@@ -189,6 +195,7 @@ export const TraceReportModal: React.FC<Props> = ({
     });
     const [showRouteWeather, setShowRouteWeather] = React.useState(false);
     const [showAlongRoute, setShowAlongRoute] = React.useState(false);
+    const [showTideReview, setShowTideReview] = React.useState(false);
     const [sampledWeather, setSampledWeather] = React.useState<RouteWeatherReport | null>(null);
     const vessel = useSettingsStore((state) => state.settings.vessel);
     const settings = useSettingsStore((state) => state.settings);
@@ -240,6 +247,7 @@ export const TraceReportModal: React.FC<Props> = ({
         if (!open) {
             setShowRouteWeather(false);
             setShowAlongRoute(false);
+            setShowTideReview(false);
             setSampledWeather(null);
         }
     }, [open]);
@@ -474,6 +482,27 @@ export const TraceReportModal: React.FC<Props> = ({
                 ) : null}
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
                     <RouteEstimateSummary fuel={routeFuel} />
+                    {pins.length >= 2 &&
+                        (showTideReview ? (
+                            <React.Suspense fallback={<p className="text-xs text-slate-400">Opening tide review…</p>}>
+                                <PassageTideReview
+                                    pins={pins}
+                                    identity={weatherIdentity}
+                                    departureMs={etaDeparture}
+                                    cruisingSpeedKts={cruisingSpeedKts}
+                                    editEpoch={traceEditEpoch}
+                                    onCommitWait={onCommitTideWait}
+                                />
+                            </React.Suspense>
+                        ) : (
+                            <button
+                                type="button"
+                                className="min-h-11 w-full rounded-xl border border-sky-400/20 bg-sky-500/10 px-3 text-xs font-bold text-sky-200"
+                                onClick={() => setShowTideReview(true)}
+                            >
+                                Tides, bridges and waiting
+                            </button>
+                        ))}
                     {pins.length >= 2 &&
                         (showAlongRoute ? (
                             <React.Suspense
