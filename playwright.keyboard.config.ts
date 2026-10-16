@@ -6,6 +6,7 @@ import { join } from 'node:path';
 export default defineConfig({
     testDir: './browser-tests',
     testMatch: [
+        'chart-find-layout.spec.ts',
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
         'wake-rules137-layout.spec.ts',

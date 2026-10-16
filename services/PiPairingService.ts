@@ -44,6 +44,7 @@ import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 import { piPairingFetch, piRequest, type PiTlsResponse } from './piTls';
 import { utf8ByteLength } from './enc/types';
+import { retireChartFindMemory } from './enc/chartFindMemory';
 import { clearPiCommandRefusal, piCommandRefusalCode } from './piCommandRefusal';
 import {
     getSecureValue,
@@ -98,6 +99,7 @@ export function getPairing(): PiPairingRecord | null {
 
 export function savePairing(record: PiPairingRecord): void {
     if (!PI_INTEGRATION_ENABLED) return;
+    retireChartFindMemory();
     localStorage.setItem(PAIRING_KEY, JSON.stringify(record));
     markHostPairable(record.host);
     // Another Pi, or this one again: what a Pi said about this phone no longer holds (129-12).
@@ -105,6 +107,7 @@ export function savePairing(record: PiPairingRecord): void {
 }
 
 export function forgetPairing(): void {
+    retireChartFindMemory();
     localStorage.removeItem(PAIRING_KEY);
     dropChartDevice();
     // Her licensed charts leave this phone's memory, and the account's

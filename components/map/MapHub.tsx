@@ -348,6 +348,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
@@ -2329,6 +2330,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [declutter, setDeclutter] = useState(0);
     const [displayCategory, setDisplayCategory] = useState<ChartDisplayCategory | null>(null);
     const [paperChartsOpen, setPaperChartsOpen] = useState(false);
+    const [chartFindOpen, setChartFindOpen] = useState(false);
+    const closeChartFind = useCallback(() => setChartFindOpen(false), []);
     const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
     const closeNoaaCatalogue = useCallback(() => setNoaaCatalogueOpen(false), []);
     const closePaperCharts = useCallback(() => setPaperChartsOpen(false), []);
@@ -6216,9 +6219,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                         satelliteMode={settings.satelliteMode === true}
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
+                        onFindChart={() => setChartFindOpen(true)}
                     />
                 )}
                 {noaaCatalogueOpen && <NoaaCatalogueSheet onClose={closeNoaaCatalogue} bounds={chartCatalog.bounds} />}
+                <Suspense fallback={null}>
+                    {chartFindOpen && (
+                        <ChartFindSheet
+                            onClose={closeChartFind}
+                            bounds={chartCatalog.bounds}
+                            onFly={(result) => {
+                                const map = mapRef.current;
+                                if (!map) return;
+                                const lon = result.lon + 360 * Math.round((map.getCenter().lng - result.lon) / 360);
+                                map.flyTo({ center: [lon, result.lat], zoom: Math.max(map.getZoom(), 14) });
+                                setChartFindOpen(false);
+                                setPaperChartsOpen(false);
+                            }}
+                        />
+                    )}
+                </Suspense>
             </Suspense>
 
             {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}

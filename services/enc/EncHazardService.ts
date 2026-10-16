@@ -50,6 +50,7 @@ import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
+import { captureChartFindCell, chartFindGeneration, indexChartFindCell } from './chartFindMemory';
 import { cellScaleRank } from './scaleShadow';
 import { type CoverageGeom, type FineCoverage } from './clipDepareOverlap';
 import { EncSpatialIndex } from './EncSpatialIndex';
@@ -570,6 +571,7 @@ async function importCellSerialized(
         /** Recheck the originating account/Pi after queued work and async I/O. */
         assertAuthority?: () => void;
     } = {},
+    findGeneration = chartFindGeneration(),
 ): Promise<EncCell> {
     options.assertAuthority?.();
     const canonicalId = canonicalEncCellId(blob.cellId);
@@ -712,6 +714,7 @@ async function importCellSerialized(
     // with a SECOND full JSON.stringify of the multi-MB blob right
     // after the save's own (2026-07-12 audit: ~2× CPU + a transient
     // twin allocation per imported cell, on the UI thread).
+    const findRevision = cellMeta.getVersion();
     const { path, sizeBytes } = await cellStore.saveCellGeoJSON(
         canonicalId,
         normalizedBlob,
@@ -808,7 +811,9 @@ async function importCellSerialized(
     // Only the validated byte-import transaction may raise metadata authority.
     // putCell otherwise preserves any existing reference/demo classification,
     // including case-variant aliases that share one native filename.
+    const findCurrent = findGeneration === chartFindGeneration() && findRevision === cellMeta.getVersion();
     cellMeta.putCell(cell, { allowAuthorityUpgrade: requestedUsage === 'navigation' });
+    if (findCurrent) indexChartFindCell(captureChartFindCell(cell.id), normalizedBlob, licence);
 
     // Drop any stale index — next query rebuilds.
     dropIndex(cell.id);
@@ -832,8 +837,10 @@ export function importCell(
         assertAuthority?: () => void;
     } = {},
 ): Promise<EncCell> {
+    // Capture at admission, not after waiting for another cell mutation.
+    const findGeneration = chartFindGeneration();
     return serializeCellMutation(typeof blob?.cellId === 'string' ? blob.cellId : '', () =>
-        importCellSerialized(blob, options),
+        importCellSerialized(blob, options, findGeneration),
     );
 }
 
@@ -1617,7 +1624,7 @@ async function loadCellBlobsAndExtents(
             } else if (raw0.kind === 'cached') {
                 blob = raw0.blob;
             } else if (raw0.kind === 'text') {
-                blob = await cellStore.parseAndCacheCellTextAsync(cell.id, raw0.text);
+                blob = await cellStore.parseAndCacheCellTextAsync(cell.id, raw0.text, raw0.findToken ?? null);
                 await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
             } else {
                 blob = null;

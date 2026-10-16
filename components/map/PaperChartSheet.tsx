@@ -21,6 +21,7 @@ export interface PaperChartSheetProps {
     onCategory: (category: ChartDisplayCategory) => void;
     satelliteMode: boolean;
     onCatalogue?: () => void;
+    onFindChart?: () => void;
 }
 export default function PaperChartSheet(props: PaperChartSheetProps) {
     const [pending, setPending] = React.useState<ChartSourceId | null>(null);
@@ -137,6 +138,18 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             </div>
                         ))}
                     </section>
+                    {props.onFindChart && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                props.onFindChart?.();
+                            }}
+                        >
+                            Find on chart · lights, marks, places
+                        </button>
+                    )}
                     {props.onCatalogue && (
                         <button type="button" className={`${button} w-full text-sky-200`} onClick={props.onCatalogue}>
                             Free NOAA ENC catalogue · download / update
