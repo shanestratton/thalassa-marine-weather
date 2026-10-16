@@ -5,6 +5,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import '../../index.css';
 import UserOverlaysSheet from '../../components/map/UserOverlaysSheet';
 import UserOverlayLayer from '../../components/map/UserOverlayLayer';
+import PaperChartSheet from '../../components/map/PaperChartSheet';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { NmeaStore } from '../../services/NmeaStore';
 if (!import.meta.env.DEV) throw Error('Development-only synthetic fixture.');
@@ -22,8 +23,10 @@ function Fixture() {
     const container = React.useRef<HTMLDivElement | null>(null),
         map = React.useRef<mapboxgl.Map | null>(null);
     const [ready, setReady] = React.useState(false),
-        [open, setOpen] = React.useState(false);
+        [open, setOpen] = React.useState(false),
+        [paper, setPaper] = React.useState(false);
     const close = React.useCallback(() => setOpen(false), []);
+    const closePaper = React.useCallback(() => setPaper(false), []);
     React.useEffect(() => {
         const m = new mapboxgl.Map({
             container: container.current!,
@@ -100,9 +103,34 @@ function Fixture() {
             >
                 Your overlays
             </button>
+            <button
+                disabled={!ready}
+                className="absolute left-3 top-20 z-20 rounded bg-slate-800 p-3 min-h-11"
+                onClick={(event) => {
+                    // The production MapBaseSelector focuses its trigger before opening.
+                    event.currentTarget.focus({ preventScroll: true });
+                    setPaper(true);
+                }}
+            >
+                Charts &amp; detail
+            </button>
             <UserOverlayLayer map={map.current} mapReady={ready} active />
             <React.Suspense fallback={<p>Opening local overlays…</p>}>
                 {open && <UserOverlaysSheet onClose={close} />}
+                {paper && (
+                    <PaperChartSheet
+                        onClose={closePaper}
+                        bounds={[0, 0, 1, 1]}
+                        sources={[]}
+                        onToggle={() => {}}
+                        onOpacity={() => {}}
+                        onConsent={() => {}}
+                        category="standard"
+                        onCategory={() => {}}
+                        satelliteMode
+                        onUserOverlays={() => setOpen(true)}
+                    />
+                )}
             </React.Suspense>
         </div>
     );

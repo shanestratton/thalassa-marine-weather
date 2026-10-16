@@ -352,6 +352,8 @@ const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
 const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
 const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
+const UserOverlayLayer = React.lazy(() => import('./UserOverlayLayer'));
+const UserOverlaysSheet = React.lazy(() => import('./UserOverlaysSheet'));
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
@@ -2339,6 +2341,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [declutter, setDeclutter] = useState(0);
     const [displayCategory, setDisplayCategory] = useState<ChartDisplayCategory | null>(null);
     const [paperChartsOpen, setPaperChartsOpen] = useState(false);
+    const [userOverlaysOpen, setUserOverlaysOpen] = useState(false);
+    const closeUserOverlays = useCallback(() => setUserOverlaysOpen(false), []);
     const [chartFindOpen, setChartFindOpen] = useState(false);
     const closeChartFind = useCallback(() => setChartFindOpen(false), []);
     const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
@@ -3325,6 +3329,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // known one, or the broad view, with one message (obsCentre). After Plan,
     // the picker or a shared pin had the map, Obs centres again (build 124).
     const obsShowing = ownshipStartup && currentView === 'map';
+    useEffect(() => {
+        if (!obsShowing) setUserOverlaysOpen(false);
+    }, [obsShowing]);
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
@@ -6229,6 +6236,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                         enabled={settings.obsNoticesVisible !== false}
                     />
                 )}
+                {obsShowing && (
+                    <UserOverlayLayer
+                        map={mapRef.current}
+                        mapReady={mapReady}
+                        active={obsShowing}
+                        className="absolute bottom-32 left-3 right-3 z-40 max-h-[40%] overflow-y-auto"
+                    />
+                )}
                 {paperChartsOpen && (
                     <PaperChartSheet
                         onClose={closePaperCharts}
@@ -6251,6 +6266,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         satelliteMode={settings.satelliteMode === true}
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
                         onFindChart={() => setChartFindOpen(true)}
+                        onUserOverlays={obsShowing ? () => setUserOverlaysOpen(true) : undefined}
                         notices={{
                             enabled: settings.obsNoticesVisible !== false,
                             onChange: (enabled) => updateSettings({ obsNoticesVisible: enabled }),
@@ -6264,6 +6280,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                     />
                 )}
+                {obsShowing && userOverlaysOpen && <UserOverlaysSheet onClose={closeUserOverlays} />}
                 {noaaCatalogueOpen && <NoaaCatalogueSheet onClose={closeNoaaCatalogue} bounds={chartCatalog.bounds} />}
                 <Suspense fallback={null}>
                     {chartFindOpen && (

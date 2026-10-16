@@ -1,5 +1,23 @@
 # 139-07 — Private overlay files and foreground area entry
 
+## Obs entry point
+
+`Charts & detail` offers `Your overlays · import / manage` only on the foreground
+Obs surface. The manager opens above the chart sheet, and closing it returns
+focus to its existing button. Its account fence remains active. The lazy map
+layer follows the same foreground Obs lifetime; leaving Obs closes the manager
+and removes its map data. The entry banner uses a bounded internal scroller.
+No new page section or document height is added.
+
+The composed opener passed four real Chrome/WebKit cases at 300/375 px with
+130% text, retaining 44 px targets, nested-sheet focus return, exact closed-page
+extent and zero unexpected requests/page errors. Eleven focused controls/layer
+cases passed. Task logs: `work/validation139-overlay-mount-{browser-final,focused}.log`.
+Initial WebKit failures are retained: the synthetic Charts trigger omitted the
+production selector's explicit focus before opening; the fixture now matches it.
+These checks exercise actual sheets and map components, not a mounted full MapHub.
+Final release composition, TypeScript, bundle and native-device checks remain separate.
+
 User overlays are separate reference annotations. They never become ENC cells, route constraints, speed-limit authority, safety scores or a cloud feed. No provider, Pi, backend or native installation is required by this source packet.
 
 ## Import and storage

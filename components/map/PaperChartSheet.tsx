@@ -23,6 +23,7 @@ export interface PaperChartSheetProps {
     satelliteMode: boolean;
     onCatalogue?: () => void;
     onFindChart?: () => void;
+    onUserOverlays?: () => void;
     contours?: ChartContourControlsProps;
     notices?: { enabled: boolean; onChange: (enabled: boolean) => void };
 }
@@ -163,6 +164,18 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             </div>
                         ))}
                     </section>
+                    {props.onUserOverlays && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                if (isAuthIdentityScopeCurrent(scopeAtOpen.current)) props.onUserOverlays?.();
+                            }}
+                        >
+                            Your overlays · import / manage
+                        </button>
+                    )}
                     {props.onFindChart && (
                         <button
                             type="button"

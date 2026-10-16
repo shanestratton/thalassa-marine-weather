@@ -22,14 +22,10 @@ const geo = {
     ],
 };
 /** Synthetic SDK auth is answered locally; no provider data/auth request leaves this test. */
-async function localRequestsOnly(page: Page, unexpected: string[]) {
+async function localRequestsOnly(page: Page, unexpected: string[], origin = 'http://127.0.0.1:4258') {
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
-        if (
-            ['127.0.0.1', 'localhost'].includes(url.hostname) ||
-            (url.protocol === 'blob:' && url.origin === 'http://127.0.0.1:4258')
-        )
-            return route.continue();
+        if (url.origin === origin) return route.continue();
         if (url.hostname === 'api.mapbox.com' && url.pathname === '/map-sessions/v1')
             return route.fulfill({ status: 200, body: '' });
         if (url.hostname === 'events.mapbox.com' && url.pathname === '/events/v2')
@@ -38,6 +34,40 @@ async function localRequestsOnly(page: Page, unexpected: string[]) {
         return route.abort();
     });
 }
+for (const width of [300, 375])
+    test(`Charts opener returns focus without expanding ${width}px130%`, async ({ page, baseURL }) => {
+        await page.setViewportSize({ width, height: 667 });
+        const unexpected: string[] = [],
+            errors: string[] = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        await localRequestsOnly(page, unexpected, new URL(baseURL!).origin);
+        await page.routeWebSocket('**/*', (socket) => socket.close());
+        await page.goto('/e2e/fixtures/user-overlays139.html');
+        await page.addStyleTag({ content: 'html{font-size:130% !important}' });
+        const charts = page.getByRole('button', { name: 'Charts & detail', exact: true });
+        await charts.click();
+        const parent = page.getByRole('dialog', { name: 'Charts & detail', exact: true });
+        const opener = parent.getByRole('button', { name: 'Your overlays · import / manage', exact: true });
+        await opener.scrollIntoViewIfNeeded();
+        expect((await opener.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await opener.click();
+        const child = page.getByRole('dialog', { name: 'Your overlays', exact: true });
+        await expect(child.getByLabel('Choose local overlay')).toBeVisible();
+        await page.screenshot({ path: test.info().outputPath('charts-overlay-child.png') });
+        await child.getByRole('button', { name: 'Close', exact: true }).click();
+        await expect(opener).toBeFocused();
+        await expect(opener).toBeInViewport();
+        await page.screenshot({ path: test.info().outputPath('charts-overlay-return.png') });
+        await parent.getByRole('button', { name: 'Close', exact: true }).click();
+        await expect(charts).toBeFocused();
+        const extent = await page.evaluate(() => ({
+            width: document.documentElement.scrollWidth,
+            height: document.documentElement.scrollHeight,
+        }));
+        expect(extent).toEqual({ width, height: 667 });
+        expect(unexpected).toEqual([]);
+        expect(errors).toEqual([]);
+    });
 for (const width of [300, 375])
     test(`local worker/store/render/entry retirement fits ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 780 });
