@@ -34,6 +34,9 @@ interface TrackMapViewerProps {
     entries: ShipLogEntry[];
     /** Immediate follow-store geometry, independent of saved logbook rows. */
     followedRouteCoords?: readonly RouteCoordinate[];
+    /** Private Pi replay uses logged wind, UTC and the source-free local map. */
+    privateReplay?: boolean;
+    partialReplay?: boolean;
 }
 
 /** The map's box while its chunk arrives, or where there is no map: the app's dark, nothing in it. */
@@ -59,6 +62,7 @@ const loadTrackMapGL = () =>
     });
 /** React.lazy keeps what its import gave for the life of the page, a failure included. */
 let TrackMapViewerGL = lazy(loadTrackMapGL);
+const TrackMapViewerLocal = lazy(() => import('./TrackMapViewerLocal'));
 /** On close, after a missing chunk: a fresh lazy, so the next opening tries the import again. */
 const retryMissingMapChunk = () => {
     if (!mapChunkMissing) return;
@@ -73,7 +77,7 @@ const DOCK_BOTTOM = 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
 const shortLonDelta = (from: number, to: number) => ((((to - from) % 360) + 540) % 360) - 180;
 
 export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) => {
-    const { isOpen, onClose, entries, followedRouteCoords } = props;
+    const { isOpen, onClose, entries, followedRouteCoords, privateReplay = false, partialReplay = false } = props;
     /** The map (lazy): moves the playback boat. Null while its chunk arrives, or with no map. */
     const mapHandleRef = useRef<TrackMapViewerGLHandle | null>(null);
     /** The map area: what the track is framed inside. */
@@ -165,7 +169,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         // and manual entries (possibly stale cached fix) are markers,
         // not vertices; including them made the playback vessel (and the
         // polyline) zig-zag to positions out of sequence.
-        const geometryEntries = stripInitialTrackWarmupRebounds(entries);
+        const geometryEntries = privateReplay ? entries : stripInitialTrackWarmupRebounds(entries);
         const valid = geometryEntries.filter(isTrackworthyEntry);
         // When a planned route is overlaid with a sailed voyage, playback and
         // statistics must describe the recorded voyage only. The map
@@ -177,7 +181,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         );
         sortedEntriesRef.current = sorted;
         return sorted;
-    }, [entries]);
+    }, [entries, privateReplay]);
 
     const sanitizedFollowedRoute = useMemo(() => sanitizeRouteCoordinates(followedRouteCoords), [followedRouteCoords]);
 
@@ -207,7 +211,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             const cur = sorted[i];
             frames.push({ lat: cur.latitude!, lon: cur.longitude!, entryIndex: i });
 
-            if (i < sorted.length - 1) {
+            if (!privateReplay && i < sorted.length - 1) {
                 const nxt = sorted[i + 1];
                 const dlat = nxt.latitude! - cur.latitude!;
                 // The short way round: past Fiji, 179.9 to -179.9 is 0.2°, not 359.8°.
@@ -229,7 +233,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             }
         }
         return frames;
-    }, [sortedEntries]);
+    }, [sortedEntries, privateReplay]);
     // togglePlayback reads the frames from a ref so its own identity stays
     // stable across playback ticks; the assignment mirrors the memo above and
     // happens at exactly the same point in the render as it always did.
@@ -434,10 +438,18 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
     // Current entry for scrubber label + HUD
     const currentEntry = sortedEntries[playbackIndex] || null;
     const timeLabel = currentEntry
-        ? new Date(currentEntry.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
+        ? new Date(currentEntry.timestamp).toLocaleTimeString('en-AU', {
+              hour: '2-digit',
+              minute: '2-digit',
+              ...(privateReplay ? { timeZone: 'UTC' } : {}),
+          }) + (privateReplay ? ' UTC' : '')
         : '--:--';
     const dateLabel = currentEntry
-        ? new Date(currentEntry.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+        ? new Date(currentEntry.timestamp).toLocaleDateString('en-GB', {
+              day: '2-digit',
+              month: 'short',
+              ...(privateReplay ? { timeZone: 'UTC' } : {}),
+          })
         : '';
 
     const maxIdx = sortedEntries.length - 1;
@@ -453,6 +465,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
     })();
 
+    const TrackSurface = privateReplay ? TrackMapViewerLocal : TrackMapViewerGL;
     return (
         <OverlayPortal
             ref={dialogRef}
@@ -474,12 +487,13 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1 pl-1">
                             <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
-                                Voyage Track
+                                {privateReplay ? 'Boat track window' : 'Voyage Track'}
                             </h2>
                             {hasPlaybackTrack ? (
                                 <div className="text-[11px] text-white/60 flex flex-wrap gap-x-3 mt-0.5 font-medium">
-                                    <span>{totalDistance} NM</span>
+                                    {!privateReplay && <span>{totalDistance} NM</span>}
                                     <span>{sortedEntries.length} pts</span>
+                                    {partialReplay && <span className="text-amber-300">Partial loaded batch</span>}
                                     {maxWindKt !== null && <span>max {maxWindKt} kt</span>}
                                 </div>
                             ) : hasFollowedRoute ? (
@@ -515,7 +529,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     {hasPlaybackTrack && colorMode === 'wind' && (
                         <div className="mt-2 inline-block max-w-full rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl">
                             <div className="text-[9px] font-bold uppercase tracking-wider text-white/70 mb-1">
-                                Forecast wind (kt)
+                                {privateReplay ? 'Logged wind (kt)' : 'Forecast wind (kt)'}
                             </div>
                             <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
                                 {WIND_BUCKETS.map((b) => (
@@ -570,7 +584,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 map's credits clear of the speed line and the scrubber. */}
             <div ref={mapAreaRef} className="relative flex-1 min-h-0">
                 <Suspense fallback={<PlainMapBox />}>
-                    <TrackMapViewerGL
+                    <TrackSurface
                         ref={mapHandleRef}
                         entries={entries}
                         followedRoute={sanitizedFollowedRoute}
@@ -949,7 +963,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 >
                     {/* ═══ SPEED SPARKLINE — sits just above the scrubber, cursor
                 tracks the playback position ═══ */}
-                    {sparkline.path && (
+                    {!privateReplay && sparkline.path && (
                         <div
                             className="px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
                             style={{ background: 'rgba(15, 23, 42, 0.85)' }}
