@@ -32,6 +32,8 @@ export interface TideGatedCandidateRequest {
     uncertaintyMs: number;
     maxJourneyMs: number;
     areas: readonly TideGateArea[];
+    /** Original point minima may only reduce an already charted area depth. */
+    soundings?: readonly { lon: number; lat: number; depthM: number }[];
 }
 export interface TideGridPath {
     points: readonly (readonly [number, number])[];
