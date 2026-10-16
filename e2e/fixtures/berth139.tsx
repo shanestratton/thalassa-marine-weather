@@ -143,7 +143,7 @@ function Fixture() {
                         setShown(false);
                     }}
                 >
-                    <div className="min-w-0 space-y-4">
+                    <div className="min-w-0 space-y-4 text-white">
                         <p>Fictional source test. A proposal never arms a watch or follows a route.</p>
                         <div className="flex flex-wrap gap-2">
                             <button

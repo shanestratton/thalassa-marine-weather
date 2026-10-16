@@ -114,6 +114,11 @@ failed traces remain in `work/berth139-browser-proof`: their first assertion
 selected both the fixture's join status and the production chart-check status.
 The fixture now names its join status explicitly and selects that exact role;
 all clocks, Save, 44 px, document-bound and error guards and deadlines are
-unchanged. These invented routes do not prove real passage timing or source
-availability. The newly composed whole-app compiler, production size checks
-and real passage timing remain pending.
+unchanged. Visual review then found that the fixture's outer white foreground
+did not inherit through the modal portal. Its existing inner content div now
+sets the intended foreground locally; the production ModalSheet and layout
+stay unchanged. All four cases pass again in
+`work/validation13901-phone-portal-foreground.log`, with screenshots in
+`work/berth139-portal-foreground-browser`. These invented routes do not prove
+real passage timing or source availability. The newly composed whole-app
+compiler, production size checks and real passage timing remain pending.
