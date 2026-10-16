@@ -304,6 +304,7 @@ import { usePersistedState } from '../../hooks/usePersistedState';
 // or hook order changed.
 import {
     AisGuardAlert,
+    AisTargetsSheet,
     ChartKeyPanel,
     CmemsAttribution,
     ConsensusMatrix,
@@ -391,6 +392,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         return !!pinView;
     });
     const [showVesselSearch, setShowVesselSearch] = useState(false);
+    const [showAisTargets, setShowAisTargets] = useState(false);
     const vesselSearchMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const vesselSearchMarkerTimerRef = useRef<number | null>(null);
     useEffect(
@@ -2824,6 +2826,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setRoutePickerOpen(false);
         setTrackPickerOpen(false);
         setShowVesselSearch(false);
+        setShowAisTargets(false);
         setShowOfflineArea(false);
         setStormPickerOpen(false);
         setShowReport(false);
@@ -3162,6 +3165,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!planningSurface) return;
         setWeatherInspectMode(false);
         setShowVesselSearch(false);
+        setShowAisTargets(false);
         setStormPickerOpen(false);
         setRoutePickerOpen(false);
         setTrackPickerOpen(false);
@@ -3262,18 +3266,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
-    // Clear view (129-13, mapHub/useObsClearView.ts): two fingers held on the
-    // chart hide Obs's controls, with or without a weather layer (Shane's
-    // choice, 129-13b); one tap brings them back. Never while MOB, the picker,
-    // plotting, Inspect or a passage point has the chart.
+    // Clear view (133): the top-centre map menu hides Obs's controls, with
+    // or without a weather layer; one tap brings them back. Never while
+    // MOB, the picker, plotting, Inspect or a passage point has the chart.
     const obsFrameRef = useRef<HTMLDivElement>(null);
     const clearView = useObsClearView({
         frameRef: obsFrameRef,
-        mapRef,
-        mapReady,
         available: obsShowing,
         modeOwnsChart: mobActive || coordCaptureMode || browseWeatherInspectMode || !!passage.settingPoint,
-        holdGesture: settings.obsClearViewHold !== false,
     });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
@@ -4032,6 +4032,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
                     toggles={nightDimRow ? [nightDimRow] : []}
+                    onClearView={clearView.available ? clearView.hide : undefined}
                 />
                 {/* The planner's own menu, the same pill (127-DESKMAP A2/B1):
                     Light, Relief + Sat or Hybrid, then on the desk OpenSeaMap's
@@ -5661,6 +5662,34 @@ export const MapHub: React.FC<MapHubProps> = ({
                         </button>
                     )}
 
+                    {!planningSurface && !embedded && !pickerMode && !isPinView && browseAisVisible && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAisTargets(true)}
+                            className="absolute z-700 top-[312px] right-[16px] min-w-12 min-h-12 rounded-2xl bg-slate-900/90 border border-white/8 px-2 text-[10px] font-bold text-white"
+                            aria-label="AIS targets"
+                        >
+                            Targets
+                        </button>
+                    )}
+                    {showAisTargets && !pickerMode && !planningSurface && (
+                        <AisTargetsSheet
+                            onClose={() => setShowAisTargets(false)}
+                            onSelect={(feature) => {
+                                const map = mapRef.current;
+                                if (!map) return;
+                                const [lon, lat] = feature.geometry.coordinates;
+                                setShowAisTargets(false);
+                                map.flyTo({ center: [lon, lat], zoom: 14, essential: true });
+                                window.dispatchEvent(
+                                    new CustomEvent('thalassa:select-ais-target', {
+                                        detail: { mmsi: Number(feature.properties?.mmsi) },
+                                    }),
+                                );
+                            }}
+                        />
+                    )}
+
                     {/* ═══ VESSEL SEARCH OVERLAY ═══ */}
                     {!pickerMode && !planningSurface && (
                         <Suspense fallback={null}>
@@ -5972,6 +6001,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <Suspense fallback={null}>
                         <MapWeatherControls
                             weather={weather}
+                            chartPoint={{ lat: location.lat, lon: location.lon }}
                             cmemsLayerStates={cmemsLayerStates}
                             visible
                             embedded={embedded}

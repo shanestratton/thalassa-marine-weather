@@ -45,7 +45,9 @@ import {
     type DistressState,
 } from '../../utils/collisionRule';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
-import { publishInternetAisFeatures, readCollisionInputs } from '../../services/AisGuardWatch';
+import { publishInternetAisFeatures, readCollisionInputs, gradeCollisionTargets } from '../../services/AisGuardWatch';
+import { aisDisplayMmsiFilter } from '../../services/ais/aisFilter';
+import { publishAisTargetPicture, readAisTargetPicture } from '../../services/ais/aisTargetCache';
 import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
 import {
     AIS_DANGER_COLOR,
@@ -849,6 +851,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
     const requestGeneration = useRef(0);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
     const selectedMmsi = useRef<number | null>(null);
+    const baseFilters = useRef(new Map<string, mapboxgl.FilterSpecification | null>());
     const cachedServerFeatures = useRef<GeoJSON.Feature[]>([]);
     /** Kept separate from the viewport cache so neither overwrites the other. */
     const cachedOwnshipFeatures = useRef<GeoJSON.Feature[]>([]);
@@ -907,6 +910,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         // target regardless of the view. Clip the merged set to the current
         // viewport, padded ~40% so targets just off-screen stay put while
         // panning, so only vessels near where you're LOOKING ever render. ──
+        publishAisTargetPicture(merged.features);
         const clipped = clipFeaturesToView(map, merged.features);
 
         // Presentation pass — ONE place, both sources: type colour with
@@ -981,7 +985,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 trackFeatures.push({
                     type: 'Feature',
                     geometry: { type: 'Point', coordinates: projected },
-                    properties: { statusColor: color, typeColor: p.typeColor ?? color, staleMinutes: stale, minutes },
+                    properties: {
+                        mmsi: p.mmsi,
+                        statusColor: color,
+                        typeColor: p.typeColor ?? color,
+                        staleMinutes: stale,
+                        minutes,
+                    },
                 });
             }
 
@@ -989,7 +999,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             trackFeatures.push({
                 type: 'Feature',
                 geometry: { type: 'LineString', coordinates: lineCoords },
-                properties: { statusColor: color, typeColor: p.typeColor ?? color, staleMinutes: stale },
+                properties: { mmsi: p.mmsi, statusColor: color, typeColor: p.typeColor ?? color, staleMinutes: stale },
             });
         }
 
@@ -1013,6 +1023,46 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         // internet set so coverage is no narrower than before.
         publishInternetAisFeatures(merged.features);
 
+        // Display settings never remove a source feature or reach the alarm.
+        // Grade from the same fixed rule before deriving Mapbox's display mask.
+        if (typeof map.setFilter === 'function') {
+            const inputs = readCollisionInputs(now);
+            const grades = inputs.own
+                ? gradeCollisionTargets(
+                      inputs.own,
+                      inputs.motion,
+                      merged.features,
+                      inputs.prefs,
+                      inputs.ownMmsis,
+                      now,
+                      inputs.atAnchor,
+                  )
+                : [];
+            const mask = aisDisplayMmsiFilter(
+                merged.features,
+                useSettingsStore.getState().settings.aisDisplayFilters,
+                new Map(grades.map((target) => [target.mmsi, target.assessment.risk])),
+            );
+            for (const id of [
+                'ais-targets-glow',
+                'ais-targets-circle',
+                AIS_SART_LAYER,
+                'ais-targets-heading',
+                'ais-targets-label',
+                'ais-stale-badge',
+                'ais-dr-ring',
+                'ais-dr-link',
+                'ais-dr-ghost',
+                'ais-predicted-tracks-line',
+                'ais-predicted-tracks-dots',
+            ]) {
+                if (!map.getLayer(id)) continue;
+                if (!baseFilters.current.has(id)) baseFilters.current.set(id, map.getFilter(id) ?? null);
+                const base = baseFilters.current.get(id);
+                map.setFilter(id, base ? ['all', base, mask] : mask);
+            }
+        }
+
         // ── Guard Zone radius circle on map ──
         const guardSource = map.getSource('ais-guard-zone') as mapboxgl.GeoJSONSource | undefined;
         if (guardSource) {
@@ -1035,7 +1085,11 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         if (!map || !enabled) return;
         const timer = setInterval(mergeAndWrite, 15_000);
         const unsubscribe = useSettingsStore.subscribe?.((state, previous) => {
-            if (state.settings.aisVectorMinutes !== previous.settings.aisVectorMinutes) mergeAndWrite();
+            if (
+                state.settings.aisVectorMinutes !== previous.settings.aisVectorMinutes ||
+                state.settings.aisDisplayFilters !== previous.settings.aisDisplayFilters
+            )
+                mergeAndWrite();
         });
         return () => {
             clearInterval(timer);
@@ -1609,12 +1663,19 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
         // A distress beacon draws on its own upright layer (127-11a): one
         // listener over both, so a beacon over a boat is still one tap.
+        const selectTarget = (event: Event) => {
+            const mmsi = Number((event as CustomEvent<{ mmsi?: number }>).detail?.mmsi);
+            const feature = readAisTargetPicture().find((target) => Number(target.properties?.mmsi) === mmsi);
+            if (feature) handleClick({ features: [feature] });
+        };
+        window.addEventListener('thalassa:select-ais-target', selectTarget);
         const tapLayers = ['ais-targets-circle', AIS_SART_LAYER];
         map.on('click', tapLayers, handleClick);
         map.on('mouseenter', tapLayers, handleMouseEnter);
         map.on('mouseleave', tapLayers, handleMouseLeave);
 
         return () => {
+            window.removeEventListener('thalassa:select-ais-target', selectTarget);
             map.off('click', tapLayers, handleClick);
             map.off('mouseenter', tapLayers, handleMouseEnter);
             map.off('mouseleave', tapLayers, handleMouseLeave);
@@ -1628,5 +1689,5 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             }
             removeDetailModal();
         };
-    }, [map, enabled]);
+    }, [map, enabled, mergeAndWrite]);
 }

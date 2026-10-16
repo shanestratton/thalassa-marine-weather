@@ -6,6 +6,7 @@ import type { DisplayMode, DashboardMode, ScreenOrientationType, UnitPreferences
 import type { NotificationPreferences, WeatherModel, OffshoreModel } from './weather';
 import type { VesselProfile, VesselDimensionUnits } from './vessel';
 import type { PolarData } from './navigation';
+import type { AisDisplayFilters } from '../services/ais/aisFilter';
 
 /**
  * Preferred wind angle bands — used as a multi-select set so users can
@@ -239,15 +240,8 @@ export interface UserSettings {
      * components/map/mapHub/useEncAtOpen.ts reads it.
      */
     obsEncOnOpen?: boolean;
-    /**
-     * Settings → Preferences → Chart: "Two-finger hold clears the chart"
-     * (build 129, 129-13). Two fingers held still on Obs hide its controls;
-     * on unless set to exactly false. It is the one touch way in (129-13b:
-     * Shane chose the hold, not a long press on the scrubber); a tap to come
-     * back, H and Escape are not switched by it.
-     * components/map/mapHub/useObsClearView.ts reads it.
-     */
-    obsClearViewHold?: boolean;
+    /** Account-synced display choices; never inputs to the collision alarm. */
+    aisDisplayFilters?: Partial<AisDisplayFilters>;
     /**
      * Settings → Alerts: "Cyclone warnings near the boat" (build 129, 129-09).
      * The server's cyclone-watch push: a notice within 600 NM, urgent within

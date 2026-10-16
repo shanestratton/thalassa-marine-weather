@@ -35,7 +35,7 @@ import { bellsAt } from '../../utils/shipsBells';
 import { HeadingGauge } from './gauges/HeadingGauge';
 import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
-import { hpaToInHg, observedTendency, type TendencySeverity } from '../../utils/barometerTendency';
+import { hpaToInHg, marineTendency, type TendencySeverity } from '../../utils/barometerTendency';
 import * as barometerService from '../../services/native/barometer';
 import { useNmeaStore } from './useNmeaStore';
 import { SereneWindRose } from './gauges/SereneWindRose';
@@ -775,7 +775,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const baro = useBarometerSource(true);
     const baroUnit = barometerService.getUnit();
     const baroTendency = React.useMemo(
-        () => observedTendency(baro.samples, Date.now()),
+        () => marineTendency(baro.samples, Date.now()),
         // Recomputed when the record changes; the panel re-renders on the
         // store's own tick, so a clock dependency would only add churn.
         [baro.samples],
@@ -785,7 +785,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
        hunting the sample list again, so the hands and the number can never
        tell different stories. */
     const baroSetHand = React.useMemo(
-        () => (baroTendency && baro.latest ? baro.latest.hpa - baroTendency.deltaHpa : null),
+        () =>
+            baroTendency && baro.latest
+                ? baro.latest.hpa -
+                  ((baroTendency.rawDelta3h ?? baroTendency.delta3h) * baroTendency.spanMs) / (3 * 3_600_000)
+                : null,
         [baroTendency, baro.latest],
     );
 
@@ -1782,14 +1786,17 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                     so the Glass panel and this page cannot drift. */}
                                 <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
                                     {baroTendency
-                                        ? baroTendency.read
+                                        ? baroTendency.read +
+                                          (baroTendency.diurnal?.applied
+                                              ? ` Daily tide removed; raw change ${baroTendency.rawDelta3h!.toFixed(1)} hPa/3 h.`
+                                              : '')
                                         : (baro.reason ??
                                           'Building a record — a barometer needs three hours before it can say anything.')}
                                 </p>
 
                                 <div className="grid grid-cols-3 gap-2">
                                     <StatCell
-                                        label="3 h"
+                                        label={baroTendency?.diurnal?.applied ? '3 h adjusted' : '3 h'}
                                         spoken="Three-hour change"
                                         value={
                                             baroTendency

@@ -105,6 +105,9 @@ export interface FetchResult<T = unknown> {
 /** One reading from the boat's own barometer. */
 export interface PiBarometerSample {
     hpa: number;
+    source?: 'bmp390' | 'signalk';
+    lat?: number;
+    lon?: number;
     /** Enclosure temperature — the sensor self-heats, so NOT air temperature. */
     tempC: number;
     at: number;
@@ -688,7 +691,7 @@ class PiCacheServiceImpl {
      * (~0.12 hPa per metre), so a walk up the dock ramp swamps the 1-2 hPa/3h
      * that actually forecasts anything. The BMP390 is bolted to the boat and
      * mains-powered — it does not move and it does not sleep, and the Pi keeps
-     * twelve hours of it across restarts.
+     * ten days of it across restarts.
      *
      * Returns null whenever the Pi lane is unusable, so the caller's fallback
      * is the same shape as everywhere else: try this, fall back to the phone.

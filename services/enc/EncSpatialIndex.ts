@@ -681,6 +681,30 @@ export class EncSpatialIndex {
      * back to ETOPO instead of trusting a false-clear. Charted deep water
      * still returns `covered: true, hazard: false`.
      */
+    /** Raw candidates for the bounded underway cone. Exact geometry is tested by
+     * lookaheadRule; the router's 150 m point guard never widens this cone. */
+    lookaheadCandidates(polygon: readonly (readonly number[])[]): EncHazard[] {
+        const lons = polygon.map((p) => p[0]),
+            lats = polygon.map((p) => p[1]);
+        const minY = Math.min(...lats),
+            maxY = Math.max(...lats);
+        const minX = Math.min(...lons),
+            maxX = Math.max(...lons);
+        const boxes =
+            maxX - minX > 180
+                ? [
+                      { minX: Math.min(...lons.filter((x) => x >= 0)), maxX: 180, minY, maxY },
+                      { minX: -180, maxX: Math.max(...lons.filter((x) => x < 0)), minY, maxY },
+                  ]
+                : [{ minX, maxX, minY, maxY }];
+        const hazards = [...new Set(boxes.flatMap((box) => this.hazardTree.search(box).map((entry) => entry.hazard)))];
+        const coasts = [...new Set(boxes.flatMap((box) => this.coastlineTree.search(box)))];
+        return [
+            ...hazards,
+            ...coasts.map((entry): EncHazard => ({ layer: 'COALNE', minDepthM: null, geometry: entry.geometry })),
+        ];
+    }
+
     queryPoint(lat: number, lon: number): EncHazardResult {
         if (!this.containsPoint(lat, lon)) {
             return { covered: false, hazard: false, minDepthM: null };

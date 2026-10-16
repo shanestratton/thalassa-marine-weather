@@ -21,10 +21,12 @@ function Harness({
     encCellCount = 9,
     onToggleEnc = vi.fn(),
     initial = 'relief',
+    onClearView,
 }: {
     encCellCount?: number;
     onToggleEnc?: () => void;
     initial?: MapBaseKind;
+    onClearView?: () => void;
 }) {
     const [base, setBase] = useState<MapBaseKind>(initial);
     const [enc, setEnc] = useState(true);
@@ -33,6 +35,7 @@ function Harness({
             visible
             value={base}
             onChange={setBase}
+            onClearView={onClearView}
             encCellCount={encCellCount}
             encVisible={enc}
             onToggleEnc={() => {
@@ -267,5 +270,25 @@ describe('the Obs picker is unchanged (127-DESKMAP)', () => {
             satellite: false,
             hybrid: false,
         });
+    });
+});
+
+describe('the Obs clear-screen action', () => {
+    it('is reachable with the arrow keys and closes the dropdown when chosen', () => {
+        const onClearView = vi.fn();
+        render(<Harness onClearView={onClearView} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
+        const action = screen.getByRole('menuitem', { name: /Clear the screen/ });
+        expect(action).toHaveFocus();
+        fireEvent.click(action);
+        expect(onClearView).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('menu', { name: 'Map base' })).toBeNull();
+    });
+
+    it('is absent when the chart cannot clear', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        expect(screen.queryByRole('menuitem', { name: /Clear the screen/ })).toBeNull();
     });
 });

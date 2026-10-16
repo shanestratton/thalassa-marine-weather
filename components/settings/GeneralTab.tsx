@@ -18,6 +18,7 @@ import { BoatQuietSection } from './BoatQuietSection';
 import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
+import { AisDisplaySettings } from './AisDisplaySettings';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { Button } from '../ui/Button';
 import type { LengthUnit } from '../../types';
@@ -510,6 +511,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 4, 2026-09-30). A bridge or power line the mast cannot clear
                 makes the line red: blocked (owner decision 5). */}
             <Section title="Chart">
+                <AisDisplaySettings settings={settings} onSave={onSave} />
                 <Row>
                     <label htmlFor="ais-vector-minutes" className="text-sm text-white font-medium">
                         AIS vector length
@@ -579,23 +581,14 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         onChange={(on) => onSave({ obsEncOnOpen: on })}
                     />
                 </Row>
-                {/* Obs's clear view (129-13): a way out for a skipper who finds
-                    the gesture fiddly. On by default. The hold is the one touch
-                    way in (129-13b); H, VoiceOver's hidden button and the tap
-                    that brings the controls back are not switched by it. */}
                 <Row>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium">Two-finger hold clears the chart</p>
+                        <p className="text-sm text-white font-medium">Clear the Obs screen</p>
                         <p className="text-xs text-gray-400">
-                            Hold two fingers still on Obs to hide its controls; tap anywhere to bring them back. MOB and
-                            the credits stay.
+                            Choose Clear the screen in the top-centre map dropdown to hide controls; tap the chart to
+                            bring them back. MOB, the credits and the forecast scrubber stay.
                         </p>
                     </div>
-                    <Toggle
-                        label="Two-finger hold clears the chart"
-                        checked={settings.obsClearViewHold !== false}
-                        onChange={(on) => onSave({ obsClearViewHold: on })}
-                    />
                 </Row>
             </Section>
 

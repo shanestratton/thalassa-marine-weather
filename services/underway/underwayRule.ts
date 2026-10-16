@@ -537,7 +537,6 @@ export function shoalAudible(state: ShoalState): boolean {
 
 /** Said when the watch cannot see, or cannot run. */
 export const UNDERWAY_NOTICES = Object.freeze({
-    arming: 'Off-route alarm arms once you are on the route.',
     noFix: 'Off-route alarm: no position fix',
     shoalStale: 'Shoal alarm: depth reading stale',
     shoalLost: 'Shoal alarm: no depth from the boat',

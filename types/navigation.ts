@@ -291,6 +291,8 @@ export interface SmartPolarBucket {
 /** Full grid of Smart Polar buckets — serialized to Capacitor Filesystem */
 export interface SmartPolarBucketGrid {
     version: number;
+    /** A running engine stays excluded until an explicit zero-RPM report, including after restart. */
+    engineRunning?: boolean;
     twsBucketSize: number;
     twaBucketSize: number;
     twsMin: number;
@@ -304,6 +306,8 @@ export interface SmartPolarBucketGrid {
 
 /** Decoded AIS vessel target from NMEA !AIVDM / !AIVDO sentences */
 export interface AisTarget {
+    /** Transponder class, learned from the AIS message family. */
+    aisClass?: 'A' | 'B';
     /** Metres reported by AIS; absent when the transmitter reports unavailable. */
     length?: number;
     beam?: number;

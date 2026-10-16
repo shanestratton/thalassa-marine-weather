@@ -22,24 +22,26 @@ Acceptance details, exclusions and dependencies are in the archived roadmap. Eac
 
 Build 132's upload and Apple processing outcome are established; build 133 still requires its own complete validation and release gates. Never reuse an uploaded build number. No package is complete merely because its plan or test fixture exists.
 
-## Integration checkpoint
+## Integration candidate, 16 October 2026
 
-Checkpoint after `cb085ac426e3cb4d6bdb36cd6db90e7490333fb4`. A feature branch is not a release candidate until it has been integrated and the combined application passes the full validation workflow.
+Build 133 is assembled locally on `codex/build-133-integration`; this is not yet a TestFlight release. Build 132 and the prior `b133` checkpoint remain preserved until the combined gates pass.
 
-| Package | Source status                                             | Outstanding evidence or work                                                                   |
-| ------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 133-01  | AIS candidate `d0792dc`                                   | App and mirrored Pi checks queued; review before merge                                         |
-| 133-02  | Pending                                                   | Display filters, Targets sheet and local-first search                                          |
-| 133-03  | Integrated, PR 68                                         | Proxy/publisher deployment and live model capability still pending                             |
-| 133-04  | Server contract and Pi relay client integrated, PRs 65/67 | App/vault look-ahead and Pi watcher integration; held SQL and deploy approval; physical alarms |
-| 133-05  | Pending                                                   | Pi learner, engine gates, civil-twilight split and routing integration                         |
-| 133-06  | Isolated draft                                            | Source review, app/Pi CI and physical sensor checks                                            |
-| 133-07  | Chart candidate `fb4837b`                                 | Pi tests passed; corrected app fixtures under validation; no producer-wide datum assumed       |
-| 133-08  | Client checkpoint `eee2771`                               | Provider publisher, app wiring, tests and live publication; CHS remains disabled               |
-| 133-09  | Isolated draft                                            | Source review and tests; permission-held sources remain link-only                              |
-| 133-10  | Pending                                                   | Combined Pi bundle, offline assets, install/rollback/checksums and watch guard; pi5 dry run    |
-| 133-11  | Integrated, PR 66                                         | Read-only study complete; no Android build or purchase                                         |
+| Package | Combined source                                                                                     | Live or physical evidence still required                        |
+| ------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 133-01  | AIS report age, ghosts/trails/details and conservative collision envelope; repaired parity fixtures | Combined CI and physical alarm checks                           |
+| 133-02  | Account display filters, Targets sheet and receiver-first search; safety overrides                  | Combined browser/release CI                                     |
+| 133-03  | Existing integrated coastal capability package                                                      | Commercial proxy deployment and model probe                     |
+| 133-04  | App cone/query/watch, isolated Pi vault query, enrolled followed-route handoff and Pi XTE watch     | Relay migration/deploy, Pi install and locked-phone tests       |
+| 133-05  | Incremental Pi learner, RPM/heuristic gates, civil twilight and routing blend                       | Linux native SQLite checks, Pi install and sailing data         |
+| 133-06  | Recovered barometer package with corrected tendency/history/freshness                               | Pi install and physical sensors                                 |
+| 133-07  | Reviewed schema-3 navaids and per-cell datums integrated                                            | App first, then guarded Pi in-memory reread                     |
+| 133-08  | Official display tables/provenance plus a separate weather-server publisher                         | Timer installation and public publication; CHS remains disabled |
+| 133-09  | Official charts, manual Satellite download and bounded offline/Pi cache                             | New public image proxy deployment; DWD remains excluded         |
+| 133-10  | Offline weather and staged install/rollback/checksums assembled                                     | Combined package checks, pi5 dry run and owner install at dock  |
+| 133-11  | Existing integrated read-only Android study                                                         | No Android build/purchase authorized or attempted               |
 
-Coastal checkpoint [38818030332](https://github.com/shanestratton/thalassa-marine-weather/actions/runs/38818030332) passed full lint, routes, TypeScript, formatting, 205 focused app tests, 11 Deno proxy tests, production release gates and unchanged size limits: JS 10.11 MB / 10.15 MB; total 14.42 MB / 18 MB. The earlier Pi checkpoint [38816851813](https://github.com/shanestratton/thalassa-marine-weather/actions/runs/38816851813) passed both complete Pi jobs; its two app failures were corrected and are tracked by separate runs.
+Shane's additional requests are included: the repeated off-route arming notice is removed; Obs Clear View is inside the top-centre dropdown, with single-tap restore. Safety controls and actionable missing-position warnings remain. Focused UI tests and Chromium phone/tablet checks passed; combined release validation is still required.
 
-The inherited source does not contain 130-07's official-marine-text implementation. That prerequisite must be implemented and validated before 133-10 can claim an offline bulletin copy. Track upload remains blocked on its explicit DB and deploy approvals. No held migration has been applied, no Pi install has occurred, and no build 133 upload has been attempted.
+The existing JavaScript budget remains 10.15 MiB. A standard, pinned development-only Terser minifier replaces esbuild compression; no auth or feature code is stubbed out. The final local production checkpoint measured 10,586,736 JavaScript bytes against 10,643,046 bytes, including offline weather. The hosted source check also covers the final polar guard alignment. Release checks measure the final exact source again.
+
+No held migration has been applied, no Pi install has occurred, and no build 133 upload has been attempted. Database/server deployment, installed Pi behavior, Apple processing, beta-group assignment and installation on a physical iPhone are distinct outcomes and must be recorded independently.

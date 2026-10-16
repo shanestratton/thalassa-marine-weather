@@ -83,7 +83,8 @@ describe('Barometer breakout modal contract', () => {
     });
 
     it('takes the tendency from raw station samples so calibration cannot move it', () => {
-        expect(modal).toContain('observedTendency(stationSamples, nowT)');
+        expect(modal).toContain('marineTendency(stationSamples, nowT)');
+        expect(modal).toContain('usingBoat ? boat.samples : phoneSamples');
     });
 
     it('opens the breakout modal from the HPA cell instead of the shared metric sheet', () => {

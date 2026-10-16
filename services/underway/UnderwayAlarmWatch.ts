@@ -348,7 +348,6 @@ function publish(nowMs: number): void {
     const notices: string[] = [];
     if (context.offRouteOn) {
         if (xte.status === 'no-fix') notices.push(UNDERWAY_NOTICES.noFix);
-        else if (!xte.latched) notices.push(UNDERWAY_NOTICES.arming);
     }
     if (context.shoalOn && context.underWay) {
         if (shoal.status === 'stale') notices.push(UNDERWAY_NOTICES.shoalStale);
@@ -597,9 +596,51 @@ function withDebugScenario(inputs: UnderwayInputs): UnderwayInputs {
     };
 }
 
+let piSync: ((inputs: UnderwayInputs) => void) | null = null;
+let piSyncLoading = false;
+let chartAhead: typeof import('./ChartLookaheadWatch') | null = null;
+let chartAheadLoading = false;
+let chartEpoch = 0;
+function syncChartAhead(inputs: UnderwayInputs): void {
+    if (chartAhead) {
+        void chartAhead.runChartLookahead(inputs);
+        return;
+    }
+    if (!inputs.following || chartAheadLoading) return;
+    chartAheadLoading = true;
+    const generation = chartEpoch;
+    void import('./ChartLookaheadWatch')
+        .then((module) => {
+            chartAhead = module;
+            if (generation === chartEpoch) void module.runChartLookahead(readUnderwayInputs());
+        })
+        .catch(() => undefined)
+        .finally(() => {
+            chartAheadLoading = false;
+        });
+}
+function syncPi(inputs: UnderwayInputs): void {
+    if (piSync) return piSync(inputs);
+    if (piSyncLoading) return;
+    piSyncLoading = true;
+    void import('./piUnderwayWatch')
+        .then(({ syncPiUnderway }) => {
+            piSync = syncPiUnderway;
+            // Read the present route after loading: never send a stale debug fixture.
+            syncPiUnderway(readUnderwayInputs());
+        })
+        .catch(() => undefined)
+        .finally(() => {
+            piSyncLoading = false;
+        });
+}
 function safePass(why: string): void {
     try {
-        runUnderwayPass(withDebugScenario(readUnderwayInputs()));
+        const actual = readUnderwayInputs();
+        const inputs = withDebugScenario(actual);
+        runUnderwayPass(inputs);
+        syncChartAhead(actual);
+        syncPi(actual);
     } catch (error) {
         log.warn(`under-way pass failed on ${why}:`, error);
     }
@@ -638,6 +679,8 @@ function stopRunning(): void {
 /** Stop watching, and stand down: an alarm with no watch behind it must not sound on. */
 export function stopUnderwayAlarmWatch(): void {
     stopRunning();
+    chartEpoch++;
+    chartAhead?.stopChartLookahead();
     xte = XTE_START;
     shoal = SHOAL_START;
     instruments = INSTRUMENTS_SILENT_START;

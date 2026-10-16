@@ -33,7 +33,8 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
         "thalassa_next_update",
         "thalassa_cache_version",
         "thalassa_smart_polars_v1",
-        "thalassa_grib_download_state"
+        "thalassa_grib_download_state",
+        "thalassa_synoptic_charts_v1"
     ]
     private let scopedBaseKeys: Set<String> = [
         "thalassa_weather_cache_v9",

@@ -12,16 +12,11 @@ import { expect, test, type Page } from '@playwright/test';
  * button and the top row at 320 x 568 in large text, 390 x 844 and the iPad,
  * the basin and the storm's number in words.
  *
- * The clear view: H (and, in Chromium, two fingers held on a real Mapbox map)
- * hides every control but MOB, the credits, the Mapbox wordmark and the
- * scrubber, without moving the chart; one tap brings them back and never
- * reaches the chart. A two-finger TAP is still Mapbox's zoom-out.
- *
- * 129-13b: asked how clearing the screen should work, Shane chose "Two-finger
- * hold (Recommended)" on 14 Oct, not a long press on the scrubber and not
- * both. So the hold clears the screen with a weather layer up and with none,
- * and the scrubber's pill stays, and works, in the clear view without being
- * a switch: a long press on it clears nothing and brings nothing back.
+ * The clear view: Clear the screen in the top-centre map dropdown hides
+ * every control but MOB, credits, Mapbox attribution and the scrubber without
+ * moving the chart. One tap brings them back and never reaches the chart.
+ * H remains the keyboard shortcut. Two-finger taps and holds belong to the
+ * map; a long press on the scrubber keeps its own behavior.
  */
 
 const SIZES = [
@@ -125,7 +120,7 @@ const TWO_FINGER_TAP = [
     { type: 'touchStart', points: [FINGER_A, FINGER_B], waitMs: 90 },
     { type: 'touchEnd', points: [], waitMs: 0 },
 ];
-/** Two fingers held 700 ms, creeping 5 px as on a moving boat: the clear view's way in and out. */
+/** The retired two-finger hold: it must no longer clear the screen. */
 const creep = (d: number) => [
     { x: FINGER_A.x + d, y: FINGER_A.y + d },
     { x: FINGER_B.x + d, y: FINGER_B.y + d },
@@ -296,7 +291,7 @@ for (const size of SIZES) {
 test.describe('on a real Mapbox map', () => {
     test.use({ hasTouch: true });
 
-    test('two fingers held clear the screen with a weather layer up and no zoom-out; a two-finger tap is still Mapbox’s zoom-out', async ({
+    test('the dropdown clears the screen while two-finger tap still zooms and hold leaves controls showing', async ({
         page,
         browserName,
     }) => {
@@ -317,9 +312,11 @@ test.describe('on a real Mapbox map', () => {
         await page.waitForTimeout(400);
         await expect(page.locator('html')).toHaveAttribute('data-clear-view', 'off');
         const before = await zoom();
-        // A hold, the fingers creeping 5 px as on a moving boat, lifted at 700 ms:
-        // the screen clears as they lift, and the zoom stays.
+        // A hold no longer hides controls; the explicit menu action does.
         await touches(page, cdp, TWO_FINGER_HOLD);
+        await expect(page.locator('html')).toHaveAttribute('data-clear-view', 'off');
+        await page.getByRole('button', { name: 'Map base: Relief + Sat' }).click();
+        await page.getByRole('menuitem', { name: /Clear the screen/ }).click();
         await expect(page.locator('html')).toHaveAttribute('data-clear-view', 'on');
         expect(await zoom()).toBeCloseTo(before, 3);
         // The pill stays over the clear chart.
@@ -401,7 +398,7 @@ test('a long press on the scrubber’s pill clears nothing and brings nothing ba
     expect(errors).toEqual([]);
 });
 
-test.describe('two fingers held, the one way in by touch (Shane, 14 Oct)', () => {
+test.describe('the map dropdown clears the screen with or without weather', () => {
     test.use({ hasTouch: true });
 
     for (const variant of [
@@ -430,8 +427,11 @@ test.describe('two fingers held, the one way in by touch (Shane, 14 Oct)', () =>
             await touches(page, cdp, TWO_FINGER_TAP);
             await page.waitForTimeout(400);
             await expect(html).toHaveAttribute('data-clear-view', 'off');
-            // Held: the screen clears as the fingers lift.
+            // The old hold leaves controls showing; choose the menu action instead.
             await touches(page, cdp, TWO_FINGER_HOLD);
+            await expect(html).toHaveAttribute('data-clear-view', 'off');
+            await page.getByRole('button', { name: 'Map base: Relief + Sat' }).click();
+            await page.getByRole('menuitem', { name: /Clear the screen/ }).click();
             await expect(html).toHaveAttribute('data-clear-view', 'on');
             await expect.poll(() => visibilityOf(page, '#cyclone-hud-badges')).toBe('hidden');
             await expect.poll(() => visibilityOf(page, '.radial-helm-mob')).toBe('visible');
@@ -442,8 +442,8 @@ test.describe('two fingers held, the one way in by touch (Shane, 14 Oct)', () =>
                     path: `${captureDir}/clear-view-${variant.name}-390.png`,
                     animations: 'disabled',
                 });
-            // Held again: the controls come back.
-            await touches(page, cdp, TWO_FINGER_HOLD);
+            // One tap on the chart brings the controls back.
+            await page.mouse.click(FINGER_A.x, FINGER_A.y + 60);
             await expect(html).toHaveAttribute('data-clear-view', 'off');
             await expect.poll(() => visibilityOf(page, '#cyclone-hud-badges')).toBe('visible');
             if (variant.name === 'weather') {

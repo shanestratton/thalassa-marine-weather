@@ -22,6 +22,7 @@ import { SmartPolarService } from '../../services/SmartPolarService';
 import { learnerFeedState, subscribeLearnerFeedState } from '../../services/smartPolarFeed';
 import { Row, Toggle } from './SettingsPrimitives';
 import type { UserSettings } from '../../types';
+import { getPiPolarSyncState, subscribePiPolarSync } from '../../services/piPolarLearner';
 
 /** On: the policy's feed and the learner. Off: the learner only. */
 export function applySmartPolars(enabled: boolean): void {
@@ -44,6 +45,8 @@ export const SmartPolarsSetting: React.FC<{
     onSave: (patch: Partial<UserSettings>) => void;
 }> = ({ settings, onSave }) => {
     const enabled = settings.smartPolarsEnabled === true;
+    const [piSync, setPiSync] = useState(getPiPolarSyncState);
+    useEffect(() => subscribePiPolarSync(() => setPiSync(getPiPolarSyncState())), []);
     // Re-read the link whenever the feed changes (a gateway connecting, the
     // Pi's lane starting), so a link set up while this page is open counts.
     const [, setFeed] = useState(learnerFeedState);
@@ -77,6 +80,18 @@ export const SmartPolarsSetting: React.FC<{
                         'Learns your boat’s real performance from the instruments. The Polars page shows what it has learned.'
                     )}
                 </p>
+                {piSync === 'failed' && (
+                    <p className="text-xs text-amber-300">
+                        Pi change not confirmed. Reconnect to your boat; its previous learning setting may still be
+                        active.
+                    </p>
+                )}
+                {piSync === 'saving' && <p className="text-xs text-gray-400">Saving the Pi learning setting…</p>}
+                {piSync === 'saved' && enabled && (
+                    <p className="text-xs text-gray-400">
+                        The Pi keeps learning while this phone sleeps. The boat track recorder must also be on.
+                    </p>
+                )}
             </div>
             {blocked ? (
                 <button

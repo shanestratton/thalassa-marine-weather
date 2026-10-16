@@ -137,7 +137,7 @@ UnderwayAlarmStore.set(
             mutedUntil: xte.mutedUntil,
         },
     ],
-    params.get('notices') === '1' ? [rule.UNDERWAY_NOTICES.arming, rule.UNDERWAY_NOTICES.shoalStale] : [],
+    params.get('notices') === '1' ? [rule.UNDERWAY_NOTICES.noFix, rule.UNDERWAY_NOTICES.shoalStale] : [],
 );
 
 // Kestrel's watch check, every 20 min (the longest words it says at that interval).

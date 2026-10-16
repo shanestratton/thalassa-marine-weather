@@ -81,6 +81,7 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         "distress": "thalassa.distress-watch",
         "off-route": "thalassa.off-route-watch",
         "shoal": "thalassa.shoal-watch",
+        "chart-ahead": "thalassa.chart-ahead-watch",
         "watch-check": "thalassa.watch-check",
         "instruments-silent": "thalassa.instruments-watch"
     ]

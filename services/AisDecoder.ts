@@ -301,6 +301,10 @@ export function processAisSentence(sentence: string): AisDecoded | null {
     return null;
 }
 
+function withAisClass(decoded: AisDecoded | null, aisClass: 'A' | 'B'): AisDecoded | null {
+    return decoded ? { ...decoded, aisClass } : null;
+}
+
 /** Decode a complete (possibly reassembled) AIS payload */
 function decodePayload(payload: string): AisDecoded | null {
     if (!payload || payload.length < 1) return null;
@@ -312,17 +316,17 @@ function decodePayload(payload: string): AisDecoded | null {
         case 1:
         case 2:
         case 3:
-            return decodePositionReport(bits);
+            return withAisClass(decodePositionReport(bits), 'A');
         case 5:
-            return decodeStaticVoyage(bits);
+            return withAisClass(decodeStaticVoyage(bits), 'A');
         case 14:
             return decodeSafetyBroadcast(bits);
         case 18:
-            return decodeClassBPosition(bits);
+            return withAisClass(decodeClassBPosition(bits), 'B');
         case 19:
-            return decodeClassBExtended(bits);
+            return withAisClass(decodeClassBExtended(bits), 'B');
         case 24:
-            return decodeClassBStatic(bits);
+            return withAisClass(decodeClassBStatic(bits), 'B');
         default:
             return null; // Unsupported message type
     }

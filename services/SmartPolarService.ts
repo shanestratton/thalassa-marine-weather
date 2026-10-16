@@ -7,7 +7,7 @@
  * stopping it touches nothing else: the instrument store and the socket
  * belong to InstrumentSourcePolicy.
  *
- * Gate 1: Engine Off (RPM=0 or no alternator spike)
+ * Gate 1: Engine Off (RPM=0, or conservative sailing envelope with no known running engine)
  * Gate 2: Stable Heading (ROT < 3°/s — no tacking/gybing)
  * Gate 3: Steady Wind (TWS/TWA stable for 30s window)
  * Gate 4: Minimum Speed (STW > 1.0 kts, and SOG > 1.0 kts when known: a boat
@@ -16,9 +16,9 @@
  */
 import { subscribeLearnerSamples, type LearnerSample } from './smartPolarFeed';
 import { SmartPolarStore } from './SmartPolarStore';
+import { polarNoRpmGate, type PolarTable } from '../pi-cache/src/polarLearningRule';
 
 // ── Filter thresholds ──
-const MAX_RPM = 0;
 const ALT_VOLTAGE_THRESHOLD = 14.2; // Volts — alternator charging spike
 const MAX_ROT_DEG_PER_SEC = 3.0; // Rate of Turn threshold
 const TWS_STD_MAX = 3.0; // Max TWS std-dev over window
@@ -44,6 +44,7 @@ export interface FilterStatus {
 class SmartPolarServiceClass {
     private unsubscribe: (() => void) | null = null;
     private enabled = false;
+    private baseline: PolarTable | null = null;
 
     // Rolling window buffers
     private sampleHistory: LearnerSample[] = [];
@@ -72,12 +73,31 @@ class SmartPolarServiceClass {
         if (this.enabled) return;
         this.enabled = true;
         await SmartPolarStore.ensureLoaded();
+        try {
+            const [{ resolveRoutingPolar }, { useSettingsStore }] = await Promise.all([
+                import('./routingPolar'),
+                import('../stores/settingsStore'),
+            ]);
+            this.baseline = (
+                await resolveRoutingPolar({
+                    settings: { ...useSettingsStore.getState().settings, polarSource: 'factory' },
+                })
+            ).polar;
+        } catch {
+            this.baseline = null;
+        }
         if (!this.enabled || this.unsubscribe) return;
         this.unsubscribe = subscribeLearnerSamples((sample) => this.processSample(sample));
+        void import('./piPolarLearner')
+            .then(({ configurePiPolarLearning }) => (this.enabled ? configurePiPolarLearning(true) : false))
+            .catch(() => undefined);
     }
 
     stop(): void {
         this.enabled = false;
+        void import('./piPolarLearner')
+            .then(({ configurePiPolarLearning }) => (!this.enabled ? configurePiPolarLearning(false) : false))
+            .catch(() => undefined);
         if (this.unsubscribe) {
             this.unsubscribe();
             this.unsubscribe = null;
@@ -104,6 +124,9 @@ class SmartPolarServiceClass {
     // ── Core Pipeline ──
 
     private processSample(sample: LearnerSample): void {
+        if (sample.rpm !== null && Number.isFinite(sample.rpm) && sample.rpm >= 0) {
+            SmartPolarStore.rememberEngineRunning(sample.rpm > 0);
+        }
         // Push to history
         this.sampleHistory.push(sample);
         if (this.sampleHistory.length > this.MAX_HISTORY) {
@@ -145,15 +168,13 @@ class SmartPolarServiceClass {
     // ── Gate 1: Engine Off ──
     private gateEngineOff(sample: LearnerSample): FilterGateStatus {
         // If RPM data available, check it
-        if (sample.rpm !== null) {
-            return sample.rpm <= MAX_RPM ? 'pass' : 'fail';
-        }
-        // Fallback: check alternator voltage spike
-        if (sample.voltage !== null) {
-            return sample.voltage < ALT_VOLTAGE_THRESHOLD ? 'pass' : 'fail';
-        }
-        // Neither available — mark as unavailable (not a hard fail)
-        return 'unavailable';
+        if (sample.rpm !== null) return sample.rpm === 0 ? 'pass' : 'fail';
+        if (SmartPolarStore.isEngineRunning()) return 'fail';
+        if (sample.voltage !== null && (!Number.isFinite(sample.voltage) || sample.voltage >= ALT_VOLTAGE_THRESHOLD))
+            return 'fail';
+        const previous = this.sampleHistory[this.sampleHistory.length - 2];
+        const motion = (s: LearnerSample) => ({ ...s, at: s.timestamp });
+        return polarNoRpmGate(motion(sample), previous ? motion(previous) : null, this.baseline) ? 'pass' : 'fail';
     }
 
     // ── Gate 2: Stable Heading (Rate of Turn) ──

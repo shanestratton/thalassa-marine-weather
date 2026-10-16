@@ -1,65 +1,46 @@
-/**
- * barometer — the boat's own BMP390, sampled continuously and remembered.
- *
- * Why the boat's sensor rather than the phone's: a barometer is only worth
- * carrying for its TENDENCY, and a phone cannot supply one. It goes ashore in
- * a pocket, up and down the companionway, and every metre of that altitude
- * change reads as pressure change — roughly 0.12 hPa per metre, so a trip up
- * the dock ramp swamps the 1-2 hPa/3h that actually means something. It is
- * also asleep or absent most of the time, so its "three-hour" trend is really
- * "since you last opened the app".
- *
- * This sensor is bolted to the boat and mains-powered. It does not move and it
- * does not sleep, so the record is continuous and altitude-stable — which is
- * exactly what makes a tendency trustworthy. Measured against ECMWF MSLP on
- * install (2026-09-02): 1022.13 vs 1022.6 hPa, inside its rated absolute
- * accuracy, so it also needs none of the forecast-anchoring the phone path
- * does.
- *
- * The reading itself is delegated to scripts/bmp390.py — Python because
- * smbus2 is already aboard and adding a native I2C binding to this service
- * would mean another thing that compiles at deploy time.
- */
+/** Always-on boat pressure: BMP390, then timestamped Signal K outside pressure.
+ * Daily append files retain ten days without rewriting the record each minute. */
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-/**
- * dist/ sits one level under the package root, alongside scripts/ — verified
- * against the real deployment at /opt/thalassa-pi-cache. BAROMETER_READER
- * overrides it for a Pi whose sensor script lives elsewhere, or for testing
- * the sampler without a full redeploy.
- */
-const READER = process.env.BAROMETER_READER || join(HERE, '..', 'scripts', 'bmp390.py');
-
-/** One minute: fine enough to see a squall line, cheap enough to ignore. */
-const SAMPLE_INTERVAL_MS = 60_000;
-/** Twelve hours, so the three-hour tendency survives a restart with room to spare. */
-const HISTORY_MS = 12 * 3_600_000;
-/** A read is a 200 ms conversion; anything past this is a wiring fault, not slowness. */
-const READ_TIMEOUT_MS = 5_000;
-/** Stop logging the same failure forever — say it once, then once an hour. */
-const FAILURE_LOG_INTERVAL_MS = 3_600_000;
+const READER =
+    process.env.BAROMETER_READER || join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'bmp390.py');
+export const BAROMETER_HISTORY_MS = 10 * 24 * 3_600_000;
+const DAY_MS = 24 * 3_600_000;
+const SAMPLE_MS = 60_000;
+const MAX_SAMPLES = BAROMETER_HISTORY_MS / SAMPLE_MS + 1;
+const DAY_FILE = /^pressure-\d{4}-\d{2}-\d{2}\.jsonl$/;
 
 export interface BarometerSample {
-    /** hPa, Bosch-compensated. */
     hpa: number;
-    /** Enclosure temperature in degC — NOT air temperature; it self-heats. */
+    /** Sensor enclosure temperature, not outside air. */
     tempC: number;
-    /** ms epoch. */
     at: number;
+    source?: 'bmp390' | 'signalk';
+    lat?: number;
+    lon?: number;
 }
-
 export interface BarometerState {
     available: boolean;
-    /** Why not, when unavailable — shown to the skipper rather than swallowed. */
     reason: string | null;
     latest: BarometerSample | null;
     samples: BarometerSample[];
 }
+interface Options {
+    now?: () => number;
+    readSensor?: () => Promise<{ pressure_hpa: number; temp_c?: number }>;
+    fetchImpl?: typeof fetch;
+    signalkOrigin?: string;
+    readPosition?: () => Promise<{ lat: number; lon: number } | null>;
+}
+const valid = (s: unknown): s is BarometerSample => {
+    if (!s || typeof s !== 'object') return false;
+    const p = s as BarometerSample;
+    return Number.isFinite(p.hpa) && p.hpa >= 800 && p.hpa <= 1100 && Number.isFinite(p.at);
+};
 
 export class Barometer {
     private samples: BarometerSample[] = [];
@@ -68,110 +49,203 @@ export class Barometer {
     private timer: ReturnType<typeof setInterval> | null = null;
     private reading = false;
     private lastFailureLoggedAt = 0;
-    private readonly storePath: string;
-
-    constructor(cacheDir: string) {
-        this.storePath = join(cacheDir, 'barometer.json');
+    private cleanedDay = '';
+    private readonly dir: string;
+    private readonly now: () => number;
+    constructor(
+        private readonly cacheDir: string,
+        private readonly options: Options = {},
+    ) {
+        this.dir = join(cacheDir, 'barometer');
+        this.now = options.now ?? Date.now;
     }
-
-    /** Begin sampling. Safe to call when no sensor is fitted — it simply reports unavailable. */
     async start(): Promise<void> {
+        if (this.timer) return;
         await this.load();
-        if (!existsSync(READER)) {
-            this.reason = 'reader script not deployed';
-            return;
-        }
         await this.sample();
-        // unref so a shutting-down process is never held open by the timer.
-        this.timer = setInterval(() => void this.sample(), SAMPLE_INTERVAL_MS);
+        this.timer = setInterval(() => void this.sample(), SAMPLE_MS);
         this.timer.unref?.();
     }
-
     stop(): void {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
     }
-
     state(): BarometerState {
         this.trim();
+        const latest = this.samples.at(-1) ?? null;
+        const live = this.available && latest !== null && this.now() - latest.at <= 2 * SAMPLE_MS;
         return {
-            available: this.available,
-            reason: this.available ? null : this.reason,
-            latest: this.samples.length > 0 ? this.samples[this.samples.length - 1] : null,
-            samples: this.samples,
+            available: live,
+            reason: live ? null : (this.reason ?? 'pressure sample is stale'),
+            latest,
+            samples: [...this.samples],
         };
     }
-
     private trim(): void {
-        const cutoff = Date.now() - HISTORY_MS;
-        if (this.samples.length > 0 && this.samples[0].at < cutoff) {
-            this.samples = this.samples.filter((s) => s.at >= cutoff);
-        }
+        const now = this.now();
+        this.samples = this.samples
+            .filter((s) => valid(s) && s.at >= now - BAROMETER_HISTORY_MS && s.at <= now + 1000)
+            .slice(-MAX_SAMPLES);
     }
-
-    private async sample(): Promise<void> {
-        // Never overlap: a wedged I2C read must not stack up a queue of them.
+    private async bmp(): Promise<BarometerSample> {
+        const parsed = this.options.readSensor
+            ? await this.options.readSensor()
+            : await new Promise<{ pressure_hpa: number; temp_c?: number }>((resolve, reject) => {
+                  if (!existsSync(READER)) return reject(new Error('reader script not deployed'));
+                  execFile('python3', [READER, '--json'], { timeout: 5_000 }, (error, stdout) => {
+                      if (error) return reject(error);
+                      try {
+                          resolve(JSON.parse(stdout));
+                      } catch (err) {
+                          reject(err);
+                      }
+                  });
+              });
+        const sample: BarometerSample = {
+            hpa: parsed.pressure_hpa,
+            tempC: Number.isFinite(parsed.temp_c) ? parsed.temp_c! : 0,
+            at: this.now(),
+            source: 'bmp390',
+        };
+        if (!valid(sample)) throw new Error('invalid BMP390 pressure');
+        return sample;
+    }
+    private async signalK(): Promise<BarometerSample> {
+        const origin = this.options.signalkOrigin ?? process.env.SIGNALK_ORIGIN ?? 'http://127.0.0.1:3000';
+        const response = await (this.options.fetchImpl ?? fetch)(
+            origin.replace(/\/$/, '') + '/signalk/v1/api/vessels/self/environment/outside/pressure',
+            { signal: AbortSignal.timeout(5_000) },
+        );
+        if (!response.ok) throw new Error('Signal K pressure unavailable');
+        const leaf = (await response.json()) as { value?: unknown; timestamp?: unknown };
+        const at = typeof leaf.timestamp === 'string' ? Date.parse(leaf.timestamp) : NaN;
+        const sample: BarometerSample = {
+            hpa: typeof leaf.value === 'number' ? leaf.value / 100 : NaN,
+            tempC: 0,
+            at,
+            source: 'signalk',
+        };
+        if (!valid(sample) || at > this.now() + 1000 || this.now() - at > 2 * SAMPLE_MS)
+            throw new Error('Signal K pressure is stale or invalid');
+        return sample;
+    }
+    /** One minute sampler; exposed for hardware-free verification. */
+    async sample(): Promise<void> {
         if (this.reading) return;
         this.reading = true;
         try {
-            const out = await new Promise<string>((resolve, reject) => {
-                execFile('python3', [READER, '--json'], { timeout: READ_TIMEOUT_MS }, (error, stdout) =>
-                    error ? reject(error) : resolve(stdout),
-                );
-            });
-            const parsed = JSON.parse(out) as { pressure_hpa?: unknown; temp_c?: unknown };
-            const hpa = typeof parsed.pressure_hpa === 'number' ? parsed.pressure_hpa : NaN;
-            const tempC = typeof parsed.temp_c === 'number' ? parsed.temp_c : NaN;
-            // Sanity floor/ceiling: the lowest and highest sea-level pressures
-            // ever recorded on earth are ~870 and ~1084 hPa. Anything outside
-            // that is a bus error dressed up as a number.
-            if (!Number.isFinite(hpa) || hpa < 800 || hpa > 1100) {
-                throw new Error(`implausible reading ${String(parsed.pressure_hpa)}`);
+            const sample = await this.bmp().catch(() => this.signalK());
+            const position = await this.position();
+            if (position) Object.assign(sample, position);
+            const previous = this.samples.at(-1);
+            // A repeated bus timestamp is not a new observation.
+            if (!previous || sample.at > previous.at) {
+                this.samples.push(sample);
+                this.trim();
+                await this.persist(sample);
             }
-            this.samples.push({ hpa, tempC: Number.isFinite(tempC) ? tempC : 0, at: Date.now() });
-            this.trim();
             this.available = true;
             this.reason = null;
-            await this.persist();
         } catch (error) {
             this.available = false;
             this.reason = error instanceof Error ? error.message.slice(0, 200) : 'read failed';
-            const now = Date.now();
-            if (now - this.lastFailureLoggedAt > FAILURE_LOG_INTERVAL_MS) {
-                this.lastFailureLoggedAt = now;
-                console.warn(`[BARO] read failed: ${this.reason}`);
+            if (this.now() - this.lastFailureLoggedAt > 3_600_000) {
+                this.lastFailureLoggedAt = this.now();
+                console.warn('[BARO] read failed: ' + this.reason);
             }
         } finally {
             this.reading = false;
         }
     }
-
-    /** The record is the point, so it has to survive a restart. */
-    private async persist(): Promise<void> {
+    private async position(): Promise<{ lat: number; lon: number } | null> {
         try {
-            await mkdir(dirname(this.storePath), { recursive: true });
-            await writeFile(this.storePath, JSON.stringify({ samples: this.samples }), 'utf8');
+            if (this.options.readPosition) return await this.options.readPosition();
+            const origin = this.options.signalkOrigin ?? process.env.SIGNALK_ORIGIN ?? 'http://127.0.0.1:3000';
+            const response = await (this.options.fetchImpl ?? fetch)(
+                origin.replace(/\/$/, '') + '/signalk/v1/api/vessels/self/navigation/position',
+                { signal: AbortSignal.timeout(5_000) },
+            );
+            if (!response.ok) return null;
+            const leaf = (await response.json()) as {
+                value?: { latitude?: unknown; longitude?: unknown };
+                timestamp?: string;
+            };
+            const at = Date.parse(leaf.timestamp ?? '');
+            const lat = leaf.value?.latitude;
+            const lon = leaf.value?.longitude;
+            if (
+                typeof lat !== 'number' ||
+                typeof lon !== 'number' ||
+                !Number.isFinite(lat) ||
+                !Number.isFinite(lon) ||
+                Math.abs(lat) > 90 ||
+                Math.abs(lon) > 180 ||
+                !Number.isFinite(at) ||
+                at > this.now() + 1000 ||
+                this.now() - at > 2 * SAMPLE_MS
+            )
+                return null;
+            return { lat, lon };
         } catch {
-            /* a read-only or full disk must not stop the sampling */
+            return null;
         }
     }
-
-    private async load(): Promise<void> {
+    private async persist(sample: BarometerSample): Promise<void> {
         try {
-            const raw = await readFile(this.storePath, 'utf8');
-            const parsed = JSON.parse(raw) as { samples?: unknown };
-            if (Array.isArray(parsed.samples)) {
-                this.samples = parsed.samples.filter(
-                    (s): s is BarometerSample =>
-                        typeof s === 'object' &&
-                        s !== null &&
-                        typeof (s as BarometerSample).hpa === 'number' &&
-                        typeof (s as BarometerSample).at === 'number',
-                );
-                this.trim();
+            await mkdir(this.dir, { recursive: true });
+            const day = new Date(this.now()).toISOString().slice(0, 10);
+            // Leading newline isolates a partial final write after power loss.
+            await appendFile(
+                join(this.dir, 'pressure-' + day + '.jsonl'),
+                '\n' + JSON.stringify(sample) + '\n',
+                'utf8',
+            );
+            if (day !== this.cleanedDay) {
+                for (const name of await readdir(this.dir)) {
+                    if (
+                        DAY_FILE.test(name) &&
+                        Date.parse(name.slice(9, 19)) + DAY_MS <= this.now() - BAROMETER_HISTORY_MS
+                    )
+                        await unlink(join(this.dir, name));
+                }
+                this.cleanedDay = day;
             }
         } catch {
-            /* no history yet — the first sample starts one */
+            /* A full/read-only disk does not stop the sensor. */
         }
+    }
+    private async load(): Promise<void> {
+        const loaded: BarometerSample[] = [];
+        try {
+            for (const name of (await readdir(this.dir))
+                .filter((n) => DAY_FILE.test(n))
+                .sort()
+                .slice(-11)) {
+                for (const line of (await readFile(join(this.dir, name), 'utf8')).split('\n')) {
+                    try {
+                        const s: unknown = JSON.parse(line);
+                        if (valid(s)) loaded.push(s);
+                    } catch {
+                        /* partial line */
+                    }
+                }
+            }
+        } catch {
+            /* First run. */
+        }
+        // Preserve the twelve-hour record on upgrade; never rewrite it.
+        try {
+            const old = JSON.parse(await readFile(join(this.cacheDir, 'barometer.json'), 'utf8')) as {
+                samples?: unknown[];
+            };
+            if (Array.isArray(old.samples))
+                loaded.push(
+                    ...old.samples.filter(valid).map((s) => ({ ...s, source: s.source ?? ('bmp390' as const) })),
+                );
+        } catch {
+            /* No legacy record. */
+        }
+        this.samples = [...new Map(loaded.sort((a, b) => a.at - b.at).map((s) => [s.at, s])).values()];
+        this.trim();
     }
 }

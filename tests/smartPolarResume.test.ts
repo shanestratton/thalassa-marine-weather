@@ -122,6 +122,34 @@ describe('the learner never reloads its grid over live samples', () => {
         expect(nmea.listeners.size).toBe(0);
     });
 
+    it('loads the saved engine latch without erasing old learned buckets, and a data reset cannot declare the engine off', async () => {
+        const savedBucket = { sumSTW: 62, sumSTW2: 384.4, count: 10, minSTW: 6.2, maxSTW: 6.2, lastUpdated: 1 };
+        storage.loadLargeData.mockResolvedValue({
+            version: 1,
+            engineRunning: true,
+            twsBucketSize: 2,
+            twaBucketSize: 5,
+            twsMin: 0,
+            twsMax: 30,
+            twaMin: 40,
+            twaMax: 180,
+            buckets: { tws_12_twa_90: savedBucket },
+            totalSamples: 10,
+            createdAt: 1,
+        });
+        const { SmartPolarStore } = await import('../services/SmartPolarStore');
+        await SmartPolarStore.ensureLoaded();
+        expect(SmartPolarStore.isEngineRunning()).toBe(true);
+        expect(SmartPolarStore.getGrid()?.buckets.tws_12_twa_90).toEqual(savedBucket);
+        expect(SmartPolarStore.getStats().totalSamples).toBe(10);
+        await SmartPolarStore.reset();
+        expect(SmartPolarStore.isEngineRunning()).toBe(true);
+        expect(storage.saveLargeData).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ engineRunning: true }),
+        );
+    });
+
     it("the Polars page reads the live grid, never initialize() (it refreshed every 15 s, reloading over the learner's samples)", () => {
         const page = readFileSync(resolve(process.cwd(), 'components/settings/PolarManagerTab.tsx'), 'utf8');
         expect(page).not.toContain('SmartPolarStore.initialize()');

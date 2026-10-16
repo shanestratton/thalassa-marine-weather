@@ -10,11 +10,46 @@ import React from 'react';
 import { createLogger } from '../../../utils/createLogger';
 import { ArrowUpIcon, ArrowDownIcon, MinusIcon, TideCurveIcon } from '../../Icons';
 import { Tide, UnitPreferences, HourlyForecast, TidePoint } from '../../../types';
-import { TideGUIDetails } from '../../../services/weather/api/tides';
+import type { TideGUIDetails } from '../../../services/weather/api/tides';
+import { validateOfficialObservation } from '../../../services/tides/officialTides';
 import { convertMetersTo } from '../../../utils';
 import { TideCanvas } from './TideCanvas';
+import { ModalSheet } from '../../ui/ModalSheet';
 
 const log = createLogger('TideGraph');
+
+function TideSource({ details }: { details: TideGUIDetails }): React.ReactNode {
+    const [open, setOpen] = React.useState(false);
+    return (
+        <>
+            <button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="pointer-events-auto min-h-11 text-xs underline font-normal tracking-normal"
+            >
+                Source and datum
+            </button>
+            <ModalSheet isOpen={open} onClose={() => setOpen(false)} title="Tide source" maxWidth="max-w-md">
+                <p className="text-sm text-white">
+                    {details.provider} · {details.datumLabel} · {details.stationName}
+                </p>
+                <p>{details.attribution}</p>
+                <p className="mt-1">
+                    Between high and low, the curve is an estimate. These heights do not supply chart depth or route
+                    clearance.
+                </p>
+                <div className="mt-1 flex gap-3 underline">
+                    <a href={details.sourceUrl} target="_blank" rel="noopener noreferrer">
+                        Source table
+                    </a>
+                    <a href={details.licenceUrl} target="_blank" rel="noopener noreferrer">
+                        Licence
+                    </a>
+                </div>
+            </ModalSheet>
+        </>
+    );
+}
 
 // Intl.DateTimeFormat construction is the expensive half of reading a
 // wall-clock time in another zone — keep one instance per zone and reuse it
@@ -80,6 +115,8 @@ export const TideGraphOriginal = ({
 }) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
     const effectiveTime = customTime ? new Date(customTime) : new Date();
+    const officialTable = guiDetails?.source === 'official';
+    const official = officialTable && !!guiDetails.expiresAt && Date.parse(guiDetails.expiresAt) > Date.now();
 
     const getDecimalHour = (date: Date, tz?: string) => {
         try {
@@ -238,6 +275,13 @@ export const TideGraphOriginal = ({
         return () => ro.disconnect();
     }, [stationPosition, hasPoints]);
 
+    if (officialTable && !official) {
+        return (
+            <div className="flex h-full items-center justify-center text-xs text-white/60">
+                Tide predictions expired. Refresh for current data.
+            </div>
+        );
+    }
     if (dataPoints.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
@@ -352,7 +396,28 @@ export const TideGraphOriginal = ({
     // A short card: its station name moves up beside the height, out of the
     // trough the curve swings through along the bottom (UX scorecard run 9).
     const shortCard = stationPosition === 'bottom' && !showAllDayEvents && chartAreaPx > 0 && chartAreaPx < 130;
-    const stationLabel = guiDetails?.stationName || stationName;
+    const stationLabel = official
+        ? `${guiDetails.provider === 'MSQ' ? 'MSQ/BOM' : guiDetails.provider} · ${guiDetails.datumLabel} · ${guiDetails.stationName}`
+        : guiDetails?.stationName || stationName;
+    const observation =
+        official &&
+        guiDetails.stationId &&
+        guiDetails.datumId &&
+        guiDetails.provider !== 'WorldTides' &&
+        Math.abs(effectiveTime.getTime() - Date.now()) < 3_600_000
+            ? validateOfficialObservation(
+                  guiDetails.observation,
+                  {
+                      provider: guiDetails.provider!,
+                      stationId: guiDetails.stationId,
+                      datumId: guiDetails.datumId,
+                  },
+                  Date.now(),
+              )
+            : null;
+    const observationLabel = observation
+        ? `Observed ${Math.max(0, Math.round((Date.now() - Date.parse(observation.time)) / 60_000))} min ago · ${convertMetersTo(observation.observedM, unitPref.tideHeight || 'm')?.toFixed(2)} ${unit} · ${observation.residualM >= 0 ? '+' : ''}${convertMetersTo(observation.residualM, unitPref.tideHeight || 'm')?.toFixed(2)} ${unit} residual · unvalidated`
+        : null;
 
     const nextHigh = allMarkers.find((m) => m.time > currentHour && m.type === 'High');
     const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
@@ -433,7 +498,7 @@ export const TideGraphOriginal = ({
                     {!showAllDayEvents ? (
                         <div className="flex flex-col min-w-0 gap-1 pointer-events-auto">
                             <div className="flex items-baseline gap-1">
-                                <span className={heroLabelClass}>Height</span>
+                                <span className={heroLabelClass}>{official ? 'Est. height' : 'Height'}</span>
                                 <span className="whitespace-nowrap leading-none">
                                     <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
                                         {currentHeight.toFixed(1)}
@@ -444,12 +509,19 @@ export const TideGraphOriginal = ({
                                 <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                             </div>
                             {shortCard && stationLabel && (
-                                <span
+                                <div
                                     className="truncate text-xs leading-4 font-semibold text-white/60 tracking-wide select-none"
+                                    title={guiDetails?.attribution}
                                     data-testid="tide-station-name"
                                 >
                                     {stationLabel}
-                                </span>
+                                    {observationLabel && (
+                                        <span className="block text-[10px]" data-testid="tide-observed">
+                                            {observationLabel}
+                                        </span>
+                                    )}
+                                    {official && <TideSource details={guiDetails} />}
+                                </div>
                             )}
                         </div>
                     ) : (
@@ -548,7 +620,7 @@ export const TideGraphOriginal = ({
                     {/* Current Status Box */}
                     <div className="bg-slate-900/80 rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-start pointer-events-auto">
                         <span className="text-[11px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
-                            Current Tide Level
+                            {official ? 'Estimated tide height' : 'Current Tide Level'}
                         </span>
                         <div className={`flex items-baseline gap-1.5 ${trendColor}`}>
                             <span className="text-2xl font-mono font-bold tracking-tight text-ivory">
@@ -605,12 +677,19 @@ export const TideGraphOriginal = ({
                     nothing behind it (UX scorecard run 8). A short card
                     carries it in the caption band instead. */}
                 {stationLabel && !shortCard && (
-                    <span
-                        className={`absolute bottom-4 left-2 text-xs leading-4 font-semibold text-white/60 tracking-wide pointer-events-none select-none ${scrimClass}`}
+                    <div
+                        className={`absolute bottom-4 left-2 max-w-[90%] text-xs leading-4 font-semibold text-white/60 tracking-wide select-none ${scrimClass}`}
+                        title={guiDetails?.attribution}
                         data-testid="tide-station-name"
                     >
                         {stationLabel}
-                    </span>
+                        {observationLabel && (
+                            <span className="block text-[10px]" data-testid="tide-observed">
+                                {observationLabel}
+                            </span>
+                        )}
+                        {official && <TideSource details={guiDetails} />}
+                    </div>
                 )}
             </div>
         </div>

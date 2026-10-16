@@ -69,6 +69,8 @@ export interface MapBaseSelectorProps {
     encRow?: boolean;
     /** On/off rows after a separator, in the ENC row's style. */
     toggles?: readonly MapBaseToggle[];
+    /** Obs's clear view, offered only while its chart can hide the controls. */
+    onClearView?: () => void;
     /** Extra classes on the root (the desk's narrow-window placement, index.css). */
     className?: string;
 }
@@ -88,6 +90,7 @@ export function MapBaseSelector({
     options = MAP_BASE_OPTIONS,
     encRow = true,
     toggles = [],
+    onClearView,
     className = '',
 }: MapBaseSelectorProps) {
     const [open, setOpen] = useState(false);
@@ -99,7 +102,7 @@ export function MapBaseSelector({
     /* The ENC row and the switches are menu items too, so the arrow keys have
        to know about them or the one control a skipper reaches for under memory
        pressure would be the one item they cannot reach without a mouse. */
-    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length;
+    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length + (onClearView ? 1 : 0);
     const noCharts = encCellCount === 0;
     /* With nothing installed and the layer off, 'OFF' was a state for charts
        that don't exist, with no hint that the tap leads to getting some: it
@@ -328,6 +331,31 @@ export function MapBaseSelector({
                             </span>
                         </button>
                     ))}
+                    {onClearView && (
+                        <>
+                            <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
+                            <button
+                                ref={(element) => {
+                                    optionRefs.current[options.length + checks.length] = element;
+                                }}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setOpen(false);
+                                    onClearView();
+                                }}
+                                className="flex min-h-[52px] w-full items-center justify-between rounded-xl border border-transparent px-3 text-left text-slate-200 transition-colors hover:bg-white/6 active:scale-[0.98]"
+                            >
+                                <span>
+                                    <span className="block text-xs font-black">Clear the screen</span>
+                                    <span className="block text-[10px] font-medium text-slate-400">
+                                        Tap the chart to bring controls back
+                                    </span>
+                                </span>
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </div>

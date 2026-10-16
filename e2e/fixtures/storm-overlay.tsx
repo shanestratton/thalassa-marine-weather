@@ -293,11 +293,8 @@ function Fixture() {
     const mapReady = !realMap || map !== null;
     const clearView = useObsClearView({
         frameRef,
-        mapRef,
-        mapReady,
         available: true,
         modeOwnsChart: false,
-        holdGesture: true,
     });
     useEffect(() => {
         const container = containerRef.current;
@@ -362,6 +359,7 @@ function Fixture() {
                         encCellCount={0}
                         encVisible={false}
                         onToggleEnc={noop}
+                        onClearView={clearView.hide}
                     />
                     <RadialHelmMenu
                         activeLayers={new Set()}

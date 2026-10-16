@@ -18,7 +18,14 @@ export interface AnchorNotificationReadiness {
  * fixed ids, Time Sensitive, behind the same verified-enabled check. The anchor's ids and behaviour are unchanged
  * (tests/NativeSafetyNotificationContract.test.ts).
  */
-export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal' | 'watch-check' | 'instruments-silent';
+export type SafetyAlertKind =
+    | 'collision'
+    | 'distress'
+    | 'off-route'
+    | 'shoal'
+    | 'watch-check'
+    | 'instruments-silent'
+    | 'chart-ahead';
 /** A primary and two reminders, 30 s apart; the anchor keeps its 21 slots. */
 export const SAFETY_ALERT_REQUEST_COUNT = 3;
 /**
@@ -52,6 +59,7 @@ const SAFETY_ALERT_NAMES: Record<SafetyAlertKind, string> = {
     distress: 'the distress alarm',
     'off-route': 'the off-route alarm',
     shoal: 'the shoal alarm',
+    'chart-ahead': 'the chart look-ahead alarm',
     'watch-check': 'the watch check',
     'instruments-silent': 'the instruments-silent alarm',
 };

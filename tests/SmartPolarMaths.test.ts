@@ -179,4 +179,17 @@ describe('the 42-cell table it exports', () => {
         expect(SmartPolarStore.exportToPolarData()).toBeNull();
         expect(SmartPolarStore.getStats().totalSamples).toBe(0);
     });
+
+    it('fills Pi history gaps from phone learning without counting the same sailing twice', () => {
+        record(10, 90, ...times(10, 6));
+        const local = SmartPolarStore.exportToRoutingPolar()!;
+        const pi = { ...local, matrix: local.matrix.map((row) => row.map(() => 0)) };
+        pi.matrix[0][0] = 5;
+        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[2][2]).toBe(6);
+        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[0][0]).toBe(5);
+        pi.matrix[2][2] = 5.5;
+        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[2][2]).toBe(5.5);
+        expect(SmartPolarStore.getStats().totalSamples).toBe(10);
+        expect(SmartPolarStore.exportToRoutingPolar(null)).toEqual(local);
+    });
 });

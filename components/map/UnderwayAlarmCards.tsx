@@ -109,7 +109,7 @@ function Glyph({ kind }: { kind: UnderwayAlarmCard['kind'] }) {
                     <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" />
                     <path d="M10 5v5l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </>
-            ) : kind === 'shoal' ? (
+            ) : kind === 'shoal' || kind === 'chart-ahead' ? (
                 // A hull and her keel, over a rising bottom.
                 <path
                     d="M2 5h16c-1.5 3.5-4.5 4.5-8 4.5S3.5 8.5 2 5zM10 9.5v3.5M2 18c3-3 13-3 16 0"
@@ -162,12 +162,12 @@ function AlarmCard({ card }: { card: UnderwayAlarmCard }) {
                 >
                     I&apos;m on watch
                 </button>
-            ) : card.kind === 'shoal' || card.kind === 'instruments' ? (
+            ) : card.kind === 'shoal' || card.kind === 'instruments' || card.kind === 'chart-ahead' ? (
                 <button
                     type="button"
                     style={BUTTON}
-                    aria-label={`Acknowledge the ${card.kind === 'shoal' ? 'shoal' : 'instruments-silent'} alarm`}
-                    onClick={() => UnderwayAlarmStore.acknowledge(card.kind as 'shoal' | 'instruments')}
+                    aria-label={`Acknowledge the ${card.kind === 'shoal' ? 'shoal' : card.kind === 'chart-ahead' ? 'charted danger ahead' : 'instruments-silent'} alarm`}
+                    onClick={() => UnderwayAlarmStore.acknowledge(card.kind as 'shoal' | 'instruments' | 'chart-ahead')}
                 >
                     Acknowledge
                 </button>

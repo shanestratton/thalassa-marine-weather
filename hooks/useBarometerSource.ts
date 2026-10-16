@@ -8,9 +8,9 @@
  *   of those matter more than they sound. Altitude reads as pressure at
  *   roughly 0.12 hPa per metre, so a phone carried up the companionway or up
  *   the dock ramp invents pressure changes several times larger than the
- *   1-2 hPa/3h that actually forecasts weather. The Pi also keeps twelve
- *   hours across restarts, so the three-hour tendency is real history rather
- *   than "since the app opened".
+ *   1-2 hPa/3h that actually forecasts weather. The Pi also keeps ten
+ *   days across restarts, so the three-hour tendency is real history rather
+ *   than "since the app opened". Signal K outside pressure backs up the BMP390.
  *
  *   PHONE (CMAltimeter) is the fallback for a skipper away from the boat, or
  *   any boat without a Pi. Perfectly good for a spot reading; its trend is
@@ -31,7 +31,7 @@ const log = createLogger('baroSource');
 /** The Pi samples once a minute; asking faster only burns battery. */
 const BOAT_POLL_MS = 60_000;
 /** Older than this and the boat sensor is not "live" any more — fall back. */
-const BOAT_STALE_MS = 10 * 60_000;
+const BOAT_STALE_MS = 2 * 60_000;
 
 export type BarometerSourceKind = 'boat' | 'phone' | 'none';
 
@@ -73,11 +73,32 @@ export function useBarometerSource(active: boolean): BarometerSourceState {
                 if (cancelled) return;
                 if (boat?.available && boat.latest) {
                     const age = Date.now() - boat.latest.at;
-                    if (age <= BOAT_STALE_MS) {
+                    if (age >= -1000 && age <= BOAT_STALE_MS) {
                         // The Pi's own shape → the tendency library's shape.
-                        const samples: PressureSample[] = boat.samples
-                            .filter((s) => Number.isFinite(s.hpa) && Number.isFinite(s.at))
-                            .map((s) => ({ hpa: s.hpa, t: s.at }));
+                        const ordered = boat.samples
+                            .filter(
+                                (s) =>
+                                    Number.isFinite(s.hpa) &&
+                                    s.hpa >= 800 &&
+                                    s.hpa <= 1100 &&
+                                    Number.isFinite(s.at) &&
+                                    s.at <= Date.now() + 1000,
+                            )
+                            .sort((a, b) => a.at - b.at);
+                        const latest = ordered.at(-1);
+                        // The declared latest row must match the actual returned record.
+                        // A fresh header cannot make stale history a live instrument.
+                        if (!latest || Date.now() - latest.at > BOAT_STALE_MS || latest.at !== boat.latest.at) {
+                            if (!cancelled) setState(next);
+                            return;
+                        }
+                        const source = latest.source ?? 'bmp390';
+                        // Never calculate a tendency across two sensors' absolute offsets.
+                        let start = ordered.length - 1;
+                        while (start > 0 && (ordered[start - 1].source ?? 'bmp390') === source) start--;
+                        const samples: PressureSample[] = ordered
+                            .slice(start)
+                            .map((s) => ({ hpa: s.hpa, t: s.at, lat: s.lat, lon: s.lon }));
                         if (samples.length > 0) {
                             next = {
                                 samples,

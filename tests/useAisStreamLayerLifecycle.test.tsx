@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     getVesselIntel: vi.fn(),
     canAccess: vi.fn(),
     satelliteMode: false,
+    displayFilters: undefined as Record<string, unknown> | undefined,
     ownship: null as { lat: number; lon: number; sog: number; cog: number } | null,
 }));
 
@@ -45,6 +46,8 @@ vi.mock('../services/AisStore', () => ({
         toGeoJSON: () => ({ type: 'FeatureCollection', features: [] }),
         // Build 125: the popup's CPA skips our own transponder (as !AIVDO reports it).
         getOwnMmsi: () => null,
+        recordTrail: vi.fn(),
+        getTrail: () => [],
     },
 }));
 vi.mock('../services/supabase', () => ({ supabase: {} }));
@@ -75,7 +78,9 @@ vi.mock('../services/VesselMetadataService', () => ({
 vi.mock('../services/SubscriptionService', () => ({ canAccess: mocks.canAccess }));
 vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: {
-        getState: () => ({ settings: { subscriptionTier: 'owner', vessel: {} } }),
+        getState: () => ({
+            settings: { subscriptionTier: 'owner', vessel: {}, aisDisplayFilters: mocks.displayFilters },
+        }),
     },
 }));
 // Spread the real module: the guard-zone path now reads the vessel MMSI from
@@ -125,6 +130,9 @@ function makeMap() {
             getNorth: () => -24,
         }),
         getSource: (id: string) => sources[id],
+        getLayer: vi.fn(() => ({})),
+        getFilter: vi.fn(() => ['!=', ['get', 'iconKind'], 'distress']),
+        setFilter: vi.fn(),
         getCanvas: () => ({ style: { cursor: '' } }),
         on: vi.fn(),
         off: vi.fn(),
@@ -140,8 +148,24 @@ describe('useAisStreamLayer request lifecycle', () => {
         mocks.getVesselIntel.mockReset();
         mocks.canAccess.mockReset();
         mocks.satelliteMode = false;
+        mocks.displayFilters = undefined;
         mocks.ownship = null;
         document.getElementById('vessel-detail-modal')?.remove();
+    });
+
+    it('hides only Mapbox display rows, preserving full source data and each layer’s base filter', async () => {
+        mocks.displayFilters = { vesselType: 'cargo' };
+        mocks.fetchNearby.mockResolvedValue({ type: 'FeatureCollection', features: [vesselFeature(503123456)] });
+        const { map, aisSource } = makeMap();
+        const hook = renderHook(() => useAisStreamLayer(map as never, true));
+        await waitFor(() => expect(aisSource.setData).toHaveBeenCalled());
+        expect(aisSource.setData.mock.calls.at(-1)![0].features).toHaveLength(1);
+        expect(map.setFilter).toHaveBeenCalledWith('ais-targets-circle', [
+            'all',
+            ['!=', ['get', 'iconKind'], 'distress'],
+            ['in', ['to-number', ['get', 'mmsi']], ['literal', []]],
+        ]);
+        hook.unmount();
     });
 
     it('resumes the ownship floor after Satellite mode ends without toggling AIS', async () => {

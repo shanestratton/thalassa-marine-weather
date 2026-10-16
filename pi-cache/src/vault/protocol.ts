@@ -19,6 +19,34 @@
 
 export const VAULT_SHA_HEADER = 'x-vault-sha256';
 
+/** The vault returns generic danger state only. Chart facts stay in its process. */
+export interface VaultLookaheadRequest {
+    fix: { lat: number; lon: number; at: number; sogKn: number; cogDeg: number };
+    draftM: number;
+    ukcM: number;
+    windowMin: number;
+    onLine: boolean;
+    tide?: { datum: 'LAT'; expires: number; points: { dt: number; height: number }[] };
+}
+export interface VaultLookaheadResponse {
+    coverage: 'charted' | 'partial' | 'unavailable';
+    danger: boolean;
+}
+
+/** Boat-local safety query. Chart facts never cross back to the watch. */
+export interface VaultLookaheadRequest {
+    fix: { lat: number; lon: number; at: number; sogKn: number; cogDeg: number };
+    draftM: number;
+    ukcM: number;
+    windowMin: number;
+    onLine: boolean;
+    tide?: { datum: 'LAT'; points: { dt: number; height: number }[]; expires: number };
+}
+export interface VaultLookaheadResponse {
+    coverage: 'charted' | 'partial' | 'unavailable';
+    danger: boolean;
+}
+
 /** starting: no index yet; indexing: a pass runs, the last index is served; decoder-down: oexserverd or the dongle. */
 export type VaultState = 'starting' | 'indexing' | 'ready' | 'decoder-down';
 

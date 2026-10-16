@@ -41,6 +41,10 @@ const ModelCheckAtBoat = lazyRetry(
     () => import('./ModelCheckAtBoat').then((module) => ({ default: module.ModelCheckAtBoat })),
     'ModelCheckAtBoat',
 );
+const SynopticChartSheet = lazyRetry(
+    () => import('./SynopticChartSheet').then((module) => ({ default: module.SynopticChartSheet })),
+    'SynopticChartSheet',
+);
 
 const CMEMS_STATUS_LABELS: Record<CmemsLayerId, string> = {
     currents: 'Currents',
@@ -62,6 +66,7 @@ interface MapWeatherControlsProps {
     /** Already-active non-weather chart layers; this surface does not own their lifecycle. */
     extraLegend?: React.ReactNode;
     extraLegendCount?: number;
+    chartPoint?: { lat: number; lon: number } | null;
     /**
      * The desk planner's wind (127-DESKMAP-b): the panel at the bottom right,
      * clear of the tracer; the legend in the base's streak palette; the models'
@@ -79,7 +84,7 @@ interface MapWeatherControlsProps {
      * mapHub/useObsClearView.ts). Shane: "Maybe the scrubber button. As that
      * should stay." With a weather layer up, the pill and the timeline stay in
      * the clear view and work as ever, so the forecast can be scrubbed over a
-     * clear chart. Not a switch: Shane chose the two-finger hold (129-13b).
+     * clear chart. Clear the screen lives in the top-centre map menu (133).
      */
     keepInClearView?: boolean;
 }
@@ -99,6 +104,7 @@ export function MapWeatherControls({
     onControlsHiddenChange,
     extraLegend,
     extraLegendCount,
+    chartPoint,
     desk,
     keepInClearView,
 }: MapWeatherControlsProps): React.ReactElement | null {
@@ -115,6 +121,7 @@ export function MapWeatherControls({
     // "Her wind vs the models" is offered only while Current Location follows a boat.
     const followedBoatKey = useFollowedBoatKey();
     const [checkOpen, setCheckOpen] = useState(false);
+    const [officialChartsOpen, setOfficialChartsOpen] = useState(false);
     // The desk's start hand-off.
     const startHandOff = useWindStartHandOff(weather, desk?.startMs);
 
@@ -781,6 +788,7 @@ export function MapWeatherControls({
                             captions={captions}
                             unavailableLayers={unavailableLayers}
                             pressureOverlay={weather.activeLayers.size > 1}
+                            onOfficialCharts={() => setOfficialChartsOpen(true)}
                             extraLegend={extraLegend}
                             extraLegendCount={extraLegendCount}
                             windGradient={desk?.palette === 'light' ? WIND_PARTICLE_GRADIENT_LIGHT : undefined}
@@ -789,6 +797,14 @@ export function MapWeatherControls({
                 </section>
             )}
             {/* Outside the section: its auto-hide and interaction handlers must not see the card. */}
+            {officialChartsOpen && (
+                <Suspense fallback={null}>
+                    <SynopticChartSheet
+                        point={desk?.point ?? chartPoint ?? null}
+                        onClose={() => setOfficialChartsOpen(false)}
+                    />
+                </Suspense>
+            )}
             {checkOpen && (
                 <Suspense fallback={null}>
                     <ModelCheckAtBoat

@@ -75,13 +75,19 @@ export class TrackStore {
                 value TEXT NOT NULL
             );
         `);
+        const columns = new Set(
+            (this.db.prepare('PRAGMA table_info(track_points)').all() as { name: string }[]).map((c) => c.name),
+        );
+        for (const column of ['engine_rpm', 'twa_deg']) {
+            if (!columns.has(column)) this.db.exec(`ALTER TABLE track_points ADD COLUMN ${column} REAL`);
+        }
         this.insertStmt = this.db.prepare(`
             INSERT INTO track_points
                 (at_ms, lat, lon, reason, sog_kts, cog_deg, depth_m,
-                 tws_kts, twd_deg, stw_kts, hdg_deg, water_temp_c, pressure_hpa, heel_deg)
+                 tws_kts, twd_deg, stw_kts, hdg_deg, water_temp_c, pressure_hpa, heel_deg, engine_rpm, twa_deg)
             VALUES
                 (@at_ms, @lat, @lon, @reason, @sog_kts, @cog_deg, @depth_m,
-                 @tws_kts, @twd_deg, @stw_kts, @hdg_deg, @water_temp_c, @pressure_hpa, @heel_deg)
+                 @tws_kts, @twd_deg, @stw_kts, @hdg_deg, @water_temp_c, @pressure_hpa, @heel_deg, @engine_rpm, @twa_deg)
         `);
     }
 
@@ -107,6 +113,8 @@ export class TrackStore {
                     water_temp_c: p.waterTempC,
                     pressure_hpa: p.pressureHpa,
                     heel_deg: p.heelDeg,
+                    engine_rpm: p.engineRpm ?? null,
+                    twa_deg: p.twaDeg ?? null,
                 });
             }
         });
@@ -120,6 +128,34 @@ export class TrackStore {
         return this.db
             .prepare(`SELECT * FROM track_points WHERE at_ms >= ? AND at_ms <= ? ORDER BY at_ms ASC LIMIT ?`)
             .all(query.fromMs, query.toMs, limit) as Record<string, number | string | null>[];
+    }
+
+    /** Stable append cursor, independent of duplicate/backward GPS timestamps. */
+    polarPointsAfter(rowId: number, limit = 500): Record<string, number | string | null>[] {
+        return this.db
+            .prepare('SELECT rowid AS sample_id, * FROM track_points WHERE rowid > ? ORDER BY rowid LIMIT ?')
+            .all(rowId, Math.max(1, Math.min(500, Math.floor(limit)))) as Record<string, number | string | null>[];
+    }
+
+    readPolarState(): string | null {
+        const row = this.db.prepare("SELECT value FROM track_settings WHERE key = 'polar_learner_v1'").get() as
+            | { value: string }
+            | undefined;
+        return row?.value ?? null;
+    }
+
+    polarLastRowId(): number {
+        return (this.db.prepare('SELECT COALESCE(MAX(rowid), 0) AS last FROM track_points').get() as { last: number })
+            .last;
+    }
+
+    /** The aggregate and consumed cursor are one atomic SQLite write. */
+    writePolarState(state: string): void {
+        this.db
+            .prepare(
+                "INSERT INTO track_settings(key, value) VALUES ('polar_learner_v1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )
+            .run(state);
     }
 
     /** What the log holds, for the app's settings screen to show honestly. */

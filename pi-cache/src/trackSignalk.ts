@@ -283,6 +283,30 @@ export function readTrackFix(selfDocument: unknown): TrackFix | null {
     const waterK = num(selfDocument, 'environment.water.temperature');
     const pressurePa = num(selfDocument, 'environment.outside.pressure');
     const rollRad = num(selfDocument, 'navigation.attitude.roll');
+    const liveAt = (path: string): boolean => {
+        const stamp = timestampAt(selfDocument, path);
+        return gpsTimeMs !== null && stamp !== null && Math.abs(gpsTimeMs - stamp) <= 20000;
+    };
+    const engineRoot = valueAt(selfDocument, 'propulsion');
+    const engines = engineRoot && typeof engineRoot === 'object' ? Object.keys(engineRoot) : [];
+    const rpms = engines.map((engine) => {
+        const path = `propulsion.${engine}.revolutions`;
+        const value = liveAt(path) ? num(selfDocument, path) : null;
+        return value !== null && value >= 0 ? value * 60 : null;
+    });
+    const runningRpm = rpms.find((v) => v !== null && v > 0);
+    const engineRpm = runningRpm ?? (rpms.length > 0 && rpms.every((v) => v !== null) ? 0 : null);
+    const anglePath = 'environment.wind.angleTrueWater';
+    const angle = liveAt(anglePath) ? num(selfDocument, anglePath) : null;
+    const direction = degrees(num(selfDocument, 'environment.wind.directionTrue'));
+    const relative =
+        angle !== null ? angle * RAD_TO_DEG : direction !== null && hdgDeg !== null ? direction - hdgDeg : null;
+    const windLive =
+        liveAt('environment.wind.speedTrue') &&
+        liveAt('navigation.speedOverGround') &&
+        liveAt('navigation.speedThroughWater') &&
+        liveAt('navigation.headingTrue') &&
+        (angle !== null || liveAt('environment.wind.directionTrue'));
 
     return {
         lat,
@@ -301,6 +325,9 @@ export function readTrackFix(selfDocument: unknown): TrackFix | null {
         waterTempC: waterK === null ? null : waterK - KELVIN_OFFSET,
         pressureHpa: pressurePa === null ? null : pressurePa / 100,
         heelDeg: rollRad === null ? null : rollRad * RAD_TO_DEG,
+        engineRpm,
+        // History still keeps stale legacy colour; only timestamped coherent wind can teach a polar.
+        twaDeg: windLive && relative !== null ? Math.abs(((relative + 540) % 360) - 180) : null,
     };
 }
 

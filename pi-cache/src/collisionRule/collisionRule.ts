@@ -488,7 +488,7 @@ function assessReportedCollision(
     };
 }
 
-/** Display estimate, bounded to the chart's one-hour stale-target window; CPA still stops at ten minutes. */
+/** Display estimate, bounded to the chart's one-hour stale-target lifetime; CPA still stops at ten minutes. */
 export function deadReckonAis(
     lat: number,
     lon: number,

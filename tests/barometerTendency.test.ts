@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
     bandTendency,
+    marineTendency,
+    pressureFallAlarm,
     hpaToInHg,
     observedTendency,
     reduceToSeaLevel,
@@ -55,7 +57,7 @@ describe('observedTendency', () => {
         expect(Math.abs(t!.delta3h)).toBeLessThan(0.1);
     });
 
-    it('measures a 6 hPa fall over three hours as a gale signature', () => {
+    it('measures a rapid observed fall and recommends checking official warnings', () => {
         // 1018 three hours ago → 1012 now, linear.
         const t = observedTendency(
             series(4, (back) => 1012 + (Math.min(back, 3 * H) / (3 * H)) * 6),
@@ -66,7 +68,7 @@ describe('observedTendency', () => {
         expect(t!.delta3h).toBeCloseTo(-6, 1);
         expect(t!.rate).toBe('quickly');
         expect(t!.severity).toBe('warn');
-        expect(t!.read).toContain('Gale');
+        expect(t!.read).toContain('official warnings');
     });
 
     it('treats a fast rise as less serious than the same fast fall', () => {
@@ -161,5 +163,88 @@ describe('conversions', () => {
 
     it('converts hPa to inHg at the standard atmosphere', () => {
         expect(hpaToInHg(1013.25)).toBeCloseTo(29.92, 2);
+    });
+});
+
+describe('tropical daily-tide correction', () => {
+    const history = (fall = 0, drift = 0): PressureSample[] => {
+        const out: PressureSample[] = [];
+        for (let back = 10 * 24 * H; back >= 0; back -= 5 * 60_000) {
+            // A synthetic local twice-daily cycle, plus a distinct new weather fall.
+            const tide = 2 * Math.cos((2 * Math.PI * (NOW - back)) / (12 * H));
+            out.push({
+                t: NOW - back,
+                hpa: 1013 + tide + (drift * back) / H + fall * Math.min(back / (3 * H), 1),
+                lat: -16,
+                lon: 146,
+            });
+        }
+        return out;
+    };
+    it('learns a repeated local tide without inventing a universal amplitude', () => {
+        const reading = marineTendency(history(), NOW)!;
+        expect(reading.diurnal!.applied).toBe(true);
+        expect(reading.diurnal!.days).toBeGreaterThanOrEqual(5);
+        expect(Math.abs(reading.delta3h)).toBeLessThan(0.15);
+        expect(pressureFallAlarm(reading)).toBe(false);
+    });
+    it('retains a new storm fall on top of the learned daily cycle', () => {
+        const reading = marineTendency(history(5), NOW)!;
+        expect(reading.diurnal!.applied).toBe(true);
+        expect(reading.delta3h).toBeLessThan(-4.5);
+        expect(pressureFallAlarm(reading)).toBe(true);
+    });
+    it('requires a fall beyond the empirical uncertainty and never cancels a very rapid raw fall', () => {
+        const base = marineTendency(history(), NOW)!;
+        const uncertain = {
+            ...base,
+            rawDelta3h: -4,
+            delta3h: -3.6,
+            diurnal: { ...base.diurnal!, uncertaintyHpa: 0.2 },
+        };
+        expect(pressureFallAlarm(uncertain)).toBe(false);
+        expect(pressureFallAlarm({ ...uncertain, delta3h: -3.9 })).toBe(true);
+        expect(pressureFallAlarm({ ...base, rawDelta3h: -6.1, delta3h: 0 })).toBe(true);
+    });
+    it('does not learn a sustained synoptic trend as a pressure tide', () => {
+        const reading = marineTendency(history(0, 0.4), NOW)!;
+        expect(reading.diurnal!.applied).toBe(true);
+        expect(reading.delta3h).toBeCloseTo(-1.2, 0);
+    });
+    it('falls back explicitly when location/history/stability is inadequate', () => {
+        expect(marineTendency(history().slice(-49), NOW)!.diurnal!.applied).toBe(false);
+        expect(
+            marineTendency(
+                history().map(({ lat: _lat, lon: _lon, ...s }) => s),
+                NOW,
+            )!.diurnal!.reason,
+        ).toContain('position unknown');
+        const moved = history().map((s) => ({ ...s, lon: s.t < NOW - 24 * H ? 155 : 146 }));
+        expect(marineTendency(moved, NOW)!.diurnal!.applied).toBe(false);
+        const noisy = history().map((s) => ({
+            ...s,
+            hpa: s.hpa + (Math.floor((NOW - s.t) / (24 * H)) % 2 ? 3 : -1) * Math.cos((2 * Math.PI * s.t) / (12 * H)),
+        }));
+        expect(marineTendency(noisy, NOW)!.diurnal!.applied).toBe(false);
+    });
+    it('refuses a long gap and future-only data', () => {
+        expect(
+            observedTendency(
+                [
+                    { t: NOW - 3 * H, hpa: 1018 },
+                    { t: NOW, hpa: 1012 },
+                ],
+                NOW,
+            ),
+        ).toBeNull();
+        expect(
+            observedTendency(
+                [
+                    { t: NOW + H, hpa: 1018 },
+                    { t: NOW + 2 * H, hpa: 1012 },
+                ],
+                NOW,
+            ),
+        ).toBeNull();
     });
 });

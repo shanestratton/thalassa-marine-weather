@@ -45,6 +45,7 @@ interface AisGeoJSONFeature {
     geometry: { type: 'Point'; coordinates: [number, number] };
     properties: {
         mmsi: number;
+        aisClass?: 'A' | 'B';
         name: string;
         sog: number;
         cog: number;
@@ -262,6 +263,7 @@ class AisStoreClass {
                 },
                 properties: {
                     mmsi: target.mmsi,
+                    aisClass: target.aisClass,
                     name: target.name || `MMSI ${target.mmsi}`,
                     sog: target.sog,
                     cog: target.cog,

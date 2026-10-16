@@ -32,7 +32,9 @@ import { createTideRoutes } from './routes/tides.js';
 import { createMiscRoutes, purgeGeocodeCache } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes, sweepEncTempLeftovers } from './routes/enc.js';
-import { EncDeviceStore, encNoStore } from './encDevices.js';
+import { EncDeviceStore, encNoStore, createEncFrontDoor } from './encDevices.js';
+import { PiPolarLearner } from './polarLearner.js';
+import { createPolarRoutes } from './routes/polars.js';
 import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
 import { createOsmRoutes } from './routes/osm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
@@ -58,6 +60,12 @@ import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
 import { PiAlarmRelay, canonicalPiAlarmRelayEndpoint } from './piAlarmRelay.js';
+import { PiUnderwayAlarmRelay } from './piUnderwayAlarmRelay.js';
+import { PiUnderwayWatch } from './underwayWatch.js';
+import { createUnderwayWatchRoutes } from './routes/underwayWatch.js';
+import { updateMaintenanceActive, updateMaintenanceStatus } from './updateMaintenance.js';
+import { OfflineWeatherStore } from './offlineWeather.js';
+import { createOfflineWeatherRoutes } from './routes/offlineWeather.js';
 import { requestPath } from './requestPath.js';
 import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
@@ -203,6 +211,8 @@ const onboardSupplement: typeof onboardSensorSupplement = async (bus) => {
         : null;
 };
 const trackStore = new TrackStore(CACHE_DIR);
+const polarLearner = new PiPolarLearner(trackStore);
+polarLearner.start();
 const trackRecorder = new TrackRecorderRunner({
     fetchImpl: fetch,
     signalkOrigin: SIGNALK_ORIGIN,
@@ -298,6 +308,24 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+const underwayRelay = new PiUnderwayAlarmRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    utcOffsetMin: () => -new Date().getTimezoneOffset(),
+});
+const underwayWatch = new PiUnderwayWatch({
+    self: async () => (await signalkDocuments.read()).selfDoc,
+    atAnchor: () => anchorWatch.isRunning(),
+    vault: chartVault,
+    file: path.join(CACHE_DIR, 'underway-watch.json'),
+    onPass: (state) => underwayRelay.afterPass(state, (key) => underwayWatch.acknowledge(key)),
+    pushStatus: () => underwayRelay.status(),
+});
+underwayWatch.restore();
 /* Only her own devices can command the Pi (129-12): the switch on disk, and who
    tried a command without being set up since start (piCommandLock.ts). */
 const piLock = new PiLockStore(path.join(CACHE_DIR, 'pi-lock.json'));
@@ -394,6 +422,15 @@ app.get('/status', (_req, res) => {
             })(),
         }),
     );
+});
+
+// The staged updater's readiness probe stays on loopback. Its answer carries
+// only the guard and lease lifetime, never the anchor assignment or location.
+app.get('/api/update5/status', (req, res) => {
+    const peer = req.socket.remoteAddress;
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer ?? ''))
+        return res.status(403).json({ error: 'The update guard is available on this Pi only.' });
+    return res.json(updateMaintenanceStatus(CACHE_DIR, anchorWatch.describe()));
 });
 
 /** Private development status. Never fold this detail back into /status. */
@@ -622,7 +659,7 @@ app.post('/api/configure', requireAppApi, (req, res) => {
 
     // Restart pre-fetch scheduler with updated config
     stopScheduler();
-    startScheduler(cache, proxyConfig);
+    startScheduler(cache, proxyConfig, { internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet });
 
     console.log(
         `📱 Configuration updated by Thalassa app${validated.prefetchLat !== undefined ? ` (location: ${validated.prefetchLat}, ${validated.prefetchLon})` : ''}`,
@@ -859,6 +896,11 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     if (uncommandedRenewal(req, anchorWatch.isRunning())) {
         return res.json({ status: 'ok', watch: anchorWatch.describe() });
     }
+    if (updateMaintenanceActive(CACHE_DIR)) {
+        return res
+            .status(409)
+            .json({ status: 'error', error: 'A Pi update is being staged. The watch has not been started.' });
+    }
     anchorWatch.start(
         {
             sessionCode,
@@ -922,13 +964,25 @@ app.use(
 // THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
+    app.use('/api/offline-weather', createOfflineWeatherRoutes(new OfflineWeatherStore(cache)));
+    app.use('/api/polars', createEncFrontDoor({ devices: chartDevices }), createPolarRoutes(polarLearner));
+    app.use('/api/underway-watch', createUnderwayWatchRoutes(underwayWatch, chartDevices));
     app.use('/api/enc', createEncRoutes(identity, { vault: chartVault, devices: chartDevices }));
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox, diaryVideoRelay));
     app.use('/api/track', createTrackRoutes(trackStore, trackRecorder));
 } else {
-    for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary', '/api/track']) {
+    for (const prefix of [
+        '/api/enc',
+        '/api/osm',
+        '/api/pair',
+        '/api/diary',
+        '/api/track',
+        '/api/underway-watch',
+        '/api/polars',
+        '/api/offline-weather',
+    ]) {
         app.use(prefix, requireAppApi);
     }
 }
@@ -1015,7 +1069,9 @@ server.listen(PORT, BIND_HOST, () => {
        those alone, and the admin flag can go back to meaning what it says.
        (Shane 2026-08-30, after a redeploy warned the unsafe API was live.) ── */
     if (SUPABASE_ANON_KEY) {
-        startScheduler(cache, proxyConfig);
+        startScheduler(cache, proxyConfig, {
+            internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+        });
     }
 
     // Close the chart-distribution loop: watch the user's o-charts download dir
@@ -1090,6 +1146,8 @@ function shutdown() {
     });
     vaultLink?.stop();
     windHistory.stop();
+    polarLearner.stop();
+    underwayWatch.close();
     anchorWatch.close();
     aisWatch.close();
     stopScheduler();

@@ -8,11 +8,7 @@
  * scrubber button. As that should stay."
  *
  * Ways in and out:
- *  - two fingers held still on the chart and lifted (clearView/twoFingerHold.ts:
- *    a two-finger TAP is Mapbox's zoom-out), on every chart view, with a
- *    weather layer up or none. Shane chose it on 14 Oct (129-13b): "Two-finger
- *    hold (Recommended)", not a long press on the scrubber and not both.
- *    Preferences can switch it off;
+ *  - Clear the screen in Obs's top-centre map dropdown (build 133);
  *  - H on a keyboard toggles, Escape brings the controls back;
  *  - a hidden button for VoiceOver, "Clear the screen", and in the clear view
  *    "Controls hidden. Double tap to show" takes the focus (ObsClearViewChrome).
@@ -30,11 +26,8 @@
  * and its tap still opens the timeline, but it is not a switch. The tab bar
  * hides too, except in split view, where it is The Glass's as well.
  */
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
-import type mapboxgl from 'mapbox-gl';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { AlarmAudioService } from '../../../services/AlarmAudioService';
-import { triggerHaptic } from '../../../utils/system';
-import { TwoFingerHold, type HoldPoint } from '../clearView/twoFingerHold';
 
 /** Once per device: "Tap anywhere to bring the controls back". */
 export const CLEAR_VIEW_HINT_KEY = 'thalassa.obsClearView.hintSeen';
@@ -63,17 +56,13 @@ export interface ObsClearView {
 export interface UseObsClearViewOptions {
     /** The box holding the chart and every control over it (MapHub's chart frame). */
     frameRef: RefObject<HTMLElement | null>;
-    mapRef: MutableRefObject<mapboxgl.Map | null>;
-    mapReady: boolean;
     /** Obs is on screen with its own controls: not Plan, an embed, the picker or a pin view. */
     available: boolean;
     /** MOB, the picker, plotting, Inspect or a passage point has the chart. */
     modeOwnsChart: boolean;
-    /** Preferences → Chart, "Two-finger hold clears the chart" (default on). */
-    holdGesture: boolean;
 }
 
-/** A sheet, dialog, popup or the layer menu is open: the gesture and H leave the chart alone. */
+/** A sheet, dialog, popup or the layer menu is open: H leaves the chart alone. */
 export function chartBusy(frame: HTMLElement | null): boolean {
     const shown = (el: Element) => el.getClientRects().length > 0;
     const open = document.querySelectorAll('[aria-modal="true"], [role="dialog"], [role="alertdialog"]');
@@ -107,14 +96,7 @@ function writeSeen(): void {
     }
 }
 
-export function useObsClearView({
-    frameRef,
-    mapRef,
-    mapReady,
-    available,
-    modeOwnsChart,
-    holdGesture,
-}: UseObsClearViewOptions): ObsClearView {
+export function useObsClearView({ frameRef, available, modeOwnsChart }: UseObsClearViewOptions): ObsClearView {
     const allowed = available && !modeOwnsChart;
     const [on, setOn] = useState(false);
     const [hint, setHint] = useState(false);
@@ -231,51 +213,6 @@ export function useObsClearView({
         document.addEventListener('keydown', key);
         return () => document.removeEventListener('keydown', key);
     }, [allowed, on, frameRef, toggle]);
-
-    // Two fingers held still on the chart, decided as they lift, on the
-    // events' own times (clearView/twoFingerHold.ts).
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady || !holdGesture || !allowed) return undefined;
-        const container = map.getContainer();
-        const hold = new TwoFingerHold();
-        const points = (list: TouchList): HoldPoint[] =>
-            Array.from(list, (t) => ({ id: t.identifier, x: t.clientX, y: t.clientY }));
-        const at = (event: Event) => (Number.isFinite(event.timeStamp) ? event.timeStamp : performance.now());
-        const touch = (event: TouchEvent) => {
-            if (!hold.touches(points(event.touches), at(event))) return;
-            if (!allowedRef.current) return;
-            if (!onRef.current && chartBusy(frameRef.current)) return;
-            triggerHaptic('medium');
-            toggle();
-        };
-        const cancelTouch = (event: TouchEvent) => {
-            hold.cancel();
-            hold.touches(points(event.touches), at(event));
-        };
-        // A pinch, a turn or a tilt the skipper began: not a hold. The
-        // camera's own moves (following the boat, a storm's centre lock) carry
-        // no originalEvent and leave it be.
-        const gesture = (event: unknown) => {
-            if ((event as { originalEvent?: unknown } | undefined)?.originalEvent) hold.cancel();
-        };
-        container.addEventListener('touchstart', touch, { passive: true });
-        container.addEventListener('touchmove', touch, { passive: true });
-        container.addEventListener('touchend', touch, { passive: true });
-        container.addEventListener('touchcancel', cancelTouch, { passive: true });
-        map.on('zoomstart', gesture);
-        map.on('rotatestart', gesture);
-        map.on('pitchstart', gesture);
-        return () => {
-            container.removeEventListener('touchstart', touch);
-            container.removeEventListener('touchmove', touch);
-            container.removeEventListener('touchend', touch);
-            container.removeEventListener('touchcancel', cancelTouch);
-            map.off('zoomstart', gesture);
-            map.off('rotatestart', gesture);
-            map.off('pitchstart', gesture);
-        };
-    }, [mapRef, mapReady, holdGesture, allowed, frameRef, toggle]);
 
     return { on, available: allowed, hint, hide, show, toggle };
 }

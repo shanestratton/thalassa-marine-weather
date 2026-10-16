@@ -58,6 +58,29 @@ test('a point survives the round trip with every instrument intact', () => {
     }
 });
 
+test('polar RPM/TWA columns migrate as nullable and the append cursor survives duplicate GPS time', () => {
+    const { store, dir } = tmpStore();
+    try {
+        store.append([pt(), pt({ engineRpm: 0, twaDeg: 90 })]);
+        const rows = store.polarPointsAfter(0);
+        assert.equal(rows.length, 2);
+        assert.equal(rows[0].engine_rpm, null);
+        assert.equal(rows[0].twa_deg, null);
+        assert.equal(rows[1].engine_rpm, 0);
+        assert.equal(rows[1].twa_deg, 90);
+        assert.deepEqual(
+            store.polarPointsAfter(Number(rows[0].sample_id)).map((row) => row.sample_id),
+            [rows[1].sample_id],
+        );
+        store.writePolarState(JSON.stringify({ cursor: rows[1].sample_id, samples: 1 }));
+        assert.equal(store.polarLastRowId(), rows[1].sample_id);
+        assert.deepEqual(JSON.parse(store.readPolarState()!), { cursor: rows[1].sample_id, samples: 1 });
+    } finally {
+        store.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('points come back oldest first, which is the order a track is drawn in', () => {
     const { store, dir } = tmpStore();
     try {

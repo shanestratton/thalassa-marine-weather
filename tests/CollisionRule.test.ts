@@ -71,7 +71,7 @@ const tgt = (
     sogKn: number | null,
     cogDeg: number | null,
     extra: Partial<CollisionTarget> = {},
-): CollisionTarget => ({ ...at, sogKn, cogDeg, source: 'local', reportAgeSec: 5, ...extra });
+): CollisionTarget => ({ ...at, sogKn, cogDeg, source: 'local', reportAgeSec: 0, ...extra });
 
 describe('the defaults Shane was recommended', () => {
     it('ships 0.5 NM / 15 min offshore and 0.2 NM / 6 min inshore', () => {

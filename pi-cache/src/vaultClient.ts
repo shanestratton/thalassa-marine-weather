@@ -17,6 +17,8 @@ import {
     type VaultRefusalCode,
     type VaultRescanWire,
     type VaultStatusWire,
+    type VaultLookaheadRequest,
+    type VaultLookaheadResponse,
 } from './vault/protocol.js';
 
 /** A refusal from the vault, or the vault not answering at all (read as vault-starting: systemd restarts it). */
@@ -32,6 +34,7 @@ export class VaultUnavailableError extends Error {
 }
 
 export interface VaultClient {
+    lookahead?(request: VaultLookaheadRequest): Promise<VaultLookaheadResponse>;
     /** Null when the vault does not answer. */
     status(): Promise<VaultStatusWire | null>;
     index(): Promise<VaultCellMeta[]>;
@@ -88,6 +91,17 @@ export function createVaultClient(socketPath = process.env.VAULT_SOCKET || DEFAU
     };
 
     return {
+        async lookahead(request) {
+            const answer = await ask('POST', '/v1/lookahead', request, 2500);
+            if (answer.status !== 200) throw await refusal(answer);
+            const body = await json(answer);
+            if (
+                !['charted', 'partial', 'unavailable'].includes(String(body.coverage)) ||
+                typeof body.danger !== 'boolean'
+            )
+                return { coverage: 'unavailable', danger: false };
+            return { coverage: body.coverage as VaultLookaheadResponse['coverage'], danger: body.danger };
+        },
         async status() {
             try {
                 const answer = await ask('GET', '/v1/status', undefined, 2_000);

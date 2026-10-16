@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
+import { readPiSatellite } from '../../services/PiOfflineWeatherService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { createLogger } from '../../utils/createLogger';
 import { cloudOverlayBeforeId, imageryTopIndex } from './imageryOrder';
@@ -140,7 +141,8 @@ export function useSatelliteLayer(
     const satelliteMode = useSettingsStore((s) => s.settings?.satelliteMode === true);
     const active = enabled && mapReady;
     const blocked = active && satelliteModeBlocks('raster');
-    const mounted = active && !blocked;
+    const mounted = active;
+    const piFramesRef = useRef(new Map<string, string>());
 
     const [frames, setFrames] = useState<SatIrFrame[]>([]);
     const [prepared, setPrepared] = useState<ReadonlyMap<string, Prepared>>(() => new Map());
@@ -197,7 +199,7 @@ export function useSatelliteLayer(
     // ── Frame times: from the capabilities, never the clock ──
     useEffect(() => {
         if (!mounted) {
-            setStatus(blocked ? 'blocked' : 'off');
+            setStatus('off');
             setFrames([]);
             setPaintedMs(null);
             setPlayingState(false);
@@ -210,6 +212,21 @@ export function useSatelliteLayer(
         if (framesRef.current.length === 0) setStatus('loading');
         void (async () => {
             try {
+                const local = await readPiSatellite();
+                if (disposed) return;
+                if (local?.frames.length) {
+                    piFramesRef.current = new Map(local.frames.map((frame) => [frame.iso, frame.dataUrl]));
+                    const next = satIrFrames(local.frames, Date.now());
+                    setFrames((prev) => (sameFrames(prev, next) ? prev : next));
+                    const listedNow = new Set(next.map((frame) => frame.iso));
+                    setPrepared((prev) => new Map([...prev].filter(([iso]) => listedNow.has(iso))));
+                    return;
+                }
+                if (satelliteModeBlocks('raster')) {
+                    if (!framesRef.current.length) setStatus('blocked');
+                    return;
+                }
+                piFramesRef.current.clear();
                 const res = await fetch(SAT_IR_CAPABILITIES_URL, { signal: ctrl.signal });
                 if (!res.ok) throw new Error(`capabilities HTTP ${res.status}`);
                 const listed = parseGmgsiFrames(await res.text());
@@ -256,6 +273,7 @@ export function useSatelliteLayer(
         generationRef.current += 1;
         for (const ctrl of inflightRef.current.values()) ctrl.abort();
         inflightRef.current.clear();
+        piFramesRef.current.clear();
         if (retryRef.current) clearTimeout(retryRef.current);
         retryRef.current = null;
         failuresRef.current = 0;
@@ -283,11 +301,19 @@ export function useSatelliteLayer(
         void (async () => {
             let result: Prepared;
             try {
-                const res = await fetch(satIrImageUrl(frame), { signal: ctrl.signal });
-                const type = res.headers.get('content-type') ?? '';
-                // GeoServer answers some errors with HTTP 200 and an XML body.
-                if (!res.ok || !type.startsWith('image/')) throw new Error(`frame HTTP ${res.status} ${type}`);
-                const blob = await res.blob();
+                let blob: Blob;
+                const local = piFramesRef.current.get(frame.iso);
+                if (local) {
+                    const data = atob(local.slice(local.indexOf(',') + 1));
+                    blob = new Blob([Uint8Array.from(data, (char) => char.charCodeAt(0))], { type: 'image/jpeg' });
+                } else {
+                    if (satelliteModeBlocks('raster')) throw new Error('Satellite Mode: no cached boat frame');
+                    const res = await fetch(satIrImageUrl(frame), { signal: ctrl.signal });
+                    const type = res.headers.get('content-type') ?? '';
+                    // GeoServer answers some errors with HTTP 200 and an XML body.
+                    if (!res.ok || !type.startsWith('image/')) throw new Error(`frame HTTP ${res.status} ${type}`);
+                    blob = await res.blob();
+                }
                 const anchor = satIrAnchor(await satIrTropicalHistogram(blob));
                 if (anchor.usable) {
                     result = { kind: 'ok', src: await satIrDataUrl(blob), scale: anchor.scale };
@@ -311,7 +337,7 @@ export function useSatelliteLayer(
         // to this frame, and teardown aborts everything still in flight.
         // target is identified by its time.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mounted, targetIso, targetPrep, noteFailure]);
+    }, [mounted, blocked, targetIso, targetPrep, noteFailure]);
 
     // ── Show the target frame through the one source ──
     useEffect(() => {

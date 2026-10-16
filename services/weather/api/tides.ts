@@ -1,4 +1,7 @@
 import { Tide, TidePoint, StormGlassTideData } from '../../../types';
+import type { TideGUIDetails } from '../../../types/weather';
+export type { TideGUIDetails } from '../../../types/weather';
+import { fetchOfficialTides } from '../../tides/officialTides';
 import { fetchWorldTides } from './worldtides';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { pruneMap } from '../../../utils/boundedMap';
@@ -10,15 +13,6 @@ import { createLogger } from '../../../utils/createLogger';
 
 const log = createLogger('tides');
 
-/** Tide station GUI metadata for source provenance display */
-export interface TideGUIDetails {
-    stationName: string;
-    isSecondary: boolean;
-    referenceStation?: string;
-    timeOffsetHigh?: number;
-    timeOffsetLow?: number;
-}
-
 /**
  * Fetch tide extremes directly from the WorldTides API.
  * CACHED for 24 hours — tide predictions are deterministic (harmonic constants).
@@ -29,9 +23,32 @@ export const fetchRealTides = async (
     lat: number,
     lon: number,
 ): Promise<{ tides: Tide[]; guiDetails?: TideGUIDetails }> => {
+    // Read capability before the long-lived WorldTides cache. No official
+    // label survives a missing, expired or invalid publisher generation.
+    const official = await fetchOfficialTides(lat, lon);
+    if (official)
+        return {
+            tides: official.events.map((event) => ({ time: event.time, type: event.type, height: event.heightM })),
+            guiDetails: {
+                stationName: official.stationName,
+                isSecondary: false,
+                source: 'official',
+                provider: official.provider,
+                stationId: official.stationId,
+                datumId: official.datumId,
+                datumLabel: official.datumLabel,
+                rawDatum: official.rawDatum,
+                attribution: official.attribution,
+                sourceUrl: official.sourceUrl,
+                licenceUrl: official.licenceUrl,
+                generatedAt: official.generatedAt,
+                expiresAt: official.expiresAt,
+                observation: official.observation,
+            },
+        };
     // Check cache first (24h TTL — predictions don't change)
     const cached = apiCacheGet<{ tides: Tide[]; guiDetails?: TideGUIDetails }>('tides', lat, lon);
-    if (cached) return cached;
+    if (cached && cached.guiDetails?.source !== 'official') return cached;
 
     // Negative cache: a failed chain (Pi 502, proxy down) must not be
     // replayed by every consumer at trigger cadence — the 2026-08-04 device
@@ -64,6 +81,9 @@ export const fetchRealTides = async (
             const guiDetails: TideGUIDetails = {
                 stationName,
                 isSecondary: false,
+                source: 'worldtides',
+                provider: 'WorldTides',
+                datumLabel: wtData.responseDatum ?? wtData.requestDatum,
             };
 
             const result = { tides: mappedTides, guiDetails };

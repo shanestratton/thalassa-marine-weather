@@ -1,12 +1,11 @@
 /**
- * Misc Routes — Cyclones, buoys, sea marks, geocoding, and other data.
+ * Misc Routes — Cyclones, sea marks, geocoding, and other data.
  *
  * Catch-all for everything that doesn't fit neatly into
  * weather/tiles/grib/tides categories.
  *
  * Sources:
  *   - NOAA NHC / JTWC (tropical cyclone tracks)
- *   - NOAA NDBC (buoy observations)
  *   - OSM Overpass (sea marks — anchorages, marinas, fuel)
  *   - Mapbox Geocoding (reverse geocode for location names)
  *   - Rainbow.ai (precipitation nowcasting)
@@ -96,70 +95,6 @@ export function createMiscRoutes(
             res.status(502).json({ error: 'Cyclone track failed', message: (err as Error).message });
         }
     });
-
-    // ── Buoy Observations ──
-
-    /**
-     * GET /api/misc/buoys?lat=X&lon=Y&radius=5
-     * Nearby buoy observations from NDBC and regional networks.
-     */
-    router.get('/buoys', async (req: Request, res: Response) => {
-        try {
-            const { lat, lon, radius = '5' } = req.query;
-            if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
-
-            const key = `buoys:${lat}:${lon}:r${radius}`;
-            const url = supabaseEdgeUrl(config, 'buoys', {
-                lat: String(lat),
-                lon: String(lon),
-                radius: String(radius),
-            });
-
-            const result = await cachedJsonFetch(cache, {
-                cacheKey: key,
-                url,
-                ttlMs: TTL.BUOY,
-                source: 'ndbc',
-                headers: supabaseHeaders(config),
-            });
-
-            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
-            res.json(result.data);
-        } catch (err) {
-            res.status(502).json({ error: 'Buoy data failed', message: (err as Error).message });
-        }
-    });
-
-    /**
-     * GET /api/misc/buoys/:stationId
-     * Detailed observations for a specific buoy station.
-     */
-    router.get('/buoys/:stationId', async (req: Request, res: Response) => {
-        try {
-            const { stationId } = req.params;
-            if (typeof stationId !== 'string' || !/^[A-Za-z0-9_-]{1,16}$/.test(stationId)) {
-                return res.status(400).json({ error: 'Unsupported buoy station id' });
-            }
-            const key = `buoys:station:${stationId}`;
-
-            // NDBC direct — no API key needed
-            const url = `https://www.ndbc.noaa.gov/data/realtime2/${encodeURIComponent(stationId)}.txt`;
-
-            const result = await cachedJsonFetch(cache, {
-                cacheKey: key,
-                url,
-                ttlMs: TTL.BUOY,
-                source: 'ndbc-station',
-            });
-
-            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
-            res.json(result.data);
-        } catch (err) {
-            res.status(502).json({ error: 'Buoy station failed', message: (err as Error).message });
-        }
-    });
-
-    // ── Sea Marks ──
 
     /**
      * GET /api/misc/seamarks?bbox=minLon,minLat,maxLon,maxLat

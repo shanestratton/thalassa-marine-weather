@@ -1,28 +1,14 @@
-/**
- * barometerTendency — the three-hourly pressure tendency, from OBSERVED
- * samples.
- *
- * A single barometer forecasts weather through one number: how much the
- * pressure has changed in the last three hours. That window is the marine
- * convention (it is what a synoptic report's `ppp`/`a` group carries, and
- * what every "1–2 hPa in 3 h is a change, 3+ is a blow" rule of thumb is
- * stated against), and it is long enough to see past the semidiurnal
- * atmospheric tide but short enough to catch a front.
- *
- * This module is deliberately separate from `pressureTendency` in
- * MetricDeepDiveModal, which reads the FORECAST curve forward twelve hours.
- * That one answers "what does the model think is coming"; this one answers
- * "what has the air actually done around this boat". They disagree
- * sometimes, and that disagreement is information — do not merge them.
- *
- * Everything here is pure and unit-tested (tests/barometerTendency.test.ts).
- */
+/** Observed three-hour pressure tendency. Marine wording describes the pressure
+ * change; it does not by itself predict a front, wind speed or storm arrival. */
 
 export interface PressureSample {
     /** Epoch milliseconds. */
     t: number;
     /** Pressure in hPa (= mb). Station or sea-level — the maths only sees deltas. */
     hpa: number;
+    /** Actual sensor position, when known; never a forecast/map-pin location. */
+    lat?: number;
+    lon?: number;
 }
 
 /** WMO-style rate bands, named the way a forecast reads them aloud. */
@@ -49,6 +35,8 @@ export interface TendencyReading {
     read: string;
     /** Samples that went into the two endpoint medians. */
     samplesUsed: number;
+    rawDelta3h?: number;
+    diurnal?: { applied: boolean; expectedDelta3h: number; uncertaintyHpa: number; days: number; reason: string };
 }
 
 /** The canonical window. */
@@ -102,8 +90,6 @@ function endpointValue(samples: PressureSample[], at: number): { v: number; used
  *   3.6–6.0 quickly
  *   > 6.0   very rapidly
  *
- * The 3 hPa/3 h line is the one that matters at sea: sustained falls at or
- * past it are the classic gale signature.
  */
 export function bandTendency(delta3h: number): { direction: TendencyDirection; rate: TendencyRate } {
     // Round before comparing. A delta of exactly 6.0 hPa arrives from the
@@ -141,12 +127,7 @@ export function tendencyLabel(delta3h: number): string {
     return labelFor(direction, rate);
 }
 
-/**
- * Severity is asymmetric on purpose. A fast FALL is the dangerous one — it
- * is a deepening low or an approaching front, and the wind arrives with it.
- * A fast RISE usually means a cold front has gone through: brisk, squally,
- * clearing, worth noticing but not the same animal.
- */
+/** Display attention bands. They describe a pressure change, not a gale forecast. */
 function severityFor(direction: TendencyDirection, delta3h: number): TendencySeverity {
     const mag = Math.abs(delta3h);
     if (direction === 'falling') {
@@ -164,18 +145,13 @@ function severityFor(direction: TendencyDirection, delta3h: number): TendencySev
 
 function readFor(direction: TendencyDirection, rate: TendencyRate, delta3h: number): string {
     const n = Math.abs(delta3h).toFixed(1);
-    if (direction === 'steady') return 'Pressure is holding — no change signalled in the next few hours.';
-    if (direction === 'falling') {
-        if (rate === 'very-rapidly')
-            return `Down ${n} hPa in 3 h. A deep low or a front is on top of you — expect a serious blow.`;
-        if (rate === 'quickly') return `Down ${n} hPa in 3 h. Gale signature: wind builds as the low closes in.`;
-        if (rate === 'moderate') return `Down ${n} hPa in 3 h. A front is on its way — more wind within the day.`;
-        return `Down ${n} hPa in 3 h. Easing gently; a change is possible but not imminent.`;
-    }
-    if (rate === 'very-rapidly') return `Up ${n} hPa in 3 h. A front has cleared through — squally behind it.`;
-    if (rate === 'quickly') return `Up ${n} hPa in 3 h. Clearing fast, often brisk cold wind with it.`;
-    if (rate === 'moderate') return `Up ${n} hPa in 3 h. Building high — settling down over the next day.`;
-    return `Up ${n} hPa in 3 h. Slowly settling.`;
+    if (direction === 'steady') return 'Pressure is steady over the observed three-hour window.';
+    const movement = direction === 'falling' ? 'Down' : 'Up';
+    const caution =
+        direction === 'falling' && (rate === 'quickly' || rate === 'very-rapidly')
+            ? ' Check the wind, official warnings and latest forecast.'
+            : ' Compare with the wind and latest forecast.';
+    return movement + ' ' + n + ' hPa per 3 h.' + caution;
 }
 
 /**
@@ -192,7 +168,12 @@ export function observedTendency(
     windowMs: number = TENDENCY_WINDOW_MS,
 ): TendencyReading | null {
     if (!samples || samples.length < 2) return null;
-    const sorted = [...samples].filter((s) => Number.isFinite(s.hpa) && Number.isFinite(s.t)).sort((a, b) => a.t - b.t);
+    const sorted = [...samples]
+        .filter(
+            (s) =>
+                Number.isFinite(s.hpa) && s.hpa >= 800 && s.hpa <= 1100 && Number.isFinite(s.t) && s.t <= nowMs + 1000,
+        )
+        .sort((a, b) => a.t - b.t);
     if (sorted.length < 2) return null;
 
     const late = endpointValue(sorted, nowMs);
@@ -211,6 +192,9 @@ export function observedTendency(
     const spanMs = late.t - early.t;
     if (spanMs < MIN_USABLE_SPAN_MS) return null;
 
+    // Do not join a suspended phone or missing bus across a long internal gap.
+    const window = sorted.filter((s) => s.t >= early.t && s.t <= late.t);
+    if (window.some((s, i) => i > 0 && s.t - window[i - 1].t > 45 * 60_000)) return null;
     const deltaHpa = late.v - early.v;
     const delta3h = (deltaHpa / spanMs) * TENDENCY_WINDOW_MS;
     const perHour = (deltaHpa / spanMs) * 3_600_000;
@@ -263,3 +247,101 @@ export function reduceToSeaLevel(stationHpa: number, altitudeM: number, airTempC
 
 /** hPa → inches of mercury, for the crews who read it that way. */
 export const hpaToInHg = (hpa: number): number => hpa * 0.02952998751;
+
+/**
+ * Subtract a locally observed repeating daily change only when prior days agree.
+ * Sen (MAUSAM 1951, doi:10.54302/mausam.v2i3.4679) explains why the normal
+ * variation must suit the station and period. NOAA NWS ER 76-14 documents
+ * the twice-daily rhythm. This conservative estimator is an engineering
+ * implementation, not a universal climatology or a certified storm detector.
+ *
+ * Each prior 3 h change is detrended by its surrounding 24 h change, so a
+ * sustained synoptic fall is not learned as a daily tide. Today is excluded.
+ * At least five comparable prior days, nearby sensor positions and small
+ * between-day dispersion are required. Missing support leaves the RAW
+ * tendency visible and usable; it never silently becomes 'steady'.
+ */
+export function marineTendency(samples: PressureSample[], nowMs: number): TendencyReading | null {
+    const raw = observedTendency(samples, nowMs);
+    if (!raw) return null;
+    const latest = [...samples]
+        .filter((s) => s.t <= nowMs && Number.isFinite(s.t))
+        .sort((a, b) => a.t - b.t)
+        .at(-1);
+    const fallback = (reason: string, days = 0): TendencyReading => ({
+        ...raw,
+        rawDelta3h: raw.delta3h,
+        diurnal: { applied: false, expectedDelta3h: 0, uncertaintyHpa: 0, days, reason },
+    });
+    if (!latest || !Number.isFinite(latest.lat) || !Number.isFinite(latest.lon))
+        return fallback('Daily-tide correction unavailable: sensor position unknown; raw change shown.');
+    if (Math.abs(latest.lat!) > 23.5) return fallback('Outside the tropics; raw change shown.');
+    if (raw.spanMs < 2.5 * 3_600_000) return fallback('A full three-hour record is needed for daily-tide correction.');
+    const DAY = 24 * 3_600_000;
+    const nearby = samples.filter(
+        (s) =>
+            Number.isFinite(s.lat) &&
+            Number.isFinite(s.lon) &&
+            Math.abs(s.lat! - latest.lat!) <= 0.5 &&
+            Math.abs(((s.lon! - latest.lon! + 540) % 360) - 180) <= 0.5,
+    );
+    const expected: number[] = [];
+    // No part of the learning window reaches into today's tendency window.
+    for (let days = 2; days <= 9; days++) {
+        const lateAt = nowMs - days * DAY;
+        const earlyAt = lateAt - raw.spanMs;
+        const a = endpointValue(nearby, earlyAt);
+        const b = endpointValue(nearby, lateAt);
+        const center = (earlyAt + lateAt) / 2;
+        const lo = endpointValue(nearby, center - DAY / 2);
+        const hi = endpointValue(nearby, center + DAY / 2);
+        if (!a || !b || !lo || !hi || b.t <= a.t || hi.t <= lo.t) continue;
+        const daySlope = (hi.v - lo.v) / (hi.t - lo.t);
+        expected.push(((b.v - a.v) / (b.t - a.t) - daySlope) * TENDENCY_WINDOW_MS);
+    }
+    if (expected.length < 5)
+        return fallback(
+            'Daily-tide correction collecting: needs five comparable prior days; raw change shown.',
+            expected.length,
+        );
+    const normal = median(expected);
+    // Dispersion is an empirical uncertainty allowance, not a confidence interval.
+    const uncertainty = Math.max(0.1, 1.4826 * median(expected.map((v) => Math.abs(v - normal))));
+    if (uncertainty > 0.25 || Math.max(...expected) - Math.min(...expected) > 0.8)
+        return fallback('Prior daily changes disagree; raw change shown.', expected.length);
+    const corrected = raw.delta3h - normal;
+    const { direction, rate } = bandTendency(corrected);
+    return {
+        ...raw,
+        rawDelta3h: raw.delta3h,
+        delta3h: corrected,
+        deltaHpa: (corrected * raw.spanMs) / TENDENCY_WINDOW_MS,
+        perHour: corrected / 3,
+        direction,
+        rate,
+        severity: severityFor(direction, corrected),
+        label: labelFor(direction, rate),
+        read: readFor(direction, rate, corrected),
+        diurnal: {
+            applied: true,
+            expectedDelta3h: normal,
+            uncertaintyHpa: uncertainty,
+            days: expected.length,
+            reason:
+                'Daily tide learned from ' +
+                expected.length +
+                ' nearby prior days; empirical uncertainty ±' +
+                uncertainty.toFixed(1) +
+                ' hPa/3 h.',
+        },
+    };
+}
+
+/** Require a supported rapid fall. A very rapid raw fall is never cancelled by
+ * the learned tide; uncertain correction falls back to a plainly labelled raw alert. */
+export function pressureFallAlarm(reading: TendencyReading | null): boolean {
+    if (!reading) return false;
+    const raw = reading.rawDelta3h ?? reading.delta3h;
+    if (raw < -6) return true;
+    return reading.diurnal?.applied ? reading.delta3h + reading.diurnal.uncertaintyHpa < -3.5 : raw < -3.5;
+}

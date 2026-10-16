@@ -97,6 +97,7 @@ beforeEach(async () => {
     NmeaStore.start();
     recordSample.mockClear();
     await SmartPolarService.start();
+    SmartPolarStore.rememberEngineRunning(false);
 });
 afterEach(() => {
     SmartPolarService.stop();
@@ -141,12 +142,12 @@ describe('Smart Polars learn on a Pi boat', () => {
         expect(SmartPolarService.getStatus().minimumSpeed).toBe('fail');
     });
 
-    it('the same check on a gateway boat: STW 2.1 with SOG 0.1 is a mooring, SOG unknown is not held against her', () => {
+    it('the same check on a gateway boat: known low SOG is a mooring, unknown SOG still permits plausible sailing', () => {
         const kittiwake = (timestamp: number, sog: number | null) => ({
             timestamp,
             tws: 12,
             twa: 110,
-            stw: 2.1,
+            stw: 4.5,
             heading: 80,
             rpm: null,
             voltage: 12.9,
@@ -163,7 +164,38 @@ describe('Smart Polars learn on a Pi boat', () => {
             vi.advanceTimersByTime(5_000);
         }
         expect(recordSample).toHaveBeenCalled();
-        expect(recordSample.mock.calls[0]).toEqual([12, 110, 2.1]);
+        expect(recordSample.mock.calls[0]).toEqual([12, 110, 4.5]);
+    });
+
+    it('rejects missing-RPM motion beyond the factory sailing envelope even without alternator voltage', () => {
+        sail(90, { rpm: null, voltageV: undefined, stwKts: 20, sogKts: 20 });
+        expect(recordSample).not.toHaveBeenCalled();
+        expect(SmartPolarService.getStatus().engineOff).toBe('fail');
+    });
+
+    it('remembers a running engine through missing RPM and a learner restart until explicit zero RPM', async () => {
+        sail(2, { rpm: 1800 });
+        SmartPolarService.stop();
+        await SmartPolarService.start();
+        sail(90, { rpm: null, voltageV: 12.8 });
+        expect(recordSample).not.toHaveBeenCalled();
+        expect(SmartPolarService.getStatus().engineOff).toBe('fail');
+        sail(60, { rpm: 0 });
+        expect(recordSample).toHaveBeenCalled();
+    });
+
+    it('restarts the steady timer on a speed step without wind and then allows settled no-RPM sailing', () => {
+        sail(40, { rpm: null, stwKts: 4.5, sogKts: 4.5 });
+        expect(recordSample).toHaveBeenCalled();
+        recordSample.mockClear();
+        vi.advanceTimersByTime(2_000);
+        NmeaStore.ingestRemote(piSnapshot({ rpm: null, stwKts: 6, sogKts: 6 }));
+        expect(SmartPolarService.getStatus().engineOff).toBe('fail');
+        expect(recordSample).not.toHaveBeenCalled();
+        sail(20, { rpm: null, stwKts: 6, sogKts: 6 });
+        expect(recordSample).not.toHaveBeenCalled();
+        sail(40, { rpm: null, stwKts: 6, sogKts: 6 });
+        expect(recordSample).toHaveBeenCalled();
     });
 
     it('the cloud row never teaches it: the same boat, seen from ashore, records nothing', () => {

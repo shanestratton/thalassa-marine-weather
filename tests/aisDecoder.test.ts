@@ -72,6 +72,7 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
 
         // Should have nav status
         expect(result.navStatus).toBeDefined();
+        expect(result.aisClass).toBe('A');
     });
 
     it('should reject Null Island (0,0) position as likely invalid', () => {
@@ -102,8 +103,8 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
 describe('AIS Message Type 5 (Static / Voyage Data)', () => {
     it('should reassemble and decode a 2-fragment message', () => {
         // Two-part AIS sentence (message type 5)
-        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
-        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
+        const part1 = '!AIVDM,2,1,7,A,57Ojo>02:N2W<HtKP00EHE:0@T4@Dl000000,0*66';
+        const part2 = '!AIVDM,2,2,7,A,0016L961O400003QEl3lU00000000000000,2*5C';
 
         // First fragment should return null (incomplete)
         const result1 = processAisSentence(part1);
@@ -121,6 +122,13 @@ describe('AIS Message Type 5 (Static / Voyage Data)', () => {
         expect(typeof result2.name).toBe('string');
         expect(typeof result2.shipType).toBe('number');
     });
+
+    it('rejects a checksummed but truncated voyage report instead of padding unavailable fields', () => {
+        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
+        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
+        expect(processAisSentence(part1)).toBeNull();
+        expect(processAisSentence(part2)).toBeNull();
+    });
 });
 
 // ── Message Type 18 — Class B Position Report ──
@@ -136,6 +144,7 @@ describe('AIS Message Type 18 (Class B Position Report)', () => {
         }
         expect(result.mmsi).toBeDefined();
         expect(result.navStatus).toBe(15); // Class B always 15 (not defined)
+        expect(result.aisClass).toBe('B');
     });
 });
 

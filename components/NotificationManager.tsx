@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useSyncExternalStore } from 'react';
+import { usePressureFallNotifications } from '../hooks/usePressureFallNotifications';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
@@ -64,6 +65,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
     const { settings } = useSettings();
     const { user } = useAuth();
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    usePressureFallNotifications(identityScope.key, onNotify);
     const lastAlertTime = useRef<number>(0);
     const alertedConditions = useRef<Set<string>>(new Set());
     const alertScopeKey = useRef(identityScope.key);

@@ -694,6 +694,10 @@ export default defineConfig(({ mode }) => {
         },
         build: {
             outDir: 'dist',
+            // Build 133: standard Terser compression keeps all features and
+            // diagnostics while recovering ~68 KB against the unchanged JS
+            // budget. No property mangling or unsafe compression is enabled.
+            minify: 'terser',
             // Production emits source maps ONLY for a run that will upload and
             // then delete them (scripts/upload-sourcemaps.mjs, SENTRY_SOURCEMAPS=1
             // in CI). 'hidden' omits the sourceMappingURL comment, but the .map

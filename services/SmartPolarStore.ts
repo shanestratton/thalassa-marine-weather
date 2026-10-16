@@ -96,6 +96,17 @@ class SmartPolarStoreClass {
         );
     }
 
+    isEngineRunning(): boolean {
+        return this.grid?.engineRunning === true;
+    }
+
+    rememberEngineRunning(running: boolean): void {
+        if (!this.grid || this.grid.engineRunning === running) return;
+        this.grid.engineRunning = running;
+        this.dirty = true;
+        this.scheduleSave();
+    }
+
     /** Record a clean sailing sample into the appropriate bucket */
     recordSample(tws: number, twa: number, stw: number): void {
         if (!this.grid) return;
@@ -161,6 +172,19 @@ class SmartPolarStoreClass {
         return { windSpeeds, angles, matrix };
     }
 
+    /** Pi history is authoritative in learned cells; phone-only cells fill gaps without summing duplicate samples. */
+    exportToRoutingPolar(piPolar: PolarData | null = null): PolarData | null {
+        const local = this.exportToPolarData(ROUTING_MIN_BUCKET_SAMPLES);
+        if (!piPolar) return local;
+        return {
+            windSpeeds: [...piPolar.windSpeeds],
+            angles: [...piPolar.angles],
+            matrix: piPolar.matrix.map((row, a) =>
+                row.map((speed, w) => (speed > 0 ? speed : (local?.matrix[a]?.[w] ?? 0))),
+            ),
+        };
+    }
+
     /** Get statistics about the current grid */
     getStats(): {
         totalSamples: number;
@@ -197,7 +221,9 @@ class SmartPolarStoreClass {
         // A save still waiting would only write the reset grid again.
         if (this.saveTimer) clearTimeout(this.saveTimer);
         this.saveTimer = null;
+        const engineRunning = this.isEngineRunning();
         this.grid = this.createEmptyGrid();
+        this.grid.engineRunning = engineRunning;
         this.dirty = true;
         await this.save();
     }

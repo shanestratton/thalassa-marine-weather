@@ -174,7 +174,7 @@ function prune(nowMs: number): void {
 
 function record(hpa: number, atMs: number): void {
     const last = state.samples[state.samples.length - 1];
-    if (last && atMs - last[0] * 1000 < MIN_SPACING_MS) {
+    if (last && Math.floor(atMs / MIN_SPACING_MS) === Math.floor((last[0] * 1000) / MIN_SPACING_MS)) {
         // Inside the spacing floor — overwrite rather than append, so the
         // newest reading still wins without inflating the record.
         state.samples[state.samples.length - 1] = [Math.round(atMs / 1000), Number(hpa.toFixed(2))];

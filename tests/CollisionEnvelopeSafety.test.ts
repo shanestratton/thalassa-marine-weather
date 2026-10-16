@@ -1,10 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { assessCollision, deadReckonAis, type CollisionOwnShip, type CollisionTarget } from '../utils/collisionRule';
+import { computeCpa } from '../utils/cpaCalculation';
 
 const own: CollisionOwnShip = { lat: 0, lon: 0, sogKn: 6, cogDeg: 0, atAnchor: false };
 const target: CollisionTarget = { lat: 0.05, lon: 0.005, sogKn: 6, cogDeg: 180, source: 'local' };
 
 describe('the reported and dead-reckoned collision envelope', () => {
+    it.each([0, 5, 300, 600])(
+        'keeps the popup and sensor alarm on the same %s-second-old position envelope',
+        (reportAgeSec) => {
+            const agedTarget = { ...target, reportAgeSec };
+            const alarm = assessCollision(own, agedTarget)!;
+            const chip = computeCpa(
+                own.lat,
+                own.lon,
+                own.cogDeg!,
+                own.sogKn!,
+                target.lat,
+                target.lon,
+                target.cogDeg!,
+                target.sogKn!,
+                undefined,
+                undefined,
+                reportAgeSec,
+            )!;
+            expect(chip.risk).toBe(alarm.risk);
+            expect(chip.closeQuarters).toBe(alarm.closeQuarters);
+            expect(chip.risk === 'DANGER' || chip.closeQuarters).toBe(alarm.alarm);
+            expect(chip.cpa).toBeCloseTo(alarm.cpaNm!, 2);
+        },
+    );
+
     it('uses the projected danger when the reported position is only caution', () => {
         const fresh = assessCollision(own, target)!;
         const aged = assessCollision(own, { ...target, reportAgeSec: 300 })!;

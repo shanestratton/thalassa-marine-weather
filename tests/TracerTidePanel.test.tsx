@@ -43,7 +43,7 @@ describe('TracerTidePanel', () => {
         expect(screen.getByText('1.8 m')).toBeInTheDocument();
         expect(screen.getByText(/LW/)).toBeInTheDocument();
         expect(screen.getByText('0.4 m')).toBeInTheDocument();
-        expect(screen.getByText(/Brisbane Bar/)).toBeInTheDocument();
+        expect(screen.getByText(/^High\/low table.*Brisbane Bar$/)).toBeInTheDocument();
     });
 
     it('labels an interpolated curve as approximate rather than implying a measurement', async () => {
@@ -96,5 +96,28 @@ describe('TracerTidePanel', () => {
         fetchTideCurve.mockResolvedValue(null);
         render(<TracerTidePanel anchor={{ lat: 0, lon: 0 }} departureMs={null} />);
         expect(await screen.findByText('No tide station near this route.')).toBeInTheDocument();
+    });
+    it('keeps an official MLLW table distinct from a LAT departure estimate', async () => {
+        fetchRealTides.mockResolvedValue({
+            tides: [{ time: '2026-08-01T08:12:00Z', type: 'High', height: 0.8 }],
+            guiDetails: {
+                stationName: 'Annapolis',
+                source: 'official',
+                provider: 'NOAA',
+                datumLabel: 'MLLW',
+                isSecondary: false,
+            },
+        });
+        fetchTideCurve.mockResolvedValue({
+            provenance: 'EXTREMES_INTERP',
+            datum: 'LAT',
+            stationName: 'World station',
+            heightAt: () => 1.4,
+        });
+        render(<TracerTidePanel anchor={{ lat: 38.98, lon: -76.48 }} departureMs={DEPARTURE} />);
+        expect(await screen.findByText(/^High\/low table · NOAA · MLLW · Annapolis$/)).toBeInTheDocument();
+        expect(screen.getByText(/Departure estimate · WorldTides · LAT · World station/)).toBeInTheDocument();
+        expect(screen.getByText('0.8 m')).toBeInTheDocument();
+        expect(screen.getByText(/1.4 m · rising/)).toBeInTheDocument();
     });
 });

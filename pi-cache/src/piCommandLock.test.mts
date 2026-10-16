@@ -73,6 +73,9 @@ import { createTrackRoutes } from './routes/track.js';
 import { createSeabedRoutes } from './routes/seabed.js';
 import { createRemoteAccessRoutes } from './routes/remoteAccess.js';
 import type { VaultClient } from './vaultClient.js';
+import { createUnderwayWatchRoutes } from './routes/underwayWatch.js';
+import { createPolarRoutes } from './routes/polars.js';
+import { createOfflineWeatherRoutes } from './routes/offlineWeather.js';
 
 const keepLoopAlive = (t: { after: (fn: () => void) => void }) => {
     const keepAlive = setInterval(() => undefined, 1_000);
@@ -271,6 +274,9 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createSeabedRoutes: createSeabedRoutes(stub),
         createRemoteAccessRoutes: createRemoteAccessRoutes(),
         createAisWatchRoutes: createAisWatchRoutes(watch),
+        createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
+        createPolarRoutes: createPolarRoutes(stub),
+        createOfflineWeatherRoutes: createOfflineWeatherRoutes(stub),
         createPiLockRoutes: createPiLockRoutes({
             devices,
             store: new PiLockStore(path.join(root, 'pi-lock.json')),
@@ -293,7 +299,9 @@ async function registeredRoutes(t: TestContext): Promise<string[]> {
     if (/app\.use\(express\.static\(/.test(serverSource)) routes.push('GET /*');
     const routers = await builtRouters(t);
     const mounts = [
-        ...serverSource.matchAll(/\bapp\.use\(\s*'([^']+)',\s*(?:requireAppApi,\s*)?(create\w+Routes)\(/g),
+        ...[...serverSource.matchAll(/\bapp\.use\(\s*'([^']+)',([\s\S]*?)\);/g)].flatMap((mount) =>
+            [...mount[2].matchAll(/\b(create\w+Routes)\(/g)].map((factory) => [mount[0], mount[1], factory[1]]),
+        ),
         ...attachSource.matchAll(/\bapp\.use\(\s*'([^']+)',[\s\S]*?(create\w+Routes)\(/g),
     ];
     assert.ok(mounts.length >= 15, `server.ts mounts its routers (${mounts.length} found)`);
@@ -338,7 +346,8 @@ test('every route the Pi registers has a row in the table, and every row is a ro
         assert.equal(classOf(key), 'command', key);
     // The chart door keeps every /api/enc route, the switch keeps its own.
     for (const row of PI_ROUTES) {
-        if (row.path.startsWith('/api/enc')) assert.equal(row.door, 'chart', `${row.method} ${row.path}`);
+        if (row.path.startsWith('/api/enc') || row.path.startsWith('/api/polars'))
+            assert.equal(row.door, 'chart', `${row.method} ${row.path}`);
         else if (row.path === '/api/pi-lock' && row.method === 'POST') assert.equal(row.door, 'lock');
         else assert.equal(row.door, undefined, `${row.method} ${row.path}`);
     }

@@ -1,3 +1,4 @@
+import type { OfficialTideObservation, OfficialTideProvider } from '../services/tides/officialTides';
 /**
  * types/weather.ts — Weather domain types
  *
@@ -334,13 +335,7 @@ export interface MarineWeatherReport {
         locationName: string;
         generatedAt: string;
     };
-    tideGUIDetails?: {
-        stationName: string;
-        isSecondary: boolean;
-        referenceStation?: string;
-        timeOffsetHigh?: number;
-        timeOffsetLow?: number;
-    };
+    tideGUIDetails?: TideGUIDetails;
     _stale?: boolean;
     _staleAgeMinutes?: number;
     /** True when wave heights were capped to local fetch because the point is
@@ -399,4 +394,25 @@ export interface GribDownloadState {
     startedAt: number;
     lastChunkAt: number;
     errorMessage?: string;
+}
+
+/** Display metadata stays with its high/low table, never another datum. */
+export interface TideGUIDetails {
+    stationName: string;
+    isSecondary: boolean;
+    referenceStation?: string;
+    timeOffsetHigh?: number;
+    timeOffsetLow?: number;
+    source?: 'official' | 'worldtides';
+    provider?: OfficialTideProvider | 'WorldTides';
+    stationId?: string;
+    datumId?: string;
+    datumLabel?: string;
+    rawDatum?: string;
+    attribution?: string;
+    sourceUrl?: string;
+    licenceUrl?: string;
+    generatedAt?: string;
+    expiresAt?: string;
+    observation?: OfficialTideObservation;
 }

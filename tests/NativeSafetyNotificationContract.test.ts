@@ -110,14 +110,15 @@ describe('the shared safety path', () => {
     // distress alarm's are unchanged byte for byte.
     it('has its own ids for off route and shoal water, and the earlier kinds are unchanged', () => {
         const kinds = block(plugin, 'private static let safetyAlertKinds: [String: String] = [', '\n    ]');
-        expect(kinds.split('\n').slice(1, 5)).toEqual([
+        expect(kinds.split('\n').slice(1, 6)).toEqual([
             '        "collision": "thalassa.collision-watch",',
             '        "distress": "thalassa.distress-watch",',
             '        "off-route": "thalassa.off-route-watch",',
             '        "shoal": "thalassa.shoal-watch",',
+            '        "chart-ahead": "thalassa.chart-ahead-watch",',
         ]);
         expect(plugin).not.toMatch(/"(off-route|shoal)": "thalassa\.anchor/);
-        expect(service).toContain("export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal'");
+        expect(service.replace(/\s+/g, ' ')).toContain("'distress' | 'off-route' | 'shoal'");
         // Still three requests per kind; the 21-slot anchor reserve check is the same.
         expect(plugin).toContain('private let safetyAlertRequestCount = 3');
         expect(service).toContain('SAFETY_ALERT_REQUEST_COUNT = 3');
@@ -133,7 +134,7 @@ describe('the shared safety path', () => {
     });
 
     it('is exposed to JS with a kind and the same verification as the anchor', () => {
-        expect(service).toContain("export type SafetyAlertKind = 'collision' | 'distress'");
+        expect(service.replace(/\s+/g, ' ')).toMatch(/export type SafetyAlertKind = \|? 'collision' \| 'distress'/);
         expect(service).toContain('SAFETY_ALERT_REQUEST_COUNT = 3');
         expect(service).toContain('NativeAnchorNotifications.scheduleSafetyAlert(request)');
         expect(service).toContain(
@@ -154,14 +155,13 @@ describe('the shared safety path', () => {
             '        "distress": "thalassa.distress-watch",',
             '        "off-route": "thalassa.off-route-watch",',
             '        "shoal": "thalassa.shoal-watch",',
+            '        "chart-ahead": "thalassa.chart-ahead-watch",',
             '        "watch-check": "thalassa.watch-check",',
             // 129-08: the aboard GPS/instruments-silent alarm, last.
             '        "instruments-silent": "thalassa.instruments-watch"',
         ]);
         expect(plugin).not.toMatch(/"watch-check": "thalassa\.(anchor|collision|distress|off-route|shoal)/);
-        expect(service).toContain(
-            "export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal' | 'watch-check'",
-        );
+        expect(service.replace(/\s+/g, ' ')).toContain("'watch-check'");
         const names = block(service, 'const SAFETY_ALERT_NAMES', 'const NativeAnchorNotifications');
         expect(names).toContain("'watch-check': 'the watch check'");
         // Still three requests per kind, and the anchor keeps its 21.
@@ -178,11 +178,17 @@ describe('the shared safety path', () => {
         expect(plugin).not.toMatch(
             /"instruments-silent": "thalassa\.(anchor|collision|distress|off-route|shoal|watch-check)/,
         );
-        expect(service).toContain(
-            "export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal' | 'watch-check' | 'instruments-silent'",
-        );
+        expect(service.replace(/\s+/g, ' ')).toContain("'instruments-silent'");
         const names = block(service, 'const SAFETY_ALERT_NAMES', 'const NativeAnchorNotifications');
         expect(names).toContain("'instruments-silent': 'the instruments-silent alarm'");
+    });
+
+    it('gives chart look-ahead its own native namespace and the same verified safety path', () => {
+        const kinds = block(plugin, 'private static let safetyAlertKinds: [String: String] = [', '\n    ]');
+        expect(kinds).toContain('"chart-ahead": "thalassa.chart-ahead-watch"');
+        expect(kinds).not.toMatch(/"chart-ahead": "thalassa\.(anchor|collision|distress|off-route|shoal|watch-check)/);
+        expect(service).toContain("'chart-ahead': 'the chart look-ahead alarm'");
+        expect(service).toContain("result.interruptionLevel !== 'timeSensitive'");
     });
 
     it('reads an optional lead of whole seconds 5...3600, and rejects any other', () => {

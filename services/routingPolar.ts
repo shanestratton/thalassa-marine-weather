@@ -509,7 +509,7 @@ export function routingSpeedModel(
  * routing is set to use it. Never throws: the generic polar is the floor.
  */
 export async function resolveRoutingPolar(
-    input: { settings?: RoutingPolarSettings; vessel?: VesselProfile | null } = {},
+    input: { settings?: RoutingPolarSettings; vessel?: VesselProfile | null; period?: 'all' | 'day' | 'night' } = {},
 ): Promise<ResolvedRoutingPolar> {
     try {
         const settings = input.settings ?? useSettingsStore.getState().settings;
@@ -518,7 +518,9 @@ export async function resolveRoutingPolar(
         if (settings.polarSource === 'smart' && vessel.type === 'sail') {
             try {
                 await SmartPolarStore.ensureLoaded();
-                learned = learnedPolarSnapshot();
+                const { getPiLearnedPolar } = await import('./piPolarLearner');
+                const polar = SmartPolarStore.exportToRoutingPolar(await getPiLearnedPolar(input.period));
+                learned = { polar, filledCells: polar?.matrix.flat().filter((v) => v > 0).length ?? 0 };
             } catch (e) {
                 log.warn('learned polar unreadable; routing on the factory polar:', e);
             }
