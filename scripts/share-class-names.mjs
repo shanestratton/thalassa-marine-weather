@@ -51,17 +51,46 @@ export function collectClassNames(root) {
         };
         visit(source);
     }
-    return (
-        [...counts]
-            // The shared word table encodes common CSS tokens once; include shorter
-            // repeated strings when their estimated references still save bytes.
-            .filter(
-                ([value, count]) =>
-                    count >= 2 && (value.length + 2) * count - Math.ceil(value.length / 3) - 5 * count >= 24,
+    return selectClassNames(counts);
+}
+
+/** Long unique literals also share their CSS words with the pool. Keep the
+ * existing decoder limits and reserve output space for exceptional strings. */
+export function selectClassNames(counts) {
+    const repeated = [...counts]
+        .filter(
+            ([value, count]) =>
+                count >= 2 && (value.length + 2) * count - Math.ceil(value.length / 3) - 5 * count >= 24,
+        )
+        .map(([value]) => value);
+    const extras = [];
+    let restored = repeated.reduce((sum, value) => sum + value.length, 0);
+    const candidates = [...counts]
+        .filter(([value, count]) => count === 1 && value.length >= 100 && value.length <= 4095)
+        .map(([value]) => value)
+        .sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0));
+    for (const value of candidates) {
+        if (restored + value.length > 240_000) continue;
+        extras.push(value);
+        restored += value.length;
+    }
+    for (;;) {
+        const values = [...repeated, ...extras].sort();
+        try {
+            packClassNames(values);
+            return values;
+        } catch (error) {
+            if (
+                !extras.length ||
+                ![
+                    'Embedded class table exceeds reviewed bounds',
+                    'Embedded class encoding exceeds reviewed bounds',
+                ].includes(error.message)
             )
-            .map(([value]) => value)
-            .sort()
-    );
+                throw error;
+            extras.length = Math.floor(extras.length * 0.9);
+        }
+    }
 }
 
 /** Encode repeated CSS words once, reconstructing exact strings at module
