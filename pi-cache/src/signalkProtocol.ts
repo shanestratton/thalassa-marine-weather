@@ -46,6 +46,18 @@ export interface SignalKNoticeEvent {
     notice: SignalKNotice;
     /** Only new, source-dated events; UI still requires opt-in. */ fresh: boolean;
 }
+
+/** Shared wire types stay in this transport-free module. */
+export type SignalKReadSessionState = 'stopped' | 'connecting' | 'reading' | 'unavailable';
+export interface SignalKNotificationSnapshot {
+    schema: 1;
+    session: string | null;
+    startedAt: number | null;
+    state: SignalKReadSessionState;
+    servedAt: number;
+    notices: SignalKNotice[];
+    truncated: boolean;
+}
 const staticPaths = new Set<string>(SIGNALK_READ_PATHS);
 const BAD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 export const signalkRecord = (v: unknown): Record<string, unknown> | null =>

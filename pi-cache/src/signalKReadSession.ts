@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { createSignalKClient, type SignalKClient } from './signalKClient.js';
 import { startSignalKReadStream } from './signalKReadStream.js';
-import { signalkRecord, validSignalKSelf, type SignalKNotice } from './signalkProtocol.js';
+import {
+    signalkRecord,
+    validSignalKSelf,
+    type SignalKNotice,
+    type SignalKNotificationSnapshot,
+    type SignalKReadSessionState,
+} from './signalkProtocol.js';
+export type { SignalKNotificationSnapshot, SignalKReadSessionState } from './signalkProtocol.js';
 import type { SignalkDocuments } from './lanTelemetry.js';
 
 const SELF_REFRESH_MS = 30_000;
@@ -9,16 +16,6 @@ const CYCLE_MS = 5_000;
 const MAX_NOTIFICATION_BODY = 16_384;
 const BAD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 type StreamOptions = Parameters<typeof startSignalKReadStream>[0];
-export type SignalKReadSessionState = 'stopped' | 'connecting' | 'reading' | 'unavailable';
-export interface SignalKNotificationSnapshot {
-    schema: 1;
-    session: string | null;
-    startedAt: number | null;
-    state: SignalKReadSessionState;
-    servedAt: number;
-    notices: SignalKNotice[];
-    truncated: boolean;
-}
 interface Timer {
     cancel(): void;
 }
