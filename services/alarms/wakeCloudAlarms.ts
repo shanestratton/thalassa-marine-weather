@@ -77,6 +77,12 @@ export function wakeCloudCards(
         const c = current.find((c) => c.revision === row.context_revision),
             preset = kinds[row.kind],
             spec = WAKE_PRESETS[preset];
+        if (
+            preset === 'depth-below-keel'
+                ? !['below-keel', 'transducer-offset', 'conservative-full-draft'].includes(String(row.depth_basis))
+                : row.depth_basis !== null
+        )
+            throw Error('Wake depth reference unavailable');
         const selected = c && (c.profile.rules as unknown[]).filter((r) => record(r) && r.kind === row.kind);
         if (
             !c ||
@@ -104,6 +110,7 @@ export function wakeCloudCards(
             quiet: row.quiet,
             muted: false,
             sourceAt: Number(row.source_at_ms),
+            ...(preset === 'depth-below-keel' ? { depthBasis: row.depth_basis as WakeAlarmCard['depthBasis'] } : {}),
             cloud: {
                 ownerId: owner,
                 piDeviceId: pi,
@@ -183,7 +190,7 @@ export function refreshWakeCloudAlarms(): Promise<void> {
                 const events = await supabase
                     .from('pi_wake_events')
                     .select(
-                        'owner_id,context_revision,rules_digest,kind,alarm_key,source_key,raised_at_ms,source_at_ms,measured_value,threshold,quiet,source_qualified',
+                        'owner_id,context_revision,rules_digest,kind,alarm_key,source_key,raised_at_ms,source_at_ms,measured_value,threshold,depth_basis,quiet,source_qualified',
                     )
                     .eq('owner_id', scope.userId!)
                     .in(

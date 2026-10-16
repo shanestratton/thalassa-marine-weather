@@ -39,6 +39,7 @@ import { defaultWakeRules, wakeRulesCanonical } from '../utils/wakeRule';
 import { saveWakeRulePreferences } from '../services/alarms/wakeRulePreferences';
 import { getWakeRuleSources } from '../services/alarms/wakeRuleSources';
 import { WakeRuleWatchClass } from '../services/alarms/WakeRuleWatch';
+import { WakeAlarmStore } from '../services/alarms/wakeAlarmStore';
 import { parseWakePiSensors, parseWakePiStatus } from '../services/alarms/wakePiWire';
 const OWNER = '11111111-1111-4111-8111-111111111111',
     DEVICE = '33333333-3333-4333-8333-333333333333';
@@ -144,6 +145,22 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 describe('bounded wake wire', () => {
+    it('carries conservative depth basis from qualified local reading into a retained null alarm card', async () => {
+        saveWakeRulePreferences(selectedRules(), getAuthIdentityScope());
+        f.request.mockImplementation(async (o: { url: string }) => {
+            const data = sensors();
+            data.options[0].reading.depthBasis = 'conservative-full-draft';
+            return response(o.url.endsWith('/status') ? status() : data);
+        });
+        await service.start();
+        expect(WakeAlarmStore.get()[0].depthBasis).toBe('conservative-full-draft');
+        await vi.advanceTimersByTimeAsync(14_000);
+        expect(WakeAlarmStore.get()[0]).toMatchObject({
+            depthBasis: 'conservative-full-draft',
+            value: null,
+            status: 'unknown',
+        });
+    });
     it('preserves a bounded current cloud conflict summary for explicit review and rejects unknown policy fields', () => {
         const conflict = {
             revision: REV,

@@ -94,6 +94,7 @@ function fixtures() {
             source_at_ms: at,
             measured_value: 30,
             threshold: 25,
+            depth_basis: null,
             quiet: false,
             source_qualified: true,
         };
@@ -120,6 +121,28 @@ afterEach(() => {
     vi.useRealTimers();
 });
 describe('wake cloud cards and explicit acknowledgements', () => {
+    it('keeps explicit depth basis through stale/null readings and rejects missing or cross-kind references', async () => {
+        const { wakeCloudCards } = await import('../services/alarms/wakeCloudAlarms'),
+            { contexts, event } = fixtures();
+        const depth = {
+            ...event,
+            kind: 'wake-depth',
+            alarm_key: `wake-depth:aaaaaaaaaaaa:${at - 1000}`,
+            depth_basis: 'below-keel',
+        };
+        for (const basis of ['below-keel', 'transducer-offset', 'conservative-full-draft']) {
+            const card = wakeCloudCards([{ ...depth, depth_basis: basis }], contexts, f.owner, f.pi, at + 13_001)[0];
+            expect(card).toMatchObject({
+                preset: 'depth-below-keel',
+                depthBasis: basis,
+                value: null,
+                status: 'unknown',
+            });
+        }
+        for (const basis of [null, undefined, 'assumed', 'sea-level'])
+            expect(() => wakeCloudCards([{ ...depth, depth_basis: basis }], contexts, f.owner, f.pi, at)).toThrow();
+        expect(() => wakeCloudCards([{ ...event, depth_basis: 'below-keel' }], contexts, f.owner, f.pi, at)).toThrow();
+    });
     it('uses original source time and keeps stale/unknown alarms without fabricated measured values', async () => {
         const { wakeCloudCards } = await import('../services/alarms/wakeCloudAlarms'),
             { contexts, event } = fixtures();

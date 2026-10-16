@@ -10,6 +10,31 @@ const presets = [
     'battery-below',
 ];
 for (const width of [300, 375])
+    test(`wake depth references remain explicit at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 640 });
+        const remote: string[] = [];
+        await page.route('**/*', (route) => {
+            if (['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)) return route.continue();
+            remote.push(route.request().url());
+            return route.abort();
+        });
+        for (const [basis, text] of [
+            ['conservative-full-draft', 'Conservative full-draft allowance'],
+            ['transducer-offset', 'Measured transducer offset applied'],
+            ['below-keel', 'Measured below-keel reference'],
+        ]) {
+            await page.goto(`/e2e/fixtures/wake-alarms137.html?depth=${basis}`);
+            await page.addStyleTag({ content: 'html{font-size:130%}' });
+            await expect(page.getByText(text, { exact: true })).toBeVisible();
+            await expect(page.getByText(/Reading unavailable/)).toBeVisible();
+            expect(await page.locator('body').evaluate((n) => n.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(
+                1,
+            );
+            await expect(page.getByRole('button', { name: 'Acknowledge this Pi alarm' })).toBeInViewport();
+        }
+        expect(remote).toEqual([]);
+    });
+for (const width of [300, 375])
     test(`wake Pi ACK stays explicit and readable at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 640 });
         const remote: string[] = [];

@@ -7,10 +7,14 @@ import { WakeAlarmStore } from '../../services/alarms/wakeAlarmStore';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 if (!import.meta.env.DEV) throw Error('Development fixture only');
 const owner = '00000000-0000-4000-8000-000000000001';
+const basis = new URLSearchParams(location.search).get('depth');
+const depth =
+    basis === 'below-keel' || basis === 'transducer-offset' || basis === 'conservative-full-draft' ? basis : null;
 setAuthIdentityScope(owner);
 WakeAlarmStore.publishCloud([
     {
-        preset: 'pressure-fall',
+        preset: depth ? 'depth-below-keel' : 'pressure-fall',
+        ...(depth ? { depthBasis: depth } : {}),
         status: 'unknown',
         value: null,
         quiet: false,
@@ -20,7 +24,7 @@ WakeAlarmStore.publishCloud([
             piDeviceId: '00000000-0000-4000-8000-000000000002',
             contextRevision: '00000000-0000-4000-8000-000000000006',
             rulesDigest: 'c'.repeat(64),
-            key: `wake-pressure:aaaaaaaaaaaa:${Date.now() - 121_001}`,
+            key: `wake-${depth ? 'depth' : 'pressure'}:aaaaaaaaaaaa:${Date.now() - 121_001}`,
         },
         sourceAt: Date.now() - 120_001,
     },

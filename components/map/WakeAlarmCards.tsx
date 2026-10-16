@@ -22,6 +22,17 @@ export function WakeAlarmCards({ cards }: { cards: readonly WakeAlarmCard[] }) {
                             ? ' · Alarm retained until a fresh clear reading'
                             : ` · ${card.status}`}
                     </p>
+                    {card.preset === 'depth-below-keel' && (
+                        <p className="text-xs text-gray-300">
+                            {card.depthBasis === 'conservative-full-draft'
+                                ? 'Conservative full-draft allowance'
+                                : card.depthBasis === 'transducer-offset'
+                                  ? 'Measured transducer offset applied'
+                                  : card.depthBasis === 'below-keel'
+                                    ? 'Measured below-keel reference'
+                                    : 'Depth reference unavailable'}
+                        </p>
+                    )}
                     <p className="text-xs text-gray-300">
                         {card.cloud ? 'Paired Pi wake rule · ' : ''}
                         {card.acknowledged

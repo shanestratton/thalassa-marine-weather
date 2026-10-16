@@ -12,6 +12,7 @@ import {
     type WakeEvaluation,
     type WakePreset,
     type WakeState,
+    type WakeReading,
 } from '../../utils/wakeRule';
 import { getWakeRulePreferences, subscribeWakeRulePreferences } from './wakeRulePreferences';
 import { clearWakeRuleSources, publishWakeRuleSources, wakeSourceKey } from './wakeRuleSources';
@@ -27,6 +28,7 @@ import { WakeAlarmStore } from './wakeAlarmStore';
 export interface WakePhoneRule extends WakeEvaluation {
     preset: WakePreset;
     value: number | null;
+    depthBasis?: WakeReading['depthBasis'];
 }
 export interface WakeRuleView {
     state:
@@ -110,6 +112,7 @@ export class WakeRuleWatchClass {
                     value: r.value,
                     quiet: r.quiet,
                     muted: this.view.muted,
+                    ...(r.depthBasis ? { depthBasis: r.depthBasis } : {}),
                     ...this.piEpisode(r.preset),
                 })),
         );
@@ -225,7 +228,14 @@ export class WakeRuleWatchClass {
             )
                 result.audible = false;
             this.states.set(rule.preset, result.state);
-            return { ...result, preset: rule.preset, value: reading?.value ?? null };
+            const previous = this.view.rules.find((r) => r.preset === rule.preset),
+                depthBasis = reading?.depthBasis ?? (result.state.active ? previous?.depthBasis : undefined);
+            return {
+                ...result,
+                preset: rule.preset,
+                value: result.status === 'unknown' ? null : (reading?.value ?? null),
+                ...(depthBasis ? { depthBasis } : {}),
+            };
         });
         if (rows.some((r) => r.transition === 'fire')) this.view = { ...this.view, muted: false };
         const pi = this.view.pi,

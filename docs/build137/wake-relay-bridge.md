@@ -63,6 +63,8 @@ Cards distinguish a paired-Pi wake from phone sensor alarms. Source values expir
 
 Portable wire interfaces/constants live in app-owned `utils/wakePiContract.ts` and are mirrored by the existing allowlisted wake-rule script. The Pi implementation retains Node crypto/validation and re-exports the mirrored types; web uploads need no `pi-cache` files or Node dependencies. A real isolated TypeScript compile of the canonical wire/rule uses DOM/ES libraries and `types: []`, without repository/Pi files.
 
+Depth cards explicitly distinguish measured below-keel reference, measured transducer offset and conservative full-draft allowance. Cloud rows require one of these depth references and reject a depth basis on another preset. Local and cloud cards retain the basis when their measured value becomes unavailable; a stale local reading is never copied into an unknown card as a current number. Separate focused tests and actual Chrome/WebKit enlarged-text checks cover all three wordings at 300/375 pixels.
+
 ## Evidence
 
 The held backend bytes passed 59 Deno tests and 49 PGlite SQL behavior checks. Independent actual PostgreSQL 17.6 run `38916795961` passed 17 checks, including sixteen concurrent alarm transactions giving exactly four queued pushes, two competing binds giving one CAS winner, and old sync/retire/queued-delivery refusal. No product database or notification was used.

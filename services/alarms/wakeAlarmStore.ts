@@ -1,4 +1,4 @@
-import { WAKE_PRESETS, wakePresetPriority, type WakePreset } from '../../utils/wakeRule';
+import { WAKE_PRESETS, wakePresetPriority, type WakePreset, type WakeReading } from '../../utils/wakeRule';
 import type { WakeCloudAlarmRef } from './wakeAlarmAcknowledgement';
 export interface WakeAlarmCard {
     preset: WakePreset;
@@ -9,6 +9,7 @@ export interface WakeAlarmCard {
     acknowledged?: boolean;
     cloud?: WakeCloudAlarmRef;
     sourceAt?: number;
+    depthBasis?: WakeReading['depthBasis'];
 }
 let cards: readonly WakeAlarmCard[] = [];
 let local: readonly WakeAlarmCard[] = [],
