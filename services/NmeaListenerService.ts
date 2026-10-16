@@ -38,6 +38,7 @@ import {
     type NmeaDistanceLog,
 } from './nmea/additionalSentences';
 import { clearGatewayPressure, recordGatewayPressure } from './nmea/gatewayPressure';
+import { RadarStore, type RadarInputSession } from './radar/radarStore';
 import { PGN } from './nmea2000/types';
 // Bearings cannot be averaged arithmetically: the mean of 359 and 001 is 180,
 // which points a north-facing boat due south. That trap sits exactly where
@@ -370,6 +371,7 @@ class NmeaListenerServiceClass {
     private listeners: Set<NmeaSampleCallback> = new Set();
     private statusListeners: Set<(s: NmeaConnectionStatus) => void> = new Set();
     private enabled = false;
+    private radarSession: RadarInputSession | null = null;
     /** Track if RPM data has ever been received */
     private hasRpmData = false;
     /** Partial NMEA line buffer for TCP (data may arrive mid-sentence) */
@@ -1397,7 +1399,12 @@ class NmeaListenerServiceClass {
     }
 
     private setStatus(s: NmeaConnectionStatus) {
+        if (s === 'connected' && this.status !== 'connected' && this.enabled) {
+            this.radarSession = RadarStore.openGateway();
+        }
         if (s !== 'connected') {
+            if (this.radarSession) RadarStore.retire(this.radarSession);
+            this.radarSession = null;
             this.instrumentEngines.clear();
             clearGatewayPressure();
         }
@@ -1480,6 +1487,18 @@ class NmeaListenerServiceClass {
             }
             return;
         }
+
+        // Only the live selected physical input qualifies radar. The radar feed
+        // independently requires checksums for every captured navigation dependency.
+        if (
+            this.enabled &&
+            this.status === 'connected' &&
+            this.radarSession &&
+            /^\$[A-Z0-9]{2}(?:TTM|TLL|RMC|GGA|GLL|VTG|HDT|THS),/.test(sentence)
+        ) {
+            RadarStore.ingest(this.radarSession, sentence, this.measurementAt());
+        }
+        if (validated.kind === 'radar') return;
 
         // ── AIS sentences: valid-checksum !AIVDM or !AIVDO only ──
         if (validated.kind === 'ais') {

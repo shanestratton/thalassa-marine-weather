@@ -12,7 +12,13 @@ import {
 
 /** Short, bounded history; collision encounters retain their own unresolved lost state. */
 export const RADAR_HISTORY_MS = 120_000;
-interface Observation {
+export interface RadarObservationEvidence {
+    sentence: string;
+    receivedAt: number;
+    evaluatedAt: number;
+    ownship: RadarOwnship;
+}
+interface Observation extends RadarObservationEvidence {
     report: RadarReport;
     /** Captured at ingress: later yaw/navigation must not move an old relative echo. */
     ownship: RadarOwnship;
@@ -119,7 +125,14 @@ export class RadarFeed {
                 this.tracks.delete(oldest[0]);
             }
             const ownship = this.capture();
-            track[report.sentence] = { report, ownship, solution: qualifyRadarReport(report, ownship, now) };
+            track[report.sentence] = {
+                sentence: raw as string,
+                receivedAt,
+                evaluatedAt: now,
+                report,
+                ownship,
+                solution: qualifyRadarReport(report, ownship, now),
+            };
             this.tracks.set(report.contactKey, track);
             return 'target';
         }
@@ -195,29 +208,108 @@ export class RadarFeed {
                     ? [latest]
                     : [track.TTM, track.TLL].filter((item): item is Observation => !!item);
             for (const { solution } of observations) {
-                const fresh = [solution.at, solution.receivedAt].every(
-                    (at) => at <= now + 1000 && now - at <= RADAR_REPORT_MAX_AGE_MS,
-                );
-                const motionFresh =
-                    fresh &&
-                    solution.motion &&
-                    solution.motion.at <= now + 1000 &&
-                    now - solution.motion.at <= RADAR_REPORT_MAX_AGE_MS;
-                contacts.push({
-                    ...solution,
-                    // Keep the original plotted solution as an aged last observation. Never
-                    // recompute its geometry from later navigation or expose mutable private state.
-                    position: solution.position ? { ...solution.position } : null,
-                    motion: motionFresh ? { ...solution.motion! } : null,
-                    qualifiedAt: motionFresh ? solution.qualifiedAt : null,
-                    motionReason: solution.motion && !motionFresh ? 'dependencies-stale' : solution.motionReason,
-                    fresh,
-                });
+                contacts.push(ageRadarContact(solution, now));
             }
         }
         return contacts;
     }
+    /** RAM-only raw evidence for the paired LAN; never re-derive an old echo from current navigation. */
+    evidence(now: number): RadarObservationEvidence[] {
+        if (!Number.isFinite(now)) return [];
+        this.prune(now);
+        const result: RadarObservationEvidence[] = [];
+        for (const track of this.tracks.values()) {
+            const latest = newest(track);
+            const observations =
+                latest.report.status !== 'tracking'
+                    ? [latest]
+                    : [track.TTM, track.TLL].filter((item): item is Observation => !!item);
+            for (const item of observations)
+                result.push({
+                    sentence: item.sentence,
+                    receivedAt: item.receivedAt,
+                    evaluatedAt: item.evaluatedAt,
+                    ownship: copyOwnship(item.ownship),
+                });
+        }
+        return result;
+    }
+    ownshipSnapshot(): RadarOwnship {
+        return this.capture();
+    }
     get targetCount(): number {
         return this.tracks.size;
     }
+}
+
+function copyOwnship(nav: RadarOwnship): RadarOwnship {
+    return {
+        feedId: nav.feedId,
+        position: nav.position ? { ...nav.position } : null,
+        heading: nav.heading ? { ...nav.heading } : null,
+        motion: nav.motion ? { ...nav.motion } : null,
+    };
+}
+/** Aging cannot add motion, alter geometry, or renew any original clock. */
+export function ageRadarContact(solution: RadarContact, now: number): RadarContact {
+    const fresh =
+        Number.isFinite(now) &&
+        [solution.at, solution.receivedAt].every((at) => at <= now + 1000 && now - at <= RADAR_REPORT_MAX_AGE_MS);
+    const motionFresh =
+        fresh &&
+        solution.motion &&
+        solution.motion.at <= now + 1000 &&
+        now - solution.motion.at <= RADAR_REPORT_MAX_AGE_MS;
+    return {
+        ...solution,
+        position: solution.position ? { ...solution.position } : null,
+        motion: motionFresh ? { ...solution.motion! } : null,
+        qualifiedAt: motionFresh ? solution.qualifiedAt : null,
+        motionReason: solution.motion && !motionFresh ? 'dependencies-stale' : solution.motionReason,
+        fresh,
+    };
+}
+const record = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+const bounded = (value: unknown, min: number, max: number): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
+const clock = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+/** Validate the dependency shape before the shared qualifier sees paired HTTP input. */
+export function decodeRadarOwnship(value: unknown, feedId: string): RadarOwnship | null {
+    if (!record(value) || value.feedId !== feedId || !validRadarFeedId(feedId)) return null;
+    const p = value.position,
+        h = value.heading,
+        m = value.motion;
+    if (p !== null && (!record(p) || !bounded(p.lat, -90, 90) || !bounded(p.lon, -180, 180) || !clock(p.at)))
+        return null;
+    if (h !== null && (!record(h) || !bounded(h.trueDeg, 0, 359.99999999999994) || !clock(h.at))) return null;
+    if (
+        m !== null &&
+        (!record(m) ||
+            !bounded(m.sogKn, 0, 100) ||
+            !clock(m.sogAt) ||
+            (m.cogTrueDeg !== null && !bounded(m.cogTrueDeg, 0, 359.99999999999994)) ||
+            (m.cogAt !== null && !clock(m.cogAt)) ||
+            (m.cogTrueDeg === null) !== (m.cogAt === null))
+    )
+        return null;
+    return copyOwnship(value as unknown as RadarOwnship);
+}
+/** Re-run exactly the original qualification, then age it. No HTTP-provided qualified flag is trusted. */
+export function restoreRadarObservation(value: unknown, feedId: string, now: number): RadarContact | null {
+    if (
+        !record(value) ||
+        !clock(value.receivedAt) ||
+        !clock(value.evaluatedAt) ||
+        !Number.isFinite(now) ||
+        value.evaluatedAt > now + 1000 ||
+        now - value.evaluatedAt > RADAR_HISTORY_MS ||
+        value.receivedAt > value.evaluatedAt + 1000 ||
+        value.evaluatedAt - value.receivedAt > 15_000
+    )
+        return null;
+    const ownship = decodeRadarOwnship(value.ownship, feedId);
+    if (!ownship) return null;
+    const report = parseRadarSentence(value.sentence, { feedId, receivedAt: value.receivedAt, now: value.evaluatedAt });
+    return report ? ageRadarContact(qualifyRadarReport(report, ownship, value.evaluatedAt), now) : null;
 }
