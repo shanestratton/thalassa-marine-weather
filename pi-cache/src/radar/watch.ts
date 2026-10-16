@@ -14,6 +14,7 @@ import {
     radarRecord,
     validRadarContext,
     validRadarController,
+    validRadarOwner,
     type RadarController,
     type RadarWatchCommand,
     type RadarWatchStatus,
@@ -71,6 +72,20 @@ interface Active {
 }
 const baseKey = (c: RadarServerContext | null) =>
     c ? JSON.stringify([c.ownerId, c.piDeviceId, c.pairingId, c.feedId, c.contextToken]) : 'null';
+export function radarServerOwnerRevision(server: RadarServerContext | null): string | null {
+    if (
+        !server ||
+        !/^[A-Za-z0-9:_-]{1,120}$/.test(server.contextToken) ||
+        !validRadarOwner({
+            ownerId: server.ownerId,
+            piDeviceId: server.piDeviceId,
+            pairingId: server.pairingId,
+            feedId: server.feedId,
+        })
+    )
+        return null;
+    return createHash('sha256').update(baseKey(server)).digest('hex');
+}
 const same = (a: RadarRelayContext | null, b: RadarRelayContext | null) => radarContextKey(a) === radarContextKey(b);
 export function radarAlarmKey(
     context: RadarRelayContext,
@@ -85,8 +100,12 @@ export function radarAlarmKey(
 function readCommand(raw: unknown): RadarWatchCommand {
     if (
         !radarRecord(raw) ||
-        Object.keys(raw).some((k) => !['armed', 'expected', 'prefs', 'replaceController'].includes(k)) ||
+        Object.keys(raw).some(
+            (k) => !['armed', 'expected', 'expectedOwnerRevision', 'prefs', 'replaceController'].includes(k),
+        ) ||
         typeof raw.armed !== 'boolean' ||
+        typeof raw.expectedOwnerRevision !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(raw.expectedOwnerRevision) ||
         (raw.expected !== null && !validRadarContext(raw.expected)) ||
         (raw.replaceController !== undefined && raw.replaceController !== true)
     )
@@ -94,7 +113,7 @@ function readCommand(raw: unknown): RadarWatchCommand {
     if (!raw.armed) {
         if (raw.prefs !== undefined || raw.replaceController !== undefined)
             throw new RadarWatchError(400, 'radar_invalid_command');
-        return { armed: false, expected: raw.expected };
+        return { armed: false, expected: raw.expected, expectedOwnerRevision: raw.expectedOwnerRevision };
     }
     const prefs = sanitiseCollisionPrefs(raw.prefs);
     if (
@@ -112,6 +131,7 @@ function readCommand(raw: unknown): RadarWatchCommand {
     return {
         armed: true,
         expected: raw.expected,
+        expectedOwnerRevision: raw.expectedOwnerRevision,
         prefs,
         ...(raw.replaceController ? { replaceController: true } : {}),
     };
@@ -189,6 +209,8 @@ export class RadarWatch {
             server = this.deps.currentContext();
         if (!validRadarController(controller) || !server || !/^[A-Za-z0-9:_-]{1,120}$/.test(server.contextToken))
             throw new RadarWatchError(403, 'radar_owner_context_required');
+        if (request.expectedOwnerRevision !== radarServerOwnerRevision(server))
+            throw new RadarWatchError(409, 'radar_owner_context_changed');
         const generation = this.generation;
         if (!(await this.deps.controllerCurrent(controller, server)))
             throw new RadarWatchError(403, 'radar_enrollment_required');
@@ -449,6 +471,15 @@ export class RadarWatch {
         const active = validated && this.current(validated) ? validated : null;
         if (validated && !active) this.stop();
         const cards = active?.model.cards(now) ?? [];
+        const server = this.deps.currentContext();
+        const owner = server
+            ? {
+                  ownerId: server.ownerId,
+                  piDeviceId: server.piDeviceId,
+                  pairingId: server.pairingId,
+                  feedId: server.feedId,
+              }
+            : null;
         return {
             schema: 1,
             update: 7,
@@ -457,6 +488,8 @@ export class RadarWatch {
             evaluatedAt: active ? this.evaluatedAt : null,
             contextRevision: this.revision,
             context: active ? structuredClone(active.context) : null,
+            owner: validRadarOwner(owner) ? owner : null,
+            ownerRevision: radarServerOwnerRevision(server),
             configured: raw.configured,
             running: !!active && this.evaluatedAt !== null && now >= this.evaluatedAt && now - this.evaluatedAt <= 5000,
             state: active ? this.phase : 'off',

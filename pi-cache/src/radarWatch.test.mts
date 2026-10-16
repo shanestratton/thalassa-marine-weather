@@ -8,6 +8,7 @@ import { RadarFeed } from './radar/radarFeed.js';
 import {
     RadarWatch,
     RadarWatchError,
+    radarServerOwnerRevision,
     type RadarServerContext,
     type RadarWatchEvent,
     type RadarWatchRelayPass,
@@ -81,7 +82,15 @@ function setup() {
         watch,
         events,
         passes,
-        arm: () => watch.command(controller, { armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
+        arm: () =>
+            watch.command(controller, {
+                armed: true,
+                expected: null,
+                expectedOwnerRevision: radarServerOwnerRevision(context),
+                prefs: DEFAULT_COLLISION_PREFS,
+            }),
+        command: (c: typeof controller, raw: object) =>
+            watch.command(c, { expectedOwnerRevision: radarServerOwnerRevision(context), ...raw }),
         time: (t: number) => {
             now = t;
         },
@@ -155,15 +164,12 @@ test('any current owned enrollment can exact-ACK, but stale danger key cannot AC
 test('controller/policy takeover requires explicit review and exact context CAS', async () => {
     const s = setup(),
         first = await s.arm();
+    await assert.rejects(s.command(other, { armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }), error(409));
     await assert.rejects(
-        s.watch.command(other, { armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
-        error(409),
-    );
-    await assert.rejects(
-        s.watch.command(other, { armed: true, expected: first.context, prefs: DEFAULT_COLLISION_PREFS }),
+        s.command(other, { armed: true, expected: first.context, prefs: DEFAULT_COLLISION_PREFS }),
         error(409, 'radar_controller_review_required'),
     );
-    const replacement = await s.watch.command(other, {
+    const replacement = await s.command(other, {
         armed: true,
         expected: first.context,
         prefs: DEFAULT_COLLISION_PREFS,
@@ -171,11 +177,11 @@ test('controller/policy takeover requires explicit review and exact context CAS'
     });
     assert.notEqual(replacement.context!.watchEpoch, first.context!.watchEpoch);
     await assert.rejects(
-        s.watch.command(controller, { armed: false, expected: replacement.context }),
+        s.command(controller, { armed: false, expected: replacement.context }),
         error(409, 'radar_controller_conflict'),
     );
     await assert.rejects(s.watch.acknowledge(other, { context: first.context, key: first.alarms[0].key }), error(409));
-    const stopped = await s.watch.command(other, { armed: false, expected: replacement.context });
+    const stopped = await s.command(other, { armed: false, expected: replacement.context });
     assert.equal(stopped.running, false);
     assert.equal(stopped.alarms.length, 0);
 });
@@ -234,9 +240,9 @@ test('malformed prefs/body cannot turn default-normalization into an accepted co
         { offshore: { cpaNm: 0, tcpaMin: 0 }, inshore: DEFAULT_COLLISION_PREFS.inshore },
         { ...DEFAULT_COLLISION_PREFS, extra: true },
     ])
-        await assert.rejects(s.watch.command(controller, { armed: true, expected: null, prefs }), error(400));
+        await assert.rejects(s.command(controller, { armed: true, expected: null, prefs }), error(400));
     await assert.rejects(
-        s.watch.command(controller, {
+        s.command(controller, {
             armed: true,
             expected: null,
             prefs: DEFAULT_COLLISION_PREFS,
@@ -266,13 +272,19 @@ test('real HTTP routes stay read-only on GET, require enrollment, reject queries
     assert.equal((await fetch(base)).status, 403);
     const get = await fetch(base, { headers });
     assert.equal(get.headers.get('cache-control'), 'no-store');
-    assert.equal(((await get.json()) as { running: boolean }).running, false);
+    const off = (await get.json()) as { running: boolean; ownerRevision: string };
+    assert.equal(off.running, false);
     assert.equal(s.events.length, 0);
     assert.equal((await fetch(base + '?arm=true', { headers })).status, 400);
     const arm = await fetch(base, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
+        body: JSON.stringify({
+            armed: true,
+            expected: null,
+            expectedOwnerRevision: off.ownerRevision,
+            prefs: DEFAULT_COLLISION_PREFS,
+        }),
     });
     assert.equal(arm.status, 200);
     const status = (await arm.json()) as Awaited<ReturnType<RadarWatch['describe']>>;
@@ -370,7 +382,7 @@ test('an unreadable current controller cannot be silently treated as an empty CA
         throw Error('temporary controller store failure');
     });
     await assert.rejects(
-        s.watch.command(other, { armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
+        s.command(other, { armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
         error(503, 'radar_enrollment_unavailable'),
     );
     s.enrolled(() => true);
@@ -395,4 +407,33 @@ test('remote danger ACK uses its original clock and never renews its 30-minute m
     await s.watch.tick();
     assert.equal((await s.watch.describe()).alarms[0].key, key);
     assert.equal(s.events.filter((e) => e.action === 'ack').length, 0);
+});
+
+test('OFF status carries server owner proof and initial arm refuses an old reviewed source epoch', async () => {
+    const s = setup(),
+        off = await s.watch.describe();
+    assert.equal(off.owner!.ownerId, fixture.context.binding.ownerId);
+    assert.match(off.ownerRevision!, /^[a-f0-9]{64}$/);
+    const previous = off.ownerRevision;
+    s.context({ ...s.getContext(), contextToken: 'f'.repeat(64) });
+    await assert.rejects(
+        s.watch.command(controller, {
+            armed: true,
+            expected: null,
+            expectedOwnerRevision: previous,
+            prefs: DEFAULT_COLLISION_PREFS,
+        }),
+        error(409, 'radar_owner_context_changed'),
+    );
+    await assert.rejects(
+        s.watch.command(controller, { armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
+        error(400),
+    );
+    const next = await s.arm();
+    assert.notEqual(next.ownerRevision, previous);
+    s.context({ ...s.getContext(), ownerId: '99999999-9999-4999-8999-999999999999' });
+    const changed = await s.watch.describe();
+    assert.equal(changed.context, null);
+    assert.equal(changed.alarms.length, 0);
+    assert.equal(changed.owner!.ownerId, '99999999-9999-4999-8999-999999999999');
 });

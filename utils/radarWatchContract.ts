@@ -1,7 +1,8 @@
 /** Bounded paired-LAN radar watch wire. Server identity is never accepted from HTTP bodies. */
 import type { CollisionPrefs } from './collisionRule.js';
 import type { RadarEncounterCard } from './radarEncounters.js';
-import type { RadarRelayContext } from './radarRelayContract.js';
+import type { RadarRelayContext, RadarRelayBinding } from './radarRelayContract.js';
+export type RadarWatchOwner = Pick<RadarRelayBinding, 'ownerId' | 'piDeviceId' | 'pairingId' | 'feedId'>;
 export interface RadarController {
     deviceId: string;
     enrollmentRevision: string;
@@ -17,6 +18,8 @@ export interface RadarWatchStatus {
     evaluatedAt: number | null;
     contextRevision: number;
     context: RadarRelayContext | null;
+    owner: RadarWatchOwner | null;
+    ownerRevision: string | null;
     configured: boolean;
     running: boolean;
     state: 'off' | 'armed' | 'blind' | 'no-fix';
@@ -33,6 +36,7 @@ export interface RadarWatchStatus {
 export type RadarWatchCommand = {
     armed: boolean;
     expected: RadarRelayContext | null;
+    expectedOwnerRevision: string;
     prefs?: CollisionPrefs;
     replaceController?: true;
 };
@@ -41,6 +45,17 @@ const uuid = (v: unknown): v is string =>
 const hash = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
 export const radarRecord = (v: unknown): v is Record<string, unknown> =>
     !!v && typeof v === 'object' && !Array.isArray(v);
+export function validRadarOwner(v: unknown): v is RadarWatchOwner {
+    return (
+        radarRecord(v) &&
+        Object.keys(v).length === 4 &&
+        uuid(v.ownerId) &&
+        uuid(v.piDeviceId) &&
+        hash(v.pairingId) &&
+        typeof v.feedId === 'string' &&
+        new RegExp(`^pi:${v.piDeviceId}:[0-9a-f]{24}$`).test(v.feedId)
+    );
+}
 export function validRadarController(v: unknown): v is RadarController {
     return radarRecord(v) && Object.keys(v).length === 2 && uuid(v.deviceId) && hash(v.enrollmentRevision);
 }

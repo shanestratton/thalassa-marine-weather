@@ -1,7 +1,9 @@
 import { decodeRadarOwnship, restoreRadarObservation } from '../../utils/radarFeed';
 import type { RadarContact, RadarOwnship } from '../../utils/radarTarget';
+import { validRadarOwner, type RadarWatchOwner } from '../../utils/radarWatchContract';
 export const RADAR_PI_BYTES = 512 * 1024;
 export interface PiRadarPicture {
+    owner: RadarWatchOwner;
     configured: boolean;
     connected: boolean;
     overloaded: boolean;
@@ -20,6 +22,7 @@ export function decodePiRadarPicture(body: unknown, now: number): PiRadarPicture
     const servedAt = body.servedAt;
     if (
         body.schema !== 1 ||
+        !validRadarOwner(body.owner) ||
         body.source !== 'radar' ||
         !clock(servedAt) ||
         !Number.isFinite(now) ||
@@ -33,7 +36,7 @@ export function decodePiRadarPicture(body: unknown, now: number): PiRadarPicture
         ![body.lastFrameAt, body.lastTargetAt].every((at) => at === null || (clock(at) && at <= servedAt + 1000))
     )
         return null;
-    const { configured, connected, overloaded } = body;
+    const { configured, connected, overloaded, owner } = body;
     const lastFrameAt = body.lastFrameAt as number | null,
         lastTargetAt = body.lastTargetAt as number | null;
     if (!connected) {
@@ -46,6 +49,7 @@ export function decodePiRadarPicture(body: unknown, now: number): PiRadarPicture
         )
             return null;
         return {
+            owner: { ...owner },
             configured,
             connected,
             overloaded,
@@ -85,6 +89,7 @@ export function decodePiRadarPicture(body: unknown, now: number): PiRadarPicture
     if (targets.size > 200 || (lastTargetAt !== null && (lastFrameAt === null || lastTargetAt > lastFrameAt)))
         return null;
     return {
+        owner: { ...owner },
         configured,
         connected,
         overloaded,

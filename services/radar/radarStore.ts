@@ -141,6 +141,7 @@ export class RadarPictureStore {
     acceptPi(picture: OwnedPiRadarPicture): RadarPiSession | null {
         if (this.disposed || !picture.isCurrent()) return null;
         const owner = this.deps.scope();
+        if (picture.owner.ownerId !== owner.userId) return null;
         const previous = this.pi && this.deps.current(this.pi.owner) && this.pi.picture.isCurrent() ? this.pi : null;
         if (!this.deps.current(owner) || (previous && picture.servedAt < previous.picture.servedAt)) return null;
         if (!picture.connected || !picture.feedId) {
@@ -158,6 +159,7 @@ export class RadarPictureStore {
             owner,
             picture: {
                 ...picture,
+                owner: Object.freeze({ ...picture.owner }),
                 contacts: picture.contacts.map(freezeContact),
                 ownship: freezeOwnship(picture.ownship),
             },

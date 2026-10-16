@@ -29,7 +29,8 @@ export async function loadPiRadarPicture(
         record = getPairing(),
         pairing = record ? { ...record } : null,
         base = piCache.lanBaseUrlNow();
-    if (!base || !pairing?.publicKeySpki || !isPinnedTransportAvailable()) throw new PiRadarError('unavailable');
+    if (!scope.userId || !base || !pairing?.publicKeySpki || !isPinnedTransportAvailable())
+        throw new PiRadarError('unavailable');
     const identityCurrent = () => {
         const next = getPairing();
         return (
@@ -55,6 +56,11 @@ export async function loadPiRadarPicture(
                 responseType: 'text',
                 connectTimeout: 2000,
                 readTimeout: 4000,
+                isCurrent: () =>
+                    identityCurrent() &&
+                    !options.signal?.aborted &&
+                    options.isCurrent?.() !== false &&
+                    performance.now() - started < 5000,
             }),
             new Promise<never>((_, reject) => {
                 timer = setTimeout(() => reject(new PiRadarError('unavailable')), 5000);
@@ -79,7 +85,8 @@ export async function loadPiRadarPicture(
             throw new PiRadarError('invalid');
         }
         const picture = decodePiRadarPicture(body, Date.now());
-        if (!picture) throw new PiRadarError('invalid');
+        if (!picture || picture.owner.ownerId !== scope.userId || picture.owner.piDeviceId !== pairing.deviceId)
+            throw new PiRadarError('invalid');
         guard();
         return { ...picture, isCurrent: identityCurrent };
     } catch (error) {

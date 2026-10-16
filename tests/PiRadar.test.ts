@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const f = vi.hoisted(() => ({
     request: vi.fn(),
     identity: 1,
-    pair: { deviceId: 'pi-generated', publicKeySpki: 'generated-pin', pairedAt: 'generated' },
+    userId: '11111111-1111-4111-8111-111111111111' as string | null,
+    pair: { deviceId: '22222222-2222-4222-8222-222222222222', publicKeySpki: 'generated-pin', pairedAt: 'generated' },
     base: 'https://192.0.2.1:3443',
     available: true,
 }));
 vi.mock('../services/authIdentityScope', () => ({
-    getAuthIdentityScope: () => ({ generation: f.identity }),
+    getAuthIdentityScope: () => ({ generation: f.identity, userId: f.userId }),
     isAuthIdentityScopeCurrent: (s: { generation: number }) => s.generation === f.identity,
 }));
 vi.mock('../services/PiPairingService', () => ({ getPairing: () => f.pair, pinnedPiRequest: f.request }));
@@ -28,6 +29,12 @@ function packet() {
     feed.ingest(frame('RATLL,1,5030.000,N,00115.000,W,Generated,120000,T,'), T, T);
     return {
         schema: 1,
+        owner: {
+            ownerId: '11111111-1111-4111-8111-111111111111',
+            piDeviceId: '22222222-2222-4222-8222-222222222222',
+            pairingId: 'a'.repeat(64),
+            feedId: 'pi:22222222-2222-4222-8222-222222222222:' + 'c'.repeat(24),
+        },
         source: 'radar',
         configured: true,
         connected: true,
@@ -44,7 +51,12 @@ beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(T);
     f.identity = 1;
-    f.pair = { deviceId: 'pi-generated', publicKeySpki: 'generated-pin', pairedAt: 'generated' };
+    f.userId = '11111111-1111-4111-8111-111111111111';
+    f.pair = {
+        deviceId: '22222222-2222-4222-8222-222222222222',
+        publicKeySpki: 'generated-pin',
+        pairedAt: 'generated',
+    };
     f.base = 'https://192.0.2.1:3443';
     f.available = true;
     f.request.mockReset();
@@ -109,6 +121,8 @@ describe('private bounded Pi radar reader', () => {
         expect(decodePiRadarPicture(p, T)?.contacts).toHaveLength(1);
         for (const patch of [
             { source: 'ais' },
+            { owner: null },
+            { owner: { ...p.owner, feedId: 'unverified-self' } },
             { feedId: 'radar:mmsi:123' },
             { servedAt: T + 1001 },
             { servedAt: T - 15001 },
@@ -120,5 +134,30 @@ describe('private bounded Pi radar reader', () => {
         const old = decodePiRadarPicture({ ...p, servedAt: T + 16000 }, T + 16000)!;
         expect(old.contacts[0].fresh).toBe(false);
         expect(old.contacts[0].at).toBe(T);
+    });
+});
+
+describe('server-tagged radar owner privacy', () => {
+    it.each(['owner', 'pi'] as const)('refuses another %s on the same pinned LAN', async (field) => {
+        const p = packet();
+        if (field === 'owner') p.owner.ownerId = '99999999-9999-4999-8999-999999999999';
+        else {
+            p.owner.piDeviceId = '99999999-9999-4999-8999-999999999999';
+            p.owner.feedId = `pi:${p.owner.piDeviceId}:` + 'c'.repeat(24);
+        }
+        f.request.mockResolvedValue({ status: 200, data: JSON.stringify(p) });
+        await expect(loadPiRadarPicture()).rejects.toMatchObject({ code: 'invalid' });
+    });
+    it('does not request private raw data without a current account and fences delayed header loading', async () => {
+        f.userId = null;
+        await expect(loadPiRadarPicture()).rejects.toMatchObject({ code: 'unavailable' });
+        expect(f.request).not.toHaveBeenCalled();
+        f.userId = '11111111-1111-4111-8111-111111111111';
+        f.request.mockResolvedValue({ status: 200, data: JSON.stringify(packet()) });
+        await loadPiRadarPicture();
+        const request = f.request.mock.calls[0][0];
+        expect(request.isCurrent()).toBe(true);
+        f.identity++;
+        expect(request.isCurrent()).toBe(false);
     });
 });

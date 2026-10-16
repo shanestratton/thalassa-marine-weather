@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/radar-relay137.json';
-import { radarContextKey, validRadarContext, validRadarController } from '../utils/radarWatchContract';
+import { radarContextKey, validRadarContext, validRadarController, validRadarOwner } from '../utils/radarWatchContract';
 describe('paired radar controller/context contract', () => {
     it('uses the actual portable relay fixture and rejects incomplete or extended identities', () => {
         const context = fixture.context;
@@ -31,4 +31,12 @@ describe('paired radar controller/context contract', () => {
             radarContextKey(c),
         );
     });
+});
+
+it('owner envelope is exactly server-owned account/Pi/pair/self identity', () => {
+    const b = fixture.context.binding;
+    const owner = { ownerId: b.ownerId, piDeviceId: b.piDeviceId, pairingId: b.pairingId, feedId: b.feedId };
+    expect(validRadarOwner(owner)).toBe(true);
+    expect(validRadarOwner({ ...owner, contextToken: 'private-root-token' })).toBe(false);
+    expect(validRadarOwner({ ...owner, pairingId: 'unverified' })).toBe(false);
 });

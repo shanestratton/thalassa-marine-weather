@@ -124,6 +124,12 @@ function piPicture(
 ) {
     const feedId = 'pi:' + 'a'.repeat(32);
     return {
+        owner: {
+            ownerId: 'one',
+            piDeviceId: '22222222-2222-4222-8222-222222222222',
+            pairingId: 'a'.repeat(64),
+            feedId: 'pi:22222222-2222-4222-8222-222222222222:' + 'c'.repeat(24),
+        },
         configured: true,
         connected: true,
         overloaded: false,
