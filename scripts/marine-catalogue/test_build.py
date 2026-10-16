@@ -20,6 +20,59 @@ def geoline(ident="1", name="Fictional Coral Bay", code="BAY", lat="-17", lon="1
     return "\t".join(c) + "\n"
 
 class BuildTests(unittest.TestCase):
+    def osm_fixture(self, root, features):
+        path = self.fixture(root, "".join(json.dumps(feature) + "\n" for feature in features))
+        spec = json.loads(path.read_text(encoding="utf-8"))
+        spec.update(dataset="osm", licence=b.LICENCES["osm"])
+        spec["inputs"][0]["sourceUrl"] = "https://download.geofabrik.de/central-america-261015.osm.pbf"
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        return path
+
+    def test_retained_four_closed_way_exports_have_exact_order_independent_points(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures/central-america-osm-dual-geometry.json").read_text(encoding="utf-8"))
+        groups = {}
+        for feature in fixture["features"]:
+            groups.setdefault(b.osm(feature)["id"], []).append(feature)
+        self.assertEqual(set(groups), {"osm-way179084944", "osm-way830303041", "osm-way830303042", "osm-way1445268880"})
+        for first, second in groups.values():
+            self.assertEqual(first["properties"], second["properties"])
+            self.assertEqual(b.geometry_points(first["geometry"]), b.geometry_points(second["geometry"]))
+            self.assertEqual(b.geometry_fingerprint(first["geometry"]), b.geometry_fingerprint(second["geometry"]))
+            self.assertEqual(b.osm(first), b.osm(second))
+        records = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, features in enumerate((fixture["features"], list(reversed(fixture["features"])))):
+                root = Path(tmp) / str(index); root.mkdir()
+                generation = b.build(self.osm_fixture(root, features), root / "output")
+                rows = [row for path in (generation / "areas").glob("*.json") for row in json.loads(path.read_text(encoding="utf-8"))["records"]]
+                self.assertEqual(len(rows), 4)
+                records.append(sorted(rows, key=lambda row: row["id"]))
+        self.assertEqual(records[0], records[1])
+
+    def test_osm_different_geometry_with_same_midpoint_refuses_in_either_order(self):
+        first = {"properties": {"@id": "w123", "seamark:type": "anchorage"}, "geometry": {"type": "LineString", "coordinates": [[1, 1], [3, 3]]}}
+        second = {**first, "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 1], [3, 3]]}}
+        self.assertEqual(b.osm(first), b.osm(second))  # Equal display points cannot hide changed source vertices.
+        self.assertNotEqual(b.geometry_fingerprint(first["geometry"]), b.geometry_fingerprint(second["geometry"]))
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, features in enumerate(([first, second], [second, first])):
+                root = Path(tmp) / str(index); root.mkdir()
+                with self.assertRaisesRegex(ValueError, "Conflicting OSM source ID: osm-way123"):
+                    b.build(self.osm_fixture(root, features), root / "output")
+                self.assertEqual(list((root / "output" / "osm").iterdir()), [])
+
+    def test_osm_changed_name_or_location_refuses_and_preserves_prior_generation(self):
+        first = {"properties": {"@id": "n123", "seamark:type": "mooring"}, "geometry": {"type": "Point", "coordinates": [1, 1]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original = b.build(self.osm_fixture(root, [first]), root / "output")
+            before = (original / "manifest.json").read_bytes()
+            for changed in ({**first, "properties": {**first["properties"], "name": "Changed"}}, {**first, "geometry": {"type": "Point", "coordinates": [2, 1]}}):
+                with self.assertRaisesRegex(ValueError, "Conflicting OSM source ID"):
+                    b.build(self.osm_fixture(root, [first, changed]), root / "output")
+                self.assertEqual((original / "manifest.json").read_bytes(), before)
+                self.assertEqual(list((root / "output" / "osm").iterdir()), [original])
+
     def test_geonames_stable_alias_id_and_missing(self):
         row = b.geonames(geoline())
         self.assertEqual(row["id"], "geonames:1")

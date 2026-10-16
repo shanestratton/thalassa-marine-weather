@@ -26,6 +26,7 @@ MAX_RECORDS = 2_000_000
 MAX_SHARD_BYTES = 2 * 1024**2
 MAX_OUTPUT_BYTES = 2 * 1024**3
 BUILD_POLICY = b"marine-v1-area-quadtree8-name24"
+OSM_BUILD_POLICY = b"osm-vertex-order-independent-conflict-check1"
 LICENCES = {
     "places": "https://creativecommons.org/licenses/by/4.0/",
     "osm": "https://opendatacommons.org/licenses/odbl/1-0/",
@@ -69,13 +70,10 @@ def geonames(line):
     aliases = list(dict.fromkeys(text(n) for n in [c[2], *c[3].split(",")] if text(n) and text(n) != text(c[1])))[:16]
     return {"id": f"geonames:{c[0]}", "name": text(c[1]), "kind": GEONAMES[c[7]], "lat": lat, "lon": lon, "country": c[8] if re.fullmatch(r"[A-Z]{2}", c[8]) else "", "aliases": aliases, "approximate": True}
 
-def center(geometry):
-    """Representative point only; never claims interior/water/anchor-drop position."""
+def geometry_points(geometry, canonical=True):
+    """Validated vertices, independent of ring start, direction or export shape."""
     if not geometry:
         raise ValueError("Missing geometry")
-    if geometry.get("type") == "Point":
-        lon, lat = geometry["coordinates"][:2]
-        return (*position(lat, lon), False)
     points = []
     def walk(value):
         if isinstance(value, list) and len(value) >= 2 and all(isinstance(n, (int, float)) for n in value[:2]):
@@ -87,8 +85,23 @@ def center(geometry):
     walk(geometry.get("coordinates"))
     if not points:
         raise ValueError("Missing representative geometry")
-    # Unwrap around the first longitude; a Fiji polygon must not move to Greenwich.
-    base = points[0][1]
+    return sorted(set((lat or 0.0, lon or 0.0) for lat, lon in points)) if canonical else points
+
+def geometry_fingerprint(geometry):
+    # Osmium emits a closed way as both a line and an area, rotating its ring.
+    # We publish only a representative point, but differing vertices must not
+    # disappear merely because two shapes happen to have the same midpoint.
+    return hashlib.sha256(json.dumps(geometry_points(geometry), separators=(",", ":")).encode()).hexdigest()
+
+def center(geometry, *, order_independent=False):
+    """Representative point only; never claims interior/water/anchor-drop position."""
+    if geometry and geometry.get("type") == "Point":
+        lon, lat = geometry["coordinates"][:2]
+        return (*position(lat, lon), False)
+    points = geometry_points(geometry, canonical=order_independent)
+    # Use one canonical base: ring rotation must not change floating-point
+    # normalization. Unwrap a Fiji polygon without moving it to Greenwich.
+    base = min(lon for _, lon in points) if order_independent else points[0][1]
     longitudes = [base + ((lon - base + 180) % 360) - 180 for _, lon in points]
     lon = ((min(longitudes) + max(longitudes)) / 2 + 180) % 360 - 180
     return (min(p[0] for p in points) + max(p[0] for p in points)) / 2, lon, True
@@ -115,7 +128,7 @@ def osm(feature):
     mooring = p.get("mooring") == "buoy" or p.get("seamark:buoy_special_purpose:category") == "mooring" or (seamark == "mooring" and p.get("seamark:mooring:category", "buoy") == "buoy")
     if not anchorage and not mooring:
         return None  # Protection marks, piles, bollards are not pick-up buoys.
-    lat, lon, approximate = center(feature.get("geometry"))
+    lat, lon, approximate = center(feature.get("geometry"), order_independent=True)
     restrictions = [f"Reported {key}: {text(p[key], 240)}" for key in ("access", "boat", "anchoring", "access:conditional", "boat:conditional", "anchoring:conditional", "seamark:anchorage:restriction", "seamark:mooring:restriction") if key in p and p[key] not in ("yes", "public", "none", "unrestricted")][:12]
     colours = list(dict.fromkeys(re.split(r"[;,]", text(p.get("seamark:mooring:colour") or p.get("colour")).lower().replace("gray", "grey"))))
     return {"id": f"osm-{ident}", "name": text(p.get("name") or p.get("seamark:name")) or ("Mapped anchorage" if anchorage else "Mapped mooring"), "kind": "anchorage" if anchorage else "mooring", "lat": lat, "lon": lon, "country": "", "aliases": [], "approximate": approximate, "access": text(p.get("access") or p.get("seamark:mooring:access") or p.get("seamark:anchorage:access"), 300) or "Unknown — check permission", "restrictions": restrictions, "colours": [c for c in colours if c in {"blue", "white", "red", "green", "yellow", "orange", "black", "brown", "grey"}]}
@@ -168,7 +181,8 @@ def build(input_manifest, output):
     if source_at.tzinfo is None or source_at > now + dt.timedelta(minutes=5) or source_at < now - dt.timedelta(days=45):
         raise ValueError("Old/future source snapshot; review before monthly publication")
     sources = [checked_input(s, input_manifest.parent, dataset) for s in spec["inputs"]]
-    generation = now.strftime("%Y%m") + "-" + hashlib.sha256(raw + b"\0" + BUILD_POLICY).hexdigest()[:16]
+    policy = BUILD_POLICY + (b"\0" + OSM_BUILD_POLICY if dataset == "osm" else b"")
+    generation = now.strftime("%Y%m") + "-" + hashlib.sha256(raw + b"\0" + policy).hexdigest()[:16]
     root = Path(output).resolve() / dataset
     root.mkdir(parents=True, exist_ok=True)
     destination = root / generation
@@ -180,6 +194,7 @@ def build(input_manifest, output):
         database.execute("PRAGMA cache_size=-16384")
         database.execute("PRAGMA max_page_count=524288")  #2GiB scratch database, independent of free disk.
         database.execute("CREATE TABLE records (id TEXT PRIMARY KEY, area TEXT, lat REAL, lon REAL, json TEXT)")
+        database.execute("CREATE TABLE osm_geometry (id TEXT PRIMARY KEY, sha TEXT)")
         database.execute("CREATE TABLE names (value TEXT, id TEXT, PRIMARY KEY(value,id))")
         database.execute("CREATE INDEX record_areas ON records(area,lat,lon)")
         admitted = 0
@@ -191,18 +206,27 @@ def build(input_manifest, output):
                     if not raw_line.strip():
                         continue
                     line = raw_line.decode("utf-8")
-                    record = geonames(line) if dataset == "places" else (osm if dataset == "osm" else noaa)(json.loads(line))
+                    feature = None if dataset == "places" else json.loads(line)
+                    record = geonames(line) if dataset == "places" else (osm if dataset == "osm" else noaa)(feature)
                     if record is None:
                         continue
                     encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-                    # Input order is reviewed: latest/highest-detail NOAA cell last.
+                    geometry_sha = geometry_fingerprint(feature.get("geometry")) if dataset == "osm" else None
                     indexed_lon = (record["lon"] + 180) % 360 - 180
                     indexed_area = area(record["lat"], record["lon"])
                     inserted = database.execute("INSERT OR IGNORE INTO records VALUES(?,?,?,?,?)", (record["id"], indexed_area, record["lat"], indexed_lon, encoded))
                     admitted += inserted.rowcount
                     if admitted > MAX_RECORDS: raise ValueError("Admitted record cap exceeded")
                     if inserted.rowcount == 0:
-                        database.execute("UPDATE records SET area=?,lat=?,lon=?,json=? WHERE id=?", (indexed_area, record["lat"], indexed_lon, encoded, record["id"]))
+                        if dataset == "osm":
+                            previous = database.execute("SELECT r.json,g.sha FROM records r JOIN osm_geometry g ON g.id=r.id WHERE r.id=?", (record["id"],)).fetchone()
+                            if previous != (encoded, geometry_sha):
+                                raise ValueError("Conflicting OSM source ID: " + record["id"])
+                        else:
+                            # NOAA input order is reviewed: latest/highest-detail cell last.
+                            database.execute("UPDATE records SET area=?,lat=?,lon=?,json=? WHERE id=?", (indexed_area, record["lat"], indexed_lon, encoded, record["id"]))
+                    elif dataset == "osm":
+                        database.execute("INSERT INTO osm_geometry VALUES(?,?)", (record["id"], geometry_sha))
                     if dataset == "places":
                         for name in [record["name"], *record["aliases"]]:
                             value = normalise(name).replace(" ", "")
