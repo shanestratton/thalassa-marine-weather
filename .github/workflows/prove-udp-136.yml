@@ -1,0 +1,34 @@
+name: Thalassa 136 native UDP replacement proof
+on:
+    push:
+        branches: ['codex/build-136-udp-proof']
+        paths: ['.github/workflows/prove-udp-136.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-136-udp-proof
+    cancel-in-progress: false
+jobs:
+    native-sockets:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: macos-26
+        timeout-minutes: 10
+        env:
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: bec596010561733fe74386b9bb2544a68f2cdf9d
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Exact source and real native cancellation/rebind proof
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = 'bec596010561733fe74386b9bb2544a68f2cdf9d'
+                  git merge-base --is-ancestor c35e2f4d225cd314f92280dca21409b933074b62 HEAD
+                  test -d "$DEVELOPER_DIR"
+                  xcode_version="$(xcodebuild -version)"
+                  test "${xcode_version%%$'\n'*}" = 'Xcode 26.6'
+                  xcrun swiftc ios/App/App/NmeaUdpRebindGate.swift tests/native/NmeaUdpRebindGateProof.swift -o "$RUNNER_TEMP/thalassa-udp-rebind-proof"
+                  "$RUNNER_TEMP/thalassa-udp-rebind-proof"
+                  echo 'Production UDP replacement gate and 32 actual same-port macOS socket rebinds passed. Physical iPhone/gateway checks remain pending.' >> "$GITHUB_STEP_SUMMARY"
