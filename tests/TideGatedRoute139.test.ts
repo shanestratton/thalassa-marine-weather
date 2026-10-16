@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import { routeInshore } from '../services/inshoreRouterEngine';
-import type { NavGrid, RouteRequest } from '../services/engine/types';
+import type { NavGrid, RouteRequest, InshoreLayers } from '../services/engine/types';
 import { applyTideSoundingMinima } from '../services/engine/tideGatedRoute';
 import { buildExclusionField, routeExclusionConflict } from '../services/engine/exclusionField';
 const T = Date.parse('2026-10-17T01:00:23.456Z');
@@ -55,7 +55,7 @@ function request(): RouteRequest {
         },
     };
 }
-const layers = () => ({
+const layers = (): InshoreLayers => ({
     DEPARE: fc(
         rect(-0.2, -0.2, -0.00035, 0.2, { DRVAL1: 5, DRVAL2: 10 }),
         rect(0.00035, -0.2, 0.2, 0.2, { DRVAL1: 5, DRVAL2: 10 }),

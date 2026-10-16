@@ -1107,6 +1107,7 @@ export interface RouteFailure {
         | 'empty-grid'
         | 'route-exclusion'
         | 'exclusion-unavailable'
+        | 'tide-window-unavailable'
         | 'uncharted-corridor'
         /** The final emitted geometry would sustain a run across exact charted
          * land with no overlapping water evidence. */
