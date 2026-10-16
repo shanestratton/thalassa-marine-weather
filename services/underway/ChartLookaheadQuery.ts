@@ -23,7 +23,8 @@ export interface ChartLookaheadResult {
 }
 // These indexes are separate from the legacy router's lifecycle. Three
 // retained cells bound their memory; a registry change invalidates all.
-const cache = new Map<string, { index: EncSpatialIndex; datum: string | null }>();
+type LocalIndex = { index: EncSpatialIndex; datum: string | null };
+const cache = new Map<string, LocalIndex>();
 let version = -1;
 
 export async function queryChartLookahead(
@@ -50,45 +51,84 @@ export async function queryChartLookahead(
     // per cell below; this never turns a non-LAT cell into LAT water.
     let curve: Awaited<ReturnType<typeof fetchTideCurve>> | null = null;
     let curveAsked = false;
-    for (const cell of cells.slice(0, 8)) {
-        let held = cache.get(cell.id);
-        if (!held) {
-            const blob = await loadCellGeoJSON(cell.id, false).catch(() => null);
-            if (!blob || getVersion() !== current) continue;
-            held = {
-                index: new EncSpatialIndex(cell.id, buildHazardsForCell(blob), [], buildCoastlines(blob)),
-                datum: cellSoundingDatum(blob),
-            };
-            cache.set(cell.id, held);
-            while (cache.size > 3) cache.delete(cache.keys().next().value!);
+    const releases: Array<() => void> = [];
+    try {
+        for (const cell of cells.slice(0, 8)) {
+            const indexes: LocalIndex[] = [];
+            if (cell.noaaPackage) {
+                // A dateline crossing needs both ordinary request boxes. Every
+                // relevant window must pass before this logical cell is covered.
+                // Views stay charged until candidates below are no longer retained.
+                try {
+                    const { loadNoaaPackageWindow } = await import('../enc/noaaPackageWindow');
+                    for (const box of boxes) {
+                        const [w, s, e, n] = box,
+                            [cw, cs, ce, cn] = cell.bbox;
+                        if (ce < w || cw > e || cn < s || cs > n) continue;
+                        const view = await loadNoaaPackageWindow(cell, box);
+                        releases.push(view.release);
+                        indexes.push({
+                            index: new EncSpatialIndex(
+                                cell.id,
+                                buildHazardsForCell(view.blob),
+                                [],
+                                buildCoastlines(view.blob),
+                            ),
+                            datum: cellSoundingDatum(view.blob),
+                        });
+                    }
+                } catch {
+                    // No monolith, Pi or WAN fallback; a partial package view is
+                    // never promoted to complete clear-water evidence.
+                    continue;
+                }
+            } else {
+                let held = cache.get(cell.id);
+                if (!held) {
+                    const blob = await loadCellGeoJSON(cell.id, false).catch(() => null);
+                    if (!blob || getVersion() !== current) continue;
+                    held = {
+                        index: new EncSpatialIndex(cell.id, buildHazardsForCell(blob), [], buildCoastlines(blob)),
+                        datum: cellSoundingDatum(blob),
+                    };
+                    cache.set(cell.id, held);
+                    while (cache.size > 3) cache.delete(cache.keys().next().value!);
+                }
+                indexes.push(held);
+            }
+            if (!indexes.length) continue;
+            loaded++;
+            for (const held of indexes) {
+                const candidates = held.index.lookaheadCandidates(cone.polygon);
+                if (all.length + candidates.length > 5000 || !aheadGeometryWithinLimit(candidates))
+                    return { hit, coverage: 'partial' };
+                all.push(...candidates);
+                if (held.datum === 'LAT' && !curveAsked && boxes.length === 1) {
+                    curveAsked = true;
+                    curve = await fetchTideCurve(
+                        cone.fix.lat,
+                        cone.fix.lon,
+                        cone.fix.at,
+                        cone.fix.at + (cone.distanceNm / cone.fix.sogKn) * 3600_000,
+                        { chartBounds: boxes[0] },
+                    ).catch(() => null);
+                }
+                const next = scanAhead(cone, candidates, draftM, ukcM, (eta) =>
+                    held.datum === 'LAT' && curve?.datum === 'LAT' ? curve.heightAt(eta) : null,
+                );
+                if (next && (!hit || next.etaMs < hit.etaMs)) hit = next;
+            }
         }
-        loaded++;
-        const candidates = held.index.lookaheadCandidates(cone.polygon);
-        if (all.length + candidates.length > 5000 || !aheadGeometryWithinLimit(candidates))
-            return { hit, coverage: 'partial' };
-        all.push(...candidates);
-        if (held.datum === 'LAT' && !curveAsked && boxes.length === 1) {
-            curveAsked = true;
-            curve = await fetchTideCurve(
-                cone.fix.lat,
-                cone.fix.lon,
-                cone.fix.at,
-                cone.fix.at + (cone.distanceNm / cone.fix.sogKn) * 3600_000,
-                { chartBounds: boxes[0] },
-            ).catch(() => null);
-        }
-        const next = scanAhead(cone, candidates, draftM, ukcM, (eta) =>
-            held.datum === 'LAT' && curve?.datum === 'LAT' ? curve.heightAt(eta) : null,
-        );
-        if (next && (!hit || next.etaMs < hit.etaMs)) hit = next;
+        if (getVersion() !== current) return { hit: null, coverage: 'none' };
+        return {
+            hit,
+            coverage: !loaded
+                ? 'none'
+                : loaded === cells.length && cells.length <= 8 && coneIsCovered(cone, all)
+                  ? 'charted'
+                  : 'partial',
+        };
+    } finally {
+        for (const release of releases) release();
     }
-    if (getVersion() !== current) return { hit: null, coverage: 'none' };
-    return {
-        hit,
-        coverage: !loaded
-            ? 'none'
-            : loaded === cells.length && cells.length <= 8 && coneIsCovered(cone, all)
-              ? 'charted'
-              : 'partial',
-    };
 }
