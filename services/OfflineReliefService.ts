@@ -2,6 +2,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { satelliteModeBlocks } from './networkPolicy';
 import { onOfflineReliefUse, publishOfflineRelief } from './offlineReliefRuntime';
+import { ownedReliefFile } from './reliefDisplayRegions';
 import {
     RELIEF_OFFLINE_DIRECTORY,
     RELIEF_OFFLINE_LIMIT_BYTES,
@@ -136,7 +137,7 @@ export function hydrateRelief(): Promise<void> {
             const keep = new Set(rows.map((r) => reliefTile(r.url)!.key));
             // Recover crash-orphaned terrain only. This directory never contains chart-vault data.
             for (const f of files)
-                if (/^v[1-9]\d{0,2}_(global|au)_(dem|idx)_\d+_\d+_\d+\.(png|webp)$/.test(f.name) && !keep.has(f.name))
+                if (ownedReliefFile(f.name) && !keep.has(f.name))
                     await Filesystem.deleteFile({
                         path: `${RELIEF_OFFLINE_DIRECTORY}/${f.name}`,
                         directory: Directory.Data,
