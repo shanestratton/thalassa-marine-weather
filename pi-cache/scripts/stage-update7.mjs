@@ -40,6 +40,10 @@ export function stageUpdate7({ repository, commit, output }) {
         'pi-cache/src/lanTelemetry.ts',
         'pi-cache/src/routes/signalKRead.ts',
         'pi-cache/src/systemsTelemetry.ts',
+        'pi-cache/src/telemetryPublisher.ts',
+        'pi-cache/src/weatherPosition.ts',
+        'pi-cache/src/weatherPositionWire.ts',
+        'pi-cache/src/routes/weatherPosition.ts',
         'pi-cache/src/courseWriter.ts',
         'pi-cache/src/courseOwnership.ts',
         'pi-cache/src/routes/course.ts',
@@ -77,6 +81,7 @@ export function stageUpdate7({ repository, commit, output }) {
         'pi-cache/scripts/sync-wake-rule.mjs',
         'pi-cache/scripts/sync-signalk-protocol.mjs',
         'pi-cache/scripts/sync-radar-target.mjs',
+        'pi-cache/scripts/sync-weather-position.mjs',
         'pi-cache/package.json',
         'pi-cache/package-lock.json',
     ];
@@ -115,6 +120,7 @@ export function stageUpdate7({ repository, commit, output }) {
             'capability-gated-wake-relay',
             'read-only-radar-targets',
             'context-bound-radar-watch',
+            'owner-bound-weather-position',
         ],
         sourceIsolation: 'Tracked pi-cache source only; no runtime data, credentials or decrypted chart assets',
         hardwareAcceptance:

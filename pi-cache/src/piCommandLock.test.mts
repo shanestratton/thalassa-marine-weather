@@ -63,6 +63,7 @@ import { createAisWatchRoutes } from './routes/aisWatch.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
 import { createRadarRoutes } from './routes/radar.js';
 import { createRadarWatchRoutes } from './routes/radarWatch.js';
+import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
 import { createWeatherRoutes } from './routes/weather.js';
 import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
@@ -283,6 +284,11 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createWakeRuleRoutes: createWakeRuleRoutes({ keeper: stub, devices }),
         createRadarRoutes: createRadarRoutes(stub),
         createRadarWatchRoutes: createRadarWatchRoutes({ watch: stub, enrolled: () => null }),
+        createWeatherPositionRoutes: createWeatherPositionRoutes({
+            devices,
+            selfDocument: () => null,
+            identity: () => null,
+        }),
         createSignalKReadRoutes: createSignalKReadRoutes(
             {
                 notificationSnapshot: () => ({
@@ -363,6 +369,7 @@ test('every route the Pi registers has a row in the table, and every row is a ro
     assert.equal(classOf('GET /api/signalk/notifications'), 'read');
     assert.equal(classOf('GET /api/radar/targets'), 'read');
     assert.equal(classOf('GET /api/radar/watch'), 'read');
+    assert.equal(classOf('GET /api/weather-watch/position-source'), 'read');
     assert.equal(classOf('POST /api/radar/watch'), 'command');
     assert.equal(classOf('POST /api/radar/watch/ack'), 'command');
     assert.equal(classOf('POST /api/radar/watch/relay-review'), 'command');
@@ -381,7 +388,12 @@ test('every route the Pi registers has a row in the table, and every row is a ro
         assert.equal(classOf(key), 'command', key);
     // The chart door keeps every /api/enc route, the switch keeps its own.
     for (const row of PI_ROUTES) {
-        if (row.path.startsWith('/api/enc') || row.path.startsWith('/api/polars') || row.path.startsWith('/api/radar'))
+        if (
+            row.path.startsWith('/api/enc') ||
+            row.path.startsWith('/api/polars') ||
+            row.path.startsWith('/api/radar') ||
+            row.path.startsWith('/api/weather-watch')
+        )
             assert.equal(row.door, 'chart', `${row.method} ${row.path}`);
         else if (row.path === '/api/pi-lock' && row.method === 'POST') assert.equal(row.door, 'lock');
         else assert.equal(row.door, undefined, `${row.method} ${row.path}`);

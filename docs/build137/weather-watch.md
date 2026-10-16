@@ -249,3 +249,5 @@ This proves database lock behavior, not provider entitlement, scheduled operatio
 or locked-phone delivery. The owner-envelope follow-up adds16 focused app/wire
 checks and38 Pi/legacy telemetry checks, including nine actual mounted handler
 ownership changes across the three asynchronous boundaries.
+
+The root integration now mounts this cache-only read behind requireAppApi, its physical boat-LAN and enrolled-device checks, and the chart command-lock classification. Disabling the app API also disables this prefix. Update7 requires the revised telemetry publisher, owner-bound source reader, checked portable mirror, router and sync helper, and refuses missing modules before staging. Full Pi TypeScript, the exact route inventory/lock checks and all eight updater fixtures pass after mounting. This does not enable position sharing, schedule a worker or send a notification.

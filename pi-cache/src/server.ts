@@ -58,6 +58,7 @@ import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
 import { RadarRawReader } from './radar/rawReader.js';
 import { RadarContextSession } from './radar/contextSession.js';
 import { createRadarRoutes } from './routes/radar.js';
@@ -452,6 +453,13 @@ const enrolledRadarController = async (req: Request) => {
 };
 const reviewRadarRelay = (revision: string, context: Parameters<RadarRelay['review']>[1]) =>
     radarRelay.review(revision, context);
+const currentWeatherPositionIdentity = () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return config.ownerId && config.relayId
+        ? { ownerId: config.ownerId, piDeviceId: identity.deviceId, relayId: config.relayId }
+        : null;
+};
 // Read access never grants route writes. Only the operator's separately approved
 // token and explicit switch can enable this fixed course/resource surface.
 let courseClient: SignalKClient | null = null;
@@ -1134,6 +1142,11 @@ if (APP_API_ENABLED) {
     );
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
     app.use(
+        '/api/weather-watch',
+        requireAppApi,
+        createWeatherPositionRoutes({ devices: chartDevices, selfDocument, identity: currentWeatherPositionIdentity }),
+    );
+    app.use(
         '/api/signalk',
         requireAppApi,
         createSignalKReadRoutes(
@@ -1189,6 +1202,7 @@ if (APP_API_ENABLED) {
         '/api/signalk',
         '/api/course',
         '/api/wake-rules',
+        '/api/weather-watch',
         '/api/radar',
         '/api/polars',
         '/api/offline-weather',

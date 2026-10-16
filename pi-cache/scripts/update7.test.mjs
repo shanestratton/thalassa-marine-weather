@@ -32,6 +32,10 @@ const required = [
     'lanTelemetry',
     'routes/signalKRead',
     'systemsTelemetry',
+    'telemetryPublisher',
+    'weatherPosition',
+    'weatherPositionWire',
+    'routes/weatherPosition',
     'courseWriter',
     'courseOwnership',
     'routes/course',
@@ -86,7 +90,7 @@ function fixture() {
     write('ios/App/App.xcodeproj/project.pbxproj', Array(4).fill('CURRENT_PROJECT_VERSION = 137;').join('\n'));
     for (const name of required) write(`pi-cache/src/${name}.ts`, '// Synthetic tracked source only.\n');
     for (const name of ['package.json', 'package-lock.json']) write(`pi-cache/${name}`, '{}\n');
-    for (const name of ['sync-wake-rule', 'sync-signalk-protocol', 'sync-radar-target'])
+    for (const name of ['sync-wake-rule', 'sync-signalk-protocol', 'sync-radar-target', 'sync-weather-position'])
         write(`pi-cache/scripts/${name}.mjs`, '// Synthetic checked mirror helper.\n');
     for (const name of helpers) write(`pi-cache/scripts/${name}`, fs.readFileSync(new URL(name, import.meta.url)));
     git(['add', '--', 'ios', 'pi-cache']);
@@ -190,6 +194,8 @@ test('missing wake/radar or checked-mirror source is rejected before any bundle 
         'src/wakeKeeper/relay.ts',
         'src/radar/rawReader.ts',
         'src/radar/relay.ts',
+        'src/weatherPositionWire.ts',
+        'scripts/sync-weather-position.mjs',
         'src/collisionRule/collisionRule.ts',
         'scripts/sync-radar-target.mjs',
     ]) {
