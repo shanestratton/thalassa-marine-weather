@@ -17,7 +17,7 @@ jobs:
         runs-on: macos-26
         timeout-minutes: 40
         env:
-            CANDIDATE_SHA: 5faae40e871ac08118143f1054f14fe21d94ec77
+            CANDIDATE_SHA: 6cd34090bfd9b4c0968da583c33f9dff7aaa5fb1
             CI: 'true'
             HUSKY: '0'
             NODE_OPTIONS: --max-old-space-size=4096
@@ -33,7 +33,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 5faae40e871ac08118143f1054f14fe21d94ec77
+                  ref: 6cd34090bfd9b4c0968da583c33f9dff7aaa5fb1
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -82,13 +82,18 @@ jobs:
                       BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
             - name: Capacitor sync through pinned Bundler
               run: npm run cap:sync
+            - name: Production UDP cancellation and same-port rebind proof
+              run: |
+                  set -euo pipefail
+                  swiftc ios/App/App/NmeaUdpRebindGate.swift tests/native/NmeaUdpRebindGateProof.swift -o "$RUNNER_TEMP/udp-rebind-proof"
+                  "$RUNNER_TEMP/udp-rebind-proof"
             - name: Compile actual iPhone native target without signing
               run: |
                   set -euo pipefail
                   xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug \
                       -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd135-native" \
                       CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
-                  echo 'Combined UDP/GPX/Systems source compiled on the iPhone SDK. Workbench native build135; no signing or upload.' >> "$GITHUB_STEP_SUMMARY"
+                  echo 'Combined UDP/GPX/Systems and direct Signal K native source compiled on the iPhone SDK. Workbench native build135; no signing or upload.' >> "$GITHUB_STEP_SUMMARY"
 
     unix-contracts:
         if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
@@ -100,7 +105,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 5faae40e871ac08118143f1054f14fe21d94ec77
+                  ref: 6cd34090bfd9b4c0968da583c33f9dff7aaa5fb1
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -111,12 +116,12 @@ jobs:
             - name: Exact source and Pi runtime
               run: |
                   set -euo pipefail
-                  test "$(git rev-parse HEAD)" = '5faae40e871ac08118143f1054f14fe21d94ec77'
+                  test "$(git rev-parse HEAD)" = '6cd34090bfd9b4c0968da583c33f9dff7aaa5fb1'
                   npm ci --prefix pi-cache
                   npm run build --prefix pi-cache
             - name: Real Unix storage, enrolled HTTP, course and track contracts
               working-directory: pi-cache
               run: |
                   set -euo pipefail
-                  node --import tsx --test src/courseWriter.test.mts src/courseOwnership.test.mts src/signalKClient.test.mts src/routes/course.test.mts src/piCommandLock.test.mts src/trackStore.test.mts src/trackPaging.test.mts src/routes/trackPaging.test.mts src/routes/track.test.mts
+                  node --import tsx --test src/courseWriter.test.mts src/courseOwnership.test.mts src/signalKClient.test.mts src/signalKReadStream.test.mts src/routes/course.test.mts src/piCommandLock.test.mts src/trackStore.test.mts src/trackPaging.test.mts src/routes/trackPaging.test.mts src/routes/track.test.mts
                   echo 'Unix permission, durable ownership, enrolled HTTP, route cancellation and SQLite paging contracts passed on the exact source.' >> "$GITHUB_STEP_SUMMARY"
