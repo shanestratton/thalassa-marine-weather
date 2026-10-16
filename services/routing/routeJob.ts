@@ -30,7 +30,7 @@
  */
 import type { FeatureCollection } from 'geojson';
 import { routeInshore, type InshoreLayers } from '../inshoreRouterEngine';
-import { auditFinishedRouteExclusions } from '../engine/exclusionField';
+import { auditFinishedRouteExclusions, finishedTrafficLaneGuidance } from '../engine/exclusionField';
 import type {
     CautionNearShallow,
     ChartedShallowSpan,
@@ -392,6 +392,9 @@ export interface InshoreOrigin {
 }
 
 export interface InshoreRouteResult {
+    trafficLaneGuidance?: import('../engine/trafficLanes').TrafficLaneGuidance;
+    /** Actual current manual/MPA context only; filled by the main service after lease checks. */
+    routeAreaCaveats?: string[];
     polyline: [number, number][]; // [lon, lat]
     /** At least one intersected chart did not extract the area-restriction classes. */
     exclusionsUnchecked?: boolean;
@@ -699,8 +702,26 @@ export function runRouteJob(job: RouteJob): RouteJobOutput {
             const finished = output.result;
             const failure = auditFinishedRouteExclusions(job.layers, finished.polyline);
             if (failure) output.result = { ...failure, cellsUsed: job.cellsUsed };
-            else if (job.exclusionsUnknownBboxes?.some((bbox) => polylineTouchesBbox(finished.polyline, bbox)))
-                output.result = { ...finished, exclusionsUnchecked: true };
+            else {
+                try {
+                    const trafficLaneGuidance = finishedTrafficLaneGuidance(job.layers, finished.polyline);
+                    const unchecked = job.exclusionsUnknownBboxes?.some((bbox) =>
+                        polylineTouchesBbox(finished.polyline, bbox),
+                    );
+                    if (trafficLaneGuidance || unchecked || finished.trafficLaneGuidance !== undefined) {
+                        const current = { ...finished, ...(unchecked ? { exclusionsUnchecked: true } : {}) };
+                        if (trafficLaneGuidance) current.trafficLaneGuidance = trafficLaneGuidance;
+                        else delete current.trafficLaneGuidance;
+                        output.result = current;
+                    }
+                } catch {
+                    output.result = {
+                        error: 'The finished route’s traffic-lane guidance could not be fully checked. Review the chart and route again.',
+                        code: 'exclusion-unavailable',
+                        cellsUsed: job.cellsUsed,
+                    };
+                }
+            }
         }
     } catch (err) {
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);

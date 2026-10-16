@@ -7,7 +7,8 @@
 import { M_PER_DEG_LAT } from './constants.js';
 import type { NavGrid, InshoreLayers, FairingMidpoint } from './types.js';
 import { mPerDegLon, bresenhamCells, perpendicularDistanceDeg } from './geometry.js';
-import { centreFactorAt, chainCostM, lineOfSightClear } from './aStar.js';
+import { centreFactorAt, chainCostM, chordCostM, lineOfSightClear } from './aStar.js';
+import { trafficLaneChordAllowed } from './trafficLanes.js';
 import { routeMarina, type Cell } from '../marinaCenterline.js';
 
 /**
@@ -48,8 +49,7 @@ export function smoothPath(grid: NavGrid, path: { x: number; y: number }[]): { x
         // most of the time on long open stretches.
         while (j > i + 1) {
             if (lineOfSightClear(grid, path[i], path[j])) {
-                const chord = Array.from(bresenhamCells(path[i].x, path[i].y, path[j].x, path[j].y));
-                const chordCost = chainCostM(grid, chord);
+                const chordCost = chordCostM(grid, path[i], path[j]);
                 if (chordCost <= (prefix[j] - prefix[i]) * 1.0001 + 1e-6) break;
             }
             j--;
@@ -99,6 +99,7 @@ export function deStaggerCentred(
     const w = grid.width;
     const h = grid.height;
     const collapsible = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+        if (!trafficLaneChordAllowed(grid, a, b)) return false;
         const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
         if (n === 0) return true;
         for (let t = 0; t <= n; t++) {
@@ -247,6 +248,7 @@ export function fairPath(
         return best;
     };
     const chordClear = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+        if (!trafficLaneChordAllowed(grid, a, b)) return false;
         for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
             const idx = c.y * grid.width + c.x;
             const d = grid.cells[idx];
@@ -265,8 +267,7 @@ export function fairPath(
         let j = chain.length - 1;
         for (; j > i + 1; j--) {
             if (!chordClear(chain[i], chain[j])) continue;
-            const chord = Array.from(bresenhamCells(chain[i].x, chain[i].y, chain[j].x, chain[j].y));
-            const chordCost = chainCostM(grid, chord);
+            const chordCost = chordCostM(grid, chain[i], chain[j]);
             if (chordCost > (prefix[j] - prefix[i]) * FAIRING_MAX_COST_FACTOR + 1e-6) continue;
             // Gate-serving: every midpoint the subpath served must stay
             // served by the chord.
@@ -327,6 +328,7 @@ export function simplifyMarinaCells(cells: { x: number; y: number }[], grid: Nav
     if (cells.length < 3) return cells.slice();
     const TOL = 1.6; // cells — generous; the clearance check is the safety net
     const chordClear = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+        if (!trafficLaneChordAllowed(grid, a, b)) return false;
         for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
             const d = grid.cells[c.y * grid.width + c.x];
             if (Number.isNaN(d) || d < 0) return false;
