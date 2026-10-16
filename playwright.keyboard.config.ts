@@ -13,6 +13,7 @@ export default defineConfig({
         'buddy-watch137-layout.spec.ts',
         'shore-contacts137-layout.spec.ts',
         'overdue-watch137-layout.spec.ts',
+        'obs-credits137-layout.spec.ts',
         'radar137-layout.spec.ts',
         'radar-alarm137-layout.spec.ts',
         'radar-pi137-layout.spec.ts',

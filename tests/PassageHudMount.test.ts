@@ -138,8 +138,10 @@ describe('the passage pane on the Obs chart', () => {
             'className="thalassa-helix-legend absolute z-500"',
         );
         const map = readFileSync('components/map/MapHub.tsx', 'utf8');
-        expect(map).toContain('<BlitzortungAttribution visible compact />');
-        expect(map).toContain('top: creditsStripTop(');
+        expect(map).toContain('<ObsCreditsRollup');
+        expect(readFileSync('components/map/ObsCreditsRollup.tsx', 'utf8')).toContain(
+            "top: 'calc(env(safe-area-inset-top) + max(44px, 3rem) + 14px)'",
+        );
         expect(map).toContain('<ObsLayerKey {...obsKeyProps} />');
     });
 
@@ -237,7 +239,7 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
         expect(controls).toContain('const showTimeline = !controlsHidden && !lookingAhead;');
         expect(controls).toContain('{!surfaceAvailable ? null : controlsHidden ? (');
         // The RainViewer credit is gated on the radar being shown — never on the timeline.
-        expect(flat(controls)).toContain('{showRainViewerAttribution && (');
+        expect(flat(controls)).toContain('{showRainViewerAttribution && !creditsInRollup && (');
         expect(controls).not.toMatch(/showRainViewerAttribution\s*=[^;]*lookingAhead/);
     });
 
@@ -438,7 +440,7 @@ describe('phase 3: spread, speed and rain', () => {
         expect(controls).toContain('Rain forecast by Rainbow.ai');
         expect(controls).toContain("currentRainFrame?.type === 'forecast';");
         expect(controls).not.toMatch(/showRainForecastAttribution\s*=[^;]*lookingAhead/);
-        expect(flat(controls)).toContain('{showRainForecastAttribution && (');
+        expect(flat(controls)).toContain('{showRainForecastAttribution && !creditsInRollup && (');
         // …and the Copernicus credit stacks under either of them.
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(flat(hub)).toMatch(
