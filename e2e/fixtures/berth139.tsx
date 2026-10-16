@@ -168,7 +168,7 @@ function Fixture() {
                         )}
                         {proposal && (
                             <>
-                                <p role="status">
+                                <p role="status" aria-label="Berth approach join">
                                     Both approach portals retained; exact forecast clocks advance through all three
                                     stages.
                                 </p>
