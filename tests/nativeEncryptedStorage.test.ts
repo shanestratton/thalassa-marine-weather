@@ -72,6 +72,9 @@ describe('native encrypted large storage', () => {
         expect(isAllowedEncryptedLargeStorageKey(`${DATA_CACHE_KEY}::anonymous`)).toBe(true);
         expect(isAllowedEncryptedLargeStorageKey(`${DATA_CACHE_KEY}::${encodeURIComponent(scope)}`)).toBe(true);
         expect(isAllowedEncryptedLargeStorageKey(track)).toBe(true);
+        expect(isAllowedEncryptedLargeStorageKey(`thalassa_offline_tides_v1::${encodeURIComponent(scope)}`)).toBe(true);
+        expect(isAllowedEncryptedLargeStorageKey('thalassa_offline_tides_v1')).toBe(false);
+        expect(isAllowedEncryptedLargeStorageKey('thalassa_offline_tides_v1::user%3Anot-a-uuid')).toBe(false);
         expect(isAllowedEncryptedLargeStorageKey(`${DATA_CACHE_KEY}::user%3Anot-a-uuid`)).toBe(false);
         expect(isAllowedEncryptedLargeStorageKey('thalassa_settings')).toBe(false);
         expect(isAllowedEncryptedLargeStorageKey('thalassa_track_v3_../../private')).toBe(false);
@@ -86,6 +89,40 @@ describe('native encrypted large storage', () => {
         expect(mocks.get).toHaveBeenCalledWith({ key: DATA_CACHE_KEY });
         expect(mocks.filesystemWrite).not.toHaveBeenCalled();
         expect(localStorage.getItem(DATA_CACHE_KEY)).toBeNull();
+    });
+    it('cold-reads the offline tide store through encrypted iOS storage without a plaintext cache', async () => {
+        const { setAuthIdentityScope, authScopedStorageKey } = await import('../services/authIdentityScope');
+        const { tableFromStationDetails, saveTideTable, listSavedTideTables, OFFLINE_TIDE_KEY } =
+            await import('../services/tides/offlineTideStore');
+        setAuthIdentityScope('e5433b33-810c-41aa-91fa-e28473329bc8');
+        try {
+            const now = Date.now();
+            const table = tableFromStationDetails({
+                station: { id: 'public', name: 'Public fixture', lat: 1, lon: 2, distance: 0 },
+                predictionLocation: null,
+                predictionStationName: null,
+                datum: null,
+                requestedDatum: 'LAT',
+                timezone: null,
+                fetchedAtMs: now,
+                heights: [],
+                extremes: [
+                    { timeMs: now - 3600000, heightM: -0.2, type: 'Low' },
+                    { timeMs: now + 3600000, heightM: 1.5, type: 'High' },
+                ],
+                source: 'WorldTides',
+                copyright: 'Fixture copyright',
+                kind: 'prediction',
+                wind: null,
+            })!;
+            expect(await saveTideTable(table)).toBe(true);
+            expect(await listSavedTideTables()).toEqual([table]);
+            expect(mocks.encrypted.has(authScopedStorageKey(OFFLINE_TIDE_KEY))).toBe(true);
+            expect(localStorage.getItem(authScopedStorageKey(OFFLINE_TIDE_KEY))).toBeNull();
+            expect(mocks.filesystemWrite).not.toHaveBeenCalled();
+        } finally {
+            setAuthIdentityScope(null);
+        }
     });
 
     it('migrates localStorage only after native encrypted write/readback and then strictly deletes it', async () => {

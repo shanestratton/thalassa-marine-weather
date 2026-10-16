@@ -778,7 +778,7 @@ export function useWeatherLayers(
     const [totalFrames, setTotalFrames] = useState(FORECAST_HOURS);
     const [framesReady, setFramesReady] = useState(0);
     const [pressureFrameStepHours, setPressureFrameStepHours] = useState(1);
-    const [pressureSource, setPressureSource] = useState<'gfs' | 'open-meteo' | null>(null);
+    const [pressureSource, setPressureSource] = useState<'gfs' | 'open-meteo' | 'imported-grib' | null>(null);
     /** The GFS cycle these frames came from. Already on the grid and already
      *  used to align "Now"; it just never reached the UI, so the pill could
      *  not say WHICH run a skipper was reading (2026-08-22). */
@@ -1073,6 +1073,77 @@ export function useWeatherLayers(
         [applyFrame, precomputeFrames, computePressureNowIndex, setPressureAvailability],
     );
 
+    // A newly selected private import invalidates provider pressure before any asynchronous result can publish.
+    const lastImportedPath = useRef<string | null>(null);
+    useEffect(() => {
+        if (!mapReady) {
+            lastImportedPath.current = null;
+            return;
+        }
+        const path =
+            !windState.isGlobalMode && windState.localGribPath?.startsWith('grib-import/')
+                ? windState.localGribPath
+                : null;
+        if (lastImportedPath.current === path) return;
+        lastImportedPath.current = path;
+        isobarFetchRef.current++;
+        isobarLoadingRef.current = false;
+        isobarAttemptAtRef.current = 0;
+        cachedGridRef.current = null;
+        cachedFramesRef.current = [];
+        setPressureSource(null);
+        setPressureRefTime(null);
+        setFramesReady(0);
+        setPressureAvailability(path ? 'Imported pressure loading' : null);
+        applyFrame(-1);
+        let live = true;
+        if (path)
+            void import('../../services/weather/localGribImport')
+                .then(async (grib) => {
+                    const file = await grib.loadImportedGrib(path);
+                    if (!live || WindStore.getState().localGribPath !== path || WindStore.getState().isGlobalMode)
+                        return;
+                    const bounds = grib.consumeImportedGribView(path);
+                    if (bounds && mapRef.current && !planMode && !embedded && !passageOwnsCamera)
+                        mapRef.current.fitBounds(bounds, { padding: 36, duration: 700, maxZoom: 9 });
+                    setUserLayers((previous) => {
+                        const layers = new Set(previous);
+                        layers.delete('velocity');
+                        if (file.wind) layers.add('wind');
+                        else layers.delete('wind');
+                        if (file.pressure) layers.add('pressure');
+                        else layers.delete('pressure');
+                        return layers;
+                    });
+                    if (mapRef.current && file.pressure) void updateIsobars(mapRef.current);
+                    else setPressureAvailability('This imported GRIB contains no pressure.');
+                })
+                .catch(() => {
+                    if (live) setPressureAvailability('Imported pressure unavailable.');
+                });
+        else if (mapReady && mapRef.current && activeLayers.has('pressure')) void updateIsobars(mapRef.current);
+        return () => {
+            live = false;
+        };
+        // The path transition owns this invalidation; layer toggles retain the selected local source.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [windState.localGribPath, windState.isGlobalMode, mapReady, updateIsobars]);
+
+    useEffect(() => {
+        const expired = () => {
+            if (WindStore.getState().isGlobalMode || !WindStore.getState().localGribPath?.startsWith('grib-import/'))
+                return;
+            isobarFetchRef.current++;
+            isobarLoadingRef.current = false;
+            cachedGridRef.current = null;
+            cachedFramesRef.current = [];
+            setPressureAvailability('Imported pressure is expired or does not cover the current time.');
+            applyFrame(-1);
+        };
+        window.addEventListener('thalassa:grib-pressure-expired', expired);
+        return () => window.removeEventListener('thalassa:grib-pressure-expired', expired);
+    }, [applyFrame, setPressureAvailability]);
+
     // Isobar playback RAF. Gated on the layer being active AND standalone:
     // the Baro timeline (the only pause control) is replaced by the wind
     // scrubber in the wind+pressure combo, so a playback started standalone
@@ -1345,7 +1416,7 @@ export function useWeatherLayers(
         // Re-runs on model/field switch too. Grid metadata is synchronised by
         // the windState.grid effect above, including later viewport refreshes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, mapReady, windState.model, windState.field]);
+    }, [activeKey, mapReady, windState.model, windState.field, windState.isGlobalMode, windState.localGribPath]);
 
     // ── Periodically recompute "now" index (every 1 min) ──
     useEffect(() => {
@@ -2011,6 +2082,8 @@ export function useWeatherLayers(
         if (prev === null || prev === windOn || !windOn) return;
         if (planMode || embedded) return;
         if (passageOwnsCamera) return;
+        if (!WindStore.getState().isGlobalMode && WindStore.getState().localGribPath?.startsWith('grib-import/'))
+            return;
         // Shared with every other framing path: wind alone gets wind's frame,
         // wind in a stack gets the stack's. Hard-coding wind's own number here
         // would put the camera somewhere different depending on WHICH toggle

@@ -820,24 +820,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, [data?.generatedAt, refreshInterval]);
 
-    // Extract beacon and buoy names from live sources for StatusBadges
-    const { beaconName, buoyName } = useMemo(() => {
-        let beacon = '';
-        let buoy = '';
-        const liveSources = current?.sources;
-        if (liveSources) {
-            Object.values(liveSources).forEach((src) => {
-                const s = src as { source?: string; sourceName?: string };
-                if (s?.source === 'beacon' && s?.sourceName && !beacon) {
-                    beacon = s.sourceName;
-                } else if (s?.source === 'buoy' && s?.sourceName && !buoy) {
-                    buoy = s.sourceName;
-                }
-            });
-        }
-        return { beaconName: beacon, buoyName: buoy };
-    }, [current]);
-
     const widgetTrends = useMemo(() => {
         if (!hourly || hourly.length < 2 || !safeActive) return undefined;
         const nextHour = hourly[1];
@@ -1418,8 +1400,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         fallbackInland={false}
                                         stationId={undefined}
                                         locationType={data.locationType}
-                                        beaconName={beaconName}
-                                        buoyName={buoyName}
                                         isOffshore={offshore.isOffshore}
                                         sources={widgetSources}
                                         activeData={safeActive}

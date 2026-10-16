@@ -34,7 +34,13 @@ vi.mock('@capacitor/app', () => ({
 }));
 
 const toastError = vi.hoisted(() => vi.fn());
-vi.mock('../components/Toast', () => ({ toast: { error: toastError } }));
+const grib = vi.hoisted(() => ({ install: vi.fn(), import: vi.fn(), isUrl: vi.fn() }));
+vi.mock('../services/weather/localGribImport', () => ({
+    installLocalGribImports: grib.install,
+    importLocalGribUrl: grib.import,
+    isLocalGribUrl: grib.isUrl,
+}));
+vi.mock('../components/Toast', () => ({ toast: { error: toastError, success: vi.fn() } }));
 const NOT_A_BOX_TAG = "This tag isn't a box tag from Thalassa.";
 
 type Modules = {
@@ -70,6 +76,9 @@ const link = (id: string) => `https://www.thalassawx.app/box/${id}`;
 beforeEach(() => {
     localStorage.clear();
     toastError.mockReset();
+    grib.install.mockReset();
+    grib.import.mockReset().mockResolvedValue({});
+    grib.isUrl.mockReset().mockImplementation((url: string) => url.endsWith('.grb'));
     app.listeners = [];
     app.launchUrl = undefined;
     app.addListener.mockReset().mockImplementation(async (name: string, listener: UrlListener) => {
@@ -85,6 +94,47 @@ afterEach(() => {
 });
 
 describe('a box link from iOS', () => {
+    it('hands a GRIB launch/event pair to the existing listener once, and coalesces immediate duplicate file events', async () => {
+        const { links, ui } = await load();
+        const url = 'file:///private/Inbox/fictional.grb';
+        app.launchUrl = url;
+        links.installBoxLinks();
+        await settle();
+        app.listeners.forEach((listener) => listener({ url }));
+        app.listeners.forEach((listener) => listener({ url }));
+        await settle();
+        await vi.waitFor(() =>
+            expect({
+                imports: grib.import.mock.calls.length,
+                urls: grib.isUrl.mock.calls,
+                errors: toastError.mock.calls,
+                restores: grib.install.mock.calls.length,
+                launches: app.getLaunchUrl.mock.calls.length,
+            }).toEqual({ imports: 1, urls: [[url]], errors: [], restores: 1, launches: 1 }),
+        );
+        expect(app.listeners).toHaveLength(1);
+        expect(grib.import).toHaveBeenCalledTimes(1);
+        expect(grib.install).toHaveBeenCalledTimes(1);
+        expect(ui.useUIStore.getState().currentView).toBe('map');
+    });
+    it('an import finishing after an account change cannot navigate the next person', async () => {
+        let finish!: () => void;
+        grib.import.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        const { links, scope, ui } = await load();
+        links.installBoxLinks();
+        await settle();
+        app.listeners.forEach((listener) => listener({ url: 'file:///private/Inbox/fictional.grb' }));
+        await settle();
+        scope.setAuthIdentityScope(OTHER);
+        finish();
+        await settle();
+        expect(ui.useUIStore.getState().currentView).toBe('dashboard');
+    });
     it('while signed in opens Ship’s Stores, with the box waiting for THIS account', async () => {
         const { links, ui } = await load();
         links.installBoxLinks();

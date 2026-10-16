@@ -18,6 +18,9 @@ export interface WorldTidesExtreme {
 }
 
 export interface WorldTidesResponse {
+    copyright?: string;
+    responseLat?: number;
+    responseLon?: number;
     status: number;
     error?: string;
     /**

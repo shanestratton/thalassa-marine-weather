@@ -77,6 +77,13 @@ describe('TraceReportModal', () => {
         expect(container).toBeEmptyDOMElement();
     });
 
+    it('opening a route report never sends its precise pins to a weather provider', () => {
+        fetchRouteWaypointWeather.mockClear();
+        render(<TraceReportModal {...props()} />);
+        expect(fetchRouteWaypointWeather).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'Route meteogram' })).toBeInTheDocument();
+    });
+
     it('exposes an accessible modal and its route-safety actions', () => {
         const input = props();
         render(<TraceReportModal {...input} />);

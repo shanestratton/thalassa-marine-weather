@@ -27,6 +27,29 @@ const tides = [
 ];
 afterEach(() => vi.restoreAllMocks());
 describe('official tide display provenance', () => {
+    it('labels persisted official extrema as a saved table without reviving publisher freshness or observations', () => {
+        vi.spyOn(Date, 'now').mockReturnValue(NOW);
+        render(
+            <TideGraph
+                tides={tides}
+                unit="m"
+                unitPref={{ tideHeight: 'm' } as never}
+                guiDetails={{
+                    ...metadata,
+                    source: 'saved-official',
+                    expiresAt: undefined,
+                    savedAt: new Date(NOW - 86400000).toISOString(),
+                    coverageStart: tides[0].time,
+                    coverageEnd: tides[1].time,
+                }}
+                customTime={NOW}
+            />,
+        );
+        expect(screen.getByTestId('tide-station-name')).toHaveTextContent('Saved NOAA table · MLLW · Annapolis');
+        expect(screen.queryByTestId('tide-observed')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Source and datum' }));
+        expect(screen.getByText(/Saved table · downloaded/)).toHaveTextContent('does not establish a fresh publisher');
+    });
     it('names station and datum, labels interpolation, and offers source/licence attribution', () => {
         vi.spyOn(Date, 'now').mockReturnValue(NOW);
         render(

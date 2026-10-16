@@ -33,6 +33,8 @@ import { lazyRetry } from '../../utils/lazyRetry';
 import { useFollowedBoatKey } from './useFollowedBoatKey';
 import { WIND_PARTICLE_GRADIENT_LIGHT, type WindPalette } from './windRamp';
 import { DeskWindAgreement, useWindStartHandOff } from './DeskWindLine';
+import { WindStore } from '../../stores/WindStore';
+import { localWindSource } from './localWindSource';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -115,13 +117,17 @@ export function MapWeatherControls({
     // Close-in mode's local wind (high zoom), in the user's speed unit.
     const closeInWind = useCloseInWindReadout();
     const speedUnit = useSettingsStore((state) => state.settings?.units?.speed);
-    const windCloseIn = closeInWind
-        ? { value: formatCloseInWind(closeInWind, speedUnit), source: closeInWind.source, stale: closeInWind.stale }
-        : null;
+    const windCloseIn =
+        closeInWind && !localWindSource(weather.windState)
+            ? { value: formatCloseInWind(closeInWind, speedUnit), source: closeInWind.source, stale: closeInWind.stale }
+            : null;
     // "Her wind vs the models" is offered only while Current Location follows a boat.
     const followedBoatKey = useFollowedBoatKey();
     const [checkOpen, setCheckOpen] = useState(false);
     const [officialChartsOpen, setOfficialChartsOpen] = useState(false);
+    const [removingImport, setRemovingImport] = useState(false);
+    const localSource = localWindSource(weather.windState);
+    const imported = localSource === 'Imported GRIB';
     // The desk's start hand-off.
     const startHandOff = useWindStartHandOff(weather, desk?.startMs);
 
@@ -741,7 +747,76 @@ export function MapWeatherControls({
                                 ))}
                             </div>
                         )}
-                        {showTimeline && activeLayer === 'wind' && (
+                        {showTimeline && localSource && (
+                            <div className="space-y-2 rounded-xl border border-white/10 p-2 text-xs text-slate-300">
+                                <p>
+                                    {localSource}
+                                    {Number.isFinite(windReference)
+                                        ? ` · Run ${new Date(windReference).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+                                        : ''}
+                                </p>
+                                {imported && weather.windState.grid?.source && (
+                                    <p>
+                                        GRIB{weather.windState.grid.edition} · Centre{' '}
+                                        {weather.windState.grid.source.centre}, process{' '}
+                                        {weather.windState.grid.source.process}
+                                    </p>
+                                )}
+                                {imported && weather.windState.grid?.stepHours?.length && (
+                                    <p>
+                                        Coverage:{' '}
+                                        {validTime(windReference + weather.windState.grid.stepHours[0] * 3600000)} to{' '}
+                                        {validTime(windReference + weather.windState.grid.stepHours.at(-1)! * 3600000)}
+                                    </p>
+                                )}
+                                <p>
+                                    File coverage only. Blank cells are unknown; instruments do not replace imported
+                                    wind.
+                                </p>
+                                {weather.windState.error && <p role="status">{weather.windState.error}</p>}
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        className="min-h-[44px] rounded-xl border border-white/20 px-3"
+                                        onClick={() =>
+                                            WindStore.setState({
+                                                isGlobalMode: true,
+                                                grid: null,
+                                                error: null,
+                                                loading: false,
+                                                hour: 0,
+                                                totalHours: 0,
+                                            })
+                                        }
+                                    >
+                                        Use online forecasts
+                                    </button>
+                                    {imported && (
+                                        <button
+                                            type="button"
+                                            disabled={removingImport}
+                                            className="min-h-[44px] rounded-xl border border-white/20 px-3"
+                                            onClick={() => {
+                                                setRemovingImport(true);
+                                                void import('../../services/weather/localGribImport')
+                                                    .then((module) => module.removeSelectedImportedGrib())
+                                                    .catch((error) =>
+                                                        WindStore.setError(
+                                                            error instanceof Error
+                                                                ? error.message
+                                                                : 'The saved GRIB could not be removed.',
+                                                        ),
+                                                    )
+                                                    .finally(() => setRemovingImport(false));
+                                            }}
+                                        >
+                                            {removingImport ? 'Removing…' : 'Remove imported file'}
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {showTimeline && activeLayer === 'wind' && !localSource && (
                             <WindModelFieldSelector
                                 model={weather.windModel}
                                 onModelChange={weather.setWindModel}
@@ -749,25 +824,30 @@ export function MapWeatherControls({
                                 inline
                             />
                         )}
-                        {showTimeline && activeLayer === 'wind' && desk && (
+                        {showTimeline && activeLayer === 'wind' && desk && !localSource && (
                             <DeskWindAgreement point={desk.point} pinned={desk.pinned} validMs={windValidMs} />
                         )}
                         {content}
                         {/* After the timeline, so it stays above the fold at 320x568. */}
-                        {showTimeline && activeLayer === 'wind' && !embedded && !desk && followedBoatKey !== null && (
-                            <button
-                                type="button"
-                                data-model-check-row
-                                aria-haspopup="dialog"
-                                aria-expanded={checkOpen}
-                                aria-label="Compare her wind with the models now"
-                                onClick={() => setCheckOpen(true)}
-                                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-left text-xs font-bold text-slate-200 active:scale-[0.99]"
-                            >
-                                <span>Her wind vs the models</span>
-                                <span aria-hidden="true">›</span>
-                            </button>
-                        )}
+                        {showTimeline &&
+                            activeLayer === 'wind' &&
+                            !localSource &&
+                            !embedded &&
+                            !desk &&
+                            followedBoatKey !== null && (
+                                <button
+                                    type="button"
+                                    data-model-check-row
+                                    aria-haspopup="dialog"
+                                    aria-expanded={checkOpen}
+                                    aria-label="Compare her wind with the models now"
+                                    onClick={() => setCheckOpen(true)}
+                                    className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-left text-xs font-bold text-slate-200 active:scale-[0.99]"
+                                >
+                                    <span>Her wind vs the models</span>
+                                    <span aria-hidden="true">›</span>
+                                </button>
+                            )}
                         {showTimeline &&
                             activeWeatherLayers.includes('pressure') &&
                             hasWindLayer &&

@@ -37,6 +37,7 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
         "thalassa_synoptic_charts_v1"
     ]
     private let scopedBaseKeys: Set<String> = [
+        "thalassa_offline_tides_v1",
         "thalassa_weather_cache_v9",
         "thalassa_voyage_cache_v2",
         "thalassa_history_cache_v3",

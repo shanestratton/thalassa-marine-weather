@@ -69,6 +69,8 @@ import {
 } from './closeInWind';
 import { getBoatWindReadout, resolveBoatWindReadout, setBoatWindReadout } from './boatWindReadout';
 import { chartBearing, chartTurning, subscribeChartTurning } from './chartOrientation';
+import type { WindParticleLayer } from './WindParticleLayer';
+import { WindStore } from '../../stores/WindStore';
 
 const log = createLogger('MapboxVelocityOverlay');
 import type L from 'leaflet';
@@ -635,6 +637,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     boatLookUp = false,
     palette = 'dark',
 }) => {
+    const imported = windGrid?.importedGrib === true;
+    const importedLayer = useRef<WindParticleLayer | null>(null);
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
     const velocityLayerRef = useRef<L.Layer | null>(null);
@@ -660,12 +664,69 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windHourRef.current = windHour;
     windGridPropRef.current = windGrid;
     windNowIdxRef.current = windNowIdx;
-    boatInstrumentsRef.current = boatInstruments;
+    boatInstrumentsRef.current = boatInstruments && !imported;
     const paletteRef = useRef(palette);
     paletteRef.current = palette;
     // A turned chart's square field (127-11a) holds today's density only up to
     // 1.6x today's particle count: 1 north up, below 1 on a portrait phone.
     const densityRef = useRef(1);
+
+    // Leaflet velocity coerces unknown vectors to zero. The existing WebGL
+    // layer preserves the GRIB bitmap and renders only the file's coverage.
+    const importedParticles = useRef(particlesEnabled);
+    importedParticles.current = particlesEnabled;
+    useEffect(() => {
+        if (!mapboxMap || !visible || !imported) return;
+        let live = true;
+        let owned: WindParticleLayer | null = null;
+        const id = 'imported-grib-wind';
+        void import('./WindParticleLayer')
+            .then(({ WindParticleLayer }) => {
+                if (!live) return;
+                owned = new WindParticleLayer(id);
+                const attach = () => {
+                    if (!live || !owned || !mapboxMap.isStyleLoaded() || mapboxMap.getLayer(id)) return;
+                    try {
+                        owned.setParticlesEnabled(importedParticles.current);
+                        owned.setGrid(windGridPropRef.current!, windHourRef.current);
+                        const labels = mapboxMap.getStyle()?.layers?.find((layer) => layer.type === 'symbol')?.id;
+                        mapboxMap.addLayer(owned, labels);
+                        importedLayer.current = owned;
+                    } catch {
+                        if (live) WindStore.setError('Imported wind could not be displayed on this chart.');
+                    }
+                };
+                attach();
+                mapboxMap.on('style.load', attach);
+                if (!live) mapboxMap.off('style.load', attach);
+                detach = () => mapboxMap.off('style.load', attach);
+            })
+            .catch(() => {
+                if (live) WindStore.setError('Imported wind display is unavailable.');
+            });
+        let detach = () => {};
+        return () => {
+            live = false;
+            detach();
+            if (importedLayer.current === owned) importedLayer.current = null;
+            try {
+                if (owned && mapboxMap.getLayer(id)) mapboxMap.removeLayer(id);
+            } catch {
+                /* Map already removed. */
+            }
+        };
+    }, [mapboxMap, visible, imported]);
+    useEffect(() => {
+        if (imported && windGrid) importedLayer.current?.setGrid(windGrid, windHour);
+        // A changed frame is uploaded separately without rebuilding the grid.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [windGrid, imported]);
+    useEffect(() => {
+        importedLayer.current?.setForecastHour(windHour);
+    }, [windHour]);
+    useEffect(() => {
+        importedLayer.current?.setParticlesEnabled(particlesEnabled);
+    }, [particlesEnabled]);
 
     // The zoom gate's own memory (boatWindZoomFor's hysteresis), kept apart
     // from the source shown: a scrub away and back, a feed gap, her leaving
@@ -725,10 +786,12 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         // swap at the same camera never flips the mode.
     }, [mapboxMap, visible, particlesEnabled, windGrid]);
 
-    const closeInWanted = Boolean(mapboxMap && visible && particlesEnabled && particleZoomSupported && closeIn);
+    const closeInWanted = Boolean(
+        !imported && mapboxMap && visible && particlesEnabled && particleZoomSupported && closeIn,
+    );
     const closeInWantedRef = useRef(closeInWanted);
     closeInWantedRef.current = closeInWanted;
-    const particlesActive = particlesEnabled && particleZoomSupported && !leafletParked;
+    const particlesActive = !imported && particlesEnabled && particleZoomSupported && !leafletParked;
 
     // Leaflet's half of the cross-fade. Into close-in: fade its overlay out,
     // and park (tear down) the engine once that has run. Out of close-in: it
@@ -782,7 +845,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // leaflet field further out, or under z3), her own-ship marker carries it.
     // In close-in refreshCloseIn publishes it with the field's own reading;
     // outside it the field is the model's alone, and refreshHerWind does.
-    const herWindOn = Boolean(mapboxMap && visible);
+    const herWindOn = Boolean(!imported && mapboxMap && visible);
     const herWindOnRef = useRef(herWindOn);
     herWindOnRef.current = herWindOn;
     /** Her icon's readout: hers, for the followed boat, only at now. */

@@ -91,6 +91,11 @@ describe('the desk menu’s Wind row', () => {
             on: true,
         });
     });
+    it('names an imported file instead of attributing it to the retained online model', () => {
+        expect(deskWindToggle(true, 'ecmwf', () => undefined, 'Imported GRIB').detail).toBe(
+            'Model forecast · Imported GRIB',
+        );
+    });
 
     it('is offered on a desk window 768 px wide or more, never narrower', () => {
         const at = (width: number) => {
@@ -108,7 +113,11 @@ describe('the desk menu’s Wind row', () => {
     it('is session-only state, OFF at every mount, and Obs’s own wind never turns it on', () => {
         expect(hub).toMatch(/const \[deskWindOn, setDeskWindOn\] = useState\(false\);/);
         expect(hub).toMatch(/const deskWind = deskWindOffered && deskWindOn;/);
-        expect(hub).toContain('deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))');
+        expect(
+            /deskWindToggle\(\s*deskWindOn,\s*weather\.windModel,\s*\(\) => setDeskWindOn\(\(on\) => !on\),\s*localWindSource\(weather\.windState\) \?\? undefined,?\s*\)/.test(
+                hub,
+            ),
+        ).toBe(true);
         expect(source('components/map/deskWind.ts')).not.toMatch(/localStorage|sessionStorage|usePersistedState/);
     });
 });
@@ -129,8 +138,10 @@ describe('MapHub paints the desk’s wind through the planner’s own layers', (
         expect(overlay![0]).toContain('palette={windPalette}');
         // Dark ink on Light by day; Light's night palette is dim, so white streaks there.
         expect(hub).toMatch(/const windPalette = shownBase === 'light' && !nightMode \? 'light' : 'dark';/);
-        expect(overlay![0]).toContain("boatInstruments={!planningSurface && obsStart.kind === 'follow'}");
-        expect(overlay![0]).toContain('boatLookUp={!planningSurface && obsShowing}');
+        expect(overlay![0]).toMatch(
+            /boatInstruments=\{\s*weather\.windState\.isGlobalMode && !planningSurface && obsStart.kind === 'follow'\s*\}/,
+        );
+        expect(overlay![0]).toContain('boatLookUp={weather.windState.isGlobalMode && !planningSurface && obsShowing}');
     });
 
     it('gives the panel its desk place, the first pin (or the still centre) and the start', () => {
@@ -156,7 +167,11 @@ describe('the credit is in the strip wherever wind draws', () => {
         expect(slot2).toHaveAttribute('data-map-credit');
         const order = [...screen.getByTestId('desk-map-strip').children].map((el) => el.getAttribute('data-testid'));
         expect(order).toEqual(['desk-strip-slot-0', 'desk-strip-slot-1', 'desk-strip-slot-2', 'desk-strip-seabed']);
-        expect(hub).toMatch(/wind=\{deskWind && weather\.windReady \? windCreditLine\(weather\.windModel\) : null\}/);
+        expect(
+            /wind=\{\s*deskWind && weather\.windReady\s*\?\s*\(localWindSource\(weather\.windState\) \?\? windCreditLine\(weather\.windModel\)\)\s*:\s*null\s*\}/.test(
+                hub,
+            ),
+        ).toBe(true);
     });
 
     it('on Obs: after the radar and Copernicus credits, and lightning and the cloud stack under it', () => {

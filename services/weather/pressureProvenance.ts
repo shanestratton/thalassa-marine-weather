@@ -28,7 +28,8 @@ export interface PressureTimeGrid {
     subFrameStepHours: number;
     totalHours: number;
     keyframeFhrs?: readonly number[];
-    source?: 'gfs' | 'open-meteo';
+    stepHours?: readonly number[];
+    source?: 'gfs' | 'open-meteo' | 'imported-grib';
 }
 
 /** Frame zero may be a non-zero lead time; include it in every UTC conversion. */
@@ -43,6 +44,10 @@ export function pressureFrameValidAt(grid: PressureTimeGrid | null, frameIndex: 
     )
         return null;
     const base = Date.parse(grid.refTime ?? '');
+    if (grid.stepHours) {
+        const step = grid.stepHours[Math.round(frameIndex)];
+        return Number.isFinite(base) && Number.isFinite(step) ? base + step * 3600000 : null;
+    }
     const first = grid.keyframeFhrs?.[0] ?? 0;
     if (
         !Number.isFinite(base) ||
@@ -118,9 +123,17 @@ export function pressureFrameForValidAt(grid: PressureTimeGrid | null, validAt: 
         grid.totalHours < 1
     )
         return null;
+    if (grid.stepHours) {
+        const hour = (validAt - Date.parse(grid.refTime ?? '')) / 3600000;
+        return grid.stepHours.reduce(
+            (nearest, value, index) =>
+                Math.abs(value - hour) < Math.abs(grid.stepHours![nearest] - hour) ? index : nearest,
+            0,
+        );
+    }
     return Math.max(
         0,
-        Math.min(Math.round((validAt - first) / (grid.subFrameStepHours * 3_600_000)), grid.totalHours - 1),
+        Math.min(Math.round((validAt - first) / (grid.subFrameStepHours * 3600000)), grid.totalHours - 1),
     );
 }
 
@@ -140,13 +153,26 @@ export interface PressureProvenance {
 }
 
 export function pressureProvenance(
-    source: 'gfs' | 'open-meteo' | null,
+    source: 'gfs' | 'open-meteo' | 'imported-grib' | null,
     refTime: string | null | undefined,
     now: number = Date.now(),
 ): PressureProvenance {
     // Open-Meteo is named, always. It is the licence condition, and it is also
     // the honest answer: a different provider is a different forecast, not a
     // degraded version of the same one.
+    if (source === 'imported-grib') {
+        const run = Date.parse(refTime ?? '');
+        const age = Number.isFinite(run) ? Math.max(0, Math.floor((now - run) / 3600000)) : null;
+        return {
+            label:
+                'Imported GRIB' +
+                (Number.isFinite(run)
+                    ? ' · run ' + new Date(run).toISOString().slice(5, 16).replace('T', ' ') + ' UTC'
+                    : ''),
+            runAgeHours: age,
+            stale: age !== null && age >= PRESSURE_RUN_STALE_HOURS,
+        };
+    }
     if (source === 'open-meteo') {
         return { label: 'GFS · Open-Meteo coarse fallback', runAgeHours: null, stale: false };
     }

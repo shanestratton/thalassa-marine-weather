@@ -31,8 +31,6 @@ interface StatusBadgesProps {
     fallbackInland?: boolean;
     stationId?: string;
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
-    beaconName?: string;
-    buoyName?: string;
     /** Explicit open-water classification, independent of the selected model. */
     isOffshore?: boolean;
     // Dynamic source data

@@ -169,6 +169,9 @@ export default defineConfig({
         'offshore-worker.spec.ts',
         'offshore-comparison.spec.ts',
         'offline-relief.spec.ts',
+        // Mail/Files GRIB imports: actual disposable Worker and transparent
+        // missing-cell rendering, using generated fictional files only.
+        'grib-import.spec.ts',
         // Official warnings in the app (129-06): the Glass's official count beside the forecast
         // pill, the Warnings page's official section and Settings → Alerts' switches fit 320 × 568
         // and 390 × 844 in wide fonts (e2e/fixtures/official-warnings.tsx).
@@ -187,6 +190,7 @@ export default defineConfig({
         // centred above the tab bar, and its day names never touch whatever hour it opens at
         // (e2e/fixtures/meteogram.tsx).
         'meteogram-layout.spec.ts',
+        'route-meteogram-layout.spec.ts',
         // The Galley fits every phone (132-B17, GAL-17): Active meals Today and Next first under
         // plain dates; the Grocery list clear of the status bar and the home indicator, prices in
         // each row's currency, 44 pt ticks and no clipped names; the Recipe editor and Cooking

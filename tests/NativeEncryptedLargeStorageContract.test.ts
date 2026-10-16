@@ -70,6 +70,8 @@ describe('iOS encrypted large-storage source contract', () => {
         expect(typescript).toContain('Never surface the');
         expect(typescript).toContain('old plaintext startup mirror on iOS');
         expect(typescript).toContain('return null;');
+        expect(typescript).toContain("'thalassa_offline_tides_v1'");
+        expect(read('ios/App/App/EncryptedLargeStoragePlugin.swift')).toContain('"thalassa_offline_tides_v1"');
     });
 });
 

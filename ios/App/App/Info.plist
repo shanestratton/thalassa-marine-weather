@@ -43,6 +43,23 @@
 	<!-- File sharing (UIFileSharingEnabled, LSSupportsOpeningDocumentsInPlace)
 	     was removed in 127 (127-C-c decision 10) and must stay off: nothing of
 	     the app's own storage is browsable in Files. -->
+    <key>UTImportedTypeDeclarations</key>
+    <array><dict>
+        <key>UTTypeIdentifier</key><string>com.thalassawx.grib</string>
+        <key>UTTypeDescription</key><string>GRIB weather data</string>
+        <key>UTTypeConformsTo</key><array><string>public.data</string><string>public.content</string></array>
+        <key>UTTypeTagSpecification</key><dict>
+            <key>public.filename-extension</key><array><string>grb</string><string>grib</string><string>grb1</string><string>grib1</string><string>grb2</string><string>grib2</string></array>
+            <key>public.mime-type</key><array><string>application/x-grib</string><string>application/grib</string></array>
+        </dict>
+    </dict></array>
+    <key>CFBundleDocumentTypes</key>
+    <array><dict>
+        <key>CFBundleTypeName</key><string>GRIB weather data</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>Alternate</string>
+        <key>LSItemContentTypes</key><array><string>com.thalassawx.grib</string></array>
+    </dict></array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>

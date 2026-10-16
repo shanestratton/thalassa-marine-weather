@@ -42,6 +42,7 @@ import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase'
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
 import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
+import { localWindSource } from './localWindSource';
 import { LINE_EDGE_LAYERS, lineEdges, traceHintPaint } from './traceLegInk';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
@@ -3909,7 +3910,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const windPalette = shownBase === 'light' && !nightMode ? 'light' : 'dark';
     // The desk menu's Wind row (127-DESKMAP-b); the phone's planner menu has the bases alone.
     const deskWindRow = deskWindOffered
-        ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
+        ? [
+              deskWindToggle(
+                  deskWindOn,
+                  weather.windModel,
+                  () => setDeskWindOn((on) => !on),
+                  localWindSource(weather.windState) ?? undefined,
+              ),
+          ]
         : [];
     const obsKeyProps: ObsLayerKeyProps = {
         enc: encVisible
@@ -4075,7 +4083,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // seamarks step aside for a chart: nothing in the strip
                         // jumps as the view crosses a cell edge.
                         seamarks={deskSeamarks ? (deskSeamarkView.down ? 'down' : 'shown') : null}
-                        wind={deskWind && weather.windReady ? windCreditLine(weather.windModel) : null}
+                        wind={
+                            deskWind && weather.windReady
+                                ? (localWindSource(weather.windState) ?? windCreditLine(weather.windModel))
+                                : null
+                        }
                         seabed={shownBase === 'light' && !!RELIEF_TILE_BASE && deskSeamarkView.low}
                     />
                 )}
@@ -4116,8 +4128,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
-                        boatInstruments={!planningSurface && obsStart.kind === 'follow'}
-                        boatLookUp={!planningSurface && obsShowing}
+                        boatInstruments={
+                            weather.windState.isGlobalMode && !planningSurface && obsStart.kind === 'follow'
+                        }
+                        boatLookUp={weather.windState.isGlobalMode && !planningSurface && obsShowing}
                         palette={windPalette}
                     />
                 )}
@@ -5574,7 +5588,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ),
                         }}
                     >
-                        {windCreditLine(weather.windModel)}
+                        {localWindSource(weather.windState) ?? windCreditLine(weather.windModel)}
                     </div>
                 )}
                 {!pickerMode && !planningSurface && !embedded && !isPinView && satellite.status !== 'off' && (

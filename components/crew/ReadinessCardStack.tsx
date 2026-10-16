@@ -23,6 +23,7 @@ import { DelegationBadge } from './DelegationBadge';
 import { VesselProfileSummary, type VesselProfileOverride } from '../passage/VesselProfileSummary';
 import { WeatherWindowCard } from '../passage/WeatherWindowCard';
 import { OceanCurrentsCard } from '../passage/OceanCurrentsCard';
+const ObservedNearbyCard = React.lazy(() => import('../observations/ObservedNearbyCard'));
 import { type PassageStatus } from '../../services/PassagePlanService';
 // WeatherBriefingCard ("Pre-Departure Weather") removed 2026-05-17.
 // Its 6-item checklist + day-by-day forecast duplicated what
@@ -601,6 +602,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         Window acceptance in PI-1 is now the canonical
                         weather-readiness gate. */}
 
+                    {canViewRoute && canViewChecklist && openGroup === 'brief' && activeVoyage?.departureCoords && (
+                        <React.Suspense fallback={<p role="status">Loading observation reader…</p>}>
+                            <ObservedNearbyCard key={selectedPassageId} point={activeVoyage.departureCoords} briefing />
+                        </React.Suspense>
+                    )}
                     {/* DB-2: VOYAGE PROVISIONING — no CardAccordion wrapper, the
                     Galley widget has its own card chrome and no boolean
                     "reviewed" signal, so it's not counted in briefReadyCount. */}

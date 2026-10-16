@@ -40,6 +40,12 @@ const mocks = vi.hoisted(() => {
     });
     const leafletMaps: MockLeafletMap[] = [];
     const velocityLayers: MockVelocityLayer[] = [];
+    const importedLayers: {
+        id: string;
+        setGrid: ReturnType<typeof vi.fn>;
+        setForecastHour: ReturnType<typeof vi.fn>;
+        setParticlesEnabled: ReturnType<typeof vi.fn>;
+    }[] = [];
 
     const velocityLayer = vi.fn((_: { data: VelocityGribRecord[] }) => {
         const layer: MockVelocityLayer = {
@@ -96,6 +102,7 @@ const mocks = vi.hoisted(() => {
         pluginGate,
         releasePlugin,
         velocityLayers,
+        importedLayers,
     };
 });
 
@@ -107,6 +114,16 @@ vi.mock('leaflet-velocity-ts', async () => {
     await mocks.pluginGate;
     return {};
 });
+vi.mock('../components/map/WindParticleLayer', () => ({
+    WindParticleLayer: class {
+        setGrid = vi.fn();
+        setForecastHour = vi.fn();
+        setParticlesEnabled = vi.fn();
+        constructor(public id: string) {
+            mocks.importedLayers.push(this);
+        }
+    },
+}));
 
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => mocks.logger,
@@ -200,6 +217,7 @@ interface MapboxHarness {
         getSource: ReturnType<typeof vi.fn>;
         getStyle: ReturnType<typeof vi.fn>;
         getZoom: ReturnType<typeof vi.fn>;
+        isStyleLoaded: ReturnType<typeof vi.fn>;
         off: ReturnType<typeof vi.fn>;
         on: ReturnType<typeof vi.fn>;
         project: ReturnType<typeof vi.fn>;
@@ -224,6 +242,7 @@ function createMapboxHarness(zoom = 5): MapboxHarness {
         getSource: vi.fn(),
         getStyle: vi.fn(() => ({ layers: [{ id: 'place-label', type: 'symbol' }] })),
         getZoom: vi.fn(() => zoom),
+        isStyleLoaded: vi.fn(() => true),
         off: vi.fn(),
         on: vi.fn(),
         project: vi.fn(() => ({ x: 100, y: 80 })),
@@ -333,6 +352,56 @@ afterEach(() => {
 });
 
 describe('MapboxVelocityOverlay React lifecycle', () => {
+    it('keeps imported bitmap data out of Leaflet and boat substitution, scrubs and removes its owned layer', async () => {
+        const harness = createMapboxHarness(15),
+            grid = { ...heatmapGrid(), importedGrib: true };
+        const before = mocks.velocityLayers.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={harness.map as never}
+                visible
+                windGrid={grid}
+                windHour={0}
+                boatInstruments
+                boatLookUp
+            />,
+        );
+        await waitFor(() => expect(harness.layers.has('imported-grib-wind')).toBe(true));
+        const layer = mocks.importedLayers.at(-1)!;
+        expect(layer.setGrid).toHaveBeenCalledWith(grid, 0);
+        expect(mocks.velocityLayers).toHaveLength(before);
+        expect(getCloseInWindReadout()).toBeNull();
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={harness.map as never}
+                visible
+                windGrid={grid}
+                windHour={0.5}
+                particlesEnabled={false}
+            />,
+        );
+        expect(layer.setForecastHour).toHaveBeenLastCalledWith(0.5);
+        expect(layer.setParticlesEnabled).toHaveBeenLastCalledWith(false);
+        expect(layer.setGrid).toHaveBeenCalledTimes(1);
+        view.unmount();
+        expect(harness.layers.has('imported-grib-wind')).toBe(false);
+        expect(harness.listenerCount('style.load')).toBe(0);
+    });
+    it('does not add an imported layer after its asynchronous module arrives on a hidden chart', async () => {
+        const harness = createMapboxHarness();
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={harness.map as never}
+                visible
+                windGrid={{ ...heatmapGrid(), importedGrib: true }}
+            />,
+        );
+        view.unmount();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(harness.layers.has('imported-grib-wind')).toBe(false);
+    });
     it('keeps one pending RAF across repeated library starts, including frame ID zero', () => {
         let id = 0;
         const pending = new Map<number, FrameRequestCallback>();

@@ -8,6 +8,9 @@
 import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import { fetchOpenMeteoProxy } from '../weather/openMeteoProxy';
+import { satelliteModeActive } from '../networkPolicy';
+import { listSavedTideTables, savedTableDetails, tideDistanceKm } from './offlineTideStore';
+import { WORLD_TIDES_ATTRIBUTION } from './worldTidesAttribution';
 
 export interface TideStation {
     id: string;
@@ -45,7 +48,9 @@ export interface TideStationDetails {
     fetchedAtMs: number;
     heights: StationTideHeight[];
     extremes: StationTideExtreme[];
-    source: 'WorldTides';
+    source: 'WorldTides' | 'MSQ' | 'NOAA' | 'LINZ';
+    /** A persisted table, never a fresh observed reading or publisher generation. */
+    savedAtMs?: number;
     copyright: string;
     kind: 'prediction';
     wind: StationForecastWind | null;
@@ -138,13 +143,20 @@ async function readBoundedJson(response: Response): Promise<Record<string, unkno
     return record(JSON.parse(new TextDecoder().decode(bytes)));
 }
 
-async function tideProxy(
+export async function tideProxy(
     payload: Record<string, number | boolean>,
     signal?: AbortSignal,
 ): Promise<Record<string, unknown> | null> {
     const url = import.meta.env.VITE_SUPABASE_URL;
     const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY;
-    if (!url || !key || signal?.aborted) return null;
+    if (
+        !url ||
+        !key ||
+        signal?.aborted ||
+        satelliteModeActive() ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false)
+    )
+        return null;
     const scope = getAuthIdentityScope();
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -157,7 +169,13 @@ async function tideProxy(
         } catch {
             headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, apikey: key };
         }
-        if (controller.signal.aborted || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (
+            controller.signal.aborted ||
+            !isAuthIdentityScopeCurrent(scope) ||
+            satelliteModeActive() ||
+            (typeof navigator !== 'undefined' && navigator.onLine === false)
+        )
+            return null;
         const response = await fetch(`${url}/functions/v1/proxy-tides`, {
             method: 'POST',
             headers,
@@ -190,6 +208,9 @@ export async function fetchNearbyTideStations(
 ): Promise<TideStation[] | null> {
     const p = position(lat, lon);
     if (!p || options.signal?.aborted) return null;
+    if (satelliteModeActive() || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        return (await listSavedTideTables()).filter((t) => tideDistanceKm(p, t.station) <= 100).map((t) => t.station);
+    }
     const key = pointKey(p);
     const cached = stationCache.get(key);
     if (cached && Date.now() - cached.at >= 0 && Date.now() - cached.at < SEARCH_TTL) return cached.stations;
@@ -228,6 +249,7 @@ export function normaliseTideStationDetails(
     station: TideStation,
     raw: unknown,
     fetchedAtMs = Date.now(),
+    options: { offlineTable?: true } = {},
 ): TideStationDetails | null {
     const data = record(raw);
     if (
@@ -235,7 +257,7 @@ export function normaliseTideStationDetails(
         data.status !== 200 ||
         data.error ||
         !Array.isArray(data.extremes) ||
-        data.extremes.length > MAX_EXTREMES
+        data.extremes.length > (options.offlineTable ? 256 : MAX_EXTREMES)
     )
         return null;
     // An older deployed proxy may still return extremes only. Keep those
@@ -269,7 +291,7 @@ export function normaliseTideStationDetails(
         requestedDatum: text(data.requestDatum, 50),
         timezone: timezone(data.timezone) ?? timezone(station.timezone),
         source: 'WorldTides',
-        copyright: text(data.copyright, 4096) ?? 'WorldTides',
+        copyright: text(data.copyright, 4096) ?? WORLD_TIDES_ATTRIBUTION,
         kind: 'prediction',
         wind: null,
     };
@@ -336,6 +358,12 @@ export async function fetchTideStationDetails(
     options: { signal?: AbortSignal; includeWind?: boolean } = {},
 ): Promise<TideStationDetails | null> {
     if (!position(station.lat, station.lon) || options.signal?.aborted) return null;
+    if (satelliteModeActive() || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        const table = (await listSavedTideTables()).find(
+            (t) => t.station.id === station.id && tideDistanceKm(station, t.station) < 0.1,
+        );
+        return table && !options.signal?.aborted ? savedTableDetails(table) : null;
+    }
     const key = `${pointKey(station)}:${station.id}`,
         scope = getAuthIdentityScope();
     let details = tideCache.get(key) ?? null;

@@ -212,6 +212,7 @@ export function useWeatherInspectPopup(
                             onRetry={() => loadWeather()}
                             onClose={closePopup}
                             buoy={view.buoy}
+                            observationPoint={{ lat, lon: ((((lon + 180) % 360) + 360) % 360) - 180 }}
                             units={settingsRef.current.units}
                             vessel={settingsRef.current.vessel}
                             onOpenSounding={openSounding}

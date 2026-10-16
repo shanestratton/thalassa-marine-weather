@@ -237,120 +237,7 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
     }
 }
 
-// --- BOM AUTOMATIC WEATHER STATION (AWS) FETCHING ---
-
-/**
- * Fetch real-time wind observations from BOM Automatic Weather Station
- * Uses BOM JSON API for individual coastal stations with full wind sensors
- *
- * These stations provide ACTUAL OBSERVED wind data (not forecasts)
- * Unlike wave buoys, AWS have anemometers and provide wind speed, direction, gusts
- */
-async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
-    try {
-        // BOM JSON endpoint pattern for individual stations
-        // HTTPS (2026-08-07). This was http, which iOS App Transport Security
-        // blocks outright — the request never left the phone, so BOM station
-        // observations silently never loaded on device. BOM 301-redirects
-        // http->https anyway, so the plain URL had already stopped being the
-        // real endpoint; ATS just made the staleness fatal rather than
-        // invisible.
-        const url = `https://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
-
-        // Pi first, direct on null — see the NDBC note above; the old
-        // `piUrl || url` form dropped the reading whenever the Pi answered.
-        let data = await piCache.passthroughJson<unknown>(url, 15 * 60 * 1000, 'bom-aws');
-        if (data === null) {
-            const response = await CapacitorHttp.get({
-                url,
-                headers: { Accept: 'application/json' },
-            });
-            if (response.status !== 200 || !response.data) {
-                return null;
-            }
-            data = response.data;
-        }
-
-        // BOM's observation records carry dozens of loosely-typed fields;
-        // this was implicitly `any` before the transport change and retyping
-        // it is a separate job. NOTE the disable must be the LINE DIRECTLY
-        // above the code — the original had three lines of prose between
-        // them, so the suppression landed on a comment and the error stood.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const parsed = data as { observations?: { data?: Array<Record<string, any>> } };
-
-        // BOM JSON structure: { observations: { data: [...] } }
-        if (!parsed.observations?.data || parsed.observations.data.length === 0) {
-            return null;
-        }
-
-        // Get most recent observation (first in array)
-        const obs = parsed.observations.data[0];
-
-        // Parse BOM AWS data
-        // Fields: wind_dir, wind_spd_kmh, gust_kmh, air_temp, press, etc.
-        // Convert km/h to m/s for consistency with NDBC (m/s * 1.944 = knots)
-        const parseFloat = (val: unknown): number | undefined => {
-            if (val === null || val === undefined || val === '-') return undefined;
-            const parsed = Number(val);
-            return isNaN(parsed) ? undefined : parsed;
-        };
-
-        const windSpeedKmh = parseFloat(obs.wind_spd_kmh);
-        const gustKmh = parseFloat(obs.gust_kmh);
-
-        // Convert km/h to m/s (divide by 3.6)
-        const windSpeed = windSpeedKmh !== undefined ? windSpeedKmh / 3.6 : undefined;
-        const windGust = gustKmh !== undefined ? gustKmh / 3.6 : undefined;
-
-        // BOM AWS provides wind_dir (cardinal) and sometimes wind_dir_deg (degrees)
-        // Priority: degrees > cardinal conversion
-        const windDirDeg = parseFloat(obs.wind_dir_deg);
-        const windDirCardinal = obs.wind_dir; // e.g., "E", "NE", "SSW"
-
-        // CRITICAL FIX: Fall back to cardinal-to-degrees conversion if degrees unavailable
-        // Import cardinalToDegrees inline to avoid circular dependencies
-        const cardinalMap: Record<string, number> = {
-            N: 0,
-            NNE: 22.5,
-            NE: 45,
-            ENE: 67.5,
-            E: 90,
-            ESE: 112.5,
-            SE: 135,
-            SSE: 157.5,
-            S: 180,
-            SSW: 202.5,
-            SW: 225,
-            WSW: 247.5,
-            W: 270,
-            WNW: 292.5,
-            NW: 315,
-            NNW: 337.5,
-        };
-        const windDirection =
-            windDirDeg !== undefined
-                ? windDirDeg
-                : windDirCardinal
-                  ? cardinalMap[windDirCardinal.toUpperCase()]
-                  : undefined;
-
-        return {
-            windSpeed,
-            windGust,
-            windDirection, // Now uses degrees OR cardinal fallback
-            airTemp: parseFloat(obs.air_temp),
-            pressure: parseFloat(obs.press),
-            timestamp: obs.local_date_time_full || obs.aifstime_utc || new Date().toISOString(),
-            // AWS typically don't have wave/water sensors
-            waveHeight: undefined,
-            dominantWavePeriod: undefined,
-            waterTemp: undefined,
-        };
-    } catch (error) {
-        return null;
-    }
-}
+// BOM AWS atmospheric reader retired in135-03 pending reuse permission.
 
 // --- HONG KONG OBSERVATORY (HKO) FETCHING ---
 
@@ -476,11 +363,7 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
             // Use Queensland/BOM integration for wave buoys
             return fetchBOMBuoy(buoy.id);
         case 'bom-aws':
-            // BOM Automatic Weather Stations with wind sensors
-            if (!buoy.bomStationId) {
-                return null;
-            }
-            return fetchBOMAWS(buoy.bomStationId);
+            return null; // No BOM AWS reuse permission; airports use NOAA METAR separately.
         case 'hko':
             // Hong Kong Observatory regional weather stations
             return fetchHKOStation(buoy.id);

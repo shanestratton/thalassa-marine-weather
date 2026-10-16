@@ -169,11 +169,6 @@ Deno.serve(async (req: Request) => {
     const caller = await requireAuthenticatedOrPublicQuota(req, 'tides', 60, 12, 3600);
     if (caller instanceof Response) return withCors(caller, CORS);
 
-    const key = Deno.env.get('WORLDTIDES_API_KEY');
-    if (!key) {
-        return corsResponse(JSON.stringify({ error: 'Tide service is not configured' }), 500);
-    }
-
     try {
         // Support both GET (query params) and POST (JSON body)
         let rawLat: unknown;
@@ -182,6 +177,8 @@ Deno.serve(async (req: Request) => {
         let rawStations: unknown;
         let rawDist: unknown;
         let rawHeights: unknown;
+        let rawOfflineDays: unknown;
+        let capabilities: unknown;
         if (req.method === 'GET') {
             const url = new URL(req.url);
             rawLat = url.searchParams.get('lat');
@@ -190,6 +187,8 @@ Deno.serve(async (req: Request) => {
             rawStations = url.searchParams.get('stations') ?? false;
             rawDist = url.searchParams.get('stationDistance') ?? 100;
             rawHeights = url.searchParams.get('heights') ?? false;
+            rawOfflineDays = url.searchParams.get('offlineDays') ?? undefined;
+            capabilities = url.searchParams.get('capabilities');
         } else {
             const body = await readJsonObject(req, 4096);
             if (!body) return corsResponse(JSON.stringify({ error: 'Invalid JSON request body' }), 400);
@@ -199,7 +198,18 @@ Deno.serve(async (req: Request) => {
             rawStations = body.stations ?? false;
             rawDist = body.stationDistance ?? 100;
             rawHeights = body.heights ?? false;
+            rawOfflineDays = body.offlineDays;
+            capabilities = body.capabilities;
         }
+
+        // Free capability check: an older deployment rejects the missing
+        // coordinates, so checking support cannot accidentally spend credits.
+        if (capabilities === true || capabilities === 'true') {
+            return corsResponse(JSON.stringify({ status: 200, offlineTides: { schema: 1, minDays: 14, maxDays: 30 } }), 200);
+        }
+        const key = Deno.env.get('WORLDTIDES_API_KEY');
+        if (!key) return corsResponse(JSON.stringify({ error: 'Tide service is not configured' }), 500);
+        const offlineDays = rawOfflineDays === undefined ? undefined : parseBoundedInteger(rawOfflineDays, 14, 30);
 
         const lat = parseCoordinate(rawLat, 'lat');
         const lon = parseCoordinate(rawLon, 'lon');
@@ -215,6 +225,7 @@ Deno.serve(async (req: Request) => {
             ![true, false, 'true', 'false'].includes(rawStations as boolean | string) ||
             ![true, false, 'true', 'false'].includes(rawHeights as boolean | string) ||
             (heights && (stations || days > 3))
+            || offlineDays === null || (offlineDays !== undefined && (stations || heights))
         ) {
             return corsResponse(JSON.stringify({ error: 'Invalid tide request bounds' }), 400);
         }
@@ -225,19 +236,28 @@ Deno.serve(async (req: Request) => {
         upstreamUrl.searchParams.set('stationDistance', String(stationDistance));
         upstreamUrl.searchParams.set('key', key);
 
+        let savedWindow: { schema: number; requestedDays: number; start: number; end: number; fetchedAtMs: number } | undefined;
+        let upstreamDays = days;
         if (stations) {
             // Station discovery — return nearby tide stations within radius
             upstreamUrl.searchParams.set('stations', '');
         } else {
             // Tide extremes — high/low tide times + heights
             const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            today.setDate(today.getDate() - 1); // Go back 24h for graph interpolation
+            today.setUTCHours(0, 0, 0, 0);
+            today.setUTCDate(today.getUTCDate() - 1); // Go back 24h for graph interpolation
             const start = Math.floor(today.getTime() / 1000);
+            // Add a prior day and a trailing day so actual HW/LW events can
+            // bracket the whole requested future period. No dense 30-day grid.
+            if (offlineDays !== undefined) {
+                upstreamDays = offlineDays + 2;
+                savedWindow = { schema: 1, requestedDays: offlineDays, start, end: start + upstreamDays * 86400, fetchedAtMs: Date.now() };
+            }
             upstreamUrl.searchParams.set('extremes', '');
-            upstreamUrl.searchParams.set('days', String(days));
+            upstreamUrl.searchParams.set('days', String(upstreamDays));
             upstreamUrl.searchParams.set('datum', 'LAT');
             upstreamUrl.searchParams.set('start', String(start));
+            if (offlineDays !== undefined) upstreamUrl.searchParams.set('timezone', '');
             if (heights) {
                 // Bounded additive mode; existing extremes-only callers retain
                 // their request cost and response shape. Never accept a client
@@ -257,15 +277,15 @@ Deno.serve(async (req: Request) => {
         }
 
         const data = await readResponseJsonObjectLimited(res, MAX_UPSTREAM_BYTES);
-        if (!data || !isValidWorldTidesResponse(data, stations, days, heights)) {
+        if (!data || !isValidWorldTidesResponse(data, stations, upstreamDays, heights)) {
             console.error('[proxy-tides] invalid upstream response');
             return corsResponse(JSON.stringify({ error: 'Tide upstream failed' }), 502);
         }
 
         // Dense predictions are requested per user; do not encourage a shared
         // intermediary to reuse that licensed response for other users.
-        return corsResponse(JSON.stringify(data), 200, {
-            'Cache-Control': heights ? 'private, max-age=900' : 'public, max-age=900',
+        return corsResponse(JSON.stringify(savedWindow ? { ...data, thalassaWindow: savedWindow } : data), 200, {
+            'Cache-Control': 'private, max-age=900',
         });
     } catch {
         console.error('[proxy-tides] request failed');

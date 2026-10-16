@@ -409,7 +409,10 @@ export interface TideGUIDetails {
     referenceStation?: string;
     timeOffsetHigh?: number;
     timeOffsetLow?: number;
-    source?: 'official' | 'worldtides';
+    source?: 'official' | 'worldtides' | 'saved-official' | 'saved-worldtides';
+    savedAt?: string;
+    coverageStart?: string;
+    coverageEnd?: string;
     provider?: OfficialTideProvider | 'WorldTides';
     stationId?: string;
     datumId?: string;

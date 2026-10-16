@@ -144,7 +144,15 @@ export function encodeWindBin(grid: WindGrid): ArrayBuffer {
 /**
  * Load a .wind.bin file from the Capacitor filesystem.
  */
-export async function loadLocalWindFile(filename: string): Promise<WindGrid> {
+export async function loadLocalWindFile(filename: string, isCurrent: () => boolean = () => true): Promise<WindGrid> {
+    if (filename.startsWith('grib-import/')) {
+        const { loadImportedGrib, importedFieldCoversNow } = await import('./localGribImport');
+        const file = await loadImportedGrib(filename, isCurrent);
+        if (!file.wind) throw new Error('This imported GRIB contains pressure only.');
+        if (!importedFieldCoversNow(file, 'wind'))
+            throw new Error('Imported wind is expired or does not cover the current time.');
+        return file.wind;
+    }
     try {
         const result = await Filesystem.readFile({
             path: filename,

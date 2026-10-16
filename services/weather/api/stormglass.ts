@@ -1,4 +1,4 @@
-import { MarineWeatherReport, StormGlassHour, BeaconObservation, OffshoreModel } from '../../../types';
+import { MarineWeatherReport, StormGlassHour, OffshoreModel } from '../../../types';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
@@ -7,7 +7,6 @@ import { mapStormGlassToReport, AstroEntry } from '../transformers';
 import { calculateDistanceKm } from '../../../utils/math';
 import { determineLocationType } from '../locationType';
 import { mergeWeatherData } from './dataSourceMerger';
-import { findAndFetchNearestBeacon } from './beaconService';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { resolveOffshoreModel } from '../forecastModels';
@@ -64,7 +63,8 @@ export const fetchStormGlassWeather = async (
     modelSnapshot?: OffshoreModel,
 ): Promise<MarineWeatherReport> => {
     const offshoreSource = resolveOffshoreModel(modelSnapshot ?? useSettingsStore.getState().settings.offshoreModel);
-    const cacheIdentity = `model-v1:${offshoreSource}:${existingLocationType || 'auto'}`;
+    // 135-03: old cache rows may contain station-overridden forecast values.
+    const cacheIdentity = `forecast-only-v2:${offshoreSource}:${existingLocationType || 'auto'}`;
     // 1. CHECK CACHE (3h TTL — model data updates every 6h)
     // API key lives server-side in Supabase Secrets — no client-side check needed.
     const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon, cacheIdentity);
@@ -292,26 +292,13 @@ const doFetchStormGlassWeather = async (
         hybridData?.weather?.utc_offset_seconds ? hybridData.weather.utc_offset_seconds / 3600 : undefined, // UTC Offset (Hours)
     );
 
-    // 4. Fetch Buoy Data and Merge with StormGlass
-    // This adds source tracking metadata (emerald for Buoy, amber for StormGlass)
-    let nearestBuoy: BeaconObservation | null = null;
-    try {
-        nearestBuoy = await findAndFetchNearestBeacon(lat, lon, 10); // 10nm radius
-    } catch (e) {
-        // Silently ignored — non-critical failure
-    }
-
-    // Merge buoy data with StormGlass report to add source tracking
-    const mergedReport = mergeWeatherData(existingLocationType === 'offshore' ? null : nearestBuoy, report, {
+    // Observations have their own station/age/exposure display (135-03).
+    // Preserve forecast attribution without replacing model values with stations.
+    const mergedReport = mergeWeatherData(null, report, {
         lat,
         lon,
         name,
     });
-    if (existingLocationType === 'offshore' && nearestBuoy) {
-        // Preserve the nearby observation without silently replacing the
-        // user's explicitly selected offshore forecast with buoy atmosphere.
-        mergedReport.beaconObservation = nearestBuoy;
-    }
 
     // 5. Calculate Location Type (ALWAYS recompute — never trust stale cached values)
     // The existingLocationType from cache can become stale when a user moves between

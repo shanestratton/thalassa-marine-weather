@@ -529,6 +529,7 @@ async function prefetchWorldFloor(model: CachedWindGrid['model']): Promise<void>
 let windRequestGeneration = 0;
 
 interface WindRequestContext {
+    localGribPath?: string | null;
     generation: number;
     isGlobalMode: boolean;
     model: ReturnType<typeof WindStore.getState>['model'];
@@ -541,7 +542,8 @@ function isCurrentWindRequest(request: WindRequestContext): boolean {
         request.generation === windRequestGeneration &&
         current.isGlobalMode === request.isGlobalMode &&
         current.model === request.model &&
-        current.field === request.field
+        current.field === request.field &&
+        (request.localGribPath === undefined || current.localGribPath === request.localGribPath)
     );
 }
 
@@ -708,6 +710,7 @@ export const WindDataController = {
      */
     async fetchOnline(map: mapboxgl.Map, generation: number = ++windRequestGeneration): Promise<boolean> {
         const { isGlobalMode, model, field } = WindStore.getState();
+        if (!isGlobalMode) return false;
         const request: WindRequestContext = { generation, isGlobalMode, model, field };
         if (!isCurrentWindRequest(request)) return false;
 
@@ -1015,7 +1018,7 @@ export const WindDataController = {
      */
     async fetchOffline(generation: number = ++windRequestGeneration): Promise<boolean> {
         const { localGribPath, isGlobalMode, model, field } = WindStore.getState();
-        const request: WindRequestContext = { generation, isGlobalMode, model, field };
+        const request: WindRequestContext = { generation, isGlobalMode, model, field, localGribPath };
         if (!beginWindGridLoad(request)) return false;
 
         if (!localGribPath) {
@@ -1028,7 +1031,11 @@ export const WindDataController = {
         }
 
         try {
-            const grid = await loadLocalWindFile(localGribPath);
+            if (field === 'gust' && localGribPath.startsWith('grib-import/'))
+                throw new Error('The imported GRIB has no gust field.');
+            const grid = await (localGribPath.startsWith('grib-import/')
+                ? loadLocalWindFile(localGribPath, () => isCurrentWindRequest(request))
+                : loadLocalWindFile(localGribPath));
             if (!isCurrentWindRequest(request)) return false;
             WindStore.setGrid(grid);
             return true;
@@ -1054,6 +1061,7 @@ export const WindDataController = {
                 // the page change does not fetch for the hidden chart either.
                 if (chartHidden(map)) return;
                 const { isGlobalMode, model, field } = WindStore.getState();
+                if (!isGlobalMode) return;
                 // GFS-wind in global mode is full-earth — no pan refetch. Any
                 // Open-Meteo gridded selection is viewport-bounded, so it must
                 // refetch on pan even in global mode.

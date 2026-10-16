@@ -32,6 +32,7 @@ import { CheckIcon, RefreshIcon, StarIcon } from '../icons/UIIcons';
 import { GustIcon } from '../icons/GlassGlyphs';
 import { describeNearestBuoy, type BuoyLineUnits } from '../../services/weather/buoys/describe';
 import type { NearestBuoyResult } from '../../services/weather/buoys/types';
+const ObservedNearbyCard = React.lazy(() => import('../observations/ObservedNearbyCard'));
 
 /**
  * Save affordance. The popup renders in its OWN React root (MapHub calls
@@ -79,6 +80,8 @@ interface Props {
      * air as a skew-T. An explicit tap, so nothing is fetched until asked.
      */
     onOpenSounding?: () => void;
+    /** The inspected point, available even if its forecast request fails. */
+    observationPoint?: { lat: number; lon: number };
 }
 
 // ── Direction helpers ──
@@ -435,6 +438,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({
     units,
     vessel,
     onOpenSounding,
+    observationPoint,
 }) => {
     /** The sea in parts, only where the wave model's cell passed the guard (130-04). */
     const sea = data?.marineStatus === 'available' ? data.sea : null;
@@ -470,12 +474,14 @@ export const WeatherInspectPopup: React.FC<Props> = ({
 
     // 288, was 280 (130-04): at 320 px that is the house's 16 px gutter, and in wide
     // fonts it keeps a three-digit longitude and the Sounding pill on one line. The
-    // bubble cannot scroll, so every line it saves keeps the Save row off the tab bar.
+    // card scrolls within the viewport when station readings/history are opened.
     return (
         <div style={{ minWidth: 240, maxWidth: 288 }}>
             {/* Card */}
             <div
                 style={{
+                    maxHeight: 'min(74dvh, 640px)',
+                    overflowY: 'auto',
                     background: 'var(--day-ui-surface, linear-gradient(135deg, rgb(15,23,42), rgb(20,30,50)))',
                     backdropFilter: 'blur(20px) saturate(1.4)',
                     WebkitBackdropFilter: 'blur(20px) saturate(1.4)',
@@ -716,6 +722,16 @@ export const WeatherInspectPopup: React.FC<Props> = ({
                 {/* Outside the data block on purpose: the spot is worth
                     saving whether or not its weather loaded (offshore on a
                     flaky link, the fetch is exactly what fails). */}
+                {observationPoint && (
+                    <details className="mt-2 border-t border-white/10 pt-2 text-xs">
+                        <summary className="min-h-11 cursor-pointer text-sky-200">
+                            Observed nearby · buoys &amp; airports
+                        </summary>
+                        <React.Suspense fallback={<p role="status">Loading observation reader…</p>}>
+                            <ObservedNearbyCard point={observationPoint} />
+                        </React.Suspense>
+                    </details>
+                )}
                 {save && <SaveRow save={save} />}
             </div>
         </div>

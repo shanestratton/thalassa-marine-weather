@@ -17,9 +17,11 @@ import { TideCanvas } from './TideCanvas';
 import { ModalSheet } from '../../ui/ModalSheet';
 
 const log = createLogger('TideGraph');
+const OfflineTidesSheet = React.lazy(() => import('../../map/OfflineTidesSheet'));
 
 function TideSource({ details }: { details: TideGUIDetails }): React.ReactNode {
     const [open, setOpen] = React.useState(false);
+    const [offlineOpen, setOfflineOpen] = React.useState(false);
     return (
         <>
             <button
@@ -29,11 +31,29 @@ function TideSource({ details }: { details: TideGUIDetails }): React.ReactNode {
             >
                 Source and datum
             </button>
+            <button
+                type="button"
+                className="pointer-events-auto min-h-11 ml-2 text-xs underline font-normal tracking-normal"
+                onClick={() => setOfflineOpen(true)}
+            >
+                Offline tides
+            </button>
+            {offlineOpen && (
+                <React.Suspense fallback={null}>
+                    <OfflineTidesSheet onClose={() => setOfflineOpen(false)} />
+                </React.Suspense>
+            )}
             <ModalSheet isOpen={open} onClose={() => setOpen(false)} title="Tide source" maxWidth="max-w-md">
                 <p className="text-sm text-white">
                     {details.provider} · {details.datumLabel} · {details.stationName}
                 </p>
                 <p>{details.attribution}</p>
+                {details.savedAt && (
+                    <p>
+                        Saved table · downloaded {details.savedAt}. Covers {details.coverageStart} to{' '}
+                        {details.coverageEnd}. This does not establish a fresh publisher or live water level.
+                    </p>
+                )}
                 <p className="mt-1">
                     Between high and low, the curve is an estimate. These heights do not supply chart depth or route
                     clearance.
@@ -396,9 +416,12 @@ export const TideGraphOriginal = ({
     // A short card: its station name moves up beside the height, out of the
     // trough the curve swings through along the bottom (UX scorecard run 9).
     const shortCard = stationPosition === 'bottom' && !showAllDayEvents && chartAreaPx > 0 && chartAreaPx < 130;
-    const stationLabel = official
-        ? `${guiDetails.provider === 'MSQ' ? 'MSQ/BOM' : guiDetails.provider} · ${guiDetails.datumLabel} · ${guiDetails.stationName}`
-        : guiDetails?.stationName || stationName;
+    const savedTable = guiDetails?.source === 'saved-official' || guiDetails?.source === 'saved-worldtides';
+    const stationLabel = savedTable
+        ? `Saved ${guiDetails.provider} table · ${guiDetails.datumLabel ?? 'datum unknown'} · ${guiDetails.stationName}`
+        : official
+          ? `${guiDetails.provider === 'MSQ' ? 'MSQ/BOM' : guiDetails.provider} · ${guiDetails.datumLabel} · ${guiDetails.stationName}`
+          : guiDetails?.stationName || stationName;
     const observation =
         official &&
         guiDetails.stationId &&
@@ -520,7 +543,7 @@ export const TideGraphOriginal = ({
                                             {observationLabel}
                                         </span>
                                     )}
-                                    {official && <TideSource details={guiDetails} />}
+                                    {guiDetails && <TideSource details={guiDetails} />}
                                 </div>
                             )}
                         </div>
@@ -688,7 +711,7 @@ export const TideGraphOriginal = ({
                                 {observationLabel}
                             </span>
                         )}
-                        {official && <TideSource details={guiDetails} />}
+                        {guiDetails && <TideSource details={guiDetails} />}
                     </div>
                 )}
             </div>

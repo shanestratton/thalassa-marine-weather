@@ -15,6 +15,13 @@ const { boatOf } = vi.hoisted(() => ({
     boatOf: (vessel: { name?: string } | null | undefined) =>
         vessel === undefined ? 'own' : vessel === null ? 'unknown' : (vessel.name ?? ''),
 }));
+const observed = vi.hoisted(() => ({ renders: vi.fn() }));
+vi.mock('../components/observations/ObservedNearbyCard', () => ({
+    default: (props: unknown) => {
+        observed.renders(props);
+        return <div data-testid="observed-nearby-card">Observed station readings</div>;
+    },
+}));
 
 vi.mock('../components/passage/PassageSummaryCard', () => ({
     PassageSummaryCard: ({
@@ -239,9 +246,30 @@ const renderStack = (
 
 afterEach(() => {
     vi.mocked(isSameCountry).mockReturnValue(false);
+    observed.renders.mockClear();
 });
 
 describe('passage permission integration', () => {
+    it('loads current observations only in the open, route-and-checklist-authorized briefing without counting readiness', async () => {
+        renderStack(ownerStatus);
+        expect(observed.renders).not.toHaveBeenCalled();
+        const group = screen.getByText('Departure Brief').closest('details')!;
+        (group as HTMLDetailsElement).open = true;
+        fireEvent(group, new Event('toggle'));
+        expect(await screen.findByTestId('observed-nearby-card')).toBeInTheDocument();
+        expect(observed.renders).toHaveBeenCalledWith(
+            expect.objectContaining({ point: voyage.departureCoords, briefing: true }),
+        );
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/4');
+    });
+    it('does not disclose departure-area stations to a checklist-only crew grant', () => {
+        renderStack(restrictedChecklistStatus);
+        const group = screen.getByText('Departure Brief').closest('details')!;
+        (group as HTMLDetailsElement).open = true;
+        fireEvent(group, new Event('toggle'));
+        expect(screen.queryByTestId('observed-nearby-card')).not.toBeInTheDocument();
+        expect(observed.renders).not.toHaveBeenCalled();
+    });
     it('mounts every child-card family but hides delegation controls for a solo owner', () => {
         renderStack(ownerStatus);
 
