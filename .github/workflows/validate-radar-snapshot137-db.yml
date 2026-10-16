@@ -1,0 +1,68 @@
+name: Build137 isolated radar owner snapshot proof
+on:
+  push:
+    branches: ['codex/build-137-radar-snapshot-db-validation']
+    paths: ['.github/workflows/validate-radar-snapshot137-db.yml']
+permissions:
+  contents: read
+concurrency:
+  group: radar137-isolated-owner-snapshot-proof
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: radar137_snapshot_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HUSKY: '0'
+      THALASSA_DISPOSABLE_RADAR_SNAPSHOT_TEST: '1'
+      RADAR_SNAPSHOT_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/radar137_snapshot_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: '1ee31ccbaf4ee631bc92f4817310ee9ac47961df'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact source and isolated fixture identities
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 1ee31ccbaf4ee631bc92f4817310ee9ac47961df
+          mkdir -p "$RUNNER_TEMP/radar-snapshot137-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/radar-snapshot137-proof/SOURCE_SHA.txt"
+          node --version > "$RUNNER_TEMP/radar-snapshot137-proof/NODE_VERSION.txt"
+          sha256sum supabase/tests/pi-radar-owner-snapshot.mjs tests/sql/pi-wake-base.sql supabase/migrations/20261016154726_pi_wake_keeper_relay.sql supabase/held-migrations/20261016162758_pi_radar_relay.sql supabase/held-migrations/20261016165318_pi_radar_owner_snapshot.sql > "$RUNNER_TEMP/radar-snapshot137-proof/SHA256SUMS"
+          docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/radar-snapshot137-proof/POSTGRES_IMAGE_ID.txt"
+      - name: Install only the isolated pinned PostgreSQL client
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/radar-snapshot137-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          test "$(node -p "require('$RUNNER_TEMP/radar-snapshot137-pg/node_modules/pg/package.json').version")" = 8.16.3
+          sha256sum "$RUNNER_TEMP/radar-snapshot137-pg/package-lock.json" > "$RUNNER_TEMP/radar-snapshot137-proof/CLIENT_LOCK_SHA256.txt"
+      - name: Actual owner RLS, credential secrecy, ambiguity, clocks and54-contact bound
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/radar-snapshot137-pg/node_modules/pg/lib/index.js
+        run: |
+          set -euo pipefail
+          node supabase/tests/pi-radar-owner-snapshot.mjs 2>&1 | tee "$RUNNER_TEMP/radar-snapshot137-proof/SNAPSHOT.txt"
+      - name: Preserve isolated proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build137-radar-owner-snapshot-proof
+          path: ${{ runner.temp }}/radar-snapshot137-proof/
+          retention-days: 7
+          if-no-files-found: error
