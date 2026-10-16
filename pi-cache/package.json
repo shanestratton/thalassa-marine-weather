@@ -17,6 +17,9 @@
         "check:lookahead": "node scripts/sync-lookahead-rule.mjs --check"
     },
     "dependencies": {
+        "@turf/boolean-point-in-polygon": "7.3.4",
+        "@turf/helpers": "7.3.4",
+        "@turf/line-intersect": "7.3.5",
         "@types/adm-zip": "^0.5.8",
         "adm-zip": "^0.6.0",
         "better-sqlite3": "^11.7.0",
