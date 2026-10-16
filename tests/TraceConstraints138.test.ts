@@ -4,6 +4,7 @@ import {
     encodeTraceRoutePoint,
     decodeTraceRoutePoints,
     reverseTraceRoutePoints,
+    type TraceRoutePoint,
 } from '../services/routing/traceRoutePoint';
 import { routeConstraintsForTrace } from '../services/routing/traceConstraints';
 import { resolveRouteConstraints } from '../services/routing/routeConstraints';
@@ -11,7 +12,7 @@ import { decodeSavedRoutePoints } from '../services/savedRoutePoints';
 import { evaluateTraceRelease, normaliseTraceVerification } from '../services/traceVerification';
 const origin = { lat: 0, lon: 0 },
     destination = { lat: 0, lon: 2 };
-function points() {
+function points(): TraceRoutePoint[] {
     const resolved = resolveRouteConstraints(
         origin,
         [{ lat: 0, lon: 1, name: 'User side mark', leaveSide: 'port', standOffM: 50 }],

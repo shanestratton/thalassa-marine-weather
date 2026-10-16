@@ -68,7 +68,7 @@ vi.mock('../utils/system', async (importOriginal) => ({
 }));
 vi.mock('../services/routeTracer', () => ({ snapTraceTapToLead: () => null }));
 
-import { useTracerPinMarkers } from '../components/map/useTracerPinMarkers';
+import { useTracerPinMarkers, type TracerPinMarkerDeps } from '../components/map/useTracerPinMarkers';
 import type { TraceRoutePoint } from '../services/routing/traceRoutePoint';
 
 type Pin = TraceRoutePoint;
@@ -89,12 +89,12 @@ function setup() {
         applied.push(typeof action === 'function' ? action(prev) : action);
     };
 
-    const props = {
+    const props: TracerPinMarkerDeps = {
         mapRef,
         tracerCtxRef: { current: null },
         coordCaptureMode: true,
         capturedCoords: [{ lat: 1, lon: 1 }] as Pin[],
-        setCapturedCoords: makeDispatcher('scope-A') as never,
+        setCapturedCoords: makeDispatcher('scope-A'),
         selectedPin: null,
         setSelectedPin: vi.fn(),
         setInsertAfter: vi.fn(),
@@ -145,7 +145,7 @@ describe('tracer pin drag survives an auth identity change', () => {
         // Sign-in: the old dispatcher is now a no-op and a new one arrives.
         signIn();
         act(() => {
-            view.rerender({ ...props, setCapturedCoords: makeDispatcher('scope-B') as never });
+            view.rerender({ ...props, setCapturedCoords: makeDispatcher('scope-B') });
         });
 
         // The record — and therefore its dragend listener — is REUSED, not
