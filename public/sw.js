@@ -694,7 +694,8 @@ self.addEventListener('fetch', (event) => {
     // or retain a second copy after the skipper deletes the saved catalogue.
     if (
         url.origin === 'https://tiles.thalassatiles.com' &&
-        (/^\/marine-catalogue\/v1\/(places|osm|noaa)\//.test(url.pathname) || url.pathname.startsWith('/noaa-enc/v1/'))
+        (/^\/marine-catalogue\/v1\/(places|osm|noaa|facilities)\//.test(url.pathname) ||
+            url.pathname.startsWith('/noaa-enc/v1/'))
     ) {
         event.respondWith(fetch(event.request));
         return;

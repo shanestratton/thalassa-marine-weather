@@ -19,7 +19,8 @@ vi.mock('../components/weather/RouteMeteogram', async () => {
     };
 });
 import { TraceReportModal, formatWaypointEtaUTC } from '../components/map/TraceReportModal';
-import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
+import { clearAlongRouteReport, getAlongRouteReport, publishAlongRouteReport } from '../stores/alongRouteReportStore';
 import { routeWeatherFixturePins as pins, routeWeatherFixtureStart } from './fixtures/routeWeatherFixture';
 import { traceGeometryKey } from '../services/traceVerification';
 function props(): React.ComponentProps<typeof TraceReportModal> {
@@ -59,6 +60,7 @@ function props(): React.ComponentProps<typeof TraceReportModal> {
 }
 beforeEach(() => {
     vi.clearAllMocks();
+    clearAlongRouteReport();
     setAuthIdentityScope('synthetic-export-account');
 });
 async function sample() {
@@ -90,6 +92,71 @@ it('exports exactly the sampled clock/rows, even when the original departure was
     expect(data.departureMs).toBe(routeWeatherFixtureStart);
     expect(data.departureMs).toBe(data.routeWeather.departureMs);
     expect(data.routeWeather.rows.length).toBeGreaterThan(24);
+});
+
+it('keeps an explicitly loaded private chart reference out of both PDF inputs and GPX bytes', async () => {
+    publishAlongRouteReport(
+        {
+            ownerScope: getAuthIdentityScope(),
+            boatId: 'fictional-boat',
+            identity: 'fictional-route',
+            routeIdentity: 'fictional-route',
+            departureMs: routeWeatherFixtureStart,
+            speedKts: 6,
+            loadedAtMs: Date.now(),
+            totalNm: 10,
+            chartVersion: 0,
+            rows: [
+                {
+                    id: 'bridge:fictional-private',
+                    name: 'FICTIONAL PRIVATE BRIDGE SUMMARY',
+                    kind: 'bridge',
+                    lat: 0.1234567,
+                    lon: 0.7654321,
+                    source: 'Fictional protected chart',
+                    sourceUrl: null,
+                    sourceAt: null,
+                    aboardOnly: true,
+                    note: 'Fictional chart-derived clearance detail',
+                    alongNm: 5,
+                    offRouteNm: 0,
+                    etaMs: null,
+                    ambiguousVisit: false,
+                    weather: { windKts: null, windDeg: null, gustKts: null, pressureHpa: null },
+                },
+            ],
+            limited: false,
+            cachedOnly: true,
+            sources: [],
+            weatherSource: 'Unknown',
+            weatherCredit: '',
+            weatherRun: null,
+            weatherNote: null,
+        },
+        () => true,
+    );
+    render(<TraceReportModal {...props()} />);
+    await sample();
+    fireEvent.click(screen.getByRole('button', { name: /PDF/ }));
+    await waitFor(() => expect(h.share).toHaveBeenCalledOnce());
+    const pdf = JSON.stringify(h.generate.mock.calls[0][0]);
+    expect(pdf).not.toContain('FICTIONAL PRIVATE BRIDGE');
+    expect(pdf).not.toContain('0.1234567');
+    expect(pdf).not.toContain('alongRoute');
+    await waitFor(() => expect(screen.getByRole('button', { name: /GPX/ })).toBeEnabled());
+    h.share.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /GPX/ }));
+    await waitFor(() => expect(h.share).toHaveBeenCalledOnce());
+    const blob = (h.share.mock.calls as unknown as [Blob][])[0][0];
+    const gpx = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(blob);
+    });
+    expect(gpx).not.toContain('FICTIONAL PRIVATE BRIDGE');
+    expect(gpx).not.toContain('0.1234567');
+    expect(getAlongRouteReport()?.rows[0].name).toBe('FICTIONAL PRIVATE BRIDGE SUMMARY');
 });
 it.each(['geometry', 'account', 'close'])('does not export after %s changes while PDF code loads', async (change) => {
     const input = props(),

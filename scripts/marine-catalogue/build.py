@@ -30,9 +30,10 @@ OSM_BUILD_POLICY = b"osm-vertex-order-independent-conflict-check1"
 LICENCES = {
     "places": "https://creativecommons.org/licenses/by/4.0/",
     "osm": "https://opendatacommons.org/licenses/odbl/1-0/",
+    "facilities": "https://opendatacommons.org/licenses/odbl/1-0/",
     "noaa": "https://charts.noaa.gov/ENCs/ENC_Agreement.shtml",
 }
-HOSTS = {"places": "download.geonames.org", "osm": "download.geofabrik.de", "noaa": "www.charts.noaa.gov"}
+HOSTS = {"places": "download.geonames.org", "osm": "download.geofabrik.de", "facilities": "download.geofabrik.de", "noaa": "www.charts.noaa.gov"}
 # Excludes inland river/lake/administrative/settlement/obsolete feature codes.
 GEONAMES = {"ISL": "island", "ISLS": "island", "ISLET": "island", "BAY": "bay", "BAYS": "bay", "BGHT": "bay", "COVE": "cove", "HBR": "harbour", "HBRX": "harbour", "RF": "reef", "RFC": "reef", "RFX": "reef", "HDLD": "headland", "CAPE": "headland", "PT": "headland", "ANCH": "anchorage"}
 
@@ -106,7 +107,7 @@ def center(geometry, *, order_independent=False):
     lon = ((min(longitudes) + max(longitudes)) / 2 + 180) % 360 - 180
     return (min(p[0] for p in points) + max(p[0] for p in points)) / 2, lon, True
 
-def osm(feature):
+def osm_identity(feature):
     p = feature.get("properties", {})
     # osmium export --attributes=type,id supplies original @type/@id. Also admit
     # canonical n/w/r IDs, never synthesized osmium area IDs (aNN).
@@ -123,6 +124,11 @@ def osm(feature):
         ident = f"{match[1]}{match[2]}"
     if not match:
         raise ValueError("Missing stable OSM source ID")
+    return ident
+
+def osm(feature):
+    p = feature.get("properties", {})
+    ident = osm_identity(feature)
     seamark = p.get("seamark:type")
     anchorage = seamark in ("anchorage", "anchor_berth") or p.get("anchorage") == "yes"
     mooring = p.get("mooring") == "buoy" or p.get("seamark:buoy_special_purpose:category") == "mooring" or (seamark == "mooring" and p.get("seamark:mooring:category", "buoy") == "buoy")
@@ -132,6 +138,24 @@ def osm(feature):
     restrictions = [f"Reported {key}: {text(p[key], 240)}" for key in ("access", "boat", "anchoring", "access:conditional", "boat:conditional", "anchoring:conditional", "seamark:anchorage:restriction", "seamark:mooring:restriction") if key in p and p[key] not in ("yes", "public", "none", "unrestricted")][:12]
     colours = list(dict.fromkeys(re.split(r"[;,]", text(p.get("seamark:mooring:colour") or p.get("colour")).lower().replace("gray", "grey"))))
     return {"id": f"osm-{ident}", "name": text(p.get("name") or p.get("seamark:name")) or ("Mapped anchorage" if anchorage else "Mapped mooring"), "kind": "anchorage" if anchorage else "mooring", "lat": lat, "lon": lon, "country": "", "aliases": [], "approximate": approximate, "access": text(p.get("access") or p.get("seamark:mooring:access") or p.get("seamark:anchorage:access"), 300) or "Unknown — check permission", "restrictions": restrictions, "colours": [c for c in colours if c in {"blue", "white", "red", "green", "yellow", "orange", "black", "brown", "grey"}]}
+
+def facilities(feature):
+    """Separate opt-in dataset: never place new kinds in released OSM shards.
+
+    Marine fuel needs an explicit boat-fuel tag; a roadside amenity=fuel is
+    insufficient. Categories are semicolon-delimited per the OSM tag contract.
+    Opening hours remain reported text, not interpreted operating permission.
+    """
+    p = feature.get("properties", {})
+    ident = osm_identity(feature)
+    categories = {v.strip() for v in str(p.get("seamark:small_craft_facility:category", "")).split(";")}
+    kinds = (["marina"] if p.get("leisure") == "marina" else [])
+    if p.get("waterway") == "fuel" or p.get("seamark:type") == "bunker_station" or (p.get("seamark:type") == "small_craft_facility" and "fuel_station" in categories):
+        kinds.append("fuel")
+    if not kinds: return None
+    lat, lon, approximate = center(feature.get("geometry"), order_independent=True)
+    restrictions = [f"Reported {key}: {text(p[key], 240)}" for key in ("access", "boat", "access:conditional", "boat:conditional", "opening_hours") if key in p][:12]
+    return {"id": f"osm-{ident}", "name": text(p.get("name") or p.get("seamark:name")) or ("Mapped marina" if "marina" in kinds else "Mapped marine fuel"), "kind": kinds[0], "facilityKinds": kinds, "lat": lat, "lon": lon, "country": "", "aliases": [], "approximate": approximate, "access": text(p.get("access"), 300) or "Unknown — check permission and availability", "restrictions": restrictions}
 
 def noaa(feature):
     p = feature.get("properties", {})
@@ -146,8 +170,11 @@ def noaa(feature):
     return {"id": f"noaa:{ident.upper()}", "name": text(p.get("OBJNAM")) or "NOAA anchorage reference", "kind": "anchorage", "lat": lat, "lon": lon, "country": "", "aliases": [], "approximate": True, "restrictions": restrictions}
 
 def checked_input(spec, base, dataset):
-    if set(spec) != {"path", "sourceUrl", "bytes", "sha256"} or Path(spec["path"]).is_absolute() or ".." in Path(spec["path"]).parts or not re.fullmatch(r"[a-f0-9]{64}", spec["sha256"]):
+    expected = {"path", "sourceUrl", "bytes", "sha256"} | ({"sourceAt"} if dataset == "facilities" else set())
+    if set(spec) != expected or Path(spec["path"]).is_absolute() or ".." in Path(spec["path"]).parts or not re.fullmatch(r"[a-f0-9]{64}", spec["sha256"]):
         raise ValueError("Invalid public source descriptor; no secrets / absolute paths")
+    if dataset == "facilities":
+        source_time(spec["sourceAt"])
     url = urlparse(spec["sourceUrl"])
     if url.scheme != "https" or url.hostname != HOSTS[dataset] or url.username or url.password or url.query or url.fragment:
         raise ValueError("Refused non-whitelisted public source URL")
@@ -162,6 +189,14 @@ def checked_input(spec, base, dataset):
     if digest != spec["sha256"]:
         raise ValueError("Source SHA256 mismatch")
     return source
+
+def source_time(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value):
+        raise ValueError("Facilities require the actual UTC PBF source clock")
+    stamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if stamp > dt.datetime.now(dt.timezone.utc):
+        raise ValueError("Future facilities source clock")
+    return stamp
 
 def build(input_manifest, output):
     input_manifest = Path(input_manifest).resolve()
@@ -181,7 +216,14 @@ def build(input_manifest, output):
     if source_at.tzinfo is None or source_at > now + dt.timedelta(minutes=5) or source_at < now - dt.timedelta(days=45):
         raise ValueError("Old/future source snapshot; review before monthly publication")
     sources = [checked_input(s, input_manifest.parent, dataset) for s in spec["inputs"]]
-    policy = BUILD_POLICY + (b"\0" + OSM_BUILD_POLICY if dataset == "osm" else b"")
+    if dataset == "facilities" and any(source_time(s["sourceAt"]) > now for s in spec["inputs"]):
+        raise ValueError("Facilities source clock cannot be newer than generation builtAt")
+    if dataset == "facilities" and sum(s.stat().st_size for s in sources) > 2 * 1024**3:
+        raise ValueError("Facilities cumulative local input exceeds2GiB")
+    if dataset == "facilities" and spec["sourceAt"] != min(s["sourceAt"] for s in spec["inputs"]):
+        raise ValueError("Facilities sourceAt must retain the oldest regional source clock")
+    policy = BUILD_POLICY + (b"\0" + OSM_BUILD_POLICY if dataset in ("osm", "facilities") else b"")
+    if dataset == "facilities": policy += b"\0marine-facilities1-explicit-boat-fuel"
     generation = now.strftime("%Y%m") + "-" + hashlib.sha256(raw + b"\0" + policy).hexdigest()[:16]
     root = Path(output).resolve() / dataset
     root.mkdir(parents=True, exist_ok=True)
@@ -207,25 +249,25 @@ def build(input_manifest, output):
                         continue
                     line = raw_line.decode("utf-8")
                     feature = None if dataset == "places" else json.loads(line)
-                    record = geonames(line) if dataset == "places" else (osm if dataset == "osm" else noaa)(feature)
+                    record = geonames(line) if dataset == "places" else {"osm": osm, "facilities": facilities, "noaa": noaa}[dataset](feature)
                     if record is None:
                         continue
                     encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-                    geometry_sha = geometry_fingerprint(feature.get("geometry")) if dataset == "osm" else None
+                    geometry_sha = geometry_fingerprint(feature.get("geometry")) if dataset in ("osm", "facilities") else None
                     indexed_lon = (record["lon"] + 180) % 360 - 180
                     indexed_area = area(record["lat"], record["lon"])
                     inserted = database.execute("INSERT OR IGNORE INTO records VALUES(?,?,?,?,?)", (record["id"], indexed_area, record["lat"], indexed_lon, encoded))
                     admitted += inserted.rowcount
                     if admitted > MAX_RECORDS: raise ValueError("Admitted record cap exceeded")
                     if inserted.rowcount == 0:
-                        if dataset == "osm":
+                        if dataset in ("osm", "facilities"):
                             previous = database.execute("SELECT r.json,g.sha FROM records r JOIN osm_geometry g ON g.id=r.id WHERE r.id=?", (record["id"],)).fetchone()
                             if previous != (encoded, geometry_sha):
                                 raise ValueError("Conflicting OSM source ID: " + record["id"])
                         else:
                             # NOAA input order is reviewed: latest/highest-detail cell last.
                             database.execute("UPDATE records SET area=?,lat=?,lon=?,json=? WHERE id=?", (indexed_area, record["lat"], indexed_lon, encoded, record["id"]))
-                    elif dataset == "osm":
+                    elif dataset in ("osm", "facilities"):
                         database.execute("INSERT INTO osm_geometry VALUES(?,?)", (record["id"], geometry_sha))
                     if dataset == "places":
                         for name in [record["name"], *record["aliases"]]:
@@ -299,6 +341,11 @@ def build(input_manifest, output):
         database.close()
         (stage / "work.sqlite").unlink()
         manifest = {"schema": 1, "dataset": dataset, "generation": generation, "builtAt": now.isoformat(), "sourceAt": spec["sourceAt"], "count": count, "coverage": spec["coverage"], "licence": LICENCES[dataset], "sourceUrl": spec["inputs"][0]["sourceUrl"], "shards": sorted(shard_keys)}
+        if dataset == "facilities":
+            cohorts = sorted([{"id": re.sub(r"-(?:latest|\d{6})\.osm\.pbf$", "", s["sourceUrl"]), "sourceAt": s["sourceAt"], "sha256": s["sha256"]} for s in spec["inputs"]], key=lambda v: v["id"])
+            if len({v["id"] for v in cohorts}) != len(cohorts) or not all(re.fullmatch(r"https://download\.geofabrik\.de/[a-z0-9/_-]+", v["id"]) for v in cohorts):
+                raise ValueError("Facilities source must identify its regional PBF cohort")
+            manifest["cohorts"] = cohorts
         if dataset == "noaa":
             agreement = Path(__file__).resolve().parents[2] / "public" / "data" / "noaa-enc-user-agreement.txt"
             manifest["agreementSha256"] = hashlib.sha256(agreement.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").encode()).hexdigest()
@@ -309,7 +356,7 @@ def build(input_manifest, output):
         if dataset == "noaa":
             agreement = Path(__file__).resolve().parents[2] / "public" / "data" / "noaa-enc-user-agreement.txt"
             (stage / "NOAA-AGREEMENT.txt").write_bytes(agreement.read_bytes())
-        if dataset == "osm":
+        if dataset in ("osm", "facilities"):
             (stage / "LICENCE.txt").write_text("© OpenStreetMap contributors. This adapted database is offered under ODbL1.0.\n" + LICENCES[dataset] + "\nThe complete adapted database is this generation's area shards (names remain separate GeoNames data).\n", encoding="utf-8")
         os.replace(stage, destination)
     return destination
