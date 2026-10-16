@@ -196,9 +196,11 @@ export function isochroneEnvironmentAt(environment: IsochroneEnvironment, depart
     if (!Number.isFinite(departureMs))
         return {
             ...environment,
+            departureMs,
             currentField: null,
             waveField: null,
             exclusionField: null,
+            snapshot: { departureMs, currentVectors: null, waves: null, cyclones: null },
             notes: [...environment.notes, 'Routing environment unavailable: later-leg departure time is invalid.'],
         };
     const offset = (departureMs - environment.departureMs) / 3_600_000;

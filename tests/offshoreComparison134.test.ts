@@ -11,6 +11,7 @@ import {
 } from '../services/routing/offshoreModelComparison';
 import type { RouteWorkerReply } from '../services/routing/routeJob';
 import type { CurrentSeries } from '../services/weather/currentSeries';
+import { isochroneEnvironmentAt } from '../services/routing/isochroneEnvironment';
 
 function currentSeriesForJob(input: OffshoreJob): CurrentSeries {
     const runMs = Date.parse(input.departureTime);
@@ -142,6 +143,21 @@ afterEach(() => {
 });
 
 describe('public-only offshore Worker boundary', () => {
+    it('refuses to rebuild an invalid later-leg clock from a previously valid Worker snapshot', () => {
+        const input = job();
+        const next = isochroneEnvironmentAt(
+            {
+                departureMs: input.environment.departureMs,
+                snapshot: input.environment,
+                currentField: null,
+                waveField: null,
+                exclusionField: null,
+                notes: [],
+            },
+            'invalid',
+        );
+        expect(() => prepareOffshoreJob({ ...input, environment: next.snapshot })).toThrow(/environment clock/);
+    });
     it('uses a verified forecast DTO in the actual kernel and strips unknown nested inputs', async () => {
         const baseline = (await runOffshoreJob(job()))!;
         const input = job();

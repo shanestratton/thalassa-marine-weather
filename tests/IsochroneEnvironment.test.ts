@@ -115,6 +115,8 @@ describe('shared isochrone environment', () => {
     it('does not retain apparently usable fields when the next leg clock is invalid', async () => {
         const env = isochroneEnvironmentAt(await loadIsochroneEnvironment(options), 'invalid');
         expect([env.currentField, env.waveField, env.exclusionField]).toEqual([null, null, null]);
+        expect(Number.isNaN(env.departureMs)).toBe(true);
+        expect(env.snapshot).toEqual({ departureMs: NaN, currentVectors: null, waves: null, cyclones: null });
         expect(env.notes.join(' ')).toMatch(/later-leg departure time is invalid/);
     });
 });
