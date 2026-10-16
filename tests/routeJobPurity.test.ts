@@ -60,6 +60,8 @@ const JOB_OWN = new Set([
     'services/isochrone/routeSampling.ts',
     'services/weather/WindFieldAdapter.ts',
     'services/weather/CurrentFieldAdapter.ts',
+    // The public forecast DTO, validator and sampler shared by that adapter.
+    'services/weather/currentSeries.ts',
     'services/weather/WaveFieldAdapter.ts',
     'services/weather/windLongitude.ts',
     'utils/seaComfort.ts',
@@ -136,6 +138,14 @@ describe("the route job's graph", () => {
 
     it('imports no package (the engine reads only geojson types, which erase)', () => {
         expect([...closure].flatMap(([f, m]) => m.packages.map((p) => `${f}: ${p}`))).toEqual([]);
+    });
+
+    it('the public current-series DTO and sampler remain an import-free leaf', () => {
+        const module = closure.get('services/weather/currentSeries.ts');
+        expect(module).toBeDefined();
+        expect(module?.imports).toEqual([]);
+        expect(module?.packages).toEqual([]);
+        expect(module?.dynamic).toEqual([]);
     });
 
     it('uses no storage, network, DOM or Capacitor API', () => {
