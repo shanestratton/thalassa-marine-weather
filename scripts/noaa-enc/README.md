@@ -59,9 +59,30 @@ Node 24.20.0 archive before creating a separate Docker context. Build with
 `--pull=false --network=none`; no package manager or host Node/GDAL installation.
 
 The reviewed isolated wx image is
-`sha256:990dc0e63d9ce8cdbb37fad528013872f0fb4008641bd8967015f75149e4a1cf`;
+`sha256:94c4c37740585d2a911cd5336366986ff13ae777f540458297fcefb4c359e048`;
 converter SHA is
 `aa4aa33d0033d6611dd102baaae98810213f37727d5ff4d00f5274d7081ed151`.
+
+`runtime_policy.py` admits only that exact tested pair for acquisition or the
+weekly runner. Its official GDAL3.13.3 amd64 base manifest is
+`sha256:44fee7d4f9be0966851d7b14a0a387216897d8347f9e0ebc4e812f7217bc39d6`,
+with OCI config `sha256:1a5c76ce004ab61c5d49d4d1341eec5e61d68e21ed4abf213851bf3ed274b5f5`.
+Docker29/containerd reports the manifest in image `.Id`; the config is a separate
+identity. The existing relief image supplies only the separately verified Node
+archive extraction build stage. A rebuilt derivative with another ID is refused
+until separately reviewed; do not retag it to bypass the policy.
+
+The former development-GDAL image remains historical. Its `ogrinfo` segfaulted
+on active US1GLBDD; the original ZIP and failed work were preserved. The exact
+stable derivative passed that cell (1,721 features), byte-identical US5CA1LK
+control output and refusal of cancelled US5CA16M. The reviewed first64 continuation
+then completed every selected cell in182 seconds,129,418,346 B converted,
+reusing all12 retained originals. All64 output/conversion receipts and11 existing
+acquisition receipts were verified. Its local generation
+`1b8c74a0fb42cd0f42e93a2b` passes the app's real root/all102 shard parsers with
+exactly64 ready cells among7,114 active metadata rows. This mostly low-detail
+selection is not completed national downloadable coverage. No R2 publication,
+publisher service, public root or timer was changed by that proof.
 
 Host wx already has boto3. Existing mode600 server-only
 `/home/shanes/.config/thalassa-relief/r2.env` supplies variable NAMES
@@ -129,7 +150,7 @@ Before global coverage is claimed, run further reviewed bounded cell batches:
 ```sh
 python3 scripts/noaa-enc/stage.py --root /srv/weather/thalassa-noaa/catalogue \
   --catalogue /path/to/reviewed/ENCProdCat_19115.xml --cells US5CA1LK \
-  --acquire --image sha256:990dc0e63d9ce8cdbb37fad528013872f0fb4008641bd8967015f75149e4a1cf \
+  --acquire --image sha256:94c4c37740585d2a911cd5336366986ff13ae777f540458297fcefb4c359e048 \
   --converter-sha256 aa4aa33d0033d6611dd102baaae98810213f37727d5ff4d00f5274d7081ed151
 ```
 

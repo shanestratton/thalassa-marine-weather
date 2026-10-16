@@ -5,6 +5,8 @@ registry. New regional datasets remain unpublished and inactive in the app.
 The existing global and Great Barrier Reef rows remain the only active rows.
 An AU-only full generation is running in isolated weather-volume staging; its
 completion, output inventory and publication review are separate evidence.
+The approved LINZ61-source generation has completed local raster/metadata
+verification; neither is a published layer. No R2 write or timer is part of this checkpoint.
 
 ## Navigation boundary
 
@@ -14,6 +16,13 @@ existing `gebco-depth` service. No regional tile URL enters its acquisition path
 The registry is shared by Mapbox bounds/credits/reload, offline area planning and
 the app-owned terrain filename validator. An unpublished provider, unsupported
 zoom, wrong generation or tile outside the provider footprint is rejected.
+Sparse generations additionally carry exact `[zoom,y,firstX,lastX]` row runs,
+emitted only for tiles containing finite source seafloor. The bounded parser
+rejects overlaps, adjacent unmerged runs, changed identity, invalid coordinates
+and count mismatches. The saved-area planner intersects those runs before its
+tile allocation/count limit, so expected holes are omitted and global relief
+remains available. The same runs validate individual tile URLs and owned files.
+No manifest fetch lane or new registry row has been enabled.
 
 A future publication needs an exact verified generation before its registry row
 can be added. Provider credits and original vertical datum belong to that row.
@@ -100,6 +109,86 @@ seam checks and an exact immutable-generation/manifest-last plan. Until then the
 app continues to use its existing published global/GBR relief.
 
 ## Other regional inventory and holds
+
+The original New Zealand inventory entry below is superseded by actual public
+LINZ data: [LDS122508](https://data.linz.govt.nz/layer/122508-new-zealand-coastal-lidar-1m-dem/)
+and the [LINZ-owned AWS dataset](https://registry.opendata.aws/nz-coastal/).
+The pinned collection, updated2026-10-15T17:04:29Z, contains61 surveyed coastal
+patches,4,111,183,760 B total COGs; all were acquired with exact length/SHA checks,
+reusing the existing19,947,427 B AU26 source. CC BY4.0 attribution and the access
+date must be retained. Native heights are NZVD2016 metres, never relabelled MSL.
+The actual AU26 tiny proof contains94,717 finite source seafloor pixels and
+130,213 explicit coarse-fallback pixels across four tile pairs. That proof does
+not establish whole-NZ coverage.
+
+`nz_coastal.py` defaults to a no-op over the separately reviewed plan SHA
+`80031d2dddcdc54e2fbf2d2bd93492cd83278f7abad547355e0ae0c232069f16`.
+Its explicit runner uses two fixed-source download lanes,5GB input,10GB workspace,
+2GB output and a two-hour parent deadline, with20GB weather-volume reserve.
+One network-disabled pinned GDAL worker has one CPU/1GB memory,32MB GDAL cache
+and64MB warp memory. Sources are processed sequentially through explicit
+overviews and clipped native ROIs; aggregate regional decoded ROI is capped
+at256MB per output block. Every source's actual CRS, Float32 packing, metre
+geotransform, NoData, scale/offset, overview sizes and finite overview pixels is
+recorded, with its exact source checksum. Mismatches stop processing.
+
+Preflight corrected one real planning issue without changing the original plan:
+some z8 blocks intersect16 COGs and z9 blocks10. A reviewed recursive subdivision
+now limits each source-read subwindow to eight COGs, then assembles the same
+512px output block before a single source-mask/GEBCO feather blend. No input is
+dropped. A deterministic16-grid pixel/seam regression and an actual pinned-GDAL
+overview/ROI/NoData test pass. Checkpoints verify recipe/output hashes; failed
+or partial files remain available for review. The two-hour invocation is not
+silently extended by checkpoint support.
+
+Output is bounded to the union of those61 actual footprints and finite source
+water, z8–14; the46,886 DEM/index object count is an upper bound, not a completed
+coverage claim. QA masks remain local. Completed manifests must carry exact
+emitted availability, source/renderer identities, provider datum/credits and
+`published:false`. Existing global/GBR rows remain unchanged until a separate
+public-generation review.
+
+The actual NZ result contains2,197 tile pairs (4,394 DEM/index objects), across
+724 exact row runs in15,362 B. All6,425 source-footprint blocks and6,591 images
+were hash/length checked; every image was decoded, and binary mask pixel totals
+match checkpoints. Retained raster/checkpoint output is21,244,703 B. Actual
+source holes therefore reduce coverage substantially below the46,886-object
+footprint upper bound; the result must not be labelled whole-NZ coverage.
+The real availability fixture passes the app parser and saved-area consumer;
+its4,394-object whole-set plan correctly exceeds the4,096-tile phone limit,
+while a clipped area plans only existing pairs.
+
+The raster invocation's final metadata step failed because the first row-run
+implementation accepted tuple fixtures but JSON checkpoints contain lists.
+The failed log and exact original runtime source/recipe remain retained.
+After the list-format regression was fixed, `nz_finalize.py` verified every
+original checkpoint, source SHA, decoded ROI/input-count limit and tile/mask
+hash. A separate network-disabled worker mounted all originals read-only and
+wrote only a new `review-final` metadata directory; no source or tile was
+redownloaded, rerendered or changed. Its manifest also extracts the actual
+collection issuance timestamp, rather than putting a descriptive title in a
+timestamp field. Future builder recipes include all imported implementation
+file hashes, so a changed implementation cannot silently resume old work.
+
+Review evidence (outside Git): `work/relief135-nz61-result`.
+Manifest SHA256 is
+`922ae0ac5678e58804d7bc5d9f1c76f9e0d7db54b53cbc22446ca8eecb39d3a5`;
+availability SHA256 is
+`edf5227268b360cf5f195d4b477e0779faf42da9001ce9bd7fd254effdb2f08b`.
+The original frozen raster recipe is
+`41886b7a0e8fee743c86dcd491a0af46ba7d7c6f0595a249ac1f439714c1bc22`.
+
+New metadata-only US research has also identified the official
+[CUDEM1/3 collection](https://coast.noaa.gov/htdata/raster2/elevation/NCEI_third_Topobathy_2014_8580/):
+357 actual STAC raster footprints in12 regions, NAD83/NAVD88 metres and NoData
+−999999; its whole download is advertised8.0G. The
+[CUDEM1/9 collection](https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/)
+is advertised176G, so whole-set acquisition is excluded. The California regional
+listing alone is7.1G. No new US raster was acquired from those inventories.
+EMODnet's actual ERDDAP metadata exposes a72,000×75,840 DTM2024 grid and separate
+value-count/CDI/interpolation grids. A21.84GB single-float full-grid request is
+excluded; a concrete small official subset and its source-quality mask/terms
+still need review. A provider index or GEBCO-filled cell is not new survey detail.
 
 | Region      | Exact current knowledge                                                                                                                                                                                                                        | Remaining acquisition/publication hold                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

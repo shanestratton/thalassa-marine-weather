@@ -18,6 +18,7 @@ import subprocess
 import urllib.request
 import zipfile
 import catalogue
+from runtime_policy import verify_runtime_policy
 
 PREFIX='noaa-enc/v1/'
 AGREEMENT_HTML_SHA='99921c6f5e0e7ad356351c0ed82ded9fca0716618c9d651e95450c5f7f5a611a'
@@ -133,7 +134,7 @@ def prepare(root,catalogue_path,cells,acquire=False,refresh=False,image=None,cli
     result={'apply':False,'selectedCells':wanted,'expectedRawBytes':expected,'rawCycleCap':MAX_RAW_CYCLE,'convertedCycleCap':MAX_OUTPUT_CYCLE,
         'activeCells':len(by_id),'withdrawnCells':len(normalized['withdrawn']),'publication':False,'activation':False}
     if not acquire: return result
-    if not image or not image.startswith('sha256:') or len(image)!=71 or not cli_sha or len(cli_sha)!=64: raise ValueError('Pin reviewed image ID and converter SHA')
+    verify_runtime_policy(image,cli_sha)
     verify=subprocess.run(['docker','run','--rm','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges',
         '--entrypoint','node',image,'-e',"const f=require('node:fs'),c=require('node:crypto');console.log(c.createHash('sha256').update(f.readFileSync('/opt/noaa/convert-cli.mjs')).digest('hex'))"],
         check=True,capture_output=True,text=True,timeout=30)

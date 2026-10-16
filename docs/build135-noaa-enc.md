@@ -48,13 +48,26 @@ The active proof is US5CA1LK, effective DSID edition 1/update 1, issued 2026-04-
   (dictionary spelling). It is not a crossing caution or routing input.
 
 The isolated wx image is
-`sha256:990dc0e63d9ce8cdbb37fad528013872f0fb4008641bd8967015f75149e4a1cf`,
-255,274,018B, with Node 24.20.0 and the existing GDAL 3.14 development image.
+`sha256:94c4c37740585d2a911cd5336366986ff13ae777f540458297fcefb4c359e048`,
+203,417,259B as reported by Docker29/containerd, with Node24.20.0 and official
+stable GDAL3.13.3. The pinned base manifest is
+`sha256:44fee7d4f9be0966851d7b14a0a387216897d8347f9e0ebc4e812f7217bc39d6`.
+The former255,274,018B development-GDAL derivative is retained historically;
+its real `ogrinfo` segfault on US1GLBDD prompted this separately reviewed runtime
+probe. The stable derivative passed that retained source, byte-identical
+US5CA1LK control output and rejection of cancelled US5CA16M.
 Standalone converter SHA256:
 `aa4aa33d0033d6611dd102baaae98810213f37727d5ff4d00f5274d7081ed151`.
 Both active and cancelled proofs used no network during conversion, read-only
 source mounts, bounded memory/CPU and the retained original archive. No host
 Node/GDAL install, publisher or timer was performed.
+The approved first64-cell continuation then completed with exact original
+hashes and versioned conversion receipts, producing129,418,346 B of chart data.
+Its real root/all102 shards pass the app parser, with64 ready entries among7,114
+active metadata rows. These mostly low-detail cells do not establish completed
+national downloadable coverage. Further detailed-cell batches and actual global
+output/disk feasibility remain separately reviewed work; phone size/feature
+limits and strict conversion failures remain unchanged.
 
 ## Phone behaviour
 

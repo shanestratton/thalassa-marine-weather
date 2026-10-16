@@ -9,8 +9,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import urllib.request
+from runtime_policy import GDAL_MANIFEST, GDAL_CONFIG, IMAGE_ID, CONVERTER_SHA
 
-BASE_ID = "sha256:57b20fcd82df868582b1a024f7b00f181e0614950b7a7046b02a5d5cd3c2bb2e"
+EXTRACTOR_ID = "sha256:57b20fcd82df868582b1a024f7b00f181e0614950b7a7046b02a5d5cd3c2bb2e"
+BASE_ID = GDAL_MANIFEST
+BASE_REF = 'ghcr.io/osgeo/gdal@' + BASE_ID
 NODE_FILE = "node-v24.20.0-linux-x64.tar.xz"
 NODE_URL = "https://nodejs.org/dist/v24.20.0/" + NODE_FILE
 NODE_SHA = "2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2"
@@ -31,10 +34,16 @@ def prepare(directory, cli, download=False, verify_docker=False):
     converter = cli.read_bytes()
     if b'Source dataset revision differs from reviewed NOAA catalogue' not in converter or b'sbdarePoints' not in converter:
         raise ValueError("Not the NOAA-only converter bundle")
+    if hashlib.sha256(converter).hexdigest()!=CONVERTER_SHA:
+        raise ValueError('Converter differs from the reviewed stable-runtime bundle')
     if verify_docker:
-        actual = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", "thalassa-relief:1"], check=True, capture_output=True, text=True).stdout.strip()
-        if actual != BASE_ID: raise ValueError("Local GDAL base changed; review before building")
+        # Docker29/containerd reports the manifest as .Id; do not confuse it
+        # with the separately recorded OCI config hash or export image env.
+        for reference, expected in [('thalassa-relief:1',EXTRACTOR_ID),(BASE_REF,BASE_ID)]:
+            actual = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", reference], check=True, capture_output=True, text=True).stdout.strip()
+            if actual != expected: raise ValueError("Local pinned build image changed; review before building")
     result = {"download": download, "nodeUrl": NODE_URL, "nodeSha256": NODE_SHA, "gdalBaseId": BASE_ID,
+              "gdalBaseConfig":GDAL_CONFIG,"expectedDerivativeId":IMAGE_ID,
               "converterSha256": hashlib.sha256(cli.read_bytes()).hexdigest(), "context": str(directory),
               "build": ["docker", "build", "--pull=false", "--network=none", "-t", "thalassa-noaa:135", str(directory)],
               "activation": False}
