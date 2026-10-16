@@ -15,6 +15,7 @@ export default defineConfig({
         'overdue-watch137-layout.spec.ts',
         'obs-credits137-layout.spec.ts',
         'radar137-layout.spec.ts',
+        'radar-equipment137-layout.spec.ts',
         'radar-alarm137-layout.spec.ts',
         'radar-pi137-layout.spec.ts',
         'course136-layout.spec.ts',

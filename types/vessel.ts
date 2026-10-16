@@ -6,6 +6,7 @@
 
 import type { LengthUnit, WeightUnit, VolumeUnit } from './units';
 import type { PolarData, NmeaSample, SmartPolarBucket, SmartPolarBucketGrid } from './navigation';
+import type { MarineRadarEquipment } from './marineRadar';
 
 export interface VesselDimensionUnits {
     length: LengthUnit;
@@ -43,6 +44,8 @@ export interface VesselProfile {
     name: string;
     type: 'sail' | 'power' | 'observer';
     model?: string;
+    /** Owner-entered equipment only. Explicit null clears this field in fleet JSON merge patches. */
+    marineRadar?: MarineRadarEquipment | null;
     riggingType?: 'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other';
     length: number;
     beam: number;
