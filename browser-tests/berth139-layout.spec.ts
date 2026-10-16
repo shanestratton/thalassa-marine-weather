@@ -17,7 +17,9 @@ for (const width of [300, 375])
         await page.addStyleTag({ content: 'html{font-size:130% !important}' });
         const dialog = page.getByRole('dialog', { name: 'Berth passage proposal', exact: true });
         await dialog.getByRole('button', { name: 'Compute fictional berth route', exact: true }).click();
-        await expect(dialog.getByRole('status')).toContainText('Both approach portals retained');
+        await expect(dialog.getByRole('status', { name: 'Berth approach join', exact: true })).toContainText(
+            'Both approach portals retained',
+        );
         const clocks = dialog.getByRole('list', { name: 'Stage departure clocks' });
         await expect(clocks.getByRole('listitem')).toHaveCount(3);
         const save = dialog.getByRole('button', { name: 'Save as planned route', exact: true });

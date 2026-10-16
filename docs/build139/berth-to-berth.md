@@ -106,5 +106,19 @@ The development-only browser harness uses invented equatorial geometry and the
 actual bounded core plus production review/save components. Its cases require
 300/375 px at 130% text, 44 px targets, unchanged document bounds, refusal after
 missing final verification, no unexpected external requests and zero unfiltered
-page errors. Browser execution, whole-app compiler, production size checks and
-real passage timing remain pending at this source checkpoint.
+page errors. All four actual Chrome/WebKit phone cases pass after composition
+with root checkpoint `100b4bb03`, recorded in
+`work/validation13901-phone-named-status.log` and
+`work/berth139-named-status-browser` outside the checkout. The original three
+failed traces remain in `work/berth139-browser-proof`: their first assertion
+selected both the fixture's join status and the production chart-check status.
+The fixture now names its join status explicitly and selects that exact role;
+all clocks, Save, 44 px, document-bound and error guards and deadlines are
+unchanged. Visual review then found that the fixture's outer white foreground
+did not inherit through the modal portal. Its existing inner content div now
+sets the intended foreground locally; the production ModalSheet and layout
+stay unchanged. All four cases pass again in
+`work/validation13901-phone-portal-foreground.log`, with screenshots in
+`work/berth139-portal-foreground-browser`. These invented routes do not prove
+real passage timing or source availability. The newly composed whole-app
+compiler, production size checks and real passage timing remain pending.
