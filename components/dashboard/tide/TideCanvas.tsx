@@ -54,15 +54,21 @@ export const TideCanvas = React.memo(
             const rect = container.getBoundingClientRect();
             const w = rect.width;
             const h = rect.height;
+            if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
 
-            canvas.width = w * dpr;
-            canvas.height = h * dpr;
+            // A backing-size assignment destroys the bitmap even when its
+            // value is unchanged. Caption/ResizeObserver redraws must not
+            // repeatedly recreate the surface, including fractional DPR sizes.
+            const pixelWidth = Math.max(1, Math.round(w * dpr));
+            const pixelHeight = Math.max(1, Math.round(h * dpr));
+            if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+            if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
             canvas.style.width = `${w}px`;
             canvas.style.height = `${h}px`;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
-            ctx.scale(dpr, dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             // Canvas pixels do not inherit the daylight stylesheet. Read the
             // effective display class on each draw, including theme switches.
             const daylight = container.closest('.display-light') !== null;
@@ -263,6 +269,7 @@ export const TideCanvas = React.memo(
             prev.currentHeight === next.currentHeight &&
             prev.minHeight === next.minHeight &&
             prev.maxHeight === next.maxHeight &&
+            prev.domainBuffer === next.domainBuffer &&
             prev.topBandPx === next.topBandPx &&
             prev.rightInsetPx === next.rightInsetPx
         );

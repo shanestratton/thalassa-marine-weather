@@ -71,6 +71,7 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                             height: el.height,
                             scaleX: transform.a,
                             scaleY: transform.d,
+                            contextLost: typeof ctx.isContextLost === 'function' ? Number(ctx.isContextLost()) : -1,
                         };
                     }, captionBox.y + captionBox.height);
                     samples.push(sample);
