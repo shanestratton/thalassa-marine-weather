@@ -38,3 +38,12 @@ queue rows. This is isolated behavior proof, not PostgreSQL concurrency or live
 backend deployment. The weather source's separate PostgreSQL 17.6 race proof
 passed run 38935427858 against source 92f8e1cf; its immutable receipt is outside
 the repository at `outputs/Build137 weather PostgreSQL proof.json`.
+
+The same snapshot fixture can run against actual PostgreSQL17.6 only with
+`THALASSA_DISPOSABLE_RADAR_SNAPSHOT_TEST=1`, an outside-repository
+`PG_MODULE_PATH` pinned to node-postgres8.16.3, and the exact fixture URL
+`postgresql://postgres:fixture-only-password@127.0.0.1:5432/radar137_snapshot_test`.
+It refuses non-loopback hosts, a different database/port/user/password, URL
+options, nonempty public/auth schemas or a different PostgreSQL version before
+applying source. This mode proves actual engine ACL/read behavior; it does not
+claim concurrent producer transactions or activate product state.

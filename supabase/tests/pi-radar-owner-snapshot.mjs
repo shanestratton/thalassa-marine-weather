@@ -1,13 +1,60 @@
-/** Isolated PGlite owner/RLS/read-shape proof only. No product connection,
+/** Isolated owner/RLS/read-shape proof only. No product connection,
  * provider, raw frames, Pi install, queue delivery or external messaging.
- * PGLITE_MODULE_PATH=<outside-repo>/.../dist/index.js node this-file.mjs */
+ * Default PGLITE_MODULE_PATH=<outside-repo>/.../dist/index.js; actual PostgreSQL
+ * requires the exact disposable localhost opt-in below. Neither is a race proof. */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
-if (!process.env.PGLITE_MODULE_PATH) throw new Error('Isolated PGlite module required');
-const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href),
-    db = new PGlite();
+const actualPostgres = process.env.THALASSA_DISPOSABLE_RADAR_SNAPSHOT_TEST === '1';
+let postgresVersion = null;
+async function isolatedDatabase() {
+    if (!actualPostgres) {
+        if (
+            !process.env.PGLITE_MODULE_PATH ||
+            process.env.RADAR_SNAPSHOT_TEST_DATABASE_URL ||
+            process.env.PG_MODULE_PATH
+        )
+            throw new Error('Explicit isolated PGlite module or opted-in disposable PostgreSQL fixture required.');
+        const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href);
+        return new PGlite();
+    }
+    const url = new URL(process.env.RADAR_SNAPSHOT_TEST_DATABASE_URL ?? 'http://invalid');
+    if (
+        !['postgres:', 'postgresql:'].includes(url.protocol) ||
+        !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
+        url.port !== '5432' ||
+        url.pathname !== '/radar137_snapshot_test' ||
+        url.username !== 'postgres' ||
+        url.password !== 'fixture-only-password' ||
+        url.search ||
+        url.hash ||
+        !process.env.PG_MODULE_PATH
+    )
+        throw new Error('Only the explicit empty localhost radar137_snapshot_test fixture is allowed.');
+    const module = await import(pathToFileURL(process.env.PG_MODULE_PATH).href),
+        Client = module.Client ?? module.default.Client;
+    const client = new Client({ connectionString: url.href, connectionTimeoutMillis: 5000, statement_timeout: 15000 });
+    await client.connect();
+    try {
+        const database = (await client.query('SELECT current_database() AS name')).rows[0].name;
+        const tables = (
+            await client.query("SELECT count(*)::integer AS count FROM pg_tables WHERE schemaname IN ('public','auth')")
+        ).rows[0].count;
+        postgresVersion = (await client.query('SHOW server_version')).rows[0].server_version;
+        if (database !== 'radar137_snapshot_test' || tables !== 0 || !/^17\.6(?:\D|$)/.test(postgresVersion))
+            throw new Error('Refuse a nonempty or different PostgreSQL fixture.');
+        return {
+            exec: (sql) => client.query(sql),
+            query: (sql, args) => client.query(sql, args),
+            close: () => client.end(),
+        };
+    } catch (error) {
+        await client.end();
+        throw error;
+    }
+}
+const db = await isolatedDatabase();
 const read = (p) => readFile(new URL(p, import.meta.url), 'utf8');
 const owner = '00000000-0000-4000-8000-000000000001',
     other = '00000000-0000-4000-8000-000000000099',
@@ -364,6 +411,7 @@ try {
             fixtureContacts: 54,
             maxSnapshotFacts: 20,
             isolated: true,
+            postgres: postgresVersion,
             postgresConcurrency: false,
             productWrites: 0,
             notifications: 0,
