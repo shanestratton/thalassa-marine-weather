@@ -14,7 +14,7 @@
  *   - Clear route
  */
 
-import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react';
+import { useState, useCallback, useRef, useEffect, type MutableRefObject, type SetStateAction } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { withDeadline, withTimeout } from '../../utils/deadline';
 import type { InshoreRouteResult } from '../../services/routing/routeJob';
@@ -96,6 +96,20 @@ function routingConstraintReason(error: unknown): string | null {
     return error instanceof Error && error.message
         ? error.message
         : 'Current hard routing constraints could not be checked. Review the source and replan.';
+}
+
+/** Queueing an edit retires a timed read before React can batch A→B→A back
+ * to the previous rendered value. This counter carries no source authority. */
+function usePassageInputState<T>(initial: T | (() => T), epoch: MutableRefObject<number>) {
+    const [value, commit] = useState(initial);
+    const set = useCallback(
+        (next: SetStateAction<T>) => {
+            epoch.current++;
+            commit(next);
+        },
+        [epoch],
+    );
+    return [value, set] as const;
 }
 
 function clearComfortZoneOverlay(map: mapboxgl.Map): void {
@@ -244,13 +258,23 @@ function pushToPassageStore(
 }
 
 export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
-    const [departure, setDeparture] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [arrival, setArrival] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [viaWaypoints, setViaWaypoints] = useState<Array<RouteConstraintPoint & { name: string }>>([]);
-    const [departureTime, setDepartureTime] = useState('');
-    const [speed, setSpeed] = useState(6);
-    const [tideShortcutEnabled, setTideShortcutEnabled] = useState(false);
-    const [tideArrivalBufferMinutes, setTideArrivalBufferMinutes] = useState(15);
+    const liveTideInputEpoch = useRef(0);
+    const [departure, setDeparture] = usePassageInputState<{ lat: number; lon: number; name: string } | null>(
+        null,
+        liveTideInputEpoch,
+    );
+    const [arrival, setArrival] = usePassageInputState<{ lat: number; lon: number; name: string } | null>(
+        null,
+        liveTideInputEpoch,
+    );
+    const [viaWaypoints, setViaWaypoints] = usePassageInputState<Array<RouteConstraintPoint & { name: string }>>(
+        [],
+        liveTideInputEpoch,
+    );
+    const [departureTime, setDepartureTime] = usePassageInputState('', liveTideInputEpoch);
+    const [speed, setSpeed] = usePassageInputState(6, liveTideInputEpoch);
+    const [tideShortcutEnabled, setTideShortcutEnabled] = usePassageInputState(false, liveTideInputEpoch);
+    const [tideArrivalBufferMinutes, setTideArrivalBufferMinutes] = usePassageInputState(15, liveTideInputEpoch);
     const [tideShortcutReview, setTideShortcutReview] = useState<TideShortcutView | null>(null);
     const tidePreviewRef = useRef<InshoreRouteResult | null>(null);
     const replanTokenRef = useRef<string | null>(peekPassageRequest()?.replanToken ?? null);
@@ -275,14 +299,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // A RoutePlanner handoff is staged before the tab changes. Read it during
     // initial render (not in the mount effect) so the destination MapHub never
     // paints one frame of the skipper's Chart overlays before becoming Plan.
-    const [showPassage, setShowPassage] = useState(() => peekPassageRequest() !== null);
+    const [showPassage, setShowPassage] = usePassageInputState(() => peekPassageRequest() !== null, liveTideInputEpoch);
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
     const routeConstraintsRef = useRef<RouteConstraintPoint[]>([]);
     const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
     const livePassageInputs = useRef({ key: '', visible: false });
-    const liveTideInputEpoch = useRef(0);
     const nextInputKey = JSON.stringify([
         departure,
         arrival,
@@ -501,7 +524,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             handlePassageMode(new CustomEvent('thalassa:passage-mode', { detail: pending }));
         }
         return () => window.removeEventListener('thalassa:passage-mode', handlePassageMode);
-    }, [mapRef]);
+    }, [mapRef, setArrival, setDeparture, setDepartureTime, setShowPassage, setSpeed, setViaWaypoints]);
 
     // ── Helper: project a point along bearing by distance ──
     const _project = (lat: number, lon: number, bearingDeg: number, distNM: number) => {

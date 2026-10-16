@@ -7,6 +7,7 @@ import { readCurrentRoutingExclusions } from './routingExclusions';
 import { buildExclusionField, routeExclusionConflict } from '../engine/exclusionField';
 import { runRouteJobHosted } from './routeWorkerHost';
 import type { RouteStage } from './routeWorkerHost';
+import { knownRouteAreaCaveats } from './routeAreaWords';
 
 export type TideShortcutView =
     | { readonly kind: 'held'; readonly reason: string }
@@ -145,6 +146,7 @@ export async function planTideGatedShortcut(
                 kind: 'held',
                 view: { kind: 'held', reason: 'The final geometry or clock changed during source review.' },
             };
+        const areaCaveats = knownRouteAreaCaveats([...context.advisories]);
         const view: TideShortcutView = Object.freeze({
             kind: 'preview',
             expiresAtMs: source.permit.request.expiresAtMs,
@@ -159,7 +161,7 @@ export async function planTideGatedShortcut(
                     : output.trafficLaneGuidance === 'orientation-unknown'
                       ? 'A charted traffic lane has unknown or conflicting orientation. Review the original chart and traffic locally.'
                       : '',
-                ...context.advisories,
+                ...areaCaveats,
             ]
                 .filter(Boolean)
                 .join(' '),
@@ -168,7 +170,7 @@ export async function planTideGatedShortcut(
             ...output,
             polyline: points,
             tideShortcut: view,
-            ...(context.advisories.length ? { routeAreaCaveats: [...context.advisories] } : {}),
+            ...(areaCaveats.length ? { routeAreaCaveats: areaCaveats } : {}),
         };
         delete result._tideCandidatePath;
         const exact = JSON.stringify([points, result.distanceNM]);

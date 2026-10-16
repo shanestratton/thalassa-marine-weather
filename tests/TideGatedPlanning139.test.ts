@@ -207,17 +207,23 @@ describe('current source + actual worker + private preview lifetime', () => {
         h.readContext.mockResolvedValueOnce({
             manual: undefined,
             marineParks: undefined,
-            advisories: ['Retained indicative marine park source is unavailable.'],
+            advisories: [
+                'No verified marine park dataset is retained; marine park caution is unavailable.',
+                'Injected chart coordinates 153.5 -27.5 must never become persisted caveats.',
+            ],
             isCurrent: () => true,
             release: h.contextRelease,
         });
         const result = await planTideGatedShortcut(input(), options());
         expect(result.kind).toBe('preview');
         if (result.kind !== 'preview') return;
-        expect(result.result.routeAreaCaveats).toEqual(['Retained indicative marine park source is unavailable.']);
+        expect(result.result.routeAreaCaveats).toEqual([
+            'No verified marine park dataset is retained; marine park caution is unavailable.',
+        ]);
         expect(result.result.tideShortcut?.kind === 'preview' && result.result.tideShortcut.sourceSummary).toContain(
-            'Retained indicative marine park source is unavailable.',
+            'No verified marine park dataset is retained; marine park caution is unavailable.',
         );
+        expect(JSON.stringify(result.result)).not.toContain('Injected chart coordinates');
     });
     it('does not publish geometry mutated while the original source reread awaited', async () => {
         h.recheck.mockImplementationOnce(async () => {

@@ -178,6 +178,64 @@ describe('the passage planner refuses charted land, as Auto does', () => {
         rendered.unmount();
     });
 
+    it.each(['buffer', 'speed', 'departure-clock', 'mode'] as const)(
+        'a queued %s A/B/A edit retires an outstanding timed source read before render can restore its value',
+        async (kind) => {
+            stagePassageRequest({ departure: FROM, arrival: TO });
+            const mapRef = { current: fakeMap() } as never,
+                rendered = renderHook(() => usePassagePlanner(mapRef, false));
+            await act(async () => rendered.result.current.setTideShortcutEnabled(true));
+            let finish!: () => void;
+            let assertCurrent!: () => void;
+            mocks.tryInshore.mockImplementationOnce((...args: unknown[]) => {
+                assertCurrent = (args[5] as { tideShortcut: { assertCurrent: () => void } }).tideShortcut.assertCurrent;
+                return new Promise((resolve, reject) => {
+                    finish = () => {
+                        try {
+                            assertCurrent();
+                            resolve(null);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                });
+            });
+            let pending!: Promise<void>;
+            act(() => {
+                pending = rendered.result.current.computePassage();
+            });
+            await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+            act(() => {
+                const planner = rendered.result.current;
+                if (kind === 'buffer') {
+                    planner.setTideArrivalBufferMinutes(30);
+                    planner.setTideArrivalBufferMinutes(15);
+                }
+                if (kind === 'speed') {
+                    planner.setSpeed(7);
+                    planner.setSpeed(6);
+                }
+                if (kind === 'departure-clock') {
+                    planner.setDepartureTime('2026-10-17T02:00:00Z');
+                    planner.setDepartureTime('');
+                }
+                if (kind === 'mode') {
+                    planner.setTideShortcutEnabled(false);
+                    planner.setTideShortcutEnabled(true);
+                }
+            });
+            expect(() => assertCurrent()).toThrow(/inputs retired/);
+            await act(async () => {
+                finish();
+                await pending;
+            });
+            expect(rendered.result.current.routeAnalysis).toBeNull();
+            expect(rendered.result.current.routeActionsAvailable).toBe(false);
+            expect(mocks.crossesLand).not.toHaveBeenCalled();
+            rendered.unmount();
+        },
+    );
+
     it('a route over a small charted island the satellite check would pass: refused, saying where', async () => {
         // The satellite check would clear it (its ETOPO pixels read water).
         mocks.crossesLand.mockResolvedValue({

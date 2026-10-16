@@ -5,6 +5,7 @@ import type { IsochroneEnvironment } from './isochroneEnvironment';
 import { verifiedIsochroneRoute } from './verifiedIsochroneRoute';
 import { inspectRouteEnvironment } from '../isochrone/routeComfort';
 import { summarizeOffshoreResult } from './offshoreJob';
+import { knownRouteAreaCaveats } from './routeAreaWords';
 
 export interface VerifiedOffshoreCandidate extends Omit<OffshoreCandidate, 'verification'> {
     verification: 'verified-final-geometry';
@@ -23,6 +24,7 @@ export async function verifyOffshoreSelection(options: {
         verified: boolean;
         reason?: string;
         hazardReport?: RouteHazardReport | null;
+        areaCaveats?: readonly string[];
     }>;
     isCurrent: () => boolean;
 }): Promise<VerifiedOffshoreCandidate> {
@@ -46,9 +48,11 @@ export async function verifyOffshoreSelection(options: {
             ? { relaxedFromM: result.comfort.relaxedFromM, usedLimitM: result.comfort.usedLimitM }
             : {}),
     };
-    result.environmentNotes = [...environment.notes, ...(result.environmentNotes ?? [])].filter(
-        (note, index, all) => all.indexOf(note) === index,
-    );
+    result.environmentNotes = [
+        ...environment.notes,
+        ...(result.environmentNotes ?? []),
+        ...knownRouteAreaCaveats(checked.areaCaveats),
+    ].filter((note, index, all) => all.indexOf(note) === index);
     const summary = summarizeOffshoreResult(job, result, isCurrent);
     if (!summary || !isCurrent()) throw new Error('Final route lacks forecast coverage or exceeds wind/gust limits.');
     return { ...summary, verification: 'verified-final-geometry', hazardReport: checked.hazardReport ?? null };
