@@ -42,6 +42,7 @@ function fixture(actual = false) {
             issued: '2026-03-16',
             bbox: [-134, 55, -132, 56],
             soundingDatum: 12,
+            extractorSchema: 3,
             layers: {
                 DEPARE: {
                     type: 'FeatureCollection',
@@ -196,9 +197,17 @@ test('complete package survives a genuinely new browser context with local data 
         .not.toEqual([134, 185, 207, 255]);
     expect((await api<Inspection>(page, 'inspect()')).framebuffer[3]).toBe(255);
     await page.screenshot({ path: info.outputPath('package-rendered.png') });
+    const displayedBytes = (await api<Inspection>(page, 'inspect()')).residentBytes;
+    expect(displayedBytes).toBeGreaterThan(0);
+    await api(page, 'clearMergeMemo()');
+    const afterMemoClear = await api<Inspection>(page, 'inspect()');
+    expect(afterMemoClear.mounted).toBe(true);
+    expect(afterMemoClear.residentBytes).toBe(displayedBytes);
     const view = await api<{ ids: number[] }>(page, 'view()');
     expect(view.ids).toEqual([4, 5, 6, 7]);
     expect((await api<Array<{ hazard: boolean }>>(page, 'query()'))[0].hazard).toBe(true);
+    expect(await api(page, 'datum()')).toBe('MLLW');
+    expect(await api(page, 'ahead()')).toMatchObject({ coverage: 'charted', hit: { kind: 'depth' } });
     await expect(api(page, 'view([-134,55,-132,56])')).rejects.toThrow(/resident/);
     await api(page, 'satellite(true)');
     const stored = await context.storageState({ indexedDB: true });
@@ -247,6 +256,8 @@ test('cancel/tamper/account transitions fail closed and cleanup preserves a late
     await api(page, 'corruptFirstPart()');
     await expect(api(page, 'view()')).rejects.toThrow(/incomplete|changed/);
     expect((await api<Array<{ covered: boolean }>>(page, 'query()'))[0].covered).toBe(false);
+    expect(await api(page, 'datum()')).toBeNull();
+    expect(await api(page, 'ahead()')).toEqual({ hit: null, coverage: 'none' });
     await api(page, 'replaceManual()');
     await api(page, 'removeOriginal()');
     const final = await api<Inspection>(page, 'inspect()');

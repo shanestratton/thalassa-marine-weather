@@ -9,7 +9,7 @@ import {
     peekCellGeoJSON,
     readCellRaw,
 } from '../services/enc/EncCellStore';
-import { clearMergedData, putMergedData, setMergedCleanup } from '../services/enc/mergedDataCache';
+import { clearMergedData, putMergedData, setMergedCleanup, retainMergedData } from '../services/enc/mergedDataCache';
 import { putCell, removeCell } from '../services/enc/EncCellMetadata';
 const MB = 1024 * 1024;
 beforeEach(() => {
@@ -62,6 +62,24 @@ describe('shared public package residency', () => {
         expect(released).toHaveBeenCalledOnce();
         expect(noaaResidentBytes()).toBe(0);
         expect(() => reserveNoaaResident(16 * MB + 1)).toThrow();
+    });
+    it('memo clear cannot free a still-displayed source; final detach frees exactly once', () => {
+        const lease = reserveNoaaResident(12 * MB),
+            data = { cellCount: 1 } as never,
+            cleanup = vi.fn(lease.release);
+        putMergedData('displayed-package', data, [{ id: 'US3AK1EX', sizeBytes: 12 * MB }]);
+        setMergedCleanup('displayed-package', cleanup);
+        const detach = retainMergedData(data);
+        clearMergedData();
+        expect(cleanup).not.toHaveBeenCalled();
+        expect(noaaResidentBytes()).toBe(12 * MB);
+        setBlobCachePlottingMode(true);
+        expect(() => reserveNoaaResident(4 * MB + 1)).toThrow();
+        detach();
+        detach();
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(noaaResidentBytes()).toBe(0);
+        expect(() => retainMergedData(data)).toThrow(/invalidated/);
     });
     it('a newly active package cannot read an obsolete cached monolith or enter a remote fallback', async () => {
         const id = 'US3AK1EX';

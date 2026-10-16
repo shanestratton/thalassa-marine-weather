@@ -40,6 +40,14 @@ verified; uncertain filesystem errors do not free space on paper. Withdrawal
 and removal still compare the exact installed office, revision and content
 hash, preserving a subsequent manual/Pi replacement.
 
+The reservation also closes the kill window between registry activation and
+the download row's final identity write. Withdrawal/removal checks the current
+package inside the existing cell lock against an account-owned, durably
+reserved manifest and its verified original ZIP hash. It reconciles a newly
+active conversion even if the row still names its old hash or says incomplete.
+A manual/Pi replacement or another account's package remains untouched. Any
+uncertain manifest/source proof leaves live metadata, bytes and quota intact.
+
 ## Bounded consumers
 
 The normal vector renderer, point/segment hazard queries and hazard report
@@ -50,12 +58,25 @@ before admitting the next package view. Missing parts, corrupt bytes, a revision
 change or any resident cap failure returns unavailable/unknown, never a
 truncated clear-water answer. There is no package WAN or Pi fallback.
 
+The displayed Mapbox source owns an additional reference to its package lease.
+Unrelated memo eviction/cache clearing cannot release its charged geometry;
+only actual source detach/replacement or map removal releases that owner. A
+merge invalidated before it can acquire display ownership is refused. Browser
+and unit regressions clear the memo while a real source remains mounted and
+verify that the same resident bytes stay charged.
+
+Chart datum reads and underway lookahead now use complete bounded request
+windows too. Every relevant side of a dateline-crossing cone must load before
+that logical cell counts as covered. Borrowed views remain charged until all
+query candidates have been discarded, then release even on early refusal.
+Missing parts or any cap failure produces unknown/partial coverage. Package
+indexes are not retained in the legacy three-cell lookahead cache.
+
 Generic whole-cell reads explicitly refuse package cells, including stale
-cached monoliths. At this checkpoint chart datum, underway lookahead, inshore
-whole-cell geometry and lead-overlay consumers have not yet received explicit
-package-window adapters. They cannot claim complete package coverage. Bounded
-datum and underway adapters are the next reviewed work; inshore/lead behavior
-requires a separate review before full readiness is claimed.
+cached monoliths. Inshore whole-cell geometry and lead-overlay consumers do not
+yet have explicit package-window adapters. They cannot claim complete package
+coverage; their window behavior requires a separate review before full
+readiness or acquisition queue restart is claimed.
 
 The new Worker protocol accepts only explicit US public packages. Licensed
 boat charts remain in their existing RAM-only path and are not sent to this
@@ -108,6 +129,6 @@ monolith refusal. Existing map/report/cache regressions remain in force.
 Build a separate server artifact with
 `node scripts/noaa-enc/build-package-converter.mjs <new-outside-checkout.mjs>`.
 It refuses an existing artifact and does not alter the reviewed old CLI. A
-future package-aware staging/publishing plan, all generic-consumer decisions,
+future package-aware staging/publishing plan, inshore/lead consumer decisions,
 the exact configured production bundle, independent review and normal release
 checks remain required before queue restart or activation.

@@ -907,6 +907,7 @@ export async function removeNoaaCatalogueRevision(
     cellId: string,
     expected: { edition: number; updateNumber: number; contentSha256: string },
     assertAuthority: () => void,
+    packageReceipt?: { owner: string; zipSha256: string; manifests: readonly string[] },
 ): Promise<boolean> {
     return serializeCellMutation(cellId, async () => {
         assertAuthority();
@@ -916,10 +917,30 @@ export async function removeNoaaCatalogueRevision(
             !/^US[1-6][A-Z0-9]{5}$/.test(canonicalEncCellId(stored.id)) ||
             stored.sourceHO !== 'US' ||
             stored.licence === 'protected' ||
+            !/^[a-f0-9]{64}$/.test(expected.contentSha256)
+        )
+            return false;
+        if (stored.noaaPackage) {
+            // Metadata activation may have survived a crash before the ZIP row's
+            // final identity write. Reconcile only a durably reserved manifest,
+            // under this same cell lock, against its verified original source.
+            if (
+                !packageReceipt ||
+                packageReceipt.owner !== stored.noaaPackage.owner ||
+                !packageReceipt.manifests.includes(stored.noaaPackage.manifestSha256)
+            )
+                return false;
+            const { readNoaaPackage } = await import('./noaaPackageStore');
+            const manifest = await readNoaaPackage(stored);
+            assertAuthority();
+            if (JSON.stringify(cellMeta.getRegisteredCell(cellId)) !== JSON.stringify(stored))
+                throw Error('NOAA chart authority changed during removal.');
+            if (manifest.zipSha256 !== packageReceipt.zipSha256)
+                throw Error('NOAA package reservation source changed.');
+        } else if (
             stored.edition !== expected.edition ||
             stored.updateNumber !== expected.updateNumber ||
-            stored.contentSha256 !== expected.contentSha256 ||
-            !/^[a-f0-9]{64}$/.test(expected.contentSha256)
+            stored.contentSha256 !== expected.contentSha256
         )
             return false;
         cellMeta.removeCell(stored.id);
@@ -1409,9 +1430,10 @@ export async function getMergedVectorData(
                 window,
                 releases,
             );
-            setMergedCleanup(cacheKey, () => {
-                for (const release of releases) release();
-            });
+            if (releases.length)
+                setMergedCleanup(cacheKey, () => {
+                    for (const release of releases) release();
+                });
             return result;
         } catch (error) {
             for (const release of releases) release();

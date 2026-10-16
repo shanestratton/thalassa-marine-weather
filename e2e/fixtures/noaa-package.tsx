@@ -12,6 +12,10 @@ import { getCoverage, importCell, queryHazards } from '../../services/enc/EncHaz
 import { noaaResidentBytes, loadCellGeoJSON } from '../../services/enc/EncCellStore';
 import { loadNoaaPackageWindow } from '../../services/enc/noaaPackageWindow';
 import { readNoaaPackage } from '../../services/enc/noaaPackageStore';
+import { clearMergedData } from '../../services/enc/mergedDataCache';
+import { readChartDatumForBounds } from '../../services/enc/readChartDatum';
+import { queryChartLookahead } from '../../services/underway/ChartLookaheadQuery';
+import { aheadCone } from '../../services/underway/lookaheadRule';
 import { removeNoaaDownload, savedNoaaDownloads } from '../../services/enc/noaaCatalogue';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -90,6 +94,14 @@ function Fixture() {
                     }
                 },
                 query: () => queryHazards([{ lat: 55.5, lon: -133.75 }]),
+                clearMergeMemo: () => clearMergedData(),
+                datum: () => readChartDatumForBounds(bounds),
+                ahead: () =>
+                    queryChartLookahead(
+                        aheadCone({ lat: 55.5, lon: -133.75, at: Date.now(), sogKn: 6, cogDeg: 0 })!,
+                        2,
+                        0.5,
+                    ),
                 satellite(enabled: boolean) {
                     const s = useSettingsStore.getState();
                     useSettingsStore.setState({ settings: { ...s.settings, satelliteMode: enabled } });

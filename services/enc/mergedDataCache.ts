@@ -20,13 +20,35 @@ import type { EncMergedVectorData } from './EncHazardService';
 
 const cache = new Map<string, EncMergedVectorData>();
 const cleanups = new Map<string, () => void>();
+const borrowed = new WeakMap<EncMergedVectorData, { refs: number; cleanup: () => void }>();
+function releaseBorrow(state: { refs: number; cleanup: () => void }): void {
+    if (--state.refs === 0) state.cleanup();
+}
+/** Mapbox's live source holds the same geometry after a memo eviction. Keep
+ * its package lease charged until that source has actually detached. */
+export function retainMergedData(data: EncMergedVectorData): () => void {
+    const state = borrowed.get(data);
+    if (!state) return () => {};
+    if (state.refs === 0) throw Error('NOAA chart view was invalidated before display.');
+    state.refs++;
+    let held = true;
+    return () => {
+        if (held) {
+            held = false;
+            releaseBorrow(state);
+        }
+    };
+}
 export function setMergedCleanup(key: string, cleanup: () => void): void {
-    if (!cache.has(key)) {
+    const data = cache.get(key);
+    if (!data) {
         cleanup();
         return;
     }
     cleanups.get(key)?.();
-    cleanups.set(key, cleanup);
+    const state = { refs: 1, cleanup };
+    borrowed.set(data, state);
+    cleanups.set(key, () => releaseBorrow(state));
 }
 function dispose(key: string): void {
     cleanups.get(key)?.();

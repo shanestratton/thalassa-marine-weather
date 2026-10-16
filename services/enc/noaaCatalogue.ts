@@ -261,21 +261,28 @@ async function withdrawals(index: NoaaCatalogueIndex, scope: AuthIdentityScope):
         current(scope);
         const rows = await savedNoaaDownloads(scope);
         if (!rows.some((row) => index.withdrawn.includes(row.id) && !row.withdrawn)) return;
-        const { removeNoaaCatalogueRevision } = await import('./EncHazardService');
         for (const row of rows) {
             if (!index.withdrawn.includes(row.id) || row.withdrawn) continue;
             current(scope);
-            if (row.installed)
-                await removeNoaaCatalogueRevision(
-                    row.id,
-                    { edition: row.edition, updateNumber: row.update, contentSha256: row.chartSha256 },
-                    () => current(scope),
-                );
+            await detachTrackedDownload(row, scope);
             row.withdrawn = true;
             row.installed = false;
         }
         await saveDownloads(rows, scope);
     });
+}
+/** The reservation precedes activation, so it remains the recovery journal if
+ * metadata commits before installed/current identity can be saved. */
+async function detachTrackedDownload(row: NoaaDownload, scope: AuthIdentityScope): Promise<void> {
+    const { removeNoaaCatalogueRevision } = await import('./EncHazardService');
+    const expected = { edition: row.edition, updateNumber: row.update, contentSha256: row.chartSha256 };
+    if (row.packages?.length)
+        await removeNoaaCatalogueRevision(row.id, expected, () => current(scope), {
+            owner: scope.key,
+            zipSha256: row.zipSha256,
+            manifests: row.packages.map((p) => p.sha256),
+        });
+    else await removeNoaaCatalogueRevision(row.id, expected, () => current(scope));
 }
 async function refreshIndex(saved: Cache, scope: AuthIdentityScope, signal?: AbortSignal): Promise<Cache> {
     const bytes = await fetchBytes('index.json', 256 * 1024, scope, signal);
@@ -495,12 +502,7 @@ export function removeNoaaDownload(record: NoaaDownload): Promise<void> {
         const rows = await savedNoaaDownloads(scope),
             held = rows.find((row) => row.zipSha256 === record.zipSha256);
         if (!held) return;
-        const { removeNoaaCatalogueRevision } = await import('./EncHazardService');
-        await removeNoaaCatalogueRevision(
-            held.id,
-            { edition: held.edition, updateNumber: held.update, contentSha256: held.chartSha256 },
-            () => current(scope),
-        );
+        await detachTrackedDownload(held, scope);
         current(scope);
         if (held.packages?.length) {
             const { deleteNoaaPackage } = await import('./noaaPackageStore');
