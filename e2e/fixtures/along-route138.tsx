@@ -1,6 +1,7 @@
 /** Entirely invented local chart/catalogue fixture, never acquired data. */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { DEFAULT_VESSEL } from '../../utils/defaultVessel';
 import '../../index.css';
 if (!import.meta.env.DEV) throw Error('Development fixture only.');
 document.documentElement.style.fontSize = '20.8px';
@@ -29,7 +30,7 @@ settings.useSettingsStore.setState({
         ...settings.useSettingsStore.getState().settings,
         satelliteMode: true,
         vessel: {
-            ...settings.useSettingsStore.getState().settings.vessel,
+            ...DEFAULT_VESSEL,
             name: 'Fictional fixture boat',
             type: 'sail',
             draft: 6,
@@ -187,7 +188,11 @@ function Fixture() {
                 tideLabels={{}}
                 departureLabel=""
                 ackedLegs={new Set()}
-                releaseGate={{ allowed: false, reason: 'Synthetic reference fixture has no navigation verification.' }}
+                releaseGate={{
+                    allowed: false,
+                    reason: 'Synthetic reference fixture has no navigation verification.',
+                    verification: null,
+                }}
                 fixBusy={null}
                 onAckLeg={() => {}}
                 cruisingSpeedKts={6}
