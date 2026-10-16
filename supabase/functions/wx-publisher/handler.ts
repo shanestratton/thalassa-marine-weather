@@ -65,11 +65,13 @@ export async function handlePublisherRequest(request: Request, options: Publishe
     if (!/^[a-f0-9]{64}$/.test(options.tokenHash)) return reply({ error: 'Publisher not configured' }, 503);
     if (!(await authorised(request, options.tokenHash))) return reply({ error: 'Unauthorised' }, 401);
     if (request.method !== 'POST') return reply({ error: 'POST required' }, 405);
-    if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))
+    if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json')) {
         return reply({ error: 'JSON required' }, 415);
+    }
     if (Number(request.headers.get('Content-Length')) > MAX_BODY_BYTES) return reply({ error: 'Body too large' }, 413);
-    if (!options.serviceKey || !/^https:\/\/[a-z0-9]+\.supabase\.co\/rest\/v1\/?$/.test(options.restBase))
+    if (!options.serviceKey || !/^https:\/\/[a-z0-9]+\.supabase\.co\/rest\/v1\/?$/.test(options.restBase)) {
         return reply({ error: 'Publisher unavailable' }, 503);
+    }
     const now = (options.now || Date.now)();
     const activeSince = new Date(now - 3 * 86400_000).toISOString();
     const rest = async (
@@ -108,13 +110,16 @@ export async function handlePublisherRequest(request: Request, options: Publishe
         }
         if (!object(body)) throw new InputError('Invalid request');
         if (body.action === 'work') {
-            if (Object.keys(body).some((key) => !['action', 'after', 'limit'].includes(key)))
+            if (Object.keys(body).some((key) => !['action', 'after', 'limit'].includes(key))) {
                 throw new InputError('Unexpected work field');
-            if (body.after !== undefined && body.after !== null && !validCursor(body.after))
+            }
+            if (body.after !== undefined && body.after !== null && !validCursor(body.after)) {
                 throw new InputError('Invalid cursor');
+            }
             const limit = body.limit === undefined ? 64 : body.limit;
-            if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 64)
+            if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 64) {
                 throw new InputError('Invalid page size');
+            }
             const subscriptions = await rest('wx_subscriptions', {
                 select: 'cell_id',
                 last_seen_at: `gte.${activeSince}`,
@@ -154,10 +159,12 @@ export async function handlePublisherRequest(request: Request, options: Publishe
             !Array.isArray(body.rows) ||
             body.rows.length < 1 ||
             body.rows.length > MAX_ROWS
-        )
+        ) {
             throw new InputError('Expected 1–16 publication rows');
-        if (Object.keys(body).some((key) => !['action', 'rows'].includes(key)))
+        }
+        if (Object.keys(body).some((key) => !['action', 'rows'].includes(key))) {
             throw new InputError('Unexpected publication field');
+        }
         const rows = body.rows.map((row) => validateRow(row, now));
         const keys = rows.map((row) => row.cell_id + '/' + row.model);
         if (new Set(keys).size !== keys.length) throw new InputError('Duplicate publication row');

@@ -81,8 +81,9 @@ export function finite(value: unknown): value is number {
 export function cellCentre(id: unknown): { latitude: number; longitude: number } | null {
     if (typeof id !== 'string' || !/^-?\d{1,4}_-?\d{1,5}$/.test(id)) return null;
     const [lat, lon] = id.split('_').map(Number);
-    if (`${lat}_${lon}` !== id || lat % 25 || lon % 25 || lat < -9000 || lat > 8975 || lon < -18000 || lon > 17975)
+    if (`${lat}_${lon}` !== id || lat % 25 || lon % 25 || lat < -9000 || lat > 8975 || lon < -18000 || lon > 17975) {
         return null;
+    }
     return { latitude: lat / 100 + 0.125, longitude: lon / 100 + 0.125 };
 }
 export function validCursor(value: unknown): value is string {
@@ -158,8 +159,9 @@ function reading(field: string, value: unknown): boolean {
     if (field.includes('temperature') || field === 'dew_point_2m') return value >= -120 && value <= 80;
     if (field.startsWith('wind_speed') || field.startsWith('wind_gusts')) return value >= 0 && value <= 600;
     if (field.startsWith('wind_direction')) return value >= 0 && value <= 360;
-    if (['relative_humidity_2m', 'cloud_cover', 'precipitation_probability'].includes(field))
+    if (['relative_humidity_2m', 'cloud_cover', 'precipitation_probability'].includes(field)) {
         return value >= 0 && value <= 100;
+    }
     if (field === 'pressure_msl' || field === 'surface_pressure') return value >= 100 && value <= 1200;
     if (field === 'is_day') return value === 0 || value === 1;
     if (field === 'weather_code') return Number.isInteger(value) && value >= 0 && value <= 99;
@@ -220,18 +222,21 @@ export function validateRow(input: unknown, now: number): PublishRow {
         'Unexpected payload field',
     );
     requireThat(new TextEncoder().encode(JSON.stringify(p)).length <= 128 * 1024, 'Payload too large');
-    if (p.elevation !== undefined && p.elevation !== null)
+    if (p.elevation !== undefined && p.elevation !== null) {
         requireThat(finite(p.elevation) && p.elevation >= -500 && p.elevation <= 10_000, 'Invalid elevation');
-    if (p.generationtime_ms !== undefined && p.generationtime_ms !== null)
+    }
+    if (p.generationtime_ms !== undefined && p.generationtime_ms !== null) {
         requireThat(
             finite(p.generationtime_ms) && p.generationtime_ms >= 0 && p.generationtime_ms <= 120_000,
             'Invalid generation time',
         );
-    if (p.timezone_abbreviation !== undefined && p.timezone_abbreviation !== null)
+    }
+    if (p.timezone_abbreviation !== undefined && p.timezone_abbreviation !== null) {
         requireThat(
             p.timezone_abbreviation === 'UTC' || p.timezone_abbreviation === 'GMT',
             'Invalid time zone abbreviation',
         );
+    }
     requireThat(
         p.utc_offset_seconds === 0 && ['UTC', 'GMT', 'Etc/UTC'].includes(String(p.timezone)),
         'UTC payload required',
@@ -321,8 +326,9 @@ export function validateRow(input: unknown, now: number): PublishRow {
     const currentAt = utc(current.time);
     requireThat(now - currentAt >= -5 * 60_000 && now - currentAt <= 90 * 60_000, 'Current block is stale or future');
     for (const field of CURRENT_FIELDS) requireThat(reading(field, current[field]), `Invalid current ${field}`);
-    for (const field of ['wind_speed_10m', 'wind_direction_10m', 'temperature_2m'])
+    for (const field of ['wind_speed_10m', 'wind_direction_10m', 'temperature_2m']) {
         requireThat(finite(current[field]), `Missing current ${field}`);
+    }
     requireThat(
         Array.isArray(hourly.time) && hourly.time.length >= 24 && hourly.time.length <= 384,
         'Invalid hourly axis',
@@ -339,13 +345,14 @@ export function validateRow(input: unknown, now: number): PublishRow {
             times[times.length - 1] <= now + 16 * 86400_000,
         'Invalid hourly horizon',
     );
-    for (const field of HOURLY_FIELDS)
+    for (const field of HOURLY_FIELDS) {
         requireThat(
             Array.isArray(hourly[field]) &&
                 hourly[field].length === times.length &&
                 hourly[field].every((value) => reading(field, value)),
             `Invalid hourly ${field}`,
         );
+    }
     const start = times.findIndex((at) => at >= Math.floor(now / 3600_000) * 3600_000);
     requireThat(start >= 0 && start + 24 <= times.length, 'Missing next-day hours');
     for (const field of ['wind_speed_10m', 'wind_direction_10m', 'temperature_2m']) {
@@ -366,11 +373,12 @@ export function validateRow(input: unknown, now: number): PublishRow {
         requireThat(Array.isArray(daily[field]) && daily[field].length === days.length, `Invalid daily ${field}`);
         if (field === 'sunrise' || field === 'sunset') {
             for (const value of daily[field]) if (value !== null) utc(value);
-        } else
+        } else {
             requireThat(
                 daily[field].every((value) => reading(field, value)),
                 `Invalid daily ${field}`,
             );
+        }
     }
     unitsFor(p.current_units, CURRENT_FIELDS, current, true);
     unitsFor(p.hourly_units, HOURLY_FIELDS, hourly);

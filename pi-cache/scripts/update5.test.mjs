@@ -5,7 +5,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { verifyBundle, verifyArchiveInventory, assertWatchIdle, sha256, inside } from './update5.mjs';
+import {
+    verifyBundle,
+    verifyArchiveInventory,
+    assertWatchIdle,
+    sha256,
+    inside,
+    update5NativeBuild,
+} from './update5.mjs';
+import { stageUpdate5 } from './stage-update5.mjs';
 const members = ['manifest.json', 'source.tar.gz', 'install.mjs', 'rollback.mjs', 'update5.mjs'];
 function fixture() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'thalassa-update5-test-'));
@@ -56,6 +64,100 @@ test('a complete frozen source bundle verifies and its installer defaults to a r
         assert.deepEqual(fs.readdirSync(f.dir).sort(), before);
     } finally {
         f.close();
+    }
+});
+
+test('update 5 requires four equal reviewed native builds and rejects unsupported manifest builds', () => {
+    const project = (values) => values.map((build) => `CURRENT_PROJECT_VERSION = ${build};`).join('\n');
+    for (const build of [133, 134]) assert.equal(update5NativeBuild(project(Array(4).fill(build))), build);
+    for (const values of [
+        [133, 133, 134, 134],
+        [134, 134, 134],
+        Array(5).fill(134),
+        Array(4).fill(132),
+        Array(4).fill(135),
+    ])
+        assert.throws(() => update5NativeBuild(project(values)), /four matching native/);
+    const f = fixture();
+    try {
+        for (const build of [133, 134]) {
+            f.manifest.appBuild = build;
+            f.write();
+            assert.equal(verifyBundle(f.dir).appBuild, build);
+        }
+        for (const build of [132, 135, '134', null]) {
+            f.manifest.appBuild = build;
+            f.write();
+            assert.throws(() => verifyBundle(f.dir), /Invalid update-5 manifest/);
+        }
+    } finally {
+        f.close();
+    }
+});
+
+test('both reviewed frozen builds stage and the archived installer verifies the matching read-only plan', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'thalassa-update5-stage-'));
+    try {
+        for (const build of [133, 134]) {
+            const repository = path.join(root, `source-${build}`),
+                output = path.join(root, `bundle-${build}`);
+            fs.mkdirSync(repository);
+            const write = (file, content) => {
+                const target = path.join(repository, file);
+                fs.mkdirSync(path.dirname(target), { recursive: true });
+                fs.writeFileSync(target, content);
+            };
+            const git = (args, input) =>
+                execFileSync('git', ['-C', repository, '-c', 'core.autocrlf=false', ...args], {
+                    encoding: 'utf8',
+                    input,
+                }).trim();
+            git(['init', '--quiet']);
+            write(
+                'ios/App/App.xcodeproj/project.pbxproj',
+                Array(4).fill(`CURRENT_PROJECT_VERSION = ${build};`).join('\n'),
+            );
+            for (const name of [
+                'server',
+                'polarLearner',
+                'underwayWatch',
+                'updateMaintenance',
+                'barometer',
+                'vault/vaultService',
+            ])
+                write(`pi-cache/src/${name}.ts`, '// Fictional frozen-source fixture only.\n');
+            for (const name of ['package.json', 'package-lock.json']) write(`pi-cache/${name}`, '{}\n');
+            for (const name of ['stage-update5.mjs', 'install-update5.mjs', 'rollback-update5.mjs', 'update5.mjs'])
+                write(`pi-cache/scripts/${name}`, fs.readFileSync(new URL(name, import.meta.url)));
+            git(['add', '--', 'ios', 'pi-cache']);
+            const tree = git(['write-tree']);
+            // A temporary fixture commit object only: no application branch, commit or remote is changed.
+            const commit = git(
+                ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit-tree', tree],
+                'Synthetic frozen update-5 fixture\n',
+            );
+            // Staging must use the frozen native metadata and tracked payload, never these later working files.
+            write('ios/App/App.xcodeproj/project.pbxproj', Array(4).fill('CURRENT_PROJECT_VERSION = 135;').join('\n'));
+            write('pi-cache/cache/not-for-release.json', '{"fixture":"untracked runtime data"}\n');
+            const staged = stageUpdate5({ repository, commit, output });
+            assert.equal(staged.commit, commit);
+            const manifest = verifyBundle(output);
+            assert.equal(manifest.appBuild, build);
+            assert.equal(manifest.sourceCommit, commit);
+            assert.ok(manifest.sourceFiles.includes('pi-cache/src/polarLearner.ts'));
+            assert.ok(!manifest.sourceFiles.some((file) => file.includes('/cache/')));
+            const before = fs.readdirSync(output).sort();
+            const plan = JSON.parse(
+                execFileSync(process.execPath, [path.join(output, 'install.mjs')], { encoding: 'utf8' }),
+            );
+            assert.match(plan.mode, /PLAN ONLY/);
+            assert.equal(plan.manifest.appBuild, build);
+            assert.equal(plan.manifest.sourceCommit, commit);
+            assert.deepEqual(fs.readdirSync(output).sort(), before);
+        }
+    } finally {
+        inside(os.tmpdir(), root);
+        fs.rmSync(root, { recursive: true, force: true });
     }
 });
 test('any changed payload or helper byte fails checksum verification', () => {
