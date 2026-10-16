@@ -51,6 +51,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createWakeDeliveryGuard, type WakeDeliveryDecision } from './wake-delivery.ts';
 import { createWeatherWatchDeliveryGuard } from './weather-watch-delivery.ts';
+import { createRadarDeliveryGuard } from './radar-delivery.ts';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 import {
@@ -271,7 +272,11 @@ serve(async (req: Request) => {
             const configured = ['APNS_KEY_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID']
                 .every((name) => Boolean(Deno.env.get(name)));
             return new Response(
-                JSON.stringify({ underway_alarm: configured ? 1 : 0, wake_alarm: configured ? 1 : 0 }),
+                JSON.stringify({
+                    underway_alarm: configured ? 1 : 0,
+                    wake_alarm: configured ? 1 : 0,
+                    radar_alarm: configured ? 1 : 0,
+                }),
                 {
                     status: 200,
                     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
@@ -333,6 +338,29 @@ serve(async (req: Request) => {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
             });
+        }
+        const radarGuard = notification_type === 'radar_alarm'
+            ? createRadarDeliveryGuard(id, async (queueId) => {
+                const result = await supabase.rpc('pi_radar_delivery_current', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            })
+            : undefined;
+        if (radarGuard) {
+            const permission = await radarGuard();
+            if (permission === 'unavailable') {
+                await releaseClaim('Radar delivery check unavailable');
+                return new Response(JSON.stringify({ error: 'Radar delivery check unavailable' }), { status: 503 });
+            }
+            if (permission === 'retire') {
+                await supabase.from('push_notification_queue').update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'Radar alarm no longer current',
+                }).eq('id', id);
+                return new Response(JSON.stringify({ sent: 0, message: 'Radar alarm no longer current' }), {
+                    status: 200,
+                });
+            }
         }
         const wakeGuard = notification_type === 'wake_alarm'
             ? createWakeDeliveryGuard(id, async (queueId) => {
@@ -429,7 +457,9 @@ serve(async (req: Request) => {
             threadId: getThreadId(notification_type),
             collapseId: getCollapseId(notification_type, data || {}),
             badge: (badgeCount ?? 0) + 1,
-            ...(wakeGuard || weatherGuard ? { beforeAttempt: wakeGuard ?? weatherGuard } : {}),
+            ...(wakeGuard || radarGuard || weatherGuard
+                ? { beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard }
+                : {}),
         };
 
         // ── Send push to all registered devices ──

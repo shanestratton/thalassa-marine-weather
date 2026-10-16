@@ -49,6 +49,7 @@
  */
 
 import { parseWeatherWatchNotice } from '../../../utils/weatherWatch.ts';
+import { RADAR_RELAY_CONTACT, RADAR_RELAY_EPISODE, RADAR_RELAY_KEY } from '../../../utils/radarRelayContract.ts';
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
 export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
 export const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
@@ -66,6 +67,7 @@ const PI_ALARM_DELIVERY_WINDOW_MS: Record<string, number> = {
     distress_alarm: 10 * 60_000,
     underway_alarm: 3 * 60_000,
     wake_alarm: 30_000,
+    radar_alarm: 15_000,
 };
 
 export function isCriticalType(type: string): boolean {
@@ -77,6 +79,7 @@ export function isCriticalType(type: string): boolean {
         'geofence_alert', // Vessel left home geofence — safety critical
         'severe_weather_alert', // 50kt+ wind / extreme conditions — safety critical
         'collision_alarm', // The Pi's night watch: a ship closing on the boat (126-04b)
+        'radar_alarm', // Same collision priority, with the existing entitlement gate.
         'distress_alarm', // The Pi's radio hears an active distress beacon (126-04b)
         'underway_alarm', // Pi off-route/chart-ahead watch; evidence stays aboard (133-04)
         'cyclone_urgent', // A cyclone within 300 NM, or its track within 72 h (129-09)
@@ -107,6 +110,8 @@ export function getThreadId(type: string): string {
             return 'thalassa-underway';
         case 'wake_alarm':
             return 'thalassa-wake-rules';
+        case 'radar_alarm':
+            return 'thalassa-radar';
         case 'cyclone_notice':
         case 'cyclone_urgent':
             return 'thalassa-cyclone';
@@ -138,6 +143,9 @@ const officialExpiry = (data: Record<string, unknown> | undefined): number =>
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
+    if (type === 'radar_alarm' && typeof data.contact_key === 'string' && RADAR_RELAY_CONTACT.test(data.contact_key)) {
+        return `radar-${data.contact_key}`;
+    }
     if (type === 'weather_alert' && Object.hasOwn(data, 'weather_watch')) {
         const notice = parseWeatherWatchNotice(data, Date.now());
         return notice ? `wx-${notice.feature}-${notice.boatId}` : null;
@@ -174,7 +182,8 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
 
 /** The two Pi alarms sound like the anchor alarm; everything else keeps the system sound. */
 export function getAlertSound(type: string): string {
-    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm' || type === 'wake_alarm'
+    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm' ||
+            type === 'wake_alarm' || type === 'radar_alarm'
         ? PI_ALARM_SOUND
         : 'default';
 }
@@ -196,7 +205,7 @@ export function getApnsExpiration(
         const notice = parseWeatherWatchNotice(data, nowMs);
         return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
     }
-    if (type === 'wake_alarm') return '0'; // Never store a stale instrument alarm at APNs.
+    if (type === 'wake_alarm' || type === 'radar_alarm') return '0'; // Never store a stale instrument/radar alarm at APNs.
     // An official warning is news until it expires (129-06).
     if (type === 'official_warning') {
         const expires = officialExpiry(data);
@@ -234,6 +243,17 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'radar_alarm') {
+        if (
+            typeof data?.source_at !== 'number' || !Number.isSafeInteger(data.source_at) || data.source_at <= 0 ||
+            data.source_at > nowMs + 1000 || nowMs - data.source_at > 15_000 ||
+            typeof data.alarm_key !== 'string' || !RADAR_RELAY_KEY.test(data.alarm_key) ||
+            data.kind !== data.alarm_key.split(':')[0] ||
+            typeof data.contact_key !== 'string' || !RADAR_RELAY_CONTACT.test(data.contact_key) ||
+            typeof data.episode_id !== 'string' || !RADAR_RELAY_EPISODE.test(data.episode_id) ||
+            typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))
+        ) return true;
+    }
     if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
         return !parseWeatherWatchNotice(data, nowMs);
     }

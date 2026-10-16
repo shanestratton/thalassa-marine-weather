@@ -31,6 +31,7 @@ import type { PiAlarmKind, PiAlarmPayload } from './parse.ts';
 import { handlePiAlarmRelay, type PiAlarmEvent, type PiAlarmStore } from './relay.ts';
 import { underwayCapabilityReady } from './underway-capability.ts';
 import { handleWakeRelay, wakeCapabilityReady } from './wake-relay.ts';
+import { handleRadarRelay, radarCapabilityReady } from './radar-relay.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -43,7 +44,7 @@ const COLUMNS =
     'id, owner_id, relay_id, alarm_key, kind, mmsi, payload, raised_at, last_seen_at, last_pushed_at, pushed_count, acked_at, acked_by, resolved_at';
 const AIS_ALARM_KINDS = ['collision', 'close-quarters', 'distress'];
 const UNDERWAY_ALARM_KINDS = ['off-route', 'chart-ahead'];
-const ALARM_TYPES = ['collision_alarm', 'distress_alarm', 'underway_alarm'];
+const ALARM_TYPES = ['collision_alarm', 'distress_alarm', 'underway_alarm', 'radar_alarm'];
 
 // deno-lint-ignore no-explicit-any
 type Admin = any;
@@ -223,6 +224,29 @@ Deno.serve((req) => {
                 ? authenticatePiRelay(admin, credential)
                 : Promise.resolve({ status: 503 as const, error: 'unavailable' }),
         store: admin ? supabaseStore(admin) : null,
+        radar: (body, identity, now) =>
+            handleRadarRelay(body, identity, {
+                capability: () =>
+                    radarCapabilityReady(
+                        async () => {
+                            if (!admin) return null;
+                            const result = await admin.rpc('pi_alarm_radar_capability');
+                            return result.error ? null : result.data;
+                        },
+                        Deno.env.get('SUPABASE_URL'),
+                        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+                    ),
+                apply: async (owner, request) => {
+                    const result = await admin.rpc('pi_radar_apply', {
+                        p_owner: owner.ownerId,
+                        p_relay: owner.relayId,
+                        p_request: request,
+                    });
+                    if (result.error) throw new Error('Radar transaction unconfirmed');
+                    return result.data;
+                },
+                deliver: deliverNow,
+            }, now),
         wake: (body, identity, now) =>
             handleWakeRelay(body, identity, {
                 capability: () =>
