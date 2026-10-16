@@ -313,7 +313,14 @@ test('background workers are NOT behind the unsafe-admin gate', () => {
     assert.match(source, /if \(process\.env\.ENC_WATCHER_ENABLED === 'true'\) \{\s*\n\s*startEncWatcher\(/);
 
     // Specifically: neither start call may mention the admin flag again.
-    for (const call of ['startScheduler(cache, proxyConfig);', 'startEncWatcher();']) {
+    assert.match(
+        source,
+        /if \(SUPABASE_ANON_KEY\) \{\s*startScheduler\(cache, proxyConfig, \{\s*internetAllowed: \(\) => diaryRelayOutbox\.getConfiguration\(\)\.allowInternet,?\s*\}\);/,
+        'automatic prefetch must retain its explicit boat internet-policy gate',
+    );
+    for (const call of ['startScheduler(cache, proxyConfig, {', 'startEncWatcher();']) {
+        // The final automatic startup call, after the earlier restart inside
+        // an authenticated configuration request handler.
         const at = source.lastIndexOf(call);
         assert.ok(at > -1, `${call} not found`);
         const guard = source.slice(Math.max(0, at - 200), at);
