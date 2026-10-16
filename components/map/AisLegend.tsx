@@ -27,6 +27,7 @@ import { presentCollisionWatchRow, type CollisionWatchRow } from '../../utils/co
 import { triggerHaptic } from '../../utils/system';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { AIS_LEGEND_ITEMS } from './aisPresentationPalette';
+import { AisCoverageNotice } from './AisCoverageNotice';
 
 /** The anchor's real sound check, in its collision wording (loaded only when arming). */
 const SoundCheckModal = lazyRetry(
@@ -406,6 +407,25 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                 </span>
             </div>
 
+            <div
+                style={
+                    embedded
+                        ? { paddingTop: 8 }
+                        : {
+                              position: 'absolute',
+                              bottom: 84,
+                              left: 12,
+                              right: 12,
+                              maxWidth: 420,
+                              padding: 8,
+                              borderRadius: 10,
+                              background: 'rgba(15,23,42,.95)',
+                              zIndex: 400,
+                          }
+                }
+            >
+                <AisCoverageNotice />
+            </div>
             {soundCheck && (
                 <React.Suspense fallback={null}>
                     <SoundCheckModal

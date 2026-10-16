@@ -261,37 +261,23 @@ export function normaliseInternetAisFeature(value: unknown, now = Date.now()): G
             staleMinutes: timestamp.staleMinutes,
             source: CLOUD_AIS_SOURCE_ID,
             statusColor: navStatusColor(navStatus),
+            informational: true,
+            dataSource: boundedAisField(properties.dataSource, 32) || 'Internet AIS',
+            draught: finiteAisDisplayNumber(properties.draught),
+            eta: boundedAisField(properties.eta, 20),
+            safetyText: boundedAisField(properties.safetyText, 161),
+            safetyTextAt:
+                typeof properties.safetyTextAt === 'number'
+                    ? properties.safetyTextAt
+                    : typeof properties.safetyTextAt === 'string'
+                      ? Date.parse(properties.safetyTextAt)
+                      : null,
         },
     };
 }
 
-/**
- * Where a network-sourced target came from.
- *
- * Shane 2026-08-23: "if you drill down on a ship, it says AISStream, it should
- * probably now say AIS HUB". He is right, and the reason it was wrong is worse
- * than a stale string: THE APP NEVER KNEW.
- *
- * `vessels` has no provenance column — workers/ais-ingest/db.ts upsertBatch
- * writes mmsi, position, kinematics and static data, and nothing else. The
- * boat's own bridge, the AISHub poller and the (dead) aisstream socket all
- * land in identical rows. So this label was never read from the data; it was
- * hard-coded, and it kept asserting a provider long after that provider went
- * silent.
- *
- * Naming the live feed is strictly more accurate than naming a dead one, so
- * this now says AISHub. But it remains a statement about the CONFIGURED cloud
- * feed, not a per-vessel fact, and one constant drives both the property and
- * the popup so the two cannot drift apart again.
- *
- * The real fix is a `source` column on the row, set by whichever ingest path
- * wrote it. Until then this is honest about being a build-time claim.
- *
- * 'local' is unaffected: that IS per-vessel truth — the boat's own receiver
- * heard it, and AisGuardZone and anchorRadarTargets both branch on it.
- */
+/** The network transport stays cloud even when a receiver relayed it. Only this boat's receiver is local. */
 const CLOUD_AIS_SOURCE_ID = 'cloud';
-const CLOUD_AIS_SOURCE_LABEL = 'AISHub';
 
 interface AisTargetPopupHtmlInput {
     thumbnail: unknown;
@@ -401,7 +387,7 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
                 <span>${escapeAisPopupHtml(input.cog)} / ${escapeAisPopupHtml(input.heading)}</span>
                 <span style="color:var(--day-ui-muted, #64748b);">Destination</span>
                 <span style="font-weight:600;color:var(--day-ui-text, #e2e8f0);">${escapeAisPopupHtml(input.destination)}</span>
-                ${input.eta ? `<span style="color:var(--day-ui-muted, #64748b);">AIS ETA</span><span>${escapeAisPopupHtml(input.eta)}</span>` : ''}
+                ${input.eta ? `<span style="color:var(--day-ui-muted, #64748b);">AIS ETA (UTC, year unknown)</span><span>${escapeAisPopupHtml(input.eta)}</span>` : ''}
                 <span style="color:var(--day-ui-muted, #64748b);">Source</span>
                 <span style="font-size:10px;">${escapeAisPopupHtml(input.source)}</span>
                 ${input.imoNumber ? `<span style="color:var(--day-ui-muted, #64748b);">IMO</span><span style="font-family:monospace;font-size:10px;">${escapeAisPopupHtml(input.imoNumber)}</span>` : ''}
@@ -520,7 +506,7 @@ function zoomToRadiusNm(zoom: number): number {
  * therefore meant that below zoom 6 the internet fill was empty every single
  * time, silently, with nothing on screen to say so.
  */
-export const POND_MAX_RADIUS_NM = 100;
+export const POND_MAX_RADIUS_NM = 200;
 
 /**
  * How wide the pond query has to be — which is NOT simply a function of what
@@ -1386,7 +1372,8 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const headingValue = finiteAisDisplayNumber(p.heading);
             const hdg = headingValue != null && headingValue !== 511 ? `${headingValue.toFixed(0)}°` : '—';
             const destination = p.destination || '—';
-            const source = p.source === 'local' ? '📡 Local NMEA' : `🌐 ${CLOUD_AIS_SOURCE_LABEL}`;
+            const source =
+                p.source === 'local' ? '📡 Local NMEA' : `🌐 ${p.dataSource || 'Internet AIS'} · Informational only`;
 
             // ── Ship type — always fill from best source ──
             const vesselType = intel?.metadata?.vessel_type ?? null;
@@ -1445,7 +1432,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             // So the chip says DANGER exactly when the alarm would sound. Our
             // own transponder gets no CPA at all.
             const { own: ownPosition, motion, prefs, ownMmsis, atAnchor } = readCollisionInputs();
-            const own = ownMmsis.has(Number(mmsi)) ? null : ownPosition;
+            const own = ownMmsis.has(Number(mmsi)) || p.informational === true ? null : ownPosition;
             const targetReportAge = aisReportAgeSec(p);
             const cpaResult =
                 own && targetReportAge != null

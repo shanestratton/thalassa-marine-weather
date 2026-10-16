@@ -80,6 +80,15 @@ beforeEach(() => {
 });
 
 describe('AisGuardWatch', () => {
+    it('informational fleet targets cannot enter a guard alarm while the own receiver keeps working', () => {
+        hoisted.localFeatures = [target(123456789)];
+        publishInternetAisFeatures([
+            { ...target(987654321), properties: { mmsi: 987654321, source: 'cloud', informational: true } },
+        ] as GeoJSON.Feature[]);
+        runGuardCheck();
+        expect(hoisted.checkFeatures.mock.calls[0][2]).toHaveLength(1);
+        expect(hoisted.checkFeatures.mock.calls[0][2][0].properties?.mmsi).toBe(123456789);
+    });
     it('checks receiver targets with NO map and NO AIS layer anywhere', () => {
         // The whole point: nothing here knows a chart exists.
         hoisted.localFeatures = [target(503111222)];

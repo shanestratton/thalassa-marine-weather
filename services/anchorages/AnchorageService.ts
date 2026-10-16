@@ -25,7 +25,7 @@ export interface AnchorageProps {
     id: string;
     name: string;
     kind: AnchorageKind;
-    source: 'OpenStreetMap' | 'GBRMPA';
+    source: 'OpenStreetMap' | 'GBRMPA' | 'NOAA';
     sourceRef?: string;
     likelyAnchorage?: boolean;
     noAnchoring?: boolean;
@@ -43,6 +43,7 @@ export interface AnchorageData {
     zoning: GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
     /** Tile ids that fed this merge — for logs and change detection. */
     tiles: string[];
+    cataloguePartial?: boolean;
 }
 
 export interface AnchorageTileMeta {
@@ -151,7 +152,16 @@ export const AnchorageService = {
      * network once (and the SW data cache thereafter).
      */
     async loadNear(lat: number, lon: number, radiusNM = 50): Promise<AnchorageData> {
-        const index = await loadIndex();
+        if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lon) ||
+            Math.abs(lat) > 90 ||
+            Math.abs(lon) > 180 ||
+            radiusNM <= 0 ||
+            radiusNM > 100
+        )
+            throw new Error('Invalid anchorage area');
+        const index = await loadIndex().catch(() => ({ tiles: [] }));
         const wanted = index.tiles.filter((t) => tileWithinRadius(t.bbox, lat, lon, radiusNM));
         const tiles = await Promise.all(wanted.map((t) => loadTile(t.id)));
         const merged: AnchorageData = {
@@ -160,6 +170,25 @@ export const AnchorageService = {
             zoning: { type: 'FeatureCollection', features: dedupeById(tiles.map((t) => t.zoning)) },
             tiles: wanted.map((t) => t.id),
         };
+        // The bundled QLD atlas retains its exact shelter/zoning tables. Public
+        // worldwide records add no inferred shelter, clearance or permission.
+        try {
+            if (wanted.length) return merged; // QLD retains its richer packaged reference without a new network dependency.
+            const [{ loadMarineArea }, { catalogueAnchorages }] = await Promise.all([
+                import('../marineCatalogue/service'),
+                import('../marineCatalogue/adapters'),
+            ]);
+            const global = await loadMarineArea(lat, lon, ['osm', 'noaa']);
+            const seen = new Set(merged.points.features.map((f) => f.properties.id));
+            const sourceRefs = new Set(merged.points.features.map((f) => f.properties.sourceRef));
+            for (const f of catalogueAnchorages(global.records, global.manifests)) {
+                const osmRef = f.properties.sourceRef?.replace('https://www.openstreetmap.org/', '');
+                if (!seen.has(f.properties.id) && !sourceRefs.has(osmRef)) merged.points.features.push(f);
+            }
+            merged.cataloguePartial = global.partial;
+        } catch {
+            merged.cataloguePartial = true;
+        }
         log.info(
             `loaded ${merged.points.features.length} anchorages from ${wanted.length} tile(s) within ${radiusNM} NM of ${lat.toFixed(2)},${lon.toFixed(2)}`,
         );

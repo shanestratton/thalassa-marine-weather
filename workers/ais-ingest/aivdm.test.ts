@@ -29,6 +29,119 @@ const T5_F2 = '!AIVDM,2,2,7,A,0016L961O400003QEl3lU00000000000000,2*5C';
 
 beforeEach(() => __resetFragmentsForTest());
 
+// Fictional, generated bit fixtures; no boat recordings or provider downloads.
+function generatedSentence(
+    length: number,
+    fields: readonly [number, number, number][],
+    texts: readonly [number, string][] = [],
+): string {
+    const bits = Array<number>(length).fill(0);
+    for (const [start, width, value] of fields)
+        for (let bit = 0; bit < width; bit++) bits[start + bit] = Math.floor(value / 2 ** (width - 1 - bit)) % 2;
+    for (const [start, text] of texts)
+        for (let i = 0; i < text.length; i++) {
+            const code = text.charCodeAt(i) & 63;
+            for (let b = 0; b < 6; b++) bits[start + i * 6 + b] = (code >> (5 - b)) & 1;
+        }
+    const fill = (6 - (length % 6)) % 6;
+    bits.push(...Array<number>(fill).fill(0));
+    let payload = '';
+    for (let i = 0; i < bits.length; i += 6) {
+        const code = bits.slice(i, i + 6).reduce((a, b) => a * 2 + b, 0);
+        payload += String.fromCharCode(code + (code < 40 ? 48 : 56));
+    }
+    const body = `AIVDM,1,1,,A,${payload},${fill}`;
+    let checksum = 0;
+    for (const char of body) checksum ^= char.charCodeAt(0);
+    return `!${body}*${checksum.toString(16).padStart(2, '0')}`;
+}
+
+describe('bounded relayed message14 and static fields', () => {
+    it.each([970111111, 972111111, 974111111])(
+        'preserves text and receipt age without inventing position for %s',
+        (mmsi) => {
+            const receivedAt = Date.parse('2026-10-16T00:00:00Z');
+            const text = 'TEST BEACON';
+            const sentence = generatedSentence(
+                40 + 6 * text.length,
+                [
+                    [0, 6, 14],
+                    [8, 30, mmsi],
+                ],
+                [[40, text]],
+            );
+            expect(decodeAisSentence(sentence, receivedAt)).toEqual({
+                mmsi,
+                safety_text: text,
+                safety_text_at: new Date(receivedAt).toISOString(),
+                data_source: 'receiver',
+            });
+        },
+    );
+    it('decodes draught and yearless ETA from a generated classA static report', () => {
+        const sentence = generatedSentence(
+            424,
+            [
+                [0, 6, 5],
+                [8, 30, 123456789],
+                [274, 4, 12],
+                [278, 5, 31],
+                [283, 5, 23],
+                [288, 6, 59],
+                [294, 8, 72],
+            ],
+            [[112, 'FICTIONAL SHIP']],
+        );
+        expect(decodeAisSentence(sentence)).toMatchObject({ mmsi: 123456789, draught_m: 7.2, eta: '12-31 23:59' });
+        const unknown = generatedSentence(
+            424,
+            [
+                [0, 6, 5],
+                [8, 30, 123456789],
+                [283, 5, 24],
+                [288, 6, 60],
+            ],
+            [[112, 'FICTIONAL SHIP']],
+        );
+        expect(decodeAisSentence(unknown)?.eta).toBeUndefined();
+        expect(decodeAisSentence(unknown)?.draught_m).toBeUndefined();
+    });
+    it('rejects truncated position/static packets and oversized text before zero-padding can invent fields', () => {
+        expect(
+            decodeAisSentence(
+                generatedSentence(38, [
+                    [0, 6, 1],
+                    [8, 30, 123456789],
+                ]),
+            ),
+        ).toBeNull();
+        expect(
+            decodeAisSentence(
+                generatedSentence(
+                    120,
+                    [
+                        [0, 6, 5],
+                        [8, 30, 123456789],
+                    ],
+                    [[70, 'FAKE']],
+                ),
+            ),
+        ).toBeNull();
+        expect(
+            decodeAisSentence(
+                generatedSentence(
+                    40 + 6 * 162,
+                    [
+                        [0, 6, 14],
+                        [8, 30, 970111111],
+                    ],
+                    [[40, 'A'.repeat(162)]],
+                ),
+            ),
+        ).toBeNull();
+    });
+});
+
 describe('checksum', () => {
     it('accepts a correct checksum and rejects a corrupted body', () => {
         expect(nmeaChecksumOk(T1)).toBe(true);
@@ -66,7 +179,7 @@ describe('Class B (types 18 and 24)', () => {
     });
 
     it('Part A carries the yacht name', () => {
-        expect(decodeAisSentence(T24A)).toEqual({ mmsi: 503101240, name: 'WHISKERS' });
+        expect(decodeAisSentence(T24A)).toEqual({ mmsi: 503101240, name: 'WHISKERS', data_source: 'receiver' });
     });
 
     it('Part B carries type, call sign', () => {

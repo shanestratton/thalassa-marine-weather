@@ -274,6 +274,7 @@ import { useDeviceMode } from '../../hooks/useDeviceMode';
 // exact failure mode we're trying to fix. Tiny component, not worth the
 // risk of a broken chunk hiding our debug surface.
 import { BlitzortungAttribution } from './BlitzortungAttribution';
+import { AisCoverageNotice } from './AisCoverageNotice';
 import { EncAttributionChip } from './EncAttributionChip';
 import { HazardReportPanel } from '../passage/HazardReportPanel';
 import { ThreatBanner } from './ThreatBanner';
@@ -5606,6 +5607,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
+                {!pickerMode && !planningSurface && !embedded && !isPinView && browseAisVisible && (
+                    <div
+                        className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)]`}
+                        style={{
+                            top: creditsStripTop(
+                                creditStackPx({
+                                    rain: rainCreditShown,
+                                    cmems: cmemsAttributionLayers.length > 0,
+                                    wind: obsWindCredit,
+                                    lightning: browseLightningVisible,
+                                }) + (satellite.status !== 'off' ? CREDITS_SLOT_PX : 0),
+                            ),
+                        }}
+                    >
+                        <AisCoverageNotice compact />
+                    </div>
+                )}
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
                 {/* Viewport-aware — only renders when ENC cells overlap the
                     current view. IHO standard practice for chart displays.

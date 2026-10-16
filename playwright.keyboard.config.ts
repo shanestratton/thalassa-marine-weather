@@ -6,6 +6,8 @@ import { join } from 'node:path';
 export default defineConfig({
     testDir: './browser-tests',
     testMatch: [
+        'ais-fleet-layout.spec.ts',
+        'marine-places-layout.spec.ts',
         'keyboard-layout.spec.ts',
         'daylight-layout.spec.ts',
         // The Glass's compact conditions row: 'Trace' and inch readings stay in their cells.

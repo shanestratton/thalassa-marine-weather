@@ -60,7 +60,7 @@ describe('anonymous AIS access is closed', () => {
         // The caller is still verified and metered — the quota is the point.
         const body = edge.slice(edge.indexOf('Deno.serve'));
         const quotaAt = body.indexOf("requireAuthenticatedQuota(req, 'vessels_nearby'");
-        const rpcAt = body.indexOf(".rpc('vessels_nearby'");
+        const rpcAt = body.indexOf(".rpc('vessels_nearby_v135'");
         expect(quotaAt).toBeGreaterThan(0);
         expect(rpcAt).toBeGreaterThan(quotaAt);
     });

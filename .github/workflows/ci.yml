@@ -140,6 +140,9 @@ jobs:
               working-directory: supabase/functions
               run: deno test */*_test.ts
 
+            - name: Public marine catalogue pipeline regressions
+              run: python3 -m unittest discover -s scripts/marine-catalogue -p 'test_*.py'
+
             # The full unit suite runs nightly (full-checks.yml). These few seconds
             # of guards run on every push: the chart-licence guard (licensed chart
             # data must never be committed, private repository or not) and the

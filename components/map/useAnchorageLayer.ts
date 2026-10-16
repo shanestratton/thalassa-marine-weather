@@ -20,6 +20,7 @@
  */
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { AnchorageService, type AnchorageData, type AnchorageProps } from '../../services/anchorages/AnchorageService';
 import { cachedPlaceConditions, loadPlaceConditions } from '../../services/anchorages/PlaceConditionsService';
 import { CONDITION_COLOURS, type ConditionsPlace } from '../../services/anchorages/placeConditions';
@@ -82,7 +83,7 @@ function pointPopupHtml(p: AnchorageProps): string {
         ${warn}
         ${notes}
         <div style="margin-top:6px;font-size:9.5px;color:#6b7880;line-height:1.35">
-          Source: ${esc(p.source)}. Open-data reference — verify depth, holding &amp; zoning against official charts before anchoring.
+          Source: ${esc(p.source)}. ${p.source === 'OpenStreetMap' ? '© OpenStreetMap contributors · ODbL. ' : p.source === 'NOAA' ? 'Derived reference, not official NOAA ENC. <a href="https://charts.noaa.gov/ENCs/" target="_blank" rel="noopener noreferrer">NOAA origin</a>. ' : ''}Open-data reference — verify depth, holding &amp; zoning against official charts before anchoring.
         </div>`);
 }
 
@@ -135,6 +136,27 @@ export function useAnchorageLayer(
      *  arrays in queryRenderedFeatures properties. */
     const dataRef = useRef<AnchorageData | null>(null);
     const regionalRef = useRef<AnchorageData | null>(null);
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                // Acceptance is account scoped. Existing NOAA-derived points must not
+                // remain visible while another account has not accepted its agreement.
+                for (const ref of [dataRef, regionalRef]) {
+                    if (ref.current)
+                        ref.current = {
+                            ...ref.current,
+                            points: {
+                                ...ref.current.points,
+                                features: ref.current.points.features.filter((f) => f.properties.source !== 'NOAA'),
+                            },
+                        };
+                }
+                const source = mapRef.current?.getSource(SRC_PTS) as mapboxgl.GeoJSONSource | undefined;
+                if (dataRef.current && source) source.setData(dataRef.current.points);
+                popupRef.current?.remove();
+            }),
+        [mapRef],
+    );
     const supplementRef = useRef(supplement);
     supplementRef.current = supplement;
     const weatherRefresh = useRef<(() => void) | null>(null);

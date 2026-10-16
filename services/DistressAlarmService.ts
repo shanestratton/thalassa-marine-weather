@@ -12,7 +12,7 @@
  *    status 15 or a TEST text never does; a 97x with another status is a
  *    silent caution.
  *  - ONLY HER OWN RADIO SOUNDS. A beacon seen only over the internet (the
- *    chart's feed reaches about 100 NM, and any signed-in account can feed
+ *    chart's bounded feed reaches up to200 NM, and signed-in accounts can feed
  *    the fleet) is drawn red and carded silently with its age, never sounded:
  *    a far-off or spoofed 970 must not make every phone blare.
  *  - SOUND through AlarmAudioService under its own 'distress-watch' lease.
@@ -148,6 +148,8 @@ export function collectDistressBeacons({ own, ownMmsis, internet, nowMs }: Distr
             navStatus: Number(p.navStatus ?? p.nav_status),
             navStatusAt: heardAt,
             source: 'cloud',
+            safetyText: typeof p.safetyText === 'string' ? p.safetyText : null,
+            safetyTextAt: typeof p.safetyTextAt === 'number' ? p.safetyTextAt : null,
             hasPosition: true,
         });
         if (!c) continue;

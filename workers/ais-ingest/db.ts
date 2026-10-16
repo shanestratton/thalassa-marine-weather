@@ -53,6 +53,28 @@ interface SentState {
     nav_status?: number;
     staticSig: string;
     sentAt: number;
+    staticFields?: Partial<VesselRecord>;
+    position_at?: string;
+    safety_text?: string;
+    safety_text_at?: string;
+}
+const STATIC_KEYS = [
+    'name',
+    'call_sign',
+    'ship_type',
+    'destination',
+    'imo_number',
+    'dimension_a',
+    'dimension_b',
+    'dimension_c',
+    'dimension_d',
+    'draught_m',
+    'eta',
+] as const;
+function staticFields(previous: Partial<VesselRecord> | undefined, r: VesselRecord): Partial<VesselRecord> {
+    const result = { ...previous };
+    for (const key of STATIC_KEYS) if (r[key] !== undefined) Object.assign(result, { [key]: r[key] });
+    return result;
 }
 
 /** Equirectangular distance in metres — plenty for a 25 m threshold. */
@@ -77,6 +99,8 @@ function staticSignature(r: VesselRecord): string {
         r.dimension_b,
         r.dimension_c,
         r.dimension_d,
+        r.draught_m,
+        r.eta,
     ]
         .map((v) => (v === undefined ? '' : String(v)))
         .join('|');
@@ -89,11 +113,13 @@ function staticSignature(r: VesselRecord): string {
 export function isMaterialChange(prev: SentState | undefined, r: VesselRecord, now: number): boolean {
     if (!prev) return true; // never seen — of course
     if (now - prev.sentAt >= HEARTBEAT_MS) return true; // keep updated_at alive
+    if (r.position_at && now - Date.parse(prev.position_at ?? new Date(prev.sentAt).toISOString()) >= HEARTBEAT_MS)
+        return true;
 
     // Position: moved more than the threshold, or appeared/disappeared.
     const hadPos = prev.lat !== undefined && prev.lon !== undefined;
     const hasPos = r.lat !== undefined && r.lon !== undefined;
-    if (hadPos !== hasPos) return true;
+    if (hasPos && !hadPos) return true;
     if (hasPos && hadPos && metresBetween(prev.lat!, prev.lon!, r.lat!, r.lon!) >= MIN_MOVE_M) return true;
 
     // Kinematics: a boat that has started or stopped moving, or turned, is news.
@@ -110,7 +136,13 @@ export function isMaterialChange(prev: SentState | undefined, r: VesselRecord, n
     }
 
     // Static data changed (name, destination, dimensions…)
-    if (staticSignature(r) !== prev.staticSig) return true;
+    if (staticSignature({ ...r, ...staticFields(prev.staticFields, r) }) !== prev.staticSig) return true;
+    if (
+        r.safety_text !== undefined &&
+        (r.safety_text !== prev.safety_text ||
+            now - Date.parse(prev.safety_text_at ?? new Date(prev.sentAt).toISOString()) >= HEARTBEAT_MS)
+    )
+        return true;
 
     return false;
 }
@@ -130,6 +162,7 @@ export class VesselDB {
     /** What was last WRITTEN per MMSI — the basis for skipping no-op rows. */
     private lastSent: Map<number, SentState> = new Map();
     private totalSkipped = 0;
+    private budgetLimited = 0;
 
     constructor(client?: SupabaseClient) {
         if (client) {
@@ -236,6 +269,8 @@ export class VesselDB {
             // Position data — build PostGIS point
             if (r.lat !== undefined && r.lon !== undefined) {
                 row.location = `SRID=4326;POINT(${r.lon} ${r.lat})`;
+                row.position_at = r.position_at ?? new Date().toISOString();
+                row.data_source = r.data_source ?? 'receiver';
             }
 
             // Kinematics
@@ -254,6 +289,13 @@ export class VesselDB {
             if (r.dimension_b !== undefined) row.dimension_b = r.dimension_b;
             if (r.dimension_c !== undefined) row.dimension_c = r.dimension_c;
             if (r.dimension_d !== undefined) row.dimension_d = r.dimension_d;
+            const previous = this.lastSent.get(r.mmsi)?.staticFields;
+            if (r.draught_m !== undefined && r.draught_m !== previous?.draught_m) row.draught_m = r.draught_m;
+            if (r.eta !== undefined && r.eta !== previous?.eta) row.eta = r.eta;
+            if (r.safety_text !== undefined) {
+                row.safety_text = r.safety_text;
+                row.safety_text_at = r.safety_text_at ?? new Date().toISOString();
+            }
 
             return row;
         });
@@ -269,7 +311,7 @@ export class VesselDB {
             // Change-detection made the NULL stick (BUNGAREE, 2026-08-19).
             // The RPC COALESCEs per column server-side, so a message can only
             // ever change the fields it actually carried.
-            const { error } = await this.client.rpc('merge_vessels', { rows });
+            const { data, error } = await this.client.rpc('merge_vessels_bounded', { rows });
 
             if (error) {
                 console.error(`[DB] Upsert error (${rows.length} rows):`, error.message);
@@ -287,9 +329,12 @@ export class VesselDB {
                 this.consecutiveErrorFlushes++;
                 return false;
             } else {
-                this.totalUpserts += rows.length;
+                this.totalUpserts += typeof data?.written === 'number' ? data.written : rows.length;
+                if (data?.limited === true) this.budgetLimited++;
                 this.consecutiveErrorFlushes = 0;
-                this.rememberSent(records);
+                // The server can accept only part of a batch at the shared
+                // write ceiling. Do not mark dropped static changes as saved.
+                if (data?.limited !== true) this.rememberSent(records);
                 return true;
             }
         } catch (e) {
@@ -329,7 +374,11 @@ export class VesselDB {
                 sog: r.sog ?? prev?.sog,
                 heading: r.heading ?? prev?.heading,
                 nav_status: r.nav_status ?? prev?.nav_status,
-                staticSig: staticSignature({ ...(prev as VesselRecord | undefined), ...r } as VesselRecord),
+                staticFields: staticFields(prev?.staticFields, r),
+                position_at: r.position_at ?? prev?.position_at,
+                safety_text: r.safety_text ?? prev?.safety_text,
+                safety_text_at: r.safety_text_at ?? prev?.safety_text_at,
+                staticSig: staticSignature({ ...r, ...staticFields(prev?.staticFields, r) }),
                 sentAt: now,
             });
         }
@@ -348,6 +397,7 @@ export class VesselDB {
         totalErrors: number;
         totalSkipped: number;
         consecutiveErrorFlushes: number;
+        budgetLimited: number;
     } {
         return {
             buffered: this.buffer.size,
@@ -355,6 +405,7 @@ export class VesselDB {
             totalErrors: this.totalErrors,
             totalSkipped: this.totalSkipped,
             consecutiveErrorFlushes: this.consecutiveErrorFlushes,
+            budgetLimited: this.budgetLimited,
         };
     }
 }

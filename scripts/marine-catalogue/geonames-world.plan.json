@@ -1,0 +1,13 @@
+{
+    "schema": 1,
+    "dataset": "places",
+    "coverage": "GeoNames selected marine feature classes worldwide; incomplete community gazetteer",
+    "sources": [
+        {
+            "url": "https://download.geonames.org/export/dump/allCountries.zip",
+            "format": "geonames-zip",
+            "maxBytes": 2147483648,
+            "maxExpandedBytes": 6442450944
+        }
+    ]
+}

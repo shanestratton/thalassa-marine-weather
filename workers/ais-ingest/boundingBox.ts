@@ -1,26 +1,20 @@
 /**
- * WHERE TO LISTEN.
+ * LEGACY AISSTREAM SOCKET BOUNDS ONLY.
  *
  * The default used to be the whole planet — [[-90,-180],[90,180]] — which is
  * every AIS-equipped vessel on Earth, tens of thousands of ships, each
  * rewritten to a Micro's disk on every flush. That is where 34,661,184 rows
- * and ~1.8 TB of writes came from (measured 2026-08-18). The app never asks
- * for vessels more than 100 NM from the boat (vessels-nearby caps radius at
- * 100), so ingesting the Pacific is pure cost.
+ * and ~1.8 TB of writes came from (measured 2026-08-18). The app asks
+ * for a bounded nearby view, so an unbounded global socket is pure cost.
  *
- * THIS BOX IS NOT AISSTREAM-ONLY — the thing that is easy to get wrong.
- * Two consumers read it:
- *   · the aisstream subscription below (BoundingBoxes), and
- *   · the AISHub aggregate poller, which turns BOUNDING_BOXES[0] into the
- *     latmin/lonmin/latmax/lonmax of its API query.
- * So this rectangle decides what the shared pond CONTAINS, from whichever
- * upstream is alive. Narrow it and you are not just trimming a dead feed.
+ * Build135 moves AISHub to fleetAishub.ts: persisted claims and rotating
+ * coarse interests, with one global request per minute across replicas.
+ * This file no longer controls the AISHub aggregate's coverage.
  *
  * The punter crowd-feed (/fleet-feed) is deliberately NOT bounded by it: a
  * contributor anywhere on earth is credited and their sentences land in the
- * pond. Contribution is global; aggregate fill is boxed. A punter outside the
- * box still sees their own receiver and any nearby punter — they just get no
- * AISHub fill around them.
+ * pond. Contribution is global; aggregate fill follows active fleet interests
+ * under its own byte, row, write, time and licensing limits.
  *
  * Default is the Australian east coast and the Coral Sea out to the islands:
  * Torres Strait to Bass Strait, past the reef and Lord Howe, and far enough
@@ -28,12 +22,9 @@
  * 2026-08-24, which stopped roughly halfway across the Coral Sea and dropped
  * New Caledonia, Vanuatu and Norfolk Island outside AIS coverage mid-crossing.
  *
- * Still OUTSIDE by choice, because it is water we do not sail and the box's
- * width is the cost driver: Western Australia, the NT coast, and New Zealand.
- * Override with BOUNDING_BOXES for a different cruising ground; a deliberately
- * global subscription still works, it is just no longer what you get by
- * accident. Format is [[[latMin,lonMin],[latMax,lonMax]], ...] as aisstream
- * expects.
+ * These historical legacy bounds are independent of any user's yacht or
+ * cruising ground. AISStream is disabled when its key is absent. Operators
+ * must not use a global legacy subscription to bypass the fleet budget.
  */
 export const DEFAULT_BOUNDING_BOXES = '[[[-44,140],[-9,172]]]';
 
@@ -44,10 +35,8 @@ export const DEFAULT_BOUNDING_BOXES = '[[[-44,140],[-9,172]]]';
  * worse outcome than a box that is the wrong shape.
  *
  * A bad override falls back to the default and says so loudly. The shape is
- * checked too, not just the JSON — the AISHub poller indexes [0][0]/[1][1]
- * directly, so a well-formed but wrongly-nested array (`[[-44,140],[-9,172]]`,
- * one bracket short, which is the easy typo) would otherwise sail through
- * parsing and produce undefined bounds at query time.
+ * checked too, not just the JSON, so a wrongly nested legacy socket override
+ * cannot silently produce an invalid subscription.
  */
 export function parseBoundingBoxes(raw: string | undefined): number[][][] {
     const fallback = JSON.parse(DEFAULT_BOUNDING_BOXES) as number[][][];

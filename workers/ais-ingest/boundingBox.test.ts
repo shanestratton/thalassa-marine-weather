@@ -98,13 +98,11 @@ describe('ingest bounding box', () => {
         expect(resolveBoundingBoxes('[[[-45,110],[-8,157]]]').source).toBe('BOUNDING_BOXES env override');
     });
 
-    it('documents that the box is not aisstream-only', () => {
-        // The comment is load-bearing: it is the only thing telling the next
-        // person that trimming this also trims the AISHub aggregate.
-        expect(src).toContain('NOT AISSTREAM-ONLY');
-        expect(src).toContain('AISHub aggregate poller');
-        // ...and that the crowd-feed is deliberately unbounded by it.
-        expect(src).toContain('Contribution is global; aggregate fill is boxed');
+    it('keeps fleet AISHub independent of legacy fixed socket bounds', () => {
+        expect(src).toContain('LEGACY AISSTREAM SOCKET BOUNDS ONLY');
+        expect(indexSrc).toMatch(/startFleetAishubPoller\(\s*db,/);
+        expect(indexSrc).not.toContain('BOUNDING_BOXES[0]');
+        expect(indexSrc).not.toContain('startAishubPoller(');
     });
 
     it('logs which box won at boot', () => {

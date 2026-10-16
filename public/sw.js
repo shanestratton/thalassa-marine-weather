@@ -689,6 +689,17 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     if (event.request.headers.has('authorization')) return;
 
+    // Public marine catalogues have their own validated, 24 MiB app cache.
+    // The broad terrain-host cache must not replay a stale mutable manifest
+    // or retain a second copy after the skipper deletes the saved catalogue.
+    if (
+        url.origin === 'https://tiles.thalassatiles.com' &&
+        /^\/marine-catalogue\/v1\/(places|osm|noaa)\//.test(url.pathname)
+    ) {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+
     // ── DEV MODE BYPASS ──
     // On localhost, let ALL requests pass through to Vite dev server directly.
     // Without this, the stale SW cache serves old module files, blocking hot reload.
