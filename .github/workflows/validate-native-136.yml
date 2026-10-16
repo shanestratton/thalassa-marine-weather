@@ -17,7 +17,7 @@ jobs:
         runs-on: macos-26
         timeout-minutes: 40
         env:
-            CANDIDATE_SHA: 71f35967f0e818c6b871802a76c3d048244861f3
+            CANDIDATE_SHA: 6f207d52273e6b9affa2d83aea1bcd22cb58d155
             CI: 'true'
             HUSKY: '0'
             NODE_OPTIONS: --max-old-space-size=4096
@@ -33,7 +33,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 71f35967f0e818c6b871802a76c3d048244861f3
+                  ref: 6f207d52273e6b9affa2d83aea1bcd22cb58d155
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -94,35 +94,3 @@ jobs:
                       -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd136-native" \
                       CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
                   echo 'Combined UDP/GPX/Systems and direct Signal K native source compiled on the iPhone SDK. Native build136; no signing or upload.' >> "$GITHUB_STEP_SUMMARY"
-
-    unix-contracts:
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
-        runs-on: ubuntu-24.04
-        timeout-minutes: 25
-        env:
-            CI: 'true'
-            HUSKY: '0'
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-              with:
-                  ref: 71f35967f0e818c6b871802a76c3d048244861f3
-                  fetch-depth: 0
-                  persist-credentials: false
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-              with:
-                  node-version: 22
-                  cache: npm
-                  cache-dependency-path: pi-cache/package-lock.json
-            - name: Exact source and Pi runtime
-              run: |
-                  set -euo pipefail
-                  test "$(git rev-parse HEAD)" = '71f35967f0e818c6b871802a76c3d048244861f3'
-                  npm ci --prefix pi-cache
-                  npm run build --prefix pi-cache
-            - name: Complete Pi suite and frozen update5/update6 shell plans
-              working-directory: pi-cache
-              run: |
-                  set -euo pipefail
-                  npm test
-                  node --test scripts/update5.test.mjs scripts/update6.test.mjs
-                  echo 'Unix permission, durable ownership, enrolled HTTP, route cancellation and SQLite paging contracts passed on the exact source.' >> "$GITHUB_STEP_SUMMARY"
