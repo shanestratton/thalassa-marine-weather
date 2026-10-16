@@ -19,6 +19,7 @@
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
+import { useTrackRouteRead } from './useTrackRouteRead';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -156,12 +157,7 @@ import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { useBuoyageDirectionLayer } from './useBuoyageDirectionLayer';
 import { useChartLeadsLayer } from './useChartLeadsLayer';
 import { submitTracedRoute, listPendingRoutes, reviewRoute, type PendingRoute } from '../../services/communityRoutes';
-import {
-    fetchSeaVoyageChoices,
-    loadVoyageTrackPoints,
-    type RouteOrTrack,
-    type SeaVoyageChoice,
-} from '../../services/shiplog/RoutesAndTracks';
+import { fetchSeaVoyageChoices, type RouteOrTrack, type SeaVoyageChoice } from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselAirDraftMetres, vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
@@ -467,6 +463,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         fillSlotWithReversed,
         openReversedLeg,
     } = useTraceDraft();
+    const { read: readTrackRoute, cancel: cancelTrackRouteRead } = useTrackRouteRead(coordCaptureMode, capturedCoords);
+    const retireTrackChecksRef = useRef<() => void>(() => {});
 
     // Every pin edit feeds the same history hook, regardless of whether it
     // came from a tap, drag, auto-route, ghost lane, or saved route load.
@@ -831,6 +829,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // the dispatching click so the clipboard read keeps its iOS
             // user-activation.
             const action = consumeTracerAction();
+            cancelTrackRouteRead();
             if (action?.kind === 'paste') {
                 setLegAnchor(null);
                 void pasteTrace(requestScope);
@@ -2032,8 +2031,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         },
         [flashTraceFeedback],
     );
-    // Track→trace: a sailed voyage, decimated to editable pins and re-graded.
-    // "Sail it once, save it forever."
+    // Own track → NEW unsaved draft. Historical water is not today's clearance.
     const openVoyagePicker = useCallback(async () => {
         triggerHaptic('light');
         setShowVoyagePicker((v) => !v);
@@ -2053,24 +2051,33 @@ export const MapHub: React.FC<MapHubProps> = ({
             flashTraceFeedback(`Loading ${t.label}…`);
             // Polyline fetched per-voyage on tap (paged, whole passage) —
             // the picker rows themselves carry no points now.
-            const points = await loadVoyageTrackPoints(t.voyageId);
-            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
-            if (points.length < 2) {
-                flashTraceFeedback('Could not load that track — try again online');
+            let draft;
+            try {
+                draft = await readTrackRoute(t.voyageId, expectedScope);
+            } catch (error) {
+                if (isAuthIdentityScopeCurrent(expectedScope))
+                    flashTraceFeedback(error instanceof Error ? error.message : 'Could not read that complete track.');
                 return;
             }
-            let pins = rdpTracePoints(points, 30);
-            // Cap at 80 pins — a 12-hour track at trawl speed can survive RDP
-            // with hundreds of vertices; coarsen until it's editable.
-            let eps = 30;
-            while (pins.length > 80 && eps < 500) {
-                eps *= 2;
-                pins = rdpTracePoints(points, eps);
-            }
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+            if (!draft) return;
+            const pins = draft.points;
+            retireTrackChecksRef.current();
             setShowVoyagePicker(false);
+            clearReturnContext();
             setLegAnchor(null);
             setSelectedPin(null);
             setOverwriteArm(null);
+            setAckedLegs(new Set());
+            setSailArmed(false);
+            setShareArmed(false);
+            setLegVerdicts([]);
+            setTideLabels({});
+            setTracerChartsWait(null);
+            setTracerStatus('loading');
+            setShowReport(false);
+            setDraftSource(null);
+            setTraceFrameKind(null);
             rebaseHistoryRef.current = true; // wholesale load → new Undo floor
             setCapturedCoords(pins);
             // A sailed track must not inherit the last open route's title or
@@ -2081,7 +2088,9 @@ export const MapHub: React.FC<MapHubProps> = ({
             setTraceDest(null);
             const mid = pins[Math.floor(pins.length / 2)];
             if (mapRef.current) tracerFlyTo(mapRef.current, mid, 11.5, 1000);
-            flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
+            flashTraceFeedback(
+                `${t.label}: ${draft.inputCount} positions → ${pins.length} pins, at most ${draft.toleranceM} m simplification. Fresh chart check required; past travel is not clearance today.`,
+            );
         },
         [
             flashTraceFeedback,
@@ -2092,6 +2101,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             setTraceOrigin,
             setTraceDest,
             setLegAnchor,
+            readTrackRoute,
+            clearReturnContext,
+            setDraftSource,
+            setTraceFrameKind,
         ],
     );
     // Historical planned-route mirror → editable tracer. Unlike sailed-voyage
@@ -2136,7 +2149,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Route Tracer validation ──
     // Context build + per-leg grading + sub-keel tide windows, all in
     // components/map/useTracerGrading.ts. Touches no map layer or marker.
-    const { regradeStubLegs } = useTracerGrading({
+    const { regradeStubLegs, retireChecks } = useTracerGrading({
         capturedCoords,
         coordCaptureMode,
         vessel: settings.vessel,
@@ -2156,6 +2169,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setShareArmed,
         setTracerChartsWait,
     });
+    retireTrackChecksRef.current = retireChecks;
     // Grade stubs (127-C-b) are checked again on her charts when she opens the
     // Route report; her tap on a stub row and a refused Save do the same.
     useEffect(() => {

@@ -17,6 +17,7 @@ const plannerMocks = vi.hoisted(() => ({
     setPage: vi.fn(),
     requestTracerOpen: vi.fn(),
     consumeSavedRoutesLibraryOpen: vi.fn(),
+    consumeTrackRouteLibraryOpen: vi.fn(),
     loadSavedRouteLibrary: vi.fn(),
     deleteLogbookRouteFromLibrary: vi.fn(),
     deleteTrace: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock('../context/UIContext', () => ({
 vi.mock('../services/deepLink', () => ({
     requestTracerOpen: plannerMocks.requestTracerOpen,
     consumeSavedRoutesLibraryOpen: plannerMocks.consumeSavedRoutesLibraryOpen,
+    consumeTrackRouteLibraryOpen: plannerMocks.consumeTrackRouteLibraryOpen,
     initialViewFromUrl: () => null,
     isBuilderDeepLink: () => false,
 }));
@@ -186,6 +188,7 @@ describe('RoutePlanner', () => {
         plannerMocks.mergedRoutes = [];
         plannerMocks.savedTraces = [];
         plannerMocks.consumeSavedRoutesLibraryOpen.mockReturnValue(false);
+        plannerMocks.consumeTrackRouteLibraryOpen.mockReturnValue(false);
         plannerMocks.deleteLogbookRouteFromLibrary.mockResolvedValue(true);
         plannerMocks.deleteTrace.mockReturnValue(true);
         plannerMocks.fetchSeaVoyageChoices.mockResolvedValue([]);
@@ -486,6 +489,14 @@ describe('RoutePlanner', () => {
         );
         expect(plannerMocks.setPage).toHaveBeenCalledExactlyOnceWith('map');
         expect(screen.queryByRole('dialog', { name: 'Routing mode choice' })).not.toBeInTheDocument();
+    });
+
+    it('Log’s one-shot action opens the existing Past voyages picker without starting navigation', async () => {
+        plannerMocks.consumeTrackRouteLibraryOpen.mockReturnValueOnce(true);
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        expect(await screen.findByRole('dialog', { name: 'Past voyages' })).toBeVisible();
+        expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
+        expect(plannerMocks.setPage).not.toHaveBeenCalled();
     });
 
     it('exposes the short-landscape layout hooks that keep the CTA out of the departure controls', () => {

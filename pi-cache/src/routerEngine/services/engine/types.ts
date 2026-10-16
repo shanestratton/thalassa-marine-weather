@@ -201,6 +201,8 @@ export interface SurveyUncheckedCell {
 }
 
 export interface RouteRequest {
+    /** Private own tracks / APPROVED lanes: optional cost hints only, never water or depth evidence. */
+    trackPriors?: readonly import('./trackPriors.js').TrackRoutingPrior[];
     fromLat: number;
     fromLon: number;
     toLat: number;
@@ -1128,6 +1130,9 @@ export interface RouteFailure {
 // Exported for services/seaway/connector.ts (Phase 11) — the connector
 // runs on the SAME grid + cost function as the engine, by construction.
 export interface NavGrid {
+    /** Ephemeral per-request cost hint; never written into cached chart grids. */
+    trackPrior?: Uint8Array;
+    trackPriorRequiredM?: number;
     width: number;
     height: number;
     /** Geographic origin: bbox SW corner. */

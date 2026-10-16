@@ -52,6 +52,7 @@ export default defineConfig({
         'sail-inventory138.spec.ts',
         'route-replan138.spec.ts',
         'tracer-constraints138.spec.ts',
+        'track-route139-layout.spec.ts',
         'along-route138.spec.ts',
         'boat-network-layout.spec.ts',
         // The NMEA Gateway page and the System status box say where this phone

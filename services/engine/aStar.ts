@@ -6,6 +6,7 @@ import { M_PER_DEG_LAT } from './constants';
 import type { NavGrid } from './types';
 import { mPerDegLon, bresenhamCells, isNavigable } from './geometry';
 import { euclideanDistanceTransform } from '../marinaCenterline';
+import { TRACK_PRIOR_MIN_FACTOR, trackPriorFactor } from './trackPriors';
 
 // ── Min-heap for A* open set ────────────────────────────────────────
 
@@ -514,7 +515,7 @@ export function aStar(
     const heuristic = (x: number, y: number): number => {
         const dx = (end.x - x) * grid.dLon * mPerLonGrid;
         const dy = (end.y - y) * grid.dLat * M_PER_DEG_LAT;
-        return Math.sqrt(dx * dx + dy * dy);
+        return Math.sqrt(dx * dx + dy * dy) * (grid.trackPrior ? TRACK_PRIOR_MIN_FACTOR : 1);
     };
 
     const open = new MinHeap();
@@ -599,7 +600,8 @@ export function aStar(
                         cellNtmRise,
                         grid.assistCostMul ?? 10.0,
                     ) *
-                    centreFactor[nIdx] +
+                    centreFactor[nIdx] *
+                    trackPriorFactor(grid, nIdx) +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
@@ -632,7 +634,9 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
             assist,
             ntmRise,
             grid.assistCostMul ?? 10.0,
-        ) * centre
+        ) *
+        centre *
+        trackPriorFactor(grid, idx)
     );
 }
 
