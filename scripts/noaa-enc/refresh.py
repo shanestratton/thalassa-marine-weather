@@ -24,8 +24,7 @@ def run(root,image,cli_sha,agreement,execute=False,publish_live=False):
         target=root/'catalogues'/(hashlib.sha256(raw).hexdigest()+'.xml')
         stage.immutable(root,str(target.relative_to(root)),raw)
         current=json.loads((root/'objects.json').read_text()) if (root/'objects.json').exists() else {}
-        changed=[row['id'] for row in parsed['cells'] if row['id'] not in current or
-            (current[row['id']]['edition'],current[row['id']]['update'],current[row['id']].get('converterSha256'))!=(row['edition'],row['update'],cli_sha)]
+        changed=[row['id'] for row in parsed['cells'] if not stage.conversion_current(current.get(row['id']),row,cli_sha,image)]
         # A changed publication still runs when no cell revision changed: its
         # checkedAt proves the weekly official catalogue check actually occurred.
         selected=changed[:stage.MAX_CELLS_CYCLE] or [parsed['cells'][0]['id']]

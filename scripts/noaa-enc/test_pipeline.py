@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -58,6 +59,52 @@ class Pipeline(unittest.TestCase):
                     else: z.writestr('US5CA1LK.000','base'); z.writestr('US5CA1LK.001','first'); z.writestr('US5CA1LK.003','missingupdate2')
                 with self.assertRaises(ValueError): stage.unpack(archive,root/'sources','US5CA1LK')
                 self.assertFalse((root.parent/'outside').exists())
+    def test_same_zip_converter_and_image_upgrades_preserve_original_receipt_and_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); source_url='https://www.charts.noaa.gov/ENCs/US5CA1LK.zip'
+            buffer=io.BytesIO()
+            with zipfile.ZipFile(buffer,'w') as zipped: zipped.writestr('US5CA1LK.000',b'public synthetic S57 input')
+            archive=buffer.getvalue(); sha=hashlib.sha256(archive).hexdigest()
+            metadata=xml(record(revision='1.0')).replace(b'>0.01<',('>'+str(len(archive)/1024**2)+'<').encode())
+            catalogue_path=root/'catalogue.xml'; catalogue_path.write_bytes(metadata)
+            source=root/'sources'/sha; source.mkdir(parents=True); (source/'US5CA1LK.000').write_bytes(b'public synthetic S57 input')
+            original={'edition':1,'update':0,'zip':stage.immutable(root,'objects/'+sha+'.zip',archive),
+                'chart':stage.immutable(root,'objects/'+hashlib.sha256(b'old chart').hexdigest()+'.json',b'old chart'),
+                'sourceDirectory':str(source),'sourceUrl':source_url,'converterSha256':'a'*64,'imageId':'sha256:'+'1'*64}
+            receipt=root/'receipts'/(sha+'.json'); stage.immutable(root,str(receipt.relative_to(root)),c.json_bytes(original))
+            original_bytes=receipt.read_bytes(); (root/'objects.json').write_bytes(c.json_bytes({'US5CA1LK':original}))
+            conversions=[]; cli='b'*64; agreement=b'synthetic government agreement'
+            def fetch(url,cap):
+                body=agreement if url==c.AGREEMENT_URL else archive
+                self.assertIn(url,[c.AGREEMENT_URL,source_url]); self.assertLessEqual(len(body),cap)
+                return body
+            def docker(command,**kwargs):
+                if '--entrypoint' in command: return SimpleNamespace(stdout=cli+'\n')
+                mount=next(arg for arg in command if arg.startswith('type=bind,src=') and arg.endswith('dst=/output'))
+                work=Path(mount.split('src=',1)[1].split(',dst=',1)[0]); conversions.append(command)
+                body=c.json_bytes({'cellId':'US5CA1LK','sourceHO':'US','edition':1,'updateNumber':0,'issued':'2026-04-22','syntheticConversion':len(conversions)})
+                (work/'cell.json').write_bytes(body)
+                return SimpleNamespace(stdout=json.dumps({'sha256':hashlib.sha256(body).hexdigest()}))
+            with patch.object(stage,'fetch',side_effect=fetch), patch.object(stage.subprocess,'run',side_effect=docker), \
+                 patch.object(stage,'AGREEMENT_HTML_SHA',hashlib.sha256(agreement).hexdigest()), \
+                 patch.object(stage.shutil,'disk_usage',return_value=SimpleNamespace(free=100*1024**3)), \
+                 patch.object(stage.os,'getuid',return_value=1000,create=True), patch.object(stage.os,'getgid',return_value=1000,create=True):
+                stage.prepare(root,catalogue_path,['US5CA1LK'],True,image=original['imageId'],cli_sha=cli)
+                first=json.loads((root/'objects.json').read_bytes())['US5CA1LK']
+                stage.prepare(root,catalogue_path,['US5CA1LK'],True,image='sha256:'+'2'*64,cli_sha=cli)
+                second=json.loads((root/'objects.json').read_bytes())['US5CA1LK']
+                stage.prepare(root,catalogue_path,['US5CA1LK'],True,image='sha256:'+'2'*64,cli_sha=cli)
+            self.assertEqual(len(conversions),2)  # Current identical runtime is reused.
+            self.assertNotEqual(first['conversionReceipt']['key'],second['conversionReceipt']['key'])
+            for converted in (first,second):
+                self.assertEqual(converted['sourceReceipt'],str(receipt.relative_to(root)).replace('\\','/'))
+                self.assertTrue((root/converted['conversionReceipt']['key']).is_file())
+            self.assertEqual(receipt.read_bytes(),original_bytes)
+            self.assertEqual((root/original['zip']['key']).read_bytes(),archive)
+            self.assertEqual((root/original['chart']['key']).read_bytes(),b'old chart')
+            self.assertEqual((source/'US5CA1LK.000').read_bytes(),b'public synthetic S57 input')
+            changed={**second,'sourceUrl':'https://outside.invalid/changed'}
+            with self.assertRaisesRegex(ValueError,'acquisition identity'): stage.retain_conversion(root,changed)
     def staged(self,root):
         parsed=c.parse_catalogue(xml(record()))
         objects={'US5CA1LK':{'edition':1,'update':10,
@@ -90,6 +137,19 @@ class Pipeline(unittest.TestCase):
                 store.fail_key=None; store.data[rootkey]=b'{"generation":"competing","sourceAt":"2026-01-01T00:00:00Z"}'
                 with self.assertRaises(ValueError): publish.apply(store,plan,root,generation,agreement)
                 self.assertNotIn(rootkey,store.puts)
+    def test_root_readback_failure_after_cas_reports_failure_without_claiming_rollback(self):
+        class ReadbackFailure(Store):
+            def get(self,key,cap):
+                if key==publish.PREFIX+'index.json' and key in self.puts: raise ValueError('simulated final read failure')
+                return super().get(key,cap)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            with patch.object(c,'AGREEMENT_SHA',hashlib.sha256(b'test government terms\n').hexdigest()):
+                generation,agreement,index=self.staged(root); store=ReadbackFailure()
+                plan=publish.prepare(store,root,generation,agreement)
+                with self.assertRaisesRegex(ValueError,'final read failure'): publish.apply(store,plan,root,generation,agreement)
+                self.assertEqual(json.loads(store.data[publish.PREFIX+'index.json'])['generation'],index['generation'])
+                self.assertTrue(all(row['key'] in store.data for row in plan['uploads']))
     def test_unknown_prefix_changed_local_object_and_remote_budget_fail_before_publish(self):
         self.assertFalse(publish.owned('marine-catalogue/v1/noaa/index.json'))
         self.assertFalse(publish.owned('noaa-enc/v1/objects/../../secret'))

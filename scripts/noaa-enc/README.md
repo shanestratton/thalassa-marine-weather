@@ -17,7 +17,10 @@ instructions, not a claim that publication has occurred.
 3. `publish.py` defaults to a read-only R2 plan. It checks local hashes and remote
    inventory, uploads immutable objects, verifies every object by reading it
    back, then conditionally replaces `noaa-enc/v1/index.json` using the captured
-   ETag. A failure or competing writer leaves the previous root intact.
+   ETag. Any failure before that final conditional update, or a competing writer,
+   leaves the previous root intact. If the root update succeeds but its final
+   readback fails, the new root may already be live: report failure and inspect
+   the current root before preparing another exact plan or rollback.
 4. `refresh.py` is the optional reviewed weekly policy. It fetches current
    metadata and stages at most256 new/changed cells per invocation, then publishes
    only with explicit `--run --publish`. The supplied timer is **not enabled**.
@@ -36,6 +39,16 @@ may consume only the verified active source directory recorded in
 `receipts/<zip-sha>.json` (`sourceDirectory`, source URL, edition/update), never a
 second unfiltered All_ENCs download. The active proof source is
 `/srv/weather/thalassa-noaa/proofs/us5ca1lk-1u1/input`; US5CA16M is cancelled.
+
+Conversion upgrades preserve that original acquisition receipt byte-for-byte,
+including older receipts that also contain conversion fields. A separate
+`conversions/<zip-sha>/<conversion-identity>.json` records each conversion; its
+identity hashes the original ZIP, converter bundle SHA and exact image ID.
+`objects.json` references the selected immutable conversion receipt. Changing
+either converter or image reprocesses the retained original in a separate
+bounded work directory; unchanged runtime identities reuse the verified output.
+New output hashes or generation metadata require a fresh exact publication
+plan. Existing pilot objects and generations are never rewritten by this change.
 
 ## Runtime and credentials
 

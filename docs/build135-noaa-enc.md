@@ -98,7 +98,7 @@ worldwide ENC coverage, LINZ ENC or paid charts.
 
 ## Validation
 
-67 focused app/consent/source/SW tests pass, as do 8 publisher/archive tests and
+67 focused app/consent/source/SW tests pass, as do 10 publisher/archive tests and
 13 Pi layer/datum/isolation tests. Pi full TypeScript passes; the shared app
 compiler passed after integration. Four actual Chrome/WebKit phone tests at 300
 and 375 pixels accepted the terms, fetched only fixed static paths, preserved the
@@ -106,3 +106,11 @@ exact real ZIP, imported through the real store, merged the cell, mounted the
 normal map renderer and read actual rendered features/framebuffer pixels.
 Screenshots were inspected. These are browser/native-boundary proofs, not a
 claim of a physical iPhone or live R2 deployment.
+
+The publisher regressions exercise a real temporary staging directory with the
+same synthetic original ZIP across both converter and image upgrades. Original
+ZIP, expanded source and acquisition receipt remain unchanged; each runtime gets
+an immutable conversion receipt and an unchanged runtime reuses its output.
+A separate failure test proves that the root may already be updated if its final
+readback fails after CAS; the operator must inspect the live root before retrying
+or preparing rollback. No live R2 request is part of these tests.

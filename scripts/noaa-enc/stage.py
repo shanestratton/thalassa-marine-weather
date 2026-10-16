@@ -49,6 +49,28 @@ def immutable(root,key,body):
         with target.open('xb') as stream: stream.write(body)
     return {'key':key,'bytes':len(body),'sha256':digest(body)}
 
+def conversion_identity(zip_sha,cli_sha,image):
+    # GDAL/image changes can alter the output even when the bundled CLI is unchanged.
+    return digest(catalogue.json_bytes({'sourceSha256':zip_sha,'converterSha256':cli_sha,'imageId':image}))
+
+def conversion_current(record,row,cli_sha,image):
+    return bool(record) and (record.get('edition'),record.get('update'),record.get('converterSha256'),record.get('imageId'))==(row['edition'],row['update'],cli_sha,image)
+
+def retain_conversion(root,record):
+    """Keep legacy acquisition receipts byte-for-byte; version conversion receipts."""
+    source_key='receipts/'+record['zip']['sha256']+'.json'
+    source_path=root/source_key
+    source={key:record[key] for key in ('edition','update','zip','sourceDirectory','sourceUrl')}
+    if source_path.exists():
+        if source_path.is_symlink() or source_path.stat().st_size>65536: raise ValueError('Invalid retained acquisition receipt')
+        original=json.loads(source_path.read_bytes())
+        if any(original.get(key)!=value for key,value in source.items()): raise ValueError('Retained acquisition identity changed')
+    else: immutable(root,source_key,catalogue.json_bytes(source))
+    converted={**record,'sourceReceipt':source_key}
+    identity=conversion_identity(record['zip']['sha256'],record['converterSha256'],record['imageId'])
+    receipt=immutable(root,'conversions/'+record['zip']['sha256']+'/'+identity+'.json',catalogue.json_bytes(converted))
+    return {**converted,'conversionReceipt':receipt}
+
 def ensure_capacity(root,additional):
     paths=list(Path(root).rglob('*'))
     if len(paths)>200000 or any(p.is_symlink() for p in paths): raise ValueError('Unexpected NOAA staging inventory')
@@ -121,7 +143,7 @@ def prepare(root,catalogue_path,cells,acquire=False,refresh=False,image=None,cli
     total_raw=total_output=0
     for cell in wanted:
         row=by_id[cell]; old=objects.get(cell)
-        if old and (old['edition'],old['update'],old.get('converterSha256'))==(row['edition'],row['update'],cli_sha): continue
+        if conversion_current(old,row,cli_sha,image): continue
         ensure_capacity(root,min(MAX_ARCHIVE,row['expectedZipBytes'])+32*1024**2)
         body=fetch(row['sourceUrl'],min(MAX_ARCHIVE,MAX_RAW_CYCLE-total_raw))
         total_raw+=len(body)
@@ -136,7 +158,8 @@ def prepare(root,catalogue_path,cells,acquire=False,refresh=False,image=None,cli
                 for member in zipped.infolist():
                     if not member.is_dir() and (source_dir/member.filename).read_bytes()!=zipped.read(member): raise ValueError('Retained original source changed')
         else: base,_=unpack(root/zip_record['key'],source_dir,cell,root)
-        work=root/'conversion-work'/f'{cell}-{sha[:16]}'
+        conversion_id=conversion_identity(sha,cli_sha,image)
+        work=root/'conversion-work'/f'{cell}-{sha[:16]}-{conversion_id[:16]}'
         work.mkdir(parents=True,exist_ok=False)
         command=['docker','run','--rm','--network','none','--read-only','--memory','768m','--cpus','1','--pids-limit','128','--cap-drop','ALL',
             '--security-opt','no-new-privileges','--user',f'{os.getuid()}:{os.getgid()}','--tmpfs','/tmp:rw,noexec,nosuid,nodev,size=128m','--workdir','/tmp',
@@ -150,7 +173,7 @@ def prepare(root,catalogue_path,cells,acquire=False,refresh=False,image=None,cli
         if total_output>MAX_OUTPUT_CYCLE: raise ValueError('Converted cycle cap exceeded')
         record={'edition':row['edition'],'update':row['update'],'zip':zip_record,'chart':immutable(root,'objects/'+digest(data)+'.json',data),
             'sourceDirectory':str(source_dir),'sourceUrl':row['sourceUrl'],'converterSha256':cli_sha,'imageId':image}
-        immutable(root,'receipts/'+sha+'.json',catalogue.json_bytes(record))
+        record=retain_conversion(root,record)
         objects[cell]=record
         temporary=root/'objects.json.next'; temporary.write_bytes(catalogue.json_bytes(objects)); temporary.replace(receipt_path)
         (work/'cell.json').unlink(); work.rmdir()  # Only this verified temporary output, never original sources.
