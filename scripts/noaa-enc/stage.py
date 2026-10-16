@@ -56,6 +56,15 @@ def conversion_identity(zip_sha,cli_sha,image):
 def conversion_current(record,row,cli_sha,image):
     return bool(record) and (record.get('edition'),record.get('update'),record.get('converterSha256'),record.get('imageId'))==(row['edition'],row['update'],cli_sha,image)
 
+def conversion_error_excerpt(error):
+    # This NOAA-only subprocess handles fixed public archives, never user charts
+    # or environment values. Retain a bounded useful diagnostic, not its command.
+    def text(value,cap):
+        if isinstance(value,bytes): value=value[:cap].decode('utf-8',errors='replace')
+        if not isinstance(value,str): return ''
+        return ''.join(char if char.isprintable() or char in '\n\t' else '?' for char in value[:cap])
+    return (text(error.stderr,3072)+'\n'+text(error.stdout,1024)).strip()
+
 def retain_conversion(root,record):
     """Keep legacy acquisition receipts byte-for-byte; version conversion receipts."""
     source_key='receipts/'+record['zip']['sha256']+'.json'
@@ -165,7 +174,9 @@ def prepare(root,catalogue_path,cells,acquire=False,refresh=False,image=None,cli
             '--security-opt','no-new-privileges','--user',f'{os.getuid()}:{os.getgid()}','--tmpfs','/tmp:rw,noexec,nosuid,nodev,size=128m','--workdir','/tmp',
             '--mount',f'type=bind,src={source_dir},dst=/input,readonly','--mount',f'type=bind,src={work},dst=/output',image,
             '/input/'+base.relative_to(source_dir).as_posix(),'/output/cell.json',str(row['edition']),str(row['update'])]
-        done=subprocess.run(command,check=True,capture_output=True,text=True,timeout=600)
+        try: done=subprocess.run(command,check=True,capture_output=True,text=True,timeout=600)
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f'NOAA conversion failed for {cell} (exit {error.returncode}): {conversion_error_excerpt(error)}') from None
         converted=json.loads(done.stdout); data=(work/'cell.json').read_bytes(); chart=json.loads(data)
         if (chart['cellId'],chart['sourceHO'],chart['edition'],chart['updateNumber'],chart['issued'])!=(cell,'US',row['edition'],row['update'],row['issued']): raise ValueError('Effective DSID and official catalogue differ')
         if converted['sha256']!=digest(data) or len(data)>16*1024**2: raise ValueError('Converted object identity/cap failed')

@@ -117,6 +117,16 @@ class Pipeline(unittest.TestCase):
                 stage.prepare(root,catalogue_path,['US5CA1LK'],True,image='sha256:'+'2'*64,cli_sha=cli)
                 second=json.loads((root/'objects.json').read_bytes())['US5CA1LK']
                 stage.prepare(root,catalogue_path,['US5CA1LK'],True,image='sha256:'+'2'*64,cli_sha=cli)
+                def failing_docker(command,**kwargs):
+                    if '--entrypoint' in command: return SimpleNamespace(stdout='c'*64+'\n')
+                    raise stage.subprocess.CalledProcessError(1,command,output='public stdout '+('x'*4000),stderr='ogrinfo exit null\x1b\n'+('e'*6000)+'unbounded tail')
+                with patch.object(stage.subprocess,'run',side_effect=failing_docker):
+                    with self.assertRaisesRegex(ValueError,'NOAA conversion failed for US5CA1LK') as failed:
+                        stage.prepare(root,catalogue_path,['US5CA1LK'],True,image='sha256:'+'2'*64,cli_sha='c'*64)
+                self.assertIn('ogrinfo exit null?',str(failed.exception))
+                self.assertNotIn('unbounded tail',str(failed.exception))
+                self.assertLessEqual(len(str(failed.exception)),4200)
+                self.assertEqual(json.loads((root/'objects.json').read_bytes())['US5CA1LK'],second)
             self.assertEqual(len(conversions),2)  # Current identical runtime is reused.
             self.assertNotEqual(first['conversionReceipt']['key'],second['conversionReceipt']['key'])
             for converted in (first,second):
