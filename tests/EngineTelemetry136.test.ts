@@ -58,8 +58,9 @@ describe('engine telemetry sensor-clock contract', () => {
         const id = 'e'.repeat(64);
         const large = { ...doc, propulsion: { [id]: doc.propulsion.main } };
         const body = buildTelemetryBody(readTelemetrySnapshot(large, () => T)!, 'fictional');
-        expect(body.extra?.engine_metrics_v1).toBeUndefined();
-        expect(String(body.extra?.instrument_rpm_source_v1).length).toBeLessThanOrEqual(120);
+        const extra = body.extra as Record<string, unknown>;
+        expect(extra.engine_metrics_v1).toBeUndefined();
+        expect(String(extra.instrument_rpm_source_v1).length).toBeLessThanOrEqual(120);
         const snap = snapshotFromWire(body, 'lan')!.snapshot;
         expect(snap.rpmEngineId).toBe(id);
         expect(snap.rpmVesselKey).toMatch(/^[a-f0-9]{24}$/);
@@ -85,7 +86,7 @@ describe('engine telemetry sensor-clock contract', () => {
             readTelemetrySnapshot({ uuid: 'urn:fictional:one', ...document() }, () => T)!,
             'fictional',
         );
-        body.extra!.instrument_rpm_source_v1 = JSON.stringify([1, 'main', 'b'.repeat(24)]);
+        (body.extra as Record<string, unknown>).instrument_rpm_source_v1 = JSON.stringify([1, 'main', 'b'.repeat(24)]);
         const snap = snapshotFromWire(body, 'lan')!.snapshot;
         expect(snap.rpmVesselKey).toBeUndefined();
         expect(snap.rpmEngineId).toBeUndefined();
