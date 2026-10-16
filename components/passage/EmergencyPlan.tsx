@@ -33,7 +33,7 @@ const EMERGENCY_CONTACTS_DB: Record<string, EmergencyContact[]> = {
             // (mrq.qld.gov.au). The old 07 3635 3600 stood here until Shane
             // caught it on 2026-09-05 — an emergency list is exactly where a
             // superseded number does the most harm.
-            service: 'Marine Rescue Queensland (131 MRQ)',
+            service: 'Marine Rescue Queensland (assistance; emergency 000)',
             frequency: '156.8 MHz (VHF-16)',
             phone: '131 677',
             region: 'QLD',
@@ -46,8 +46,18 @@ const EMERGENCY_CONTACTS_DB: Record<string, EmergencyContact[]> = {
         { service: 'NZ Police', frequency: '', phone: '111', region: 'NZ' },
     ],
     'United States': [
-        { service: 'US Coast Guard', frequency: '156.8 MHz (VHF-16)', phone: '1-800-221-8724', region: 'USA' },
-        { service: 'Marine Rescue Coordination', frequency: '156.8 MHz (VHF-16)', phone: '911', region: 'USA' },
+        {
+            service: 'US Coast Guard (911 within US; abroad use official RCC directory)',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: '911',
+            region: 'USA',
+        },
+        {
+            service: 'Local emergency operator (within US; ask for Coast Guard)',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: '911',
+            region: 'USA',
+        },
     ],
     'United Kingdom': [
         { service: 'HM Coastguard', frequency: '156.8 MHz (VHF-16)', phone: '999 / 112', region: 'UK' },

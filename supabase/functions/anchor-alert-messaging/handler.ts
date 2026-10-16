@@ -55,11 +55,15 @@ export function createShoreHandler(env: Environment, overrides?: ShoreDependenci
             }
             if (body.action === 'confirm' || body.action === 'revoke') {
                 if (
-                    !exact(body, ['action', 'nonce', 'accepted']) || body.accepted !== true || !shoreNonce(body.nonce)
+                    !(exact(body, ['action', 'nonce', 'accepted']) ||
+                        exact(body, ['action', 'nonce', 'accepted', 'policyVersion'])) ||
+                    (body.policyVersion !== undefined && body.policyVersion !== 2) || body.accepted !== true ||
+                    !shoreNonce(body.nonce)
                 ) return jsonResponse({ error: 'Explicit recipient consent required' }, 400, cors);
                 const ok = await deps.rpc('shore_consent', {
                     p_hash: await nonceHash(body.nonce),
                     p_action: body.action,
+                    p_policy_version: body.policyVersion === 2 ? 2 : 1,
                 });
                 return jsonResponse({ accepted: ok === true }, ok === true ? 200 : 409, cors);
             }
@@ -77,10 +81,12 @@ export function createShoreHandler(env: Environment, overrides?: ShoreDependenci
                     p_revision: body.revision,
                     p_confirm_hash: await nonceHash(nonce),
                     p_revoke_hash: await nonceHash(revoke),
+                    p_policy_version: 2,
                 });
                 if (
                     !shoreRecord(row) || !['email', 'telegram'].includes(String(row.channel)) ||
-                    typeof row.sharePosition !== 'boolean' || !shoreUuid(row.invitationId)
+                    typeof row.sharePosition !== 'boolean' || typeof row.allowOverdue !== 'boolean' ||
+                    !shoreUuid(row.invitationId)
                 ) throw new Error('Invalid invitation');
                 if (row.channel === 'telegram') {
                     const bot = env.get('TELEGRAM_BOT_USERNAME');
@@ -94,14 +100,17 @@ export function createShoreHandler(env: Environment, overrides?: ShoreDependenci
                     );
                 }
                 if (!shoreEmail(row.address)) throw new Error('Recipient unavailable');
-                const text =
-                    `A Thalassa vessel owner invited you to receive personal anchor-watch notices. These messages are not monitored rescue coverage. ${
-                        row.sharePosition
-                            ? 'The owner also requests permission to share this vessel’s fresh registered position with you.'
-                            : 'Position sharing is off.'
-                    }\nReview and explicitly confirm: ${consentUrl('confirm', nonce)}\nStop/revoke: ${
-                        consentUrl('revoke', revoke)
-                    }\nThe confirmation expires in 24 hours. Ignore this email to decline.`;
+                const text = `A Thalassa vessel owner invited you to receive personal anchor-watch notices${
+                    row.allowOverdue
+                        ? ' and float-plan overdue notices (only after an owner notification attempt and ten-minute grace)'
+                        : '; overdue notices are not authorized'
+                }. These messages are not monitored rescue coverage. ${
+                    row.sharePosition
+                        ? 'The owner also requests permission to share this vessel’s fresh registered position with you.'
+                        : 'Position sharing is off.'
+                }\nReview and explicitly confirm: ${consentUrl('confirm', nonce)}\nStop/revoke: ${
+                    consentUrl('revoke', revoke)
+                }\nThe confirmation expires in 24 hours. Ignore this email to decline.`;
                 // No raw token, address or provider response is returned to the owner.
                 const accepted = await deps.email(row.address, text, `shore-${row.invitationId}-invite`, revoke);
                 return jsonResponse({ invitationAccepted: accepted }, accepted ? 200 : 503, cors);

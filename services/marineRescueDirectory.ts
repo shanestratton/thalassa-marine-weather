@@ -1,36 +1,10 @@
-/**
- * Which rescue number to suggest for a float plan, from where the boat is.
- *
- * Shane, 2026-09-05: "can we auto fill the Raise the Alarm section of the Float
- * Plan claude with the closest marine rescue phone number."
- *
- * WHAT THIS DELIBERATELY IS NOT. It is not a directory of local squadrons. A
- * float plan's overdue number is the one thing on the page that gets dialled
- * in an emergency, and an invented or mistyped number there is worse than a
- * blank field — the blank field makes someone look it up. So every entry
- * carries a `source`, and nothing goes in without one.
- *
- * The Australian state numbers were supplied by Shane with citations on
- * 2026-09-05, which also CORRECTED one this file had wrong: VMR Queensland and
- * the Australian Volunteer Coast Guard have merged into Marine Rescue
- * Queensland, hotline 131 677. The 07 3635 3600 inherited from
- * EmergencyPlan.tsx is superseded, and has been fixed there too — an emergency
- * list is exactly where a stale number does the most harm.
- *
- * It is also the CORRECT call for an overdue vessel. In Australia that is the
- * state marine rescue coordination centre or the JRCC, not the nearest
- * volunteer squadron's clubhouse line — a squadron may be unattended, while a
- * coordination centre is staffed and can task whoever is closest. So
- * "closest" here means the nearest coordinating authority, which is the number
- * a shore contact should actually ring.
- *
- * THE BOXES ARE ROUTING, NOT JURISDICTION. They pick the most relevant
- * published number for a position; they do not describe who is legally
- * responsible for a search, and they must never be presented as though they
- * do. Where boxes overlap, `rank` decides: a state service beats the national
- * one inside its own waters, and the national one covers everything else.
- *
- * The suggestion is always editable and never overwrites what a skipper typed.
+/** Manual rescue-contact suggestions, never automatic rescue messaging.
+ * Approximate rectangles are a prompt to review an operator's published details,
+ * not SAR jurisdiction. Older entries retain their inherited source citation;
+ * that citation alone is not a new verification of every number.
+ * The overdue watch uses only the separately reviewed region advice below.
+ * Current primary sources distinguish MRQ assistance from000/VHF16 emergencies,
+ * and USCG911/regional RCC contact from an old regional Captain-of-the-Port number.
  */
 
 export interface MarineRescueService {
@@ -45,26 +19,27 @@ export interface MarineRescueService {
     box: [number, number, number, number];
     /** Higher wins where boxes overlap. State > national > international. */
     rank: number;
-    /** Where this number was verified. Required — see the note above. */
+    /** Source provenance; inherited entries are not newly verified. */
     source: string;
+    purpose?: 'assistance' | 'emergency-local' | 'search-and-rescue';
+    dialingContext?: string;
 }
 
 /**
- * Ordered loosely by region for reading, not by precedence — precedence is
- * `rank`. Adding an entry means adding a number that will be dialled by
- * someone who is worried: confirm it against the operator's own published
- * contact page and put that page in `source`. A test refuses an entry without
- * one.
+ * Ordered by region. New corrections require the operator's primary source
+ * and an explicit purpose/dialling context; inherited citations remain visible.
  */
 export const MARINE_RESCUE_SERVICES: readonly MarineRescueService[] = [
     {
         service: 'Marine Rescue Queensland',
         phone: '131 677',
         vhf: 'VHF 16',
-        coverage: 'Queensland coastal waters · 131 MRQ',
+        coverage: 'Queensland assistance · emergencies: 000 or VHF 16',
         box: [-29.2, 137.9, -9.0, 154.5],
         rank: 20,
-        source: 'mrq.qld.gov.au — supplied by Shane 2026-09-05',
+        source: 'https://www.mrq.qld.gov.au/contact-us',
+        purpose: 'assistance',
+        dialingContext: '131 677 is assistance in Australia. Emergency: 000 or VHF 16.',
     },
     {
         service: 'Marine Rescue NSW',
@@ -100,7 +75,9 @@ export const MARINE_RESCUE_SERVICES: readonly MarineRescueService[] = [
         coverage: 'Australian search and rescue region, including offshore',
         box: [-50.0, 100.0, -5.0, 165.0],
         rank: 10,
-        source: 'components/passage/EmergencyPlan.tsx (in-app since before 2026-09)',
+        source: 'https://www.amsa.gov.au/about/contact-us',
+        purpose: 'search-and-rescue',
+        dialingContext: '1800 641 792 within Australia; +61 2 6230 6811 from abroad.',
     },
     {
         service: 'Maritime NZ RCCNZ',
@@ -113,12 +90,15 @@ export const MARINE_RESCUE_SERVICES: readonly MarineRescueService[] = [
     },
     {
         service: 'US Coast Guard',
-        phone: '1-800-221-8724',
+        phone: '911 (within United States)',
         vhf: 'VHF 16',
         coverage: 'United States waters',
         box: [18.0, -130.0, 50.0, -64.0],
         rank: 10,
-        source: 'components/passage/EmergencyPlan.tsx (in-app since before 2026-09)',
+        source: 'https://www.dco.uscg.mil/Our-Organization/Assistant-Commandant-for-Response-Policy-CG-5R/Office-of-Incident-Management-Preparedness-CG-5RI/US-Coast-Guard-Office-of-Search-and-Rescue-CG-SAR/Contact-USCG-SAR/',
+        purpose: 'emergency-local',
+        dialingContext:
+            '911 routes by caller location within the US. From abroad use the official regional RCC directory. At sea use VHF 16. Emergency email is not monitored.',
     },
     {
         service: 'HM Coastguard',
@@ -195,5 +175,50 @@ export function suggestMarineRescue(lat: number, lon: number): MarineRescueSugge
     }
     if (!best) return null;
 
-    return { service: best, text: `${best.service} · ${best.phone}` };
+    return {
+        service: best,
+        text: `${best.service} · ${best.phone}${best.dialingContext ? ` · ${best.dialingContext}` : ''}`,
+    };
+}
+/** Owner-reviewed region, not a claim about legal SAR jurisdiction or current boat location. */
+export const REVIEWED_RESCUE_ADVICE = {
+    au: {
+        label: 'Australia — AMSA JRCC',
+        purpose: 'search-and-rescue',
+        text: 'Concern about a vessel in the Australian search-and-rescue region: AMSA maritime SAR, 1800 641 792 within Australia; +61 2 6230 6811 from abroad.',
+        source: 'https://www.amsa.gov.au/about/contact-us',
+    },
+    nz: {
+        label: 'New Zealand — RCCNZ',
+        purpose: 'search-and-rescue',
+        text: 'RCCNZ: 0508 472 269 within New Zealand; +64 4 577 8030 from abroad.',
+        source: 'https://www.maritimenz.govt.nz/readiness-and-response/maritime-incident-readiness-and-response-mirr/rescue-coordination-centre-rccnz/',
+    },
+    us: {
+        label: 'United States — local emergency/RCC',
+        purpose: 'emergency-local',
+        text: 'Within the United States call 911; at sea use VHF 16. From abroad choose the relevant regional RCC on the official USCG contact page. 911 routes by caller location; it is not an international maritime number. Do not email a SAR emergency.',
+        source: 'https://www.dco.uscg.mil/Our-Organization/Assistant-Commandant-for-Response-Policy-CG-5R/Office-of-Incident-Management-Preparedness-CG-5RI/US-Coast-Guard-Office-of-Search-and-Rescue-CG-SAR/Contact-USCG-SAR/',
+    },
+    uk: {
+        label: 'United Kingdom — Coastguard',
+        purpose: 'emergency-local',
+        text: 'Within the United Kingdom call 999 or 112 and ask for Coastguard; at sea use VHF 16. These numbers route by caller location and are not overseas direct lines.',
+        source: 'https://www.gov.uk/guidance/999-and-112-the-uks-national-emergency-numbers',
+    },
+    fr: {
+        label: 'France — CROSS',
+        purpose: 'emergency-local',
+        text: 'In France call 196 for CROSS; at sea use VHF 16. The short number is not an overseas direct line.',
+        source: 'https://www.mer.gouv.fr/surveillance-et-sauvetage-en-mer',
+    },
+} as const;
+export function reviewedRescueWords(region: string | null): string {
+    const row =
+        region && Object.hasOwn(REVIEWED_RESCUE_ADVICE, region)
+            ? REVIEWED_RESCUE_ADVICE[region as keyof typeof REVIEWED_RESCUE_ADVICE]
+            : null;
+    return row
+        ? `Owner-selected rescue advice (verify region and current details before calling): ${row.text} Source: ${row.source}. This service has not contacted any rescue agency.`
+        : 'Rescue contact unavailable for the selected region. Check the relevant official maritime rescue authority manually. This service has not contacted any rescue agency.';
 }

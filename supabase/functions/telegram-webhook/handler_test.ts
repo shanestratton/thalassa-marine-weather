@@ -64,7 +64,7 @@ const callback = () => ({
 });
 Deno.test('start only previews explicit anchor and position permissions; never confirms', async () => {
     for (const sharePosition of [false, true]) {
-        const f = fixture({ invitation: { sharePosition } });
+        const f = fixture({ invitation: { sharePosition, allowOverdue: false } });
         await f.handler(req(body({ text: '/start ' + nonce })));
         eq((f.calls[0] as { args: Record<string, unknown> }).args.p_command, 'preview');
         const sent = f.sent[0] as { text: string; nonce: string };
@@ -74,6 +74,12 @@ Deno.test('start only previews explicit anchor and position permissions; never c
         eq(sent.nonce, nonce);
         eq(f.calls.length, 1);
     }
+});
+Deno.test('overdue permission is visible before its explicit private callback and uses current policy2', async () => {
+    const f = fixture({ invitation: { sharePosition: false, allowOverdue: true } });
+    await f.handler(req(body({ text: '/start ' + nonce })));
+    eq((f.sent[0] as { text: string }).text.includes('float-plan overdue notices'), true);
+    eq((f.calls[0] as { args: Record<string, unknown> }).args.p_policy_version, 2);
 });
 Deno.test('explicit private callback alone confirms; callback nonce is canonical and below64bytes', async () => {
     const f = fixture({ text: 'Consent recorded.' });

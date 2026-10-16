@@ -24,7 +24,8 @@ describe('suggestMarineRescue', () => {
     it('gives Shane the Queensland hotline at Newport, Moreton Bay', () => {
         const s = suggestMarineRescue(-27.2, 153.1);
         expect(s?.service.service).toBe('Marine Rescue Queensland');
-        expect(s?.text).toBe('Marine Rescue Queensland · 131 677');
+        expect(s?.text).toContain('131 677 is assistance');
+        expect(s?.text).toContain('Emergency: 000 or VHF 16');
     });
 
     it('does not still carry the superseded VMR QLD number anywhere', () => {

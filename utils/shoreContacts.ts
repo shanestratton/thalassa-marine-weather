@@ -7,6 +7,8 @@ export interface ShoreContactConfiguration {
     address: string | null;
     sharePosition: boolean;
     enabled: boolean;
+    /** Missing on legacy profiles means anchor notices only. Changing it requires new recipient consent. */
+    allowOverdue?: boolean;
 }
 export interface ShoreContactSummary {
     id: string;
@@ -39,13 +41,19 @@ export function shoreEmail(v: unknown): v is string {
 export function parseShoreConfiguration(v: unknown): ShoreContactConfiguration | null {
     if (
         !shoreRecord(v) ||
-        Object.keys(v).length !== 5 ||
+        ![5, 6].includes(Object.keys(v).length) ||
+        Object.keys(v).some(
+            (k) => !['channel', 'label', 'address', 'sharePosition', 'enabled', 'allowOverdue'].includes(k),
+        ) ||
+        (Object.hasOwn(v, 'allowOverdue') && typeof v.allowOverdue !== 'boolean') ||
         !['channel', 'label', 'address', 'sharePosition', 'enabled'].every((k) => Object.hasOwn(v, k)) ||
         !['email', 'telegram'].includes(String(v.channel)) ||
         !safeText(v.label, 60) ||
         typeof v.sharePosition !== 'boolean' ||
         typeof v.enabled !== 'boolean' ||
-        (v.channel === 'email' ? !shoreEmail(v.address) || v.sharePosition !== false : v.address !== null)
+        (v.channel === 'email'
+            ? !shoreEmail(v.address) || (v.sharePosition !== false && v.allowOverdue !== true)
+            : v.address !== null)
     )
         return null;
     return v as unknown as ShoreContactConfiguration;

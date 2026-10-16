@@ -16,6 +16,7 @@ export interface ShoreContactsList {
     checkedAt: number;
     emailReady: boolean;
     telegramReady: boolean;
+    overdueReady?: boolean;
     contacts: ShoreContactSummary[];
 }
 export function parseShoreContacts(
@@ -31,6 +32,7 @@ export function parseShoreContacts(
         value.boatId !== boat ||
         typeof value.emailReady !== 'boolean' ||
         typeof value.telegramReady !== 'boolean' ||
+        (Object.hasOwn(value, 'overdueReady') && typeof value.overdueReady !== 'boolean') ||
         typeof value.checkedAt !== 'number' ||
         !Number.isSafeInteger(value.checkedAt) ||
         value.checkedAt > now ||
@@ -38,7 +40,17 @@ export function parseShoreContacts(
         !Array.isArray(value.contacts) ||
         value.contacts.length > 10 ||
         Object.keys(value).some(
-            (k) => !['schema', 'ownerId', 'boatId', 'checkedAt', 'emailReady', 'telegramReady', 'contacts'].includes(k),
+            (k) =>
+                ![
+                    'schema',
+                    'ownerId',
+                    'boatId',
+                    'checkedAt',
+                    'emailReady',
+                    'telegramReady',
+                    'overdueReady',
+                    'contacts',
+                ].includes(k),
         )
     )
         return null;
