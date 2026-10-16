@@ -12,7 +12,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const wt = vi.hoisted(() => ({ at: [] as [number, number][] }));
+const wt = vi.hoisted(() => ({ at: [] as [number, number][], chartDatum: 'LAT' as string | null }));
+vi.mock('../services/enc/readChartDatum', () => ({
+    readChartDatumForBounds: vi.fn(async () => wt.chartDatum),
+}));
 vi.mock('../services/weather/api/worldtides', () => ({
     fetchWorldTides: vi.fn(async (lat: number, lon: number) => {
         wt.at.push([lat, lon]);
@@ -51,6 +54,7 @@ const gated = (at: { lat: number; lon: number }): TraceLegVerdict => ({
 describe('the tracer asks for tides at the bucket centre, never at the charted sounding', () => {
     beforeEach(() => {
         wt.at.length = 0;
+        wt.chartDatum = 'LAT';
         clearTideCache();
     });
 
@@ -72,5 +76,15 @@ describe('the tracer asks for tides at the bucket centre, never at the charted s
         );
         expect(label).not.toBeNull();
         expect(wt.at).toEqual(SOUNDINGS.map((spot) => spot.bucket));
+    });
+
+    it('does not request or credit tides without matching chart-datum proof', async () => {
+        const spot = SOUNDINGS[0];
+        for (const datum of [null, 'MLLW', 'mixed']) {
+            wt.chartDatum = datum;
+            expect(await tideWindowLabelFor(1.4, 2.4, spot, Date.now())).toBeNull();
+            expect(await commonDepartureWindowLabel([gated(spot)], 2.4)).toBeNull();
+        }
+        expect(wt.at).toEqual([]);
     });
 });

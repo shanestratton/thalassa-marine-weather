@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SunCalc from 'suncalc';
-import { polarSolarAltitude, polarPeriodAt } from '../pi-cache/src/polarLearningRule';
+import { polarSolarAltitude, polarPeriodAt } from '../utils/polarLearningRule';
 import type { PolarData } from '../types';
 
 const state = vi.hoisted(() => ({

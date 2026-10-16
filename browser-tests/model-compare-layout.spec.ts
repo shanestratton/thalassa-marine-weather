@@ -49,9 +49,27 @@ async function open(page: Page, device: DiaryDevice, wide: boolean, day?: number
     await expect(dialog).toBeVisible();
     await expect(dialog.locator('path[data-model]')).toHaveCount(7);
     await expect(page.getByTestId('matrix-credit')).toBeVisible();
+    const metrics = dialog.getByLabel(/^All metrics at /);
+    await expect(metrics).toBeVisible();
+    await expect.poll(async () => (await metrics.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.evaluate(() => document.fonts.ready);
     return { errors, dialog };
 }
+
+test('the compact legend keeps the full model table and returns to the no-scroll chart', async ({ page }) => {
+    const device = DIARY_DEVICES['iphone-se'];
+    const { dialog, errors } = await open(page, device, true);
+    const metrics = dialog.getByLabel(/^All metrics at /);
+    await metrics.click();
+    const table = dialog.getByRole('table', { name: 'All model metrics' });
+    await expect(table).toBeVisible();
+    await expect(table.getByRole('columnheader', { name: 'BARO (hPa)' })).toBeVisible();
+    await expect(table.locator('caption')).toContainText('Model values at');
+    await metrics.click();
+    await expect(table).toBeHidden();
+    expect(await layoutIssues(page, device)).toEqual([]);
+    expect(errors).toEqual([]);
+});
 
 function layoutIssues(page: Page, device: DiaryDevice) {
     return page.evaluate(({ top, bottom, mustFit }) => {

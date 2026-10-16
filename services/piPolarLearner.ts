@@ -3,7 +3,7 @@ import { getPairing, pinnedPiRequest } from './PiPairingService';
 import { isPinnedTransportAvailable } from './piTls';
 import { piCache } from './PiCacheService';
 import { loadLargeData, saveLargeData } from './nativeStorage';
-import { polarPeriodAt, validPolarTable, type PolarPeriod } from '../pi-cache/src/polarLearningRule';
+import { polarPeriodAt, validPolarTable, type PolarPeriod } from '../utils/polarLearningRule';
 import { NmeaStore } from './NmeaStore';
 
 interface PiPolarSnapshot {

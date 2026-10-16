@@ -207,6 +207,10 @@ describe('the switch turns on with any boat link', () => {
         render(<SmartPolarsSetting settings={settingsWith(false)} onSave={onSave} />);
         await act(async () => {
             fireEvent.click(smartSwitch());
+            // Starting also resolves the conservative factory baseline. Wait for
+            // the actual first start, rather than sending a Pi sample before it listens.
+            const started = learnerStart.mock.results.at(-1);
+            if (started?.type === 'return') await started.value;
         });
         expect(onSave).toHaveBeenCalledWith({ smartPolarsEnabled: true });
         expect(learnerStart).toHaveBeenCalledTimes(1);
@@ -215,7 +219,7 @@ describe('the switch turns on with any boat link', () => {
         expect(socket.start).not.toHaveBeenCalled();
         expect(socket.autoStart).not.toHaveBeenCalled();
         // …and the learner hears the Pi.
-        NmeaStore.ingestRemote(piSnapshot());
+        act(() => NmeaStore.ingestRemote(piSnapshot()));
         expect(SmartPolarService.getStatus().minimumSpeed).toBe('pass');
     });
 });
