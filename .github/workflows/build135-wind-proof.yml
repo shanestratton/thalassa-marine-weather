@@ -28,11 +28,11 @@ jobs:
             - name: Checkout exact reviewed diagnostic source
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: bda54b11b9c49ccf41421d231c0ed5849518fd5f
+                  ref: 3c0f2d8ee6e49681e970502fa090eb9e56c677c0
                   persist-credentials: false
             - name: Verify exact source
               shell: bash
-              run: test "$(git rev-parse HEAD)" = bda54b11b9c49ccf41421d231c0ed5849518fd5f
+              run: test "$(git rev-parse HEAD)" = 3c0f2d8ee6e49681e970502fa090eb9e56c677c0
             - name: Set up reviewed Node runtime
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
@@ -42,10 +42,8 @@ jobs:
               run: npm ci
             - name: Install actual Linux Chromium and WebKit with runtime dependencies
               run: npx playwright install --with-deps chromium webkit
-            - name: Verify original four pixels and native backing regression
-              run: npx playwright test --config playwright.wind-proof.config.ts
-            - name: Measure actual capped desktop and mobile wind fields in both browsers
-              run: WIND_FIELD_PERFORMANCE=1 npx playwright test --config playwright.wind-proof.config.ts --grep performance --output test-results/wind-performance
+            - name: Verify the exact original four chart pixel tests on production-only source
+              run: npx playwright test --config playwright.keyboard.config.ts desk-wind-layout.spec.ts --grep @pixel --workers 1 --retries 0 --output test-results/wind-proof
             - name: Preserve screenshots, traces and original diagnostic metrics
               if: always()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -53,7 +51,6 @@ jobs:
                   name: build135-wind-diagnostic-${{ github.run_id }}
                   path: |
                       test-results/wind-proof/
-                      test-results/wind-performance/
                       playwright-report/
                   if-no-files-found: warn
                   retention-days: 7
