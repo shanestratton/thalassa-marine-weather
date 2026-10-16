@@ -88,15 +88,28 @@ export function trafficLaneGridFields(
 ): Pick<NavGrid, 'tssLane' | 'tssDirection'> {
     if (!field?.areas.length) return { tssLane: undefined, tssDirection: undefined };
     const total = grid.width * grid.height;
-    if (!Number.isSafeInteger(total) || total < 1 || total > 8_000_000)
+    if (
+        ![grid.width, grid.height].every((value) => Number.isSafeInteger(value) && value > 0) ||
+        !Number.isSafeInteger(total) ||
+        total < 1 ||
+        total > 8_000_000 ||
+        ![grid.minLat, grid.minLon, grid.dLat, grid.dLon].every(Number.isFinite) ||
+        grid.dLat <= 0 ||
+        grid.dLon <= 0
+    )
         throw Error('Traffic lane grid exceeds its bounded budget.');
+    const box = [grid.minLon, grid.minLat, grid.minLon + grid.width * grid.dLon, grid.minLat + grid.height * grid.dLat];
+    const selected = field.areas.filter((area) => overlaps(area.bbox, box));
+    if (!selected.length) return { tssLane: undefined, tssDirection: undefined };
     const lane = new Uint8Array(total),
         direction = new Float32Array(total);
     direction.fill(NaN);
     let operations = 0;
-    for (const area of field.areas) {
+    for (const area of selected) {
         check();
-        operations += area.vertices * grid.height;
+        const first = Math.max(0, Math.floor((area.bbox[1] - grid.minLat) / grid.dLat)),
+            last = Math.min(grid.height - 1, Math.ceil((area.bbox[3] - grid.minLat) / grid.dLat));
+        operations += area.vertices * Math.max(0, last - first + 1);
         if (operations > MAX_OPERATIONS) throw Error('Traffic lane raster exceeds its bounded budget.');
         rasterizePolygonCells(grid, area.geometry, (x, y) => {
             if (++operations > MAX_OPERATIONS) throw Error('Traffic lane raster exceeds its bounded budget.');

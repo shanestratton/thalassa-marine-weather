@@ -187,6 +187,12 @@ describe('route-private lane fields and pricing', () => {
             to = { x: 16, y: 14 };
         expect(aStar(b, from, to)).toEqual(aStar(a, from, to));
         expect(chainCostM(b, [from, to])).toBe(chainCostM(a, [from, to]));
+        const distant = applyExclusionField(
+            base(),
+            buildExclusionField({ TSSLPT: fc(rect(165, -28, 166, -27, { ORIENT: 0 })) }),
+        );
+        expect(distant.tssLane).toBeUndefined();
+        expect(aStar(distant, from, to)).toEqual(aStar(a, from, to));
     });
     it('bounds source/grid work and cancels without mutating or partly adopting the cached chart grid', () => {
         expect(() => buildTrafficLaneField(fc(...Array.from({ length: 2001 }, () => rect())))).toThrow('bounded');
