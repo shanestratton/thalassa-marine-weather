@@ -1,0 +1,75 @@
+name: Thalassa 137 focused Linux rendering proof
+
+# Validation only: exact source, public client configuration, no signing or deployment.
+on:
+  push:
+    branches: ["codex/build-137-linux-focused"]
+    paths: [".github/workflows/validate-linux-137.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: thalassa-137-linux-focused
+  cancel-in-progress: false
+env:
+  CANDIDATE_SHA: "72fb05fa0ebd538c2b44d28859f82a23debbd5f6"
+  CI: "true"
+  HUSKY: "0"
+  NODE_OPTIONS: --max-old-space-size=4096
+  PUPPETEER_SKIP_DOWNLOAD: "true"
+  VITE_APP_BUILD: "137"
+  VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+  VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+  VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+  VITE_SENTRY_DSN: ""
+jobs:
+  linux-rendering:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: "72fb05fa0ebd538c2b44d28859f82a23debbd5f6"
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify exact source and public fixture configuration
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          assert.equal(process.env.VITE_APP_BUILD, '137');
+          assert.equal(process.env.VITE_SUPABASE_URL, 'https://pcisdplnodrphauixcau.supabase.co');
+          assert.ok(process.env.VITE_MAPBOX_ACCESS_TOKEN?.startsWith('pk.'));
+          const key = process.env.VITE_SUPABASE_KEY ?? '';
+          assert.ok(key && !key.startsWith('sb_secret_'));
+          if (key.startsWith('eyJ')) assert.equal(JSON.parse(Buffer.from(key.split('.')[1], 'base64url')).role, 'anon');
+          console.log('Exact source and public client configuration verified; no values printed.');
+          NODE
+      - run: npm ci
+      - id: install
+        name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit
+      - name: Tide and Wake original guards with bounded readiness diagnostics
+        run: npx playwright test --config playwright.keyboard.config.ts browser-tests/tide-footer-layout.spec.ts browser-tests/wake-rules137-layout.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output test-results/linux137-layout
+      - name: All twelve isolated graphics and worker benchmark cases
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          npx playwright test --config playwright.keyboard.config.ts --grep @pixel --workers=1 --retries=0 --trace retain-on-failure --output test-results/linux137-pixel
+      - name: Preserve all geometry, pixel, error and trace evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build137-focused-linux-rendering
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: warn
