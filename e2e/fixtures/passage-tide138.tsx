@@ -194,8 +194,30 @@ await store.saveCellGeoJSON(
 metadata.putCell(cell);
 const initial = [
     { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.01 },
     { lat: 0, lon: 0.02 },
 ];
+const { WindStore } = await import('../../stores/WindStore');
+WindStore.setState({
+    field: 'wind',
+    grid: {
+        width: 3,
+        height: 3,
+        lats: [-0.1, 0, 0.1],
+        lons: [-0.1, 0, 0.1],
+        north: 0.1,
+        south: -0.1,
+        west: -0.1,
+        east: 0.1,
+        totalHours: 3,
+        refTime: new Date(T).toISOString(),
+        stepHours: [0, 1, 2],
+        u: Array.from({ length: 3 }, () => new Float32Array(9).fill(2)),
+        v: Array.from({ length: 3 }, () => new Float32Array(9)),
+        gust: Array.from({ length: 3 }, () => new Float32Array(9).fill(3)),
+        speed: [],
+    },
+});
 let queuedRefused = false;
 function Fixture() {
     const draft = useTraceDraft(),

@@ -28,6 +28,7 @@ for (const width of [300, 375])
             });
         const before = await extent();
         await page.getByRole('button', { name: 'Tides, bridges and waiting', exact: true }).click();
+        await page.getByLabel('Tide review route point', { exact: true }).selectOption('2');
         const calls = () =>
             page.evaluate(() => (window as unknown as { __tide138: { calls: () => number } }).__tide138.calls());
         const startCalls = await calls();
@@ -47,10 +48,19 @@ for (const width of [300, 375])
         );
         await page.getByText('Review a holding wait before this point', { exact: true }).click();
         await page.getByLabel('UKC (m)', { exact: true }).fill('0.8');
+        await page.getByLabel('Wait holding point', { exact: true }).selectOption('1');
+        const beforeWaitCalls = await calls();
         await expect(page.getByTestId('passage-tide-review-results')).toBeVisible();
         await page.getByRole('button', { name: 'Review wait evidence', exact: true }).click();
         await expect(page.getByTestId('passage-tide-review-results')).toContainText('Checked wait unavailable');
         await expect(page.getByRole('button', { name: 'Accept Wait point and recheck route' })).toHaveCount(0);
+        await page.getByText('Aboard holding evidence and missing coverage', { exact: true }).click();
+        const evidence = page.getByTestId('holding-evidence');
+        await expect(evidence).toContainText('Missing extracted classes');
+        await expect(evidence).toContainText('3.89 kt');
+        await expect(evidence).toContainText('Original issue unknown');
+        await expect(evidence).toContainText('tidal streams');
+        expect(await calls()).toBe(beforeWaitCalls);
         const loaded = await extent();
         expect(loaded.width).toBe(before.width);
         expect(loaded.max).toBe(before.max);
@@ -63,6 +73,12 @@ for (const width of [300, 375])
             .attach('report-extent', { body: JSON.stringify({ before, loaded }), contentType: 'application/json' });
         await page.getByRole('button', { name: 'Review wait evidence', exact: true }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: test.info().outputPath('passage-tide-wait.png') });
+        await evidence.getByText(/wind: 3.89 kt/).scrollIntoViewIfNeeded();
+        await page.screenshot({ path: test.info().outputPath('passage-tide-holding-fields.png') });
+        const evidenceExtent = await extent();
+        expect(evidenceExtent.max).toBe(before.max);
+        expect(evidenceExtent.pageHeight).toBeLessThanOrEqual(812);
+        expect(evidenceExtent.pageWidth).toBeLessThanOrEqual(width);
         expect(
             await page.evaluate(() =>
                 (window as unknown as { __tide138: { localText: () => string } }).__tide138.localText(),

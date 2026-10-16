@@ -1,6 +1,7 @@
-/** Proposed wait only. The trusted complete local reader is not implemented
- * by current seabed advice and defaults unavailable. No route mutation here. */
+/** Proposed wait only. Current reader facts and independent navigation rights
+ * must both qualify. No route mutation here. */
 import { isReviewedWaterInterval, type WaterIntervalContext } from '../tides/reviewedWaterInterval';
+import type { HoldingEvidence } from './completeHoldingReader';
 export interface TideWaitRequest extends WaterIntervalContext {
     boatId: string;
     routeIdentity: string;
@@ -14,6 +15,7 @@ export interface HoldingLimits {
     maxWindKts: number;
     maxGustKts: number;
     maxWaveM: number;
+    maxCurrentKts: number;
 }
 /** Dependency contract for a separately reviewed complete local reader. These
  * are not accepted from settings, a source payload, an acknowledgement or the
@@ -45,6 +47,8 @@ export interface CompleteHoldingFacts {
         maxWindKts: number | null;
         maxGustKts: number | null;
         maxWaveM: number | null;
+        maxCurrentKts: number | null;
+        includesTidalStreams: boolean;
     };
 }
 export type CompleteHoldingReader = (
@@ -74,7 +78,7 @@ export interface ProposedTideWait {
     readonly minimumUkcM: number;
     readonly aboardOnly: boolean;
 }
-export type TideWaitAssessment = ProposedTideWait | { kind: 'unavailable'; reason: string };
+export type TideWaitAssessment = ProposedTideWait | { kind: 'unavailable'; reason: string; evidence?: HoldingEvidence };
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 const text = (s: unknown): s is string =>
     typeof s === 'string' && s.length > 0 && s.length <= 100000 && !/\p{Cc}/u.test(s);
@@ -128,6 +132,7 @@ export async function reviewTideWait(
             limits.maxWindKts,
             limits.maxGustKts,
             limits.maxWaveM,
+            limits.maxCurrentKts,
         ].every(finite) ||
         r.holdingAlongNm < 0 ||
         r.holdingAlongNm >= r.gateAlongNm ||
@@ -139,6 +144,7 @@ export async function reviewTideWait(
         limits.maxWindKts <= 0 ||
         limits.maxGustKts <= 0 ||
         limits.maxWaveM <= 0 ||
+        limits.maxCurrentKts <= 0 ||
         !isReviewedWaterInterval(water, r)
     )
         return no('A prior holding point, exact current policy and complete reviewed tide interval are required.');
@@ -217,7 +223,11 @@ export async function reviewTideWait(
             weather.maxGustKts > limits.maxGustKts ||
             !finite(weather.maxWaveM) ||
             weather.maxWaveM < 0 ||
-            weather.maxWaveM > limits.maxWaveM
+            weather.maxWaveM > limits.maxWaveM ||
+            weather.includesTidalStreams !== true ||
+            !finite(weather.maxCurrentKts) ||
+            weather.maxCurrentKts < 0 ||
+            weather.maxCurrentKts > limits.maxCurrentKts
         )
             return no('Complete interval weather/exposure within the stated vessel limits is unavailable.');
         const minimumUkcM = facts.minimumChartedDepthM + water.minLowM - limits.draftM;

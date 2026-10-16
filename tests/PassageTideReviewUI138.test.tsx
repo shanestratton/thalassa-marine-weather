@@ -94,6 +94,7 @@ describe('usable bounded passage tide review UI', () => {
             maxWindKts: 15,
             maxGustKts: 20,
             maxWaveM: 1,
+            maxCurrentKts: 1,
         });
     });
     it('drops a late wait result after a policy edit and retires the report on a new route', async () => {
