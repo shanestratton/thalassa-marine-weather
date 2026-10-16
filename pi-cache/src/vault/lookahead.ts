@@ -12,6 +12,7 @@ import {
     type AheadHazard,
 } from '../lookaheadShared/services/underway/lookaheadRule.js';
 import { coneIsCovered } from '../lookaheadShared/services/underway/lookaheadCoverage.js';
+import { navigationTideSourceAvailable } from '../lookaheadShared/services/tides/navigationUse.js';
 import type { VaultCellMeta, VaultLookaheadRequest, VaultLookaheadResponse } from './protocol.js';
 
 export function validLookaheadRequest(raw: unknown, now = Date.now()): raw is VaultLookaheadRequest {
@@ -63,6 +64,9 @@ export function validLookaheadRequest(raw: unknown, now = Date.now()): raw is Va
 /** Linear curve supplied from the Pi's existing cache. No curve or missing
  * range gives no positive credit, and only a matching cell may use it. */
 function tideAt(q: VaultLookaheadRequest, at: number): number | null {
+    // IPC payloads have no verified provider-use provenance. A LAT label or
+    // phone-supplied curve cannot grant navigation permission.
+    if (!navigationTideSourceAvailable()) return null;
     const t = q.tide;
     if (!t || Date.now() > t.expires) return null;
     const seconds = at / 1000;

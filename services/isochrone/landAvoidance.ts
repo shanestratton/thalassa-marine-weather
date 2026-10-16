@@ -21,6 +21,7 @@ import { chartAgeYears, isChartStale } from '../enc/chartCurrency';
 import { RESTRN_ROUTE_CAUTION_CODES, restrnCodes, restrnMeaning } from '../enc/s57Restrn';
 import { grazeOutranks } from '../enc/hazardSeverity';
 import { createLogger } from '../../utils/createLogger';
+import { navigationTideSourceAvailable } from '../tides/navigationUse';
 
 const landLog = createLogger('LandAvoidance');
 
@@ -863,7 +864,13 @@ export async function validateRouteSegments(
     // Set at tide-curve load when ONE station's curve is being applied
     // across a long route (spatial tidal-range variation unmodelled) —
     // appended to the route advisories in both exit branches below.
-    let singleStationTideNote: RouteAdvisory | null = null;
+    let singleStationTideNote: RouteAdvisory | null = navigationTideSourceAvailable()
+        ? null
+        : {
+              severity: 'note',
+              kind: 'tide-unverified',
+              text: 'Tidal clearance unverified. Checks use charted depths without a tide allowance; verify local water levels.',
+          };
 
     // ── Per-waypoint tide curve ──────────────────────────────────
     // When the caller supplied a departure time, fetch a real tide

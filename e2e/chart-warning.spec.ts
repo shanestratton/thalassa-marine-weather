@@ -242,7 +242,7 @@ async function openEmptyChart(
             exact: true,
         });
         const scrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
-        await expect(tideBadge).toHaveText('LIVE DEPTH — no tide data, showing chart datum');
+        await expect(tideBadge).toHaveText('CHART DATUM — tidal clearance unverified');
         await expect(scrubber).toHaveCount(0);
         expect(glyphDiagnostics.tideRequests, 'unknown chart datum must stop the live-depth fetch').toBe(0);
     }
@@ -725,7 +725,7 @@ for (const size of cases) {
                 const tideScrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
                 // There is no chart datum proof in this fixture. Availability
                 // upstream cannot produce a height, station or scrubber here.
-                await expect(tideBadge).toHaveText('LIVE DEPTH — no tide data, showing chart datum');
+                await expect(tideBadge).toHaveText('CHART DATUM — tidal clearance unverified');
                 await expect(tideScrubber).toHaveCount(0);
                 expect(glyphDiagnostics.tideRequests, `no live-depth fetch after ${stage}`).toBe(0);
             }
