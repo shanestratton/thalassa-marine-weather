@@ -617,6 +617,14 @@ export function useAppBootstrap() {
                         if (active && isAuthIdentityScopeCurrent(actionScope)) void m.refreshWakeCloudAlarms();
                     })
                     .catch(() => undefined);
+            if (data && type === 'radar_alarm') {
+                void import('../services/radar/radarPush')
+                    .then(({ refreshRadarAlarmPush }) => {
+                        if (active && isAuthIdentityScopeCurrent(actionScope)) refreshRadarAlarmPush(data);
+                    })
+                    .catch(() => undefined);
+                return;
+            }
             if (data && type === 'anchor_alarm') {
                 ShoreWatchAlarmService.receivePush(data);
             }
@@ -639,7 +647,8 @@ export function useAppBootstrap() {
                     setPage('chat');
                     break;
                 case 'weather_alert':
-                    setPage(pinWeatherBriefing(data, actionScope) ? 'briefing' : 'dashboard');
+                    if (pinWeatherBriefing(data, actionScope)) setPage('briefing');
+                    else setPage('dashboard');
                     break;
                 case 'anchor_alarm':
                     // 'compass' = the anchor-watch page — the surface with the
@@ -650,6 +659,14 @@ export function useAppBootstrap() {
                 case 'distress_alarm':
                     // The chart, with the Pi's alarm card on it (126-04b).
                     receivePiAlarm(data);
+                    setPage('map');
+                    break;
+                case 'radar_alarm':
+                    void import('../services/radar/radarPush')
+                        .then(({ refreshRadarAlarmPush }) => {
+                            if (active && isAuthIdentityScopeCurrent(actionScope)) refreshRadarAlarmPush(data, true);
+                        })
+                        .catch(() => undefined);
                     setPage('map');
                     break;
                 case 'pi_watch_notice':

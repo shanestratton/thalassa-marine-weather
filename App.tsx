@@ -9,6 +9,7 @@ import { useUI } from './context/UIContext';
 // entry import useAuthStore + SignInScreen directly where they need it.
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './services/authIdentityScope';
 import { useHudRecordingActivation } from './hooks/useHudRecording';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
@@ -1222,6 +1223,16 @@ const App: React.FC = () => {
                             case 'weather_alert':
                                 setPage('dashboard');
                                 break;
+                            case 'radar_alarm': {
+                                const radarScope = getAuthIdentityScope();
+                                void import('./services/radar/radarPush')
+                                    .then(({ refreshRadarAlarmPush }) => {
+                                        if (isAuthIdentityScopeCurrent(radarScope)) refreshRadarAlarmPush(data, true);
+                                    })
+                                    .catch(() => undefined);
+                                setPage('map');
+                                break;
+                            }
                             case 'cyclone_notice':
                             case 'cyclone_urgent':
                                 setPage('map');
