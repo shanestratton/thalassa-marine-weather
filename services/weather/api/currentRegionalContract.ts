@@ -16,9 +16,9 @@ const name = /^[a-z0-9-]{1,80}\.thcs$/;
 const hash = /^[a-f0-9]{64}$/;
 const record = (value: unknown): value is Record<string, unknown> =>
     !!value && typeof value === 'object' && !Array.isArray(value);
-const assert = (value: unknown, message: string): void => {
+function assert(value: unknown, message: string): asserts value {
     if (!value) throw new Error(`Regional current: ${message}`);
-};
+}
 const integer = (value: unknown, min: number, max: number): value is number =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max;
 
