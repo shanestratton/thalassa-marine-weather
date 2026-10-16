@@ -9,6 +9,7 @@ export default defineConfig({
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
         'course136-layout.spec.ts',
+        'timezone136.spec.ts',
         'ais-fleet-layout.spec.ts',
         'marine-places-layout.spec.ts',
         'paper-charts-layout.spec.ts',
