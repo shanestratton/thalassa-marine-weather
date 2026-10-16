@@ -142,6 +142,19 @@ function fictionalSummary() {
 type Fleet = 'fixture' | 'empty' | 'not-ready' | 'down';
 
 async function open(page: Page, fleet: Fleet, opts: { failMap?: boolean; lateCss?: number } = {}) {
+    // Let the real raster sources finish against synthetic, decodable bytes.
+    // Aborting every tile makes Mapbox retry parent levels; on the Linux
+    // software renderer that can consume the whole visible-load deadline.
+    const terrain = !LIVE
+        ? await page.evaluate(() => {
+              const canvas = document.createElement('canvas');
+              canvas.width = canvas.height = 256;
+              const ctx = canvas.getContext('2d')!;
+              ctx.fillStyle = 'rgb(128,0,0)';
+              ctx.fillRect(0, 0, 256, 256);
+              return { png: canvas.toDataURL('image/png'), webp: canvas.toDataURL('image/webp', 1) };
+          })
+        : null;
     const reliefTiles: number[] = [];
     const contextRequests: string[] = [];
     page.on('response', (response) => {
@@ -183,6 +196,18 @@ async function open(page: Page, fleet: Fleet, opts: { failMap?: boolean; lateCss
         if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
             if (opts.lateCss && url.pathname.endsWith('.css')) await new Promise((r) => setTimeout(r, opts.lateCss));
             return route.continue();
+        }
+        if (
+            !LIVE &&
+            url.hostname === 'tiles.thalassatiles.com' &&
+            /^\/v1\/relief-(global|au)\/(idx|dem)\//.test(url.pathname)
+        ) {
+            const webp = url.pathname.endsWith('.webp');
+            return route.fulfill({
+                status: 200,
+                contentType: webp ? 'image/webp' : 'image/png',
+                body: Buffer.from((webp ? terrain!.webp : terrain!.png).split(',')[1], 'base64'),
+            });
         }
         if (url.hostname.endsWith('mapbox.com') && url.pathname.includes('/styles/v1/')) {
             if (opts.failMap) return route.abort();

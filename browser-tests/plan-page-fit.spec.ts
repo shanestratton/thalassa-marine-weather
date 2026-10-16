@@ -805,6 +805,10 @@ test.describe('Trip sheet fits one screen', () => {
         test.describe(() => {
             atIpadScale(size.width);
             test(`your trips, a four-leg trip and the next leg at ${size.name}`, async ({ page, baseURL }, info) => {
+                // Three full sheets, their animation/layout settling, and the
+                // expanded library share this budget; each UI assertion stays
+                // bounded by the normal 15 s expectation deadline.
+                test.setTimeout(60_000);
                 await open(page, baseURL, size.width, size.height, 'planning', size.width >= 1024, {
                     traces: sheetLibrary(),
                 });
