@@ -54,6 +54,7 @@
 		AA000035AAAA003500000001 /* GribDocumentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000035AAAA003500000002 /* GribDocumentPlugin.swift */; };
 		AA000036AAAA003600000001 /* ObservationHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */; };
 		AA000037AAAA003700000001 /* NmeaUdpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */; };
+		AA000038AAAA003800000001 /* SignalKReaderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */; };
 		AA000039AAAA003900000001 /* NmeaUdpRebindGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */; };
 /* End PBXBuildFile section */
 
@@ -110,6 +111,7 @@
 		AA000035AAAA003500000002 /* GribDocumentPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GribDocumentPlugin.swift; sourceTree = "<group>"; };
 		AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObservationHttpPlugin.swift; sourceTree = "<group>"; };
 		AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NmeaUdpPlugin.swift; sourceTree = "<group>"; };
+		AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalKReaderPlugin.swift; sourceTree = "<group>"; };
 		AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NmeaUdpRebindGate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -194,6 +196,7 @@
 				AA000035AAAA003500000002 /* GribDocumentPlugin.swift */,
 				AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */,
 				AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */,
+				AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */,
 				AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */,
 				AA000028AAAA002800000002 /* MemoryGaugePlugin.m */,
 				AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */,
@@ -438,6 +441,7 @@
 				AA000035AAAA003500000001 /* GribDocumentPlugin.swift in Sources */,
 				AA000036AAAA003600000001 /* ObservationHttpPlugin.swift in Sources */,
 				AA000037AAAA003700000001 /* NmeaUdpPlugin.swift in Sources */,
+				AA000038AAAA003800000001 /* SignalKReaderPlugin.swift in Sources */,
 				AA000039AAAA003900000001 /* NmeaUdpRebindGate.swift in Sources */,
 				AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */,
 				AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */,

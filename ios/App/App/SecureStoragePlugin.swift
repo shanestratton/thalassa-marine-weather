@@ -24,7 +24,8 @@ public final class SecureStoragePlugin: CAPPlugin, CAPBridgedPlugin {
         "thalassa-auth-session",
         "thalassa-auth-session-code-verifier",
         "thalassa-auth-session-user",
-        "thalassa-pi-chart-device"
+        "thalassa-pi-chart-device",
+        "thalassa-signalk-device-v1"
     ]
     private let maximumValueBytes = 256 * 1024
 
