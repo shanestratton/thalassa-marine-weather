@@ -1,4 +1,5 @@
 import { readEmailSenderProof } from './sender-proof.ts';
+import { createShoreHandler } from './handler.ts';
 const key = 'fixture-read-only-key';
 const env = {
     get: (name: string) =>
@@ -84,4 +85,50 @@ Deno.test('sender proof refuses malformed, oversized and uncertain provider meta
         const proof = await readEmailSenderProof(env, fake);
         equal([proof.check, proof.senderVerified], ['unavailable', false]);
     }
+});
+
+Deno.test('sender proof action is service-authenticated even while messaging is held', async () => {
+    let calls = 0;
+    const fixtureEnvironment = {
+        get: (name: string) => name === 'SUPABASE_SERVICE_ROLE_KEY' ? 'fixture-service' : env.get(name),
+    };
+    const unused = async () => {
+        throw Error('Provider proof cannot use contacts/database/sends');
+    };
+    const handler = createShoreHandler(fixtureEnvironment, {
+        owner: unused,
+        rpc: unused,
+        nonce: () => {
+            throw Error('No nonce');
+        },
+        email: unused,
+        telegram: unused,
+    }, () => {
+        calls++;
+        return Promise.resolve(response([item(1)]));
+    });
+    for (const authorization of [undefined, 'Bearer wrong', 'Bearer fixture-owner']) {
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (authorization) headers.authorization = authorization;
+        const result = await handler(
+            new Request('https://fixture.invalid', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ action: 'sender-proof' }),
+            }),
+        );
+        equal(result.status, 401);
+    }
+    equal(calls, 0);
+    const result = await handler(
+        new Request('https://fixture.invalid', {
+            method: 'POST',
+            headers: { authorization: 'Bearer fixture-service', 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'sender-proof' }),
+        }),
+    );
+    equal(result.status, 200);
+    equal(result.headers.get('cache-control'), 'no-store');
+    equal((await result.json()).senderVerified, true);
+    equal(calls, 1);
 });

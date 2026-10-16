@@ -1225,6 +1225,12 @@ const App: React.FC = () => {
                             case 'weather_alert':
                                 setPage('dashboard');
                                 break;
+                            case 'overdue_notice':
+                                setPage('vessel');
+                                break;
+                            case 'buddy_notice':
+                                setPage('map');
+                                break;
                             case 'radar_alarm': {
                                 const radarScope = getAuthIdentityScope();
                                 void import('./services/radar/radarPush')

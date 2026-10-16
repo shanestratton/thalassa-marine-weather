@@ -1,5 +1,6 @@
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
 import { shoreEmail, shoreNonce, shoreRecord, shoreUuid } from '../../../utils/shoreContacts.ts';
+import { readEmailSenderProof } from './sender-proof.ts';
 import {
     consentUrl,
     type Environment,
@@ -50,6 +51,19 @@ export function createShoreHandler(env: Environment, overrides?: ShoreDependenci
                     };
             const body = await readJsonObject(req, 4096);
             if (!body) return jsonResponse({ error: 'Bounded object required' }, 400, cors);
+            if (body.action === 'sender-proof') {
+                const service = env.get('SUPABASE_SERVICE_ROLE_KEY');
+                if (!service || req.headers.get('authorization') !== `Bearer ${service}`) {
+                    return jsonResponse({ error: 'Service required' }, 401, cors);
+                }
+                if (!exact(body, ['action'])) {
+                    return jsonResponse({ error: 'Fixed read-only proof required' }, 400, cors);
+                }
+                return jsonResponse(await readEmailSenderProof(env, fetcher), 200, {
+                    ...cors,
+                    'Cache-Control': 'no-store',
+                });
+            }
             if (body.action !== 'revoke' && env.get('SHORE_MESSAGING_ENABLED') !== '1') {
                 return jsonResponse({ error: 'Shore messaging held' }, 503, cors);
             }

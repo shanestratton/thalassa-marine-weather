@@ -53,6 +53,7 @@ import { createWakeDeliveryGuard, type WakeDeliveryDecision } from './wake-deliv
 import { createWeatherWatchDeliveryGuard } from './weather-watch-delivery.ts';
 import { createRadarDeliveryGuard } from './radar-delivery.ts';
 import { createBuddyDeliveryGuard } from './buddy-delivery.ts';
+import { createOverdueDeliveryGuards } from './overdue-delivery.ts';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 import {
@@ -135,6 +136,7 @@ interface PushPayload {
     collapseId: string | null;
     badge?: number;
     beforeAttempt?: () => Promise<WakeDeliveryDecision>;
+    beforeHttp?: () => Promise<WakeDeliveryDecision>;
 }
 
 interface SendResult {
@@ -191,10 +193,25 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
                 headers['apns-collapse-id'] = payload.collapseId;
             }
 
-            const response = await fetch(`${host}/3/device/${deviceToken}`, {
+            const target = `${host}/3/device/${deviceToken}`;
+            const preparedBody = JSON.stringify(apnsPayload);
+            // An initiated owner attempt starts the overdue grace period. Its
+            // receipt belongs after target/JWT/body preparation, never at queue
+            // admission or during the no-token/preflight paths.
+            const httpPermission = payload.beforeHttp ? await payload.beforeHttp() : 'allow';
+            if (httpPermission !== 'allow') {
+                return {
+                    success: false,
+                    retired: httpPermission === 'retire',
+                    error: httpPermission === 'retire'
+                        ? 'Overdue watch retired before delivery'
+                        : 'Overdue delivery check unavailable',
+                };
+            }
+            const response = await fetch(target, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify(apnsPayload),
+                body: preparedBody,
             });
 
             if (response.ok) {
@@ -277,6 +294,7 @@ serve(async (req: Request) => {
                     underway_alarm: configured ? 1 : 0,
                     wake_alarm: configured ? 1 : 0,
                     radar_alarm: configured ? 1 : 0,
+                    overdue_notice: configured ? 1 : 0,
                 }),
                 {
                     status: 200,
@@ -440,6 +458,33 @@ serve(async (req: Request) => {
             }
         }
 
+        const overdueGuards = notification_type === 'overdue_notice'
+            ? createOverdueDeliveryGuards(id, data ?? {}, async (queueId) => {
+                const result = await supabase.rpc('overdue_owner_current', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            }, async (queueId) => {
+                const result = await supabase.rpc('overdue_owner_attempt', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            })
+            : undefined;
+        if (overdueGuards) {
+            const decision = await overdueGuards.current();
+            if (decision === 'unavailable') {
+                await releaseClaim('Overdue delivery check unavailable');
+                return new Response(JSON.stringify({ error: 'Overdue delivery check unavailable' }), { status: 503 });
+            }
+            if (decision === 'retire') {
+                await supabase.from('push_notification_queue').update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'Overdue watch no longer current',
+                }).eq('id', id);
+                return new Response(JSON.stringify({ sent: 0, message: 'Overdue watch no longer current' }), {
+                    status: 200,
+                });
+            }
+        }
+
         // ── Look up device tokens for the recipient ──
         const { data: tokens, error } = await supabase
             .from('push_device_tokens')
@@ -486,9 +531,10 @@ serve(async (req: Request) => {
             threadId: getThreadId(notification_type),
             collapseId: getCollapseId(notification_type, data || {}),
             badge: (badgeCount ?? 0) + 1,
-            ...(wakeGuard || radarGuard || weatherGuard || buddyGuard
-                ? { beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard ?? buddyGuard }
+            ...(wakeGuard || radarGuard || weatherGuard || buddyGuard || overdueGuards
+                ? { beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard ?? buddyGuard ?? overdueGuards?.current }
                 : {}),
+            ...(overdueGuards ? { beforeHttp: overdueGuards.beforeHttp } : {}),
         };
 
         // ── Send push to all registered devices ──

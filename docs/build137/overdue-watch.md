@@ -14,11 +14,12 @@ This adds one explicit overdue watch per owned vessel, compact-plan review in th
 
 `overdue_watch_work` queues a distinct ordinary `overdue_notice` first. Queue insertion and generic preflight **never** start grace. A real registered iOS owner token is required to arm; if no real owner attempt can be initiated later, the watch remains awaiting that attempt and contacts are not escalated automatically.
 
-The separately prepared sender helper is `supabase/functions/send-push/overdue-delivery.ts`, exporting `createOverdueDeliveryGuards(queueId,data,read,attempt,now?)`:
+The composed sender integrates `supabase/functions/send-push/overdue-delivery.ts`, exporting `createOverdueDeliveryGuards(queueId,data,read,attempt,now?)`:
 
 1. `current()` is read-only preflight through service-only `overdue_owner_current(queueId)`.
 2. `beforeHttp()` must run after a real target, JWT, headers and serialized body have been prepared, immediately before **each actual provider fetch**, through `overdue_owner_attempt(queueId)`.
-3. The database coalesces the original first initiated-attempt timestamp. A second device/retry never restamps it. The receipt means an attempt was initiated at that boundary; a crash can still occur between the receipt and network I/O. It proves neither provider acceptance, delivery nor a recipient read. The UI and personal notice say attempted / delivery unconfirmed.
+
+The actual sender is exercised through fixed transport adapters with network imports and network access denied. Eight real-handler cases pass, including no tokens, failed JWT preparation, cancellation, malformed facts, ordinary priority with critical entitlement, retries/multiple devices and uncertain transport outcomes. Separate policy checks enforce the original absolute expiry and prevent priority escalation. The default CI runs this isolated actual-handler proof after the normal Edge tests. These proofs send no external messages; the live sender still needs deployment/readback before delivery_version may become1. 3. The database coalesces the original first initiated-attempt timestamp. A second device/retry never restamps it. The receipt means an attempt was initiated at that boundary; a crash can still occur between the receipt and network I/O. It proves neither provider acceptance, delivery nor a recipient read. The UI and personal notice say attempted / delivery unconfirmed.
 
 Only after that original attempt plus ten minutes may the worker queue personal notices, and only within 24 hours of the saved overdue time. A missing arrival record is not proof of distress. The worker rechecks exact watch/contact revisions, ownership, source registration, enabled state, consent, capability and expiry immediately before every provider attempt. Concurrent revocation can still commit just after a provider accepts; atomic distributed recall is not claimed.
 
