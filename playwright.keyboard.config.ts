@@ -10,6 +10,7 @@ export default defineConfig({
         'systems136-layout.spec.ts',
         'wake-rules137-layout.spec.ts',
         'weather-watch137-layout.spec.ts',
+        'buddy-watch137-layout.spec.ts',
         'radar137-layout.spec.ts',
         'radar-alarm137-layout.spec.ts',
         'radar-pi137-layout.spec.ts',
