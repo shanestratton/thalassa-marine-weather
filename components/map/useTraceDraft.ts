@@ -214,7 +214,9 @@ export function useTraceDraft() {
     const lastAutoNameRef = useRef(draft.autoName);
     const legAnchorRef = useRef<NextLegSeed | null>(draft.legAnchor);
     const refsScope = useRef(identityScope);
+    const editEpochRef = useRef(0);
     if (!sameScope(refsScope.current, identityScope)) {
+        editEpochRef.current++;
         refsScope.current = identityScope;
         lastAutoNameRef.current = draft.autoName;
     }
@@ -230,11 +232,45 @@ export function useTraceDraft() {
         (update: (current: TraceDraftData) => TraceDraftData): void => {
             const scope = identityScope;
             if (!isAuthIdentityScopeCurrent(scope)) return;
+            editEpochRef.current++;
             setStoredDraft((current) => {
                 if (!isAuthIdentityScopeCurrent(scope)) return current;
                 const base = sameScope(current.scope, scope) ? current.data : readDraft(scope);
                 return { scope, data: update(base) };
             });
+        },
+        [identityScope],
+    );
+
+    const getTraceEditEpoch = useCallback(() => editEpochRef.current, []);
+    /** Reserve the exact draft revision before queuing a React update. A later
+     * queued edit, including A/B/A, invalidates it before any point is added. */
+    const commitCheckedTracePoints = useCallback(
+        (
+            expectedEpoch: number,
+            expectedPoints: TracePoint[],
+            transform: (points: TracePoint[]) => TracePoint[],
+            isCurrent: () => boolean,
+        ): boolean => {
+            const scope = identityScope;
+            if (!isAuthIdentityScopeCurrent(scope) || editEpochRef.current !== expectedEpoch || !isCurrent())
+                return false;
+            const reserved = ++editEpochRef.current;
+            setStoredDraft((current) => {
+                if (
+                    !isAuthIdentityScopeCurrent(scope) ||
+                    editEpochRef.current !== reserved ||
+                    !isCurrent() ||
+                    !sameScope(current.scope, scope) ||
+                    current.data.capturedCoords !== expectedPoints
+                )
+                    return current;
+                const points = transform(current.data.capturedCoords);
+                return points === current.data.capturedCoords
+                    ? current
+                    : { ...current, data: { ...current.data, capturedCoords: points } };
+            });
+            return true;
         },
         [identityScope],
     );
@@ -436,6 +472,8 @@ export function useTraceDraft() {
     return {
         capturedCoords: draft.capturedCoords,
         setCapturedCoords,
+        getTraceEditEpoch,
+        commitCheckedTracePoints,
         departureMs: draft.departureMs,
         setDepartureMs,
         traceName: draft.traceName,

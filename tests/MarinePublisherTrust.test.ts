@@ -12,6 +12,15 @@ import {
     validateCmemsManifest,
     verifyPublisherAsset,
     type CmemsManifest,
+    clearCmemsGridCache,
+    fetchCmemsGrid,
+    getCmemsGridCacheStats,
+    getCmemsReadEpoch,
+    getCmemsHoldingReadDeadline,
+    subscribeCmemsReadEpoch,
+    readCachedCmemsFrames,
+    releaseCmemsGrid,
+    CMEMS_CACHE_TTL_MS,
 } from '../services/weather/api/cmemsGridTrust';
 import {
     clearMpaDatasetCache,
@@ -88,11 +97,65 @@ function makeThcu(): Uint8Array {
 describe('CMEMS schema-v2 client trust boundary', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+        clearCmemsGridCache();
     });
 
     it('gives 12-hourly waves one honest 3-hour cadence margin without weakening currents', () => {
         expect(CMEMS_DATASETS.waves.maxSourceAgeHours).toBe(15);
         expect(CMEMS_DATASETS.currents.maxSourceAgeHours).toBe(12);
+    });
+    it('borrows only fresh retained frames without fetching, touching LRU, renewing clocks or surviving release', async () => {
+        clearCmemsGridCache();
+        vi.spyOn(Date, 'now').mockReturnValue(NOW);
+        const bytes = makeThcu(),
+            manifest = currentsManifest(),
+            hash = await sha256Hex(bytes);
+        manifest.files.forEach((f) => {
+            f.sha256 = hash;
+        });
+        manifest.generation = `g-20260805T060000Z-${await publisherGenerationSuffix(
+            manifest.data_start,
+            'currents',
+            manifest.files.map((f) => f.sha256),
+        )}`;
+        manifest.files.forEach((f) => {
+            f.filename = `${manifest.generation}-h${String(f.step).padStart(3, '0')}.bin`;
+        });
+        const fetchMock = vi.fn(async (url: string) =>
+            url.includes('manifest-v2.json')
+                ? new Response(JSON.stringify(manifest), { headers: { 'content-type': 'application/json' } })
+                : new Response(new Uint8Array(bytes).buffer, {
+                      headers: { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) },
+                  }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        expect(await fetchCmemsGrid('currents', 0)).not.toBeNull();
+        const before = getCmemsGridCacheStats(),
+            calls = fetchMock.mock.calls.length,
+            epoch = getCmemsReadEpoch();
+        const summary = readCachedCmemsFrames('currents', NOW, (m, frames, checked) => ({
+            generation: m.generation,
+            steps: frames.map((f) => f.step),
+            checked,
+            originalValidStart: m.data_start,
+        }));
+        expect(summary).toMatchObject({ generation: manifest.generation, steps: [0], checked: NOW });
+        expect(getCmemsGridCacheStats()).toEqual(before);
+        expect(fetchMock).toHaveBeenCalledTimes(calls);
+        expect(getCmemsReadEpoch()).toBe(epoch);
+        expect(getCmemsHoldingReadDeadline(NOW)).toBe(NOW + CMEMS_CACHE_TTL_MS);
+        expect(readCachedCmemsFrames('currents', NOW + CMEMS_CACHE_TTL_MS, () => true)).toBeNull();
+        expect(readCachedCmemsFrames('currents', NOW - 1, () => true)).toBeNull();
+        const changed = vi.fn(),
+            off = subscribeCmemsReadEpoch(changed);
+        releaseCmemsGrid('currents');
+        off();
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(getCmemsReadEpoch()).toBeGreaterThan(epoch);
+        expect(readCachedCmemsFrames('currents', NOW, () => true)).toBeNull();
+        expect(getCmemsHoldingReadDeadline(NOW)).toBe(Infinity);
+        expect(fetchMock).toHaveBeenCalledTimes(calls);
     });
 
     it('derives every CMEMS scrubber count from the inclusive manifest contract with load-aware playback', () => {
