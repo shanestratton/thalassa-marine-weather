@@ -310,7 +310,7 @@ describe('traceBackgroundCheck', () => {
         const accepted = evaluateTraceRelease(
             hauraki,
             'ready',
-            [verdict('danger', 'charted wreck'), verdict('caution', 'shoal', true)],
+            [verdict('danger', 'charted wreck'), verdict('caution', 'shoal')],
             new Set([0]),
             {
                 draftM: 1.8,
@@ -318,13 +318,16 @@ describe('traceBackgroundCheck', () => {
                 encRegistryVersion: 1,
                 encRegistryFingerprint: hoisted.fingerprint,
                 departureMs: Date.now() - 40 * 86_400_000,
-                tideWindowLabel: 'Leave 09:10–13:30',
+                tideWindowLabel: '',
             },
             new Date(Date.now() - 40 * 86_400_000).toISOString(),
         ).verification!;
+        // Model a previously persisted stamp, rather than asking today's closed
+        // provider boundary to mint fresh tidal permission for the fixture.
+        accepted.tideWindowLabel = 'Leave 09:10–13:30';
         expect(accepted.acknowledgedDangerLegs).toEqual([0]);
         const H = saveTrace('Westhaven → Waiheke', hauraki, { verification: accepted }).trace.id;
-        expect(statusOf(H)).toMatchObject({ tone: 'unchecked', code: 'aged' });
+        expect(statusOf(H)).toMatchObject({ tone: 'unchecked', code: 'tide' });
 
         setLogPageActive(true);
         enqueueTraceChecks([H], 'idle');

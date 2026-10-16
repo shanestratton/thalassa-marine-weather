@@ -29,7 +29,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: fd7897338caabb0feb4712c855a907e4f99b696c
+                  ref: 04e3649d9b51c8b9a2408da35e8c64c755e612f9
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
@@ -49,7 +49,7 @@ jobs:
         runs-on: macos-26
         timeout-minutes: 90
         env:
-            CANDIDATE_SHA: 6e2ee4ad203b60d7ddbcb377f29708b6420684ff
+            CANDIDATE_SHA: 9c0d9f2f2e5ca3a00226bc023b44a850e3666225
             CI: 'true'
             HUSKY: '0'
             NODE_OPTIONS: --max-old-space-size=4096
@@ -69,7 +69,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 6e2ee4ad203b60d7ddbcb377f29708b6420684ff
+                  ref: 9c0d9f2f2e5ca3a00226bc023b44a850e3666225
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
@@ -85,11 +85,11 @@ jobs:
                   const token=process.env.GH_TOKEN;
                   delete process.env.GH_TOKEN;
                   const files={
-                      'gate.mjs':'98494b1e435f272940a03882c276d74fcf71d2235507f0df909bf36b4162e905',
+                      'gate.mjs':'38d9610ce12976346acf799a333597eb9fb9ffb4e092fedbd8f2011f05b3dfb2',
                       'apple-status.mjs':'43154c11076a1fd7ec346fedd1c931e29e8f87f94dd67a9f5d38dbfa44680635',
                   };
                   for(const [name,hash] of Object.entries(files)) {
-                      const response=await fetch(`https://api.github.com/repos/shanestratton/thalassa-marine-weather/contents/ci/build133/${name}?ref=fd7897338caabb0feb4712c855a907e4f99b696c`,{
+                      const response=await fetch(`https://api.github.com/repos/shanestratton/thalassa-marine-weather/contents/ci/build133/${name}?ref=04e3649d9b51c8b9a2408da35e8c64c755e612f9`,{
                           method:'GET',redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json'},
                       });
                       if(!response.ok) throw new Error(`Release-control read failed: HTTP ${response.status}`);
