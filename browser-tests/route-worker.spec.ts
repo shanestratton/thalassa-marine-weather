@@ -36,6 +36,11 @@
  * and the route it measures is the one it would be without them. The last
  * test reads a canal crop in the route worker and on the main thread, with
  * each browser's own picture decoder: the same land and water.
+ *
+ * Run these rendering/timing controls in the existing single-worker @pixel
+ * lane. A simultaneous software-WebGL browser can delay the heartbeat on
+ * a shared runner. All pause limits, negative controls and parity assertions
+ * remain unchanged; these cases still run in both browser engines.
  */
 import { expect, test, type Page } from '@playwright/test';
 import type mapboxgl from 'mapbox-gl';
@@ -291,7 +296,7 @@ async function routed(page: Page) {
 
 test.describe.configure({ mode: 'serial' });
 
-test('the router works in the worker: the chart stays live, a click answers, the seconds tick', async ({
+test('the router works in the worker: the chart stays live, a click answers, the seconds tick @pixel', async ({
     page,
 }, info) => {
     test.setTimeout(240_000);
@@ -351,7 +356,7 @@ test('the router works in the worker: the chart stays live, a click answers, the
     expect(errors).toEqual([]);
 });
 
-test('when the route worker can’t start the same harness sees the freeze, and the route is bit-identical to the worker’s', async ({
+test('when the route worker can’t start the same harness sees the freeze, and the route is bit-identical to the worker’s @pixel', async ({
     page,
 }, info) => {
     test.setTimeout(300_000);
@@ -378,7 +383,7 @@ test('when the route worker can’t start the same harness sees the freeze, and 
     expect(errors).toEqual([]);
 });
 
-test('Stop ends the route at once and keeps her pins; the next route comes from a fresh worker, the same line', async ({
+test('Stop ends the route at once and keeps her pins; the next route comes from a fresh worker, the same line @pixel', async ({
     page,
 }) => {
     test.setTimeout(300_000);
@@ -420,7 +425,7 @@ test('Stop ends the route at once and keeps her pins; the next route comes from 
     expect(errors).toEqual([]);
 });
 
-test('a satellite crop read in the route worker gives the main thread’s land and water, picture for picture', async ({
+test('a satellite crop read in the route worker gives the main thread’s land and water, picture for picture @pixel', async ({
     page,
 }) => {
     test.setTimeout(120_000);

@@ -101,7 +101,7 @@ export default function ObsCreditsRollup({
                     aria-expanded={open}
                     aria-haspopup="dialog"
                     aria-label={warning ? 'Credits; layer status needs review' : 'Credits'}
-                    className="h-[44px] shrink-0 whitespace-nowrap px-[6px] font-semibold"
+                    className="h-[44px] shrink-0 whitespace-nowrap px-[3px] font-semibold"
                     onClick={() => setOpen(true)}
                 >
                     Credits
@@ -118,7 +118,7 @@ export default function ObsCreditsRollup({
                         aria-label={
                             rain === 'radar' ? 'Rain radar data by RainViewer' : 'Rain forecast imagery by Rainbow.ai'
                         }
-                        className="inline-flex h-[44px] min-w-0 items-center whitespace-nowrap border-l border-white/15 px-[6px] underline underline-offset-2"
+                        className="inline-flex h-[44px] min-w-0 items-center whitespace-nowrap border-l border-white/15 px-[3px] underline underline-offset-2"
                     >
                         {rain === 'radar' ? 'RainViewer' : 'Rainbow.ai'}
                     </a>
