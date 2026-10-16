@@ -108,6 +108,13 @@ jobs:
             - name: Pi collision rule mirror in sync
               run: node pi-cache/scripts/sync-collision-rule.mjs --check
 
+            - name: Pi instrument, wake, radar and weather wire mirrors in sync
+              run: |
+                  node pi-cache/scripts/sync-signalk-protocol.mjs --check
+                  node pi-cache/scripts/sync-wake-rule.mjs --check
+                  node pi-cache/scripts/sync-radar-target.mjs --check
+                  node pi-cache/scripts/sync-weather-position.mjs --check
+
             # The chart vault (Pi update 3, 127-C-d) runs a copy of the o-charts
             # SENC parser (pi-cache/src/sencEngine) from tools/senc-extractor.
             - name: Pi senc engine mirror in sync
