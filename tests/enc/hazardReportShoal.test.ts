@@ -79,4 +79,24 @@ describe('findHazardsAlongRoute — off-track shoal surfacing (#1)', () => {
         expect(report.entries.filter((e) => e.hazardType === 'shallow').length).toBeLessThanOrEqual(6);
         expect(report.entries.some((e) => e.hazardType === 'wreck')).toBe(true);
     });
+    it('grades before the global cap: a drying shoal survives a closer deep wreck', async () => {
+        vi.mocked(getIndexForCell).mockResolvedValue(
+            indexWith([
+                { layer: 'WRECKS', geometry: pt(153.05, -27.40001), minDepthM: 8 },
+                { layer: 'SOUNDG', geometry: pt(153.15, -27.4003), minDepthM: -0.5 },
+            ]),
+        );
+        const report = await findHazardsAlongRoute(ROUTE, { shoalDepthM: DRAFT_KEEL, maxEntries: 1 });
+        expect(report.entries).toHaveLength(1);
+        expect(report.entries[0].hazardType).toBe('shallow');
+        expect(report.entries[0].minDepthM).toBe(-0.5);
+        expect(report.entriesOmitted).toBe(1);
+    });
+    it('discloses an unavailable chart instead of counting it as consulted', async () => {
+        vi.mocked(getIndexForCell).mockResolvedValue(null);
+        const report = await findHazardsAlongRoute(ROUTE);
+        expect(report.cellsConsulted).toBe(0);
+        expect(report.cellsUnavailable).toBe(1);
+        expect(report.advisories?.[0]).toMatchObject({ severity: 'caution', kind: 'cell-load-failed' });
+    });
 });
