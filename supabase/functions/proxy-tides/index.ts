@@ -205,7 +205,10 @@ Deno.serve(async (req: Request) => {
         // Free capability check: an older deployment rejects the missing
         // coordinates, so checking support cannot accidentally spend credits.
         if (capabilities === true || capabilities === 'true') {
-            return corsResponse(JSON.stringify({ status: 200, offlineTides: { schema: 1, minDays: 14, maxDays: 30 } }), 200);
+            return corsResponse(
+                JSON.stringify({ status: 200, offlineTides: { schema: 1, minDays: 14, maxDays: 30 } }),
+                200,
+            );
         }
         const key = Deno.env.get('WORLDTIDES_API_KEY');
         if (!key) return corsResponse(JSON.stringify({ error: 'Tide service is not configured' }), 500);
@@ -224,8 +227,8 @@ Deno.serve(async (req: Request) => {
             stationDistance === null ||
             ![true, false, 'true', 'false'].includes(rawStations as boolean | string) ||
             ![true, false, 'true', 'false'].includes(rawHeights as boolean | string) ||
-            (heights && (stations || days > 3))
-            || offlineDays === null || (offlineDays !== undefined && (stations || heights))
+            (heights && (stations || days > 3)) ||
+            offlineDays === null || (offlineDays !== undefined && (stations || heights))
         ) {
             return corsResponse(JSON.stringify({ error: 'Invalid tide request bounds' }), 400);
         }
@@ -236,7 +239,9 @@ Deno.serve(async (req: Request) => {
         upstreamUrl.searchParams.set('stationDistance', String(stationDistance));
         upstreamUrl.searchParams.set('key', key);
 
-        let savedWindow: { schema: number; requestedDays: number; start: number; end: number; fetchedAtMs: number } | undefined;
+        let savedWindow:
+            | { schema: number; requestedDays: number; start: number; end: number; fetchedAtMs: number }
+            | undefined;
         let upstreamDays = days;
         if (stations) {
             // Station discovery — return nearby tide stations within radius
@@ -251,7 +256,13 @@ Deno.serve(async (req: Request) => {
             // bracket the whole requested future period. No dense 30-day grid.
             if (offlineDays !== undefined) {
                 upstreamDays = offlineDays + 2;
-                savedWindow = { schema: 1, requestedDays: offlineDays, start, end: start + upstreamDays * 86400, fetchedAtMs: Date.now() };
+                savedWindow = {
+                    schema: 1,
+                    requestedDays: offlineDays,
+                    start,
+                    end: start + upstreamDays * 86400,
+                    fetchedAtMs: Date.now(),
+                };
             }
             upstreamUrl.searchParams.set('extremes', '');
             upstreamUrl.searchParams.set('days', String(upstreamDays));
