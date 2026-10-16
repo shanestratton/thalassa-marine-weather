@@ -144,6 +144,46 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 describe('bounded wake wire', () => {
+    it('preserves the arming phone’s binding in a keeper proof read by another enrolled phone', () => {
+        const rules = selectedRules();
+        const configuration = {
+            ...savedConfiguration(),
+            rules,
+            rulesDigest: createHash('sha256').update(wakeRulesCanonical(rules, null)).digest('hex'),
+        };
+        const proof = {
+            update: 7,
+            ownerId: OWNER,
+            feedId: binding().feedId,
+            rulesDigest: configuration.rulesDigest,
+            running: true,
+            evaluatedAt: NOW,
+            binding: { ...configuration.binding },
+            revision: REV,
+            instance: INSTANCE,
+        };
+        const parsed = parseWakePiStatus(
+            JSON.stringify({ ...status(), configured: true, running: true, reason: 'watching', configuration, proof }),
+            NOW,
+        );
+        expect(parsed.binding).toEqual(binding());
+        expect(parsed.proof?.binding).toEqual(configuration.binding);
+        expect(parsed.proof?.binding.deviceId).not.toBe(parsed.binding?.deviceId);
+        proof.binding = binding();
+        expect(() =>
+            parseWakePiStatus(
+                JSON.stringify({
+                    ...status(),
+                    configured: true,
+                    running: true,
+                    reason: 'watching',
+                    configuration,
+                    proof,
+                }),
+                NOW,
+            ),
+        ).toThrow();
+    });
     it('shows another enrolled phone’s saved rules for the same boat without borrowing its caller authority', () => {
         const configuration = savedConfiguration();
         const s = { ...status(), configured: true, configuration };

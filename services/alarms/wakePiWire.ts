@@ -280,7 +280,7 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
             rulesDigest: configuration.rulesDigest,
             running: true,
             evaluatedAt: p.evaluatedAt,
-            binding: { ...binding },
+            binding: { ...configuration.binding },
             revision: configuration.revision,
             instance: v.instance,
         };
