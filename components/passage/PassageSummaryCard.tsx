@@ -40,6 +40,9 @@ import {
 import { splitDaysHours } from '../../utils/splitDaysHours';
 import { RouteEstimateSummary } from './RouteEstimateSummary';
 import { estimateRouteFuel } from '../../services/isochrone/routeStats';
+import { useForecastSteeringField } from '../../hooks/useForecastSteeringField';
+import { forecastSteeringAt, type ForecastSteering } from '../../services/routing/forecastSteering';
+import { ForecastSteeringLine } from './ForecastSteeringLine';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -202,7 +205,11 @@ const DIFFICULTY_CONFIG = {
 
 /* ── Leg Row Component ────────────────────────────────────────── */
 
-const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) => {
+const LegRow: React.FC<{ leg: PassageLeg; index: number; steering?: ForecastSteering | null }> = ({
+    leg,
+    index,
+    steering,
+}) => {
     const diff = DIFFICULTY_CONFIG[leg.difficulty];
     return (
         <div className={`${diff.bg} border ${diff.border} rounded-lg p-3`}>
@@ -241,6 +248,7 @@ const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) =>
                     <div className={diff.color}>{Math.round(leg.maxWindKt)}kt</div>
                 </div>
             </div>
+            <ForecastSteeringLine value={steering ?? null} />
             {leg.difficultyReason && <p className="text-[10px] text-gray-500 mt-1.5 italic">{leg.difficultyReason}</p>}
         </div>
     );
@@ -693,6 +701,34 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     const effectiveDistance = passageSchedule.distanceNm;
     const effectiveEta = passageSchedule.eta;
     const duration = formatPassageDuration(passageSchedule.durationHours);
+    const steeringPoints = useMemo(() => mapRouteCoords.map(([lon, lat]) => ({ lat, lon })), [mapRouteCoords]);
+    const activeVesselId = useSettingsStore((s) => s.activeVesselId);
+    const steeringDepartureMs = Date.parse(passageSchedule.departureTime);
+    const steeringMatches =
+        !foreignBoat &&
+        passageMatchesVoyage &&
+        Date.parse(passage.departureTime ?? '') === steeringDepartureMs &&
+        passage.turnWaypoints.length === passage.legs.length + 1;
+    const steeringField = useForecastSteeringField({
+        points: steeringPoints,
+        startMs: steeringDepartureMs,
+        endMs: steeringDepartureMs + passage.totalDurationHours * 3_600_000,
+        vesselKey: activeVesselId ?? '',
+        enabled: steeringMatches,
+        satelliteMode: settings.satelliteMode,
+    });
+    const steeringForLeg = (index: number) => {
+        const point = passage.turnWaypoints[index];
+        return steeringMatches && point && Number.isFinite(point.timeHours) && point.timeHours >= 0
+            ? forecastSteeringAt(
+                  steeringField,
+                  point,
+                  steeringDepartureMs + point.timeHours * 3_600_000,
+                  passage.legs[index].bearing,
+                  cruisingSpeedKt ?? NaN,
+              )
+            : null;
+    };
 
     // A pre-existing past departure must self-heal while the card is visible,
     // rather than staying valid only until the page is reopened. Do not create
@@ -1070,7 +1106,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     {showLegs && (
                         <div className="mt-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
                             {passage.legs.map((leg, i) => (
-                                <LegRow key={i} leg={leg} index={i} />
+                                <LegRow key={i} leg={leg} index={i} steering={steeringForLeg(i)} />
                             ))}
                         </div>
                     )}

@@ -167,6 +167,9 @@ import { LocationStore } from '../../stores/LocationStore';
 import { GpsService } from '../../services/GpsService';
 import { MobService } from '../../services/MobService';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
+import { useForecastSteeringField } from '../../hooks/useForecastSteeringField';
+import { forecastSteeringAt } from '../../services/routing/forecastSteering';
+import { ForecastSteeringLine } from './ForecastSteeringLine';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 import { triggerHaptic } from '../../utils/system';
@@ -1130,6 +1133,22 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const ghostLat = station?.lat ?? null;
     const ghostLon = station?.lon ?? null;
     const ghostBearing = station?.bearingDeg ?? null;
+    const steeringVesselId = useSettingsStore((state) => state.activeVesselId);
+    const steeringSatellite = useSettingsStore((state) => state.settings.satelliteMode);
+    const steeringAtMs = departureTimeMs + aheadMs;
+    const steeringField = useForecastSteeringField({
+        points: station ? [station] : [],
+        startMs: steeringAtMs,
+        endMs: steeringAtMs,
+        vesselKey: steeringVesselId ?? '',
+        enabled:
+            look.on && !!station && !station.joining && !planArrived && planHow !== 'tack' && planHow !== 'assumed',
+        satelliteMode: steeringSatellite,
+    });
+    const forecastSteering =
+        station && !station.joining && planHow !== 'tack' && planHow !== 'assumed'
+            ? forecastSteeringAt(steeringField, station, steeringAtMs, station.bearingDeg, planBoatKts)
+            : null;
     useEffect(() => {
         publishPassageGhost(
             ghostLat !== null && ghostLon !== null && ghostBearing !== null
@@ -1628,6 +1647,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                         : null
                                 }
                             />
+                            <ForecastSteeringLine value={forecastSteering} />
                             <Cell
                                 forecast
                                 // The chance rides in the label: a line of its own
