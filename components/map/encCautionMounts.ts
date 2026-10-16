@@ -64,11 +64,30 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
                 minzoom: 13,
                 filter: ['==', ['get', '_caution'], 'SBDARE'],
                 paint: {
-                    'fill-color': '#8a8a5a',
+                    'fill-color': ['coalesce', ['get', '_seabedTint'], '#8a8a5a'],
                     'fill-opacity': 0.06,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.SBDARE_FILL),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.SBDARE_POINT)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.SBDARE_POINT,
+                type: 'symbol',
+                source: ENC_VEC_SRC.CAUTION_AREAS,
+                minzoom: 13,
+                filter: ['all', ['==', ['get', '_caution'], 'SBDARE'], ['==', ['geometry-type'], 'Point']],
+                layout: {
+                    'text-field': ['get', '_seabedAbbr'],
+                    'text-size': 12,
+                    'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                    'text-allow-overlap': false,
+                },
+                paint: { 'text-color': '#615b44', 'text-halo-color': '#f3eedf', 'text-halo-width': 1.2 },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.SBDARE_POINT),
         );
     }
     if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_LINE)) {

@@ -14,6 +14,7 @@ import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
 import { ENC_VEC_LAYERS, encBaseLayerId } from './encLayerIds';
 import { daylightUiColor } from '../../utils/daylightUiColor';
+import { seabedNature } from '../../services/enc/seabed';
 
 /**
  * Escape HTML special chars so feature properties (e.g. `OBJNAM`
@@ -112,26 +113,8 @@ function colourNames(colour: unknown): string {
 /** S-57 NATSUR (nature of surface) codes → names — the anchoring read
  *  ("Sand / Mud" holds, "Rock" doesn't). Shared by the caution-area popup
  *  and the DEPARE popup's seabed enrichment (extras.seabed). */
-const NATSUR_LABELS: Record<string, string> = {
-    '1': 'Mud',
-    '2': 'Clay',
-    '3': 'Silt',
-    '4': 'Sand',
-    '5': 'Stone',
-    '6': 'Gravel',
-    '7': 'Pebbles',
-    '8': 'Cobbles',
-    '9': 'Rock',
-    '11': 'Coral',
-    '14': 'Shells',
-};
-
 function natsurNames(natsur: unknown): string {
-    return String(natsur ?? '')
-        .split(',')
-        .map((n) => NATSUR_LABELS[n.trim()])
-        .filter(Boolean)
-        .join(' / ');
+    return seabedNature(natsur).label;
 }
 
 /** Caution-area class → plain-language label. Shared by the standalone

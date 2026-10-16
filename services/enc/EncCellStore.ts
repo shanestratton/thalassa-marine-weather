@@ -384,6 +384,12 @@ function touchBlob(cellId: string): EncConversionResult | undefined {
     return hit?.blob;
 }
 
+/** Already-loaded chart bytes only. Display advice must never start a disk,
+ * Pi, cloud or WAN read, or copy protected geometry out of this RAM cache. */
+export function peekCellGeoJSON(cellId: string): EncConversionResult | undefined {
+    return blobCache.get(encCellStorageIdentity(cellId))?.blob;
+}
+
 function dropBlob(cellId: string): void {
     const key = encCellStorageIdentity(cellId);
     const hit = blobCache.get(key);

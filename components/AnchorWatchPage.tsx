@@ -41,6 +41,7 @@ import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { ShoreWatchReadings } from './anchor-watch/ShoreWatchReadings';
 import { loadAnchorAreaCheck, MoveAnchorSheet, type PiMoveSource } from './anchor-watch/MoveAnchorSheet';
 import { MoveAnchorChip } from './anchor-watch/MoveAnchorChip';
+import { HoldingGroundNote } from './anchor-watch/HoldingGroundNote';
 import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
@@ -1348,6 +1349,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 />
                             </div>
                         </div>
+
+                        {radio.position && radio.isFresh && !radio.error && (
+                            <HoldingGroundNote
+                                lat={radio.position.latitude}
+                                lon={radio.position.longitude}
+                                className="mb-2"
+                                atGps
+                            />
+                        )}
 
                         {/* ── Slide to Confirm — safety orange ──
                             No bottom padding of its own: the scroller owns the

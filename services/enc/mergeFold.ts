@@ -37,6 +37,7 @@ import {
 import { buildCellGlaze } from './glazeBuild';
 import { reduceNamedAreas } from './seaareLabels';
 import { explodeSoundings } from './encHazardParse';
+import { seabedNature } from './seabed';
 import { buildSectorFeatures, readSectorBearings } from './lightSectors';
 import type { GlazeUpgradeItem } from './geometryUpgrades';
 import {
@@ -528,7 +529,8 @@ export async function accumulateCellLayers(
             // tagAndPush yield and the next cell. Counter spans all classes.
             if ((++cautionSeen & 63) === 0) await yieldIfNeeded();
             if (!feat || !feat.geometry) continue;
-            if (cullDeg > 0 && featureDiagDeg(feat) < cullDeg) continue;
+            if (cullDeg > 0 && !(cls === 'SBDARE' && feat.geometry.type === 'Point') && featureDiagDeg(feat) < cullDeg)
+                continue;
             merged.CAUTION_AREAS.features.push({
                 type: 'Feature',
                 geometry: feat.geometry,
@@ -537,6 +539,12 @@ export async function accumulateCellLayers(
                     _caution: cls,
                     _cellId: cell.id,
                     _sourceHO: cell.sourceHO,
+                    ...(cls === 'SBDARE'
+                        ? (() => {
+                              const bottom = seabedNature(feat.properties?.NATSUR ?? feat.properties?.natsur);
+                              return { _seabedAbbr: bottom.abbreviation, _seabedTint: bottom.tint };
+                          })()
+                        : {}),
                     ...(cell.usage === 'reference' ? { _reference: true } : {}),
                 },
             });

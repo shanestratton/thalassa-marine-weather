@@ -77,6 +77,7 @@ export const ENC_VEC_LAYERS = {
      *  popup and cluttered z11 (audit). The click handler queries this layer
      *  at a DEPARE tap and folds "Seabed: Sand" into the depth popup. */
     SBDARE_FILL: 'enc-vec-sbdare-fill',
+    SBDARE_POINT: 'enc-vec-sbdare-point',
     /** TSS lane-direction arrows (⇧ rotated by ORIENT) — a directionless
      *  lane wash told the helmsman nothing about which WAY the lane runs
      *  (audit). Map-aligned so the arrow points the lane's true bearing. */
@@ -216,6 +217,7 @@ export const ALL_LAYER_IDS: readonly string[] = [
     // so numbers + navaids always read on top of a restricted/cable wash.
     // SBDARE's subtle fill sits lowest of the three (pure background info).
     ENC_VEC_LAYERS.SBDARE_FILL,
+    ENC_VEC_LAYERS.SBDARE_POINT,
     ENC_VEC_LAYERS.CAUTION_AREA_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_LINE,
     ENC_VEC_LAYERS.TSSLPT_ARROW,
@@ -329,6 +331,7 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         // steal the DEPARE depth popup (its info folds into that popup instead).
         id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE &&
         id !== ENC_VEC_LAYERS.SBDARE_FILL &&
+        id !== ENC_VEC_LAYERS.SBDARE_POINT &&
         id !== ENC_VEC_LAYERS.TSSLPT_ARROW &&
         id !== ENC_VEC_LAYERS.FAIRWY_LINE,
 );

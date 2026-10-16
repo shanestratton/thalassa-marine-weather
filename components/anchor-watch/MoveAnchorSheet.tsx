@@ -135,6 +135,7 @@ import { XIcon } from '../Icons';
 import { SwingCircleCanvas, type SwingCanvasModel } from './SwingCircleCanvas';
 import type { AnchorDragHandlers } from './anchorDrag';
 import { bearingToCardinal } from './anchorUtils';
+import { HoldingGroundNote } from './HoldingGroundNote';
 
 // The heading rule is shared with the watch itself (126-07c): utils/trueHeading.ts.
 export { freshTrueHeading, HEADING_PREFILL_MAX_AGE_MS };
@@ -993,6 +994,9 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                         <p role="alert" className="text-sm text-red-300">
                             {error}
                         </p>
+                    )}
+                    {!fromAlarm && plan && (
+                        <HoldingGroundNote lat={plan.target.lat} lon={plan.target.lon} className={KEYBOARD_ASIDE} />
                     )}
                     {/* Side by side at every size, so the pair is one row even at
                         320 px with large text and the keyboard up. The dialog is
