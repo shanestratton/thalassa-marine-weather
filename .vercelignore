@@ -33,6 +33,9 @@ browser-tests/
 *.test.tsx
 docs/
 tools/
+# Offline NOAA publisher CLIs use the separately deployed Pi/GDAL converter.
+# They are not part of the web runtime or its build dependency graph.
+scripts/noaa-enc/
 icons_new/
 bundle-stats.html
 

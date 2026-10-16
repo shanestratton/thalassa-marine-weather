@@ -142,6 +142,7 @@ export function AutoroutingTrialWorkspace({
     const preserveEditedViewport = useRef(false);
     const openingCenter = useRef(initialCenter ? { ...initialCenter } : undefined);
     const openingToken = useRef(mapboxToken);
+    const openingAuthScope = useRef(getAuthIdentityScope());
     const [mapReady, setMapReady] = useState(false);
     const [mapError, setMapError] = useState('');
     const [status, setStatus] = useState<AutoroutingTrialStatus | null>(null);
@@ -382,7 +383,9 @@ export function AutoroutingTrialWorkspace({
     // navigation charts. Re-read when the chart library changes, so charts
     // installed while Auto is open enable Calculate.
     useEffect(() => {
+        let alive = true;
         const read = () => {
+            if (!alive || !isAuthIdentityScopeCurrent(openingAuthScope.current)) return;
             try {
                 setStatus(provider.status());
             } catch {
@@ -390,7 +393,11 @@ export function AutoroutingTrialWorkspace({
             }
         };
         read();
-        return subscribeEncRegistry(read);
+        const unsubscribe = subscribeEncRegistry(read);
+        return () => {
+            alive = false;
+            unsubscribe();
+        };
     }, [provider]);
 
     // One Mapbox instance per open workspace; edits update only its GeoJSON source.

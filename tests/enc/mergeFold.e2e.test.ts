@@ -132,6 +132,7 @@ const blobs: Record<string, EncConversionResult> = { COARSE: coarseBlob, FINE: f
 vi.mock('../../services/enc/EncCellMetadata', () => ({
     listCells: () => [COARSE, FINE],
     getCell: (id: string) => (id === 'COARSE' ? COARSE : id === 'FINE' ? FINE : undefined),
+    getDisplayCell: (id: string) => [COARSE, FINE].find((cell) => cell.id === id),
     cellsForBBox: () => [COARSE, FINE],
     getVersion: () => 1,
     putCell: () => undefined,

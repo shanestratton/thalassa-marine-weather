@@ -2405,13 +2405,14 @@ describe('explicit routing mode choice', () => {
         fillRequest();
         fireEvent.click(calculateButton());
         const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
+        const statusCallsBeforeAccountChange = mocks.status.mock.calls.length;
         act(() => setAuthIdentityScope('another-account'));
         await act(async () => pending.resolve(route));
         expect(signal.aborted).toBe(true);
         expect(onClose).toHaveBeenCalledTimes(1);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
-        expect(mocks.status).toHaveBeenCalledTimes(2);
+        expect(mocks.status).toHaveBeenCalledTimes(statusCallsBeforeAccountChange);
     });
 
     it('closing Auto closes the entire flow and reopening takes fresh snapshots with no retained inputs or proposal', async () => {
