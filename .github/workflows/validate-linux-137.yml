@@ -11,7 +11,7 @@ concurrency:
   group: thalassa-137-linux-focused
   cancel-in-progress: false
 env:
-  CANDIDATE_SHA: "72fb05fa0ebd538c2b44d28859f82a23debbd5f6"
+  CANDIDATE_SHA: "cf5d13ceba312339053c18004c9a2b7f4d007c4f"
   CI: "true"
   HUSKY: "0"
   NODE_OPTIONS: --max-old-space-size=4096
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "72fb05fa0ebd538c2b44d28859f82a23debbd5f6"
+          ref: "cf5d13ceba312339053c18004c9a2b7f4d007c4f"
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -58,6 +58,14 @@ jobs:
         run: npx playwright install --with-deps chromium webkit
       - name: Tide and Wake original guards with bounded readiness diagnostics
         run: npx playwright test --config playwright.keyboard.config.ts browser-tests/tide-footer-layout.spec.ts browser-tests/wake-rules137-layout.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output test-results/linux137-layout
+      - name: Preserve Tide and Wake diagnostics immediately
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build137-focused-linux-tide-wake
+          path: test-results/linux137-layout/
+          retention-days: 7
+          if-no-files-found: warn
       - name: All twelve isolated graphics and worker benchmark cases
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
