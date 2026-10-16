@@ -393,11 +393,12 @@ export interface CollisionAssessment extends CollisionGrade {
 
 /**
  * Only real-sensor targets raise the alarm: AIS from the boat's own receiver
- * ('local') or the AIS network ('cloud'). App-reported boat positions (135-04)
- * never can. Radar ARPA joins in 132-02.
+ * ('local'), AIS network ('cloud'), or qualified physical radar ('radar').
+ * The radar adapter requires original same-input navigation/motion clocks.
+ * App-reported boat positions (135-04) never can.
  */
 export function collisionSourceCanAlarm(source: unknown): boolean {
-    return source === 'local' || source === 'cloud';
+    return source === 'local' || source === 'cloud' || source === 'radar';
 }
 
 /** Assess one target. Null only when either position is invalid. */

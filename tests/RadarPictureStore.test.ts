@@ -116,3 +116,90 @@ describe('private radar gateway picture', () => {
         h.store.dispose();
     });
 });
+
+function piPicture(
+    contact: ReturnType<RadarPictureStore['getSnapshot']>['contacts'][number],
+    isCurrent = () => true,
+    servedAt = at,
+) {
+    const feedId = 'pi:' + 'a'.repeat(32);
+    return {
+        configured: true,
+        connected: true,
+        overloaded: false,
+        feedId,
+        servedAt,
+        lastFrameAt: at,
+        lastTargetAt: at,
+        ownship: { feedId, position: null, heading: null, motion: null },
+        contacts: [
+            {
+                ...contact,
+                position: contact.position ? { ...contact.position } : null,
+                feedId,
+                contactKey: `radar:${feedId}:RA:1`,
+            },
+        ],
+        isCurrent,
+    };
+}
+describe('independent paired Pi radar picture ownership', () => {
+    it('retiring either source leaves the other source intact', () => {
+        const h = harness(),
+            gateway = h.store.openGateway()!;
+        h.store.ingest(gateway, tll, at);
+        const picture = piPicture(h.store.getSnapshot().contacts[0]);
+        const pi = h.store.acceptPi(picture)!;
+        expect(h.store.getSnapshot().contacts).toHaveLength(2);
+        h.store.retire(gateway);
+        expect(h.store.getSnapshot().contacts).toHaveLength(1);
+        expect(h.store.getSnapshot().feeds[0].source).toBe('pi');
+        const replacement = h.store.openGateway()!;
+        h.store.ingest(replacement, tll, at);
+        h.store.retirePi(pi);
+        expect(h.store.getSnapshot().contacts).toHaveLength(1);
+        expect(h.store.getSnapshot().feeds[0].source).toBe('gateway');
+        h.store.dispose();
+    });
+    it('hides only old-pair data synchronously and ages without poll-clock restamping', () => {
+        const h = harness(),
+            gateway = h.store.openGateway()!;
+        h.store.ingest(gateway, tll, at);
+        let current = true;
+        const picture = piPicture(h.store.getSnapshot().contacts[0], () => current);
+        h.store.acceptPi(picture);
+        const both = h.store.getSnapshot();
+        picture.contacts[0].position!.lat = 89;
+        expect(both.contacts[1].position!.lat).toBe(50.5);
+        h.time(at + 16000);
+        h.store.tick();
+        expect(h.store.getSnapshot().contacts[1]).toMatchObject({ at, receivedAt: at, fresh: false });
+        current = false;
+        const remaining = h.store.getSnapshot();
+        expect(remaining.contacts).toHaveLength(1);
+        expect(remaining.feeds[0].source).toBe('gateway');
+        expect(h.store.getSnapshot()).toBe(remaining);
+        h.store.dispose();
+    });
+    it('rejects out-of-order cache packets and old retirement tokens after source rebind', () => {
+        const h = harness(),
+            g = h.store.openGateway()!;
+        h.store.ingest(g, tll, at);
+        const first = piPicture(h.store.getSnapshot().contacts[0]);
+        const old = h.store.acceptPi(first)!;
+        const next = { ...first, feedId: 'pi:' + 'b'.repeat(32), servedAt: at + 1 };
+        next.contacts = first.contacts.map((c) => ({
+            ...c,
+            feedId: next.feedId,
+            contactKey: `radar:${next.feedId}:RA:1`,
+        }));
+        next.ownship = { ...first.ownship, feedId: next.feedId };
+        const replacement = h.store.acceptPi(next)!;
+        expect(h.store.acceptPi(first)).toBeNull();
+        h.store.retirePi(old);
+        expect(h.store.getSnapshot().feeds.some((f) => f.feedId === replacement.feedId)).toBe(true);
+        h.store.retirePi(replacement);
+        expect(h.store.getSnapshot().feeds).toHaveLength(1);
+        h.store.dispose();
+    });
+});
