@@ -28,11 +28,11 @@ jobs:
             - name: Checkout exact reviewed diagnostic source
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: f5645aaefe325058603b3e3cb9ec8a38b88d6375
+                  ref: bda54b11b9c49ccf41421d231c0ed5849518fd5f
                   persist-credentials: false
             - name: Verify exact source
               shell: bash
-              run: test "$(git rev-parse HEAD)" = f5645aaefe325058603b3e3cb9ec8a38b88d6375
+              run: test "$(git rev-parse HEAD)" = bda54b11b9c49ccf41421d231c0ed5849518fd5f
             - name: Set up reviewed Node runtime
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
