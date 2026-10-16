@@ -12,7 +12,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const wt = vi.hoisted(() => ({ at: [] as [number, number][] }));
+const wt = vi.hoisted(() => ({ at: [] as [number, number][], chartDatum: 'LAT' as string | null }));
+vi.mock('../services/enc/readChartDatum', () => ({
+    readChartDatumForBounds: vi.fn(async () => wt.chartDatum),
+}));
 vi.mock('../services/weather/api/worldtides', () => ({
     fetchWorldTides: vi.fn(async (lat: number, lon: number) => {
         wt.at.push([lat, lon]);
@@ -48,20 +51,21 @@ const gated = (at: { lat: number; lon: number }): TraceLegVerdict => ({
     nudgeTo: null,
 });
 
-describe('the tracer asks for tides at the bucket centre, never at the charted sounding', () => {
+describe('the tracer keeps charted soundings aboard and does not use informational tide data for clearance', () => {
     beforeEach(() => {
         wt.at.length = 0;
+        wt.chartDatum = 'LAT';
         clearTideCache();
     });
 
     it('the per-leg tide window', async () => {
         for (const spot of SOUNDINGS) {
             clearTideCache();
-            await tideWindowLabelFor(1.4, 2.4, { lat: spot.lat, lon: spot.lon }, Date.now());
-            expect(wt.at.at(-1), `${spot.lat},${spot.lon}`).toEqual(spot.bucket);
+            expect(await tideWindowLabelFor(1.4, 2.4, { lat: spot.lat, lon: spot.lon }, Date.now())).toBeNull();
         }
         expect(wt.at.flat()).not.toContain(-22.3011);
         expect(wt.at.flat()).not.toContain(-76.4521);
+        expect(wt.at).toEqual([]);
     });
 
     it("the report's common departure window (and the Log's re-check)", async () => {
@@ -70,7 +74,17 @@ describe('the tracer asks for tides at the bucket centre, never at the charted s
             2.4,
             { departureMs: Date.now() },
         );
-        expect(label).not.toBeNull();
-        expect(wt.at).toEqual(SOUNDINGS.map((spot) => spot.bucket));
+        expect(label).toBeNull();
+        expect(wt.at).toEqual([]);
+    });
+
+    it('does not request or credit tides without matching chart-datum proof', async () => {
+        const spot = SOUNDINGS[0];
+        for (const datum of [null, 'MLLW', 'mixed']) {
+            wt.chartDatum = datum;
+            expect(await tideWindowLabelFor(1.4, 2.4, spot, Date.now())).toBeNull();
+            expect(await commonDepartureWindowLabel([gated(spot)], 2.4)).toBeNull();
+        }
+        expect(wt.at).toEqual([]);
     });
 });

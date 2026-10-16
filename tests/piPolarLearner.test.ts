@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SunCalc from 'suncalc';
-import { polarSolarAltitude, polarPeriodAt } from '../pi-cache/src/polarLearningRule';
+import { polarSolarAltitude, polarPeriodAt } from '../utils/polarLearningRule';
 import type { PolarData } from '../types';
 
 const state = vi.hoisted(() => ({
@@ -48,6 +48,20 @@ describe('the paired Pi learned polar', () => {
         expect(await getPiLearnedPolar()).not.toBeNull();
         state.pair = { deviceId: 'boat-b', publicKeySpki: 'key-b' };
         expect(await getPiLearnedPolar()).toBeNull();
+    });
+    it('accepts an upgraded Pi close-hauled grid while retaining support for build133 grids', async () => {
+        const value = snapshot();
+        const extended = {
+            windSpeeds: [6, 8, 10, 12, 15, 20, 25],
+            angles: [30, 35, 40, 45, 60, 90, 120, 150, 180],
+            matrix: Array.from({ length: 9 }, () => Array(7).fill(4)),
+        };
+        state.saved = {
+            key: 'boat-a:key-a',
+            snapshot: { ...value, extendedPolars: { all: extended, day: null, night: null } },
+        };
+        const { getPiLearnedPolar } = await import('../services/piPolarLearner');
+        expect((await getPiLearnedPolar('all'))?.angles).toEqual(extended.angles);
     });
     it('does not reach an unpaired or unpinned boat', async () => {
         const { getPiLearnedPolar } = await import('../services/piPolarLearner');

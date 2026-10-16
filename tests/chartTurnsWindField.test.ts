@@ -16,7 +16,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('leaflet', () => ({ default: {} }));
+vi.mock('../utils/leafletRuntime.mjs', () => ({ leafletRuntime: {} }));
 
 import { sameSeenAt, velocityOverlayTransform } from '../components/map/MapboxVelocityOverlay';
 

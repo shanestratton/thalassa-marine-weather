@@ -27,17 +27,24 @@ import {
     type RouteSegment,
 } from '../../services/WeatherRoutingService';
 import {
-    computeIsochrones,
     isochroneToGeoJSON,
     detectTurnWaypoints,
     type IsochroneResult,
     type TurnWaypoint,
 } from '../../services/IsochroneRouter';
 import type { IsochroneNode } from '../../services/isochrone/types';
+import { computeComfortIsochrones as computeIsochrones } from '../../services/routing/comfortRoute';
 import { cumulativeLegs } from '../../services/isochrone/geodesy';
 import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { resolveRoutingPolar } from '../../services/routingPolar';
+import { withRouteEstimates } from '../../services/isochrone/routeStats';
+import { stitchIsochrones } from '../../services/routing/stitchIsochrones';
+import { verifiedIsochroneRoute } from '../../services/routing/verifiedIsochroneRoute';
+import { inspectRouteEnvironment } from '../../services/isochrone/routeComfort';
+import { routingComfortConfig } from '../../services/routing/isochronePolicy';
+import { loadIsochroneEnvironment, isochroneEnvironmentAt } from '../../services/routing/isochroneEnvironment';
+import { INSHORE_HOP_NM, vesselIsochroneConfig, isochroneRoutingContext } from '../../services/routing/isochronePolicy';
 
 import { WindStore } from '../../stores/WindStore';
 import { PassageStore, type PassageLeg } from '../../stores/PassageStore';
@@ -49,7 +56,6 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
-import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
 import { vesselDraftMetres, vesselAirDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { peekPassageRequest, clearPassageRequest } from '../../services/passageHandoff';
@@ -71,6 +77,8 @@ import {
 } from '../../services/routing/landBackstopWords';
 import { CAUTION_WHY } from '../../services/engine/types';
 import { chartFitBearing } from './chartOrientation';
+import { useOffshoreComparison, type OffshoreComparisonInputs } from './useOffshoreComparison';
+import type { RouteHazardReport } from '../../services/enc/EncHazardReportService';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -200,6 +208,9 @@ function pushToPassageStore(
                 twa: wp.twa,
             })),
             legs,
+            sailingStats: analysis.sailingStats,
+            routeFuel: analysis.routeFuel,
+            routeComfort: analysis.routeComfort,
             totalDistanceNM: isoResult.totalDistanceNM,
             totalDurationHours: isoResult.totalDurationHours,
             departureTime: depTime,
@@ -246,6 +257,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [showPassage, setShowPassage] = useState(() => peekPassageRequest() !== null);
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
+    const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
     const displayedRouteGeometryKeyRef = useRef<string | null>(null);
     const commitDisplayedRoute = useCallback(
@@ -287,6 +299,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         },
         [],
     );
+    useEffect(() => {
+        modelComparison.reset();
+        // A different passage cannot inherit private model candidates or reference lines.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [departure, arrival, viaWaypoints, departureTime, speed, showPassage]);
+
     // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
     // Owned here so every compute/clear path tears them down — a chip that
     // outlives its route ghosts over the next one (the confidence-braid lesson).
@@ -303,6 +321,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // every delayed router callback and erase account A's route
                 // layers synchronously before account B is rendered.
                 computeGenRef.current += 1;
+                modelComparison.reset();
                 isoResultRef.current = null;
                 turnWaypointsRef.current = [];
                 setDeparture(null);
@@ -327,6 +346,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 const waypointSource = map?.getSource('waypoints') as mapboxgl.GeoJSONSource | undefined;
                 waypointSource?.setData(empty);
             }),
+        // modelComparison.reset is stable; its view changes while a comparison runs.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [clearTideChips, mapRef],
     );
 
@@ -419,6 +440,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
         // Increment generation — invalidates any previous in-flight computation
         const gen = ++computeGenRef.current;
+        modelComparison.reset();
 
         // Clear previous results immediately so stale data isn't displayed
         isoResultRef.current = null;
@@ -642,28 +664,32 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }
                     const inshoreDuration = inshoreRes.distanceNM / inshoreSpeed; // hours
                     const arrivalDate = new Date(departureDate.getTime() + inshoreDuration * 3600_000);
-                    const inshoreAnalysis: RouteAnalysis = {
-                        waypoints: [
-                            { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
-                            { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
-                        ],
-                        segments: inshoreSegments,
-                        totalDistance: inshoreRes.distanceNM,
-                        estimatedDuration: inshoreDuration,
-                        departureTime: departureDate.toISOString(),
-                        arrivalTime: arrivalDate.toISOString(),
-                        averageSpeed: inshoreSpeed,
-                        fuelEstimate: null,
-                        maxWindSpeed: null,
-                        maxWaveHeight: null,
-                        headwindPercentage: 0,
-                        favorablePercentage: 0,
-                        minDepth: null,
-                        shallowSegments: 0,
-                        depthSamplesKnown: 0,
-                        depthSampleSpacingNm: null,
-                        routeCoordinates: inshoreRes.polyline,
-                    };
+                    const inshoreAnalysis: RouteAnalysis = withRouteEstimates(
+                        {
+                            waypoints: [
+                                { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
+                                { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
+                            ],
+                            segments: inshoreSegments,
+                            totalDistance: inshoreRes.distanceNM,
+                            estimatedDuration: inshoreDuration,
+                            departureTime: departureDate.toISOString(),
+                            arrivalTime: arrivalDate.toISOString(),
+                            averageSpeed: inshoreSpeed,
+                            fuelEstimate: null,
+                            maxWindSpeed: null,
+                            maxWaveHeight: null,
+                            headwindPercentage: 0,
+                            favorablePercentage: 0,
+                            minDepth: null,
+                            shallowSegments: 0,
+                            depthSamplesKnown: 0,
+                            depthSampleSpacingNm: null,
+                            routeCoordinates: inshoreRes.polyline,
+                        },
+                        undefined,
+                        useSettingsStore.getState().settings.vessel,
+                    );
                     setRouteAnalysis(inshoreAnalysis);
 
                     // Render the polyline with its explicit classified runs.
@@ -919,9 +945,22 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         ),
                         ntmLockBanner,
                     };
-                    dispatchPassageNotice(inshoreRouteNotice(noticeInput));
+                    const shortHopNote =
+                        straightLineNM < INSHORE_HOP_NM
+                            ? 'This hop is under 15 NM and uses the inshore chart router.'
+                            : null;
+                    dispatchPassageNotice(
+                        inshoreRouteNotice(noticeInput) ??
+                            (shortHopNote
+                                ? {
+                                      severity: 'info',
+                                      title: 'Inshore route',
+                                      message: shortHopNote,
+                                  }
+                                : null),
+                    );
                     routeCellsRef.current = inshoreRes.cellsUsed;
-                    setRouteCaveats(inshoreRouteCaveats(noticeInput));
+                    setRouteCaveats([...(shortHopNote ? [shortHopNote] : []), ...inshoreRouteCaveats(noticeInput)]);
                     // [BAYLEG] render-truth (2026-06-23): fires ONLY when the inshore route survives
                     // the land backstop and is actually drawn — teal/tier-coloured, with the
                     // Scarborough OBSTRN half-disc rounding the mark + the river-follow active. If
@@ -1065,12 +1104,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             dispatchPassageNotice({
                 severity: 'warn',
                 title: 'Inshore routing failed',
-                message: 'Continuing with offshore planning.',
+                message:
+                    straightLineNM < INSHORE_HOP_NM
+                        ? 'This short hop needs the inshore chart router. Retry when its chart data is available.'
+                        : 'Continuing with offshore planning.',
             });
         }
 
         // ── Too-short route detection: passage planning is for deep water only ──
-        const TOO_SHORT_NM = 15;
+        const TOO_SHORT_NM = INSHORE_HOP_NM;
         if (straightLineNM < TOO_SHORT_NM) {
             log.info(
                 `[Passage] Route too short (${Math.round(straightLineNM)} NM) — not suitable for passage planning`,
@@ -1081,7 +1123,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         detail: {
                             distanceNM: Math.round(straightLineNM),
                             message:
-                                'This route is too short for passage planning. Check Community Routes for local harbour exits and coastal routes. (Tip: import an ENC for this area to enable inshore river/harbor routing.)',
+                                'This hop is under 15 NM and needs the inshore chart router. Check that detailed charts cover both pins, then retry. No offshore shortcut has been substituted.',
                         },
                     }),
                 );
@@ -1561,6 +1603,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             if (!samePosition(expanded[expanded.length - 1], arrival)) {
                 expanded.push({ ...expanded[expanded.length - 1], lat: arrival.lat, lon: arrival.lon });
             }
+            if (expanded.length === candidate.length) return expanded;
             const validationSpeed = speed > 0 ? speed : 6;
             const legs = cumulativeLegs(
                 expanded.map(({ lat, lon }) => ({ lat, lon })),
@@ -1577,6 +1620,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             candidate: IsochroneNode[],
             timeoutMs: number,
             timeoutReason: string,
+            reportOptions?: {
+                stillCurrent: () => boolean;
+                onHazardReport: (report: RouteHazardReport | null) => void;
+            },
         ): Promise<{ route: IsochroneNode[]; verified: boolean; reason?: string }> => {
             const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
             const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
@@ -1590,7 +1637,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     vesselDraftM,
                     draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
                     departureTimeMs,
-                    stillCurrent: () => !timedOut && computeGenRef.current === gen,
+                    stillCurrent: () =>
+                        !timedOut && computeGenRef.current === gen && (reportOptions?.stillCurrent() ?? true),
+                    ...(reportOptions ? { publishReport: false, onHazardReport: reportOptions.onHazardReport } : {}),
                     onVerificationOutcome: (nextOutcome) => {
                         outcomeRef.current = nextOutcome;
                     },
@@ -1604,7 +1653,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             ]);
 
             if (!validated) return { route: candidate, verified: false, reason: timeoutReason };
-            if (computeGenRef.current !== gen) {
+            if (computeGenRef.current !== gen || !(reportOptions?.stillCurrent() ?? true)) {
                 return { route: validated, verified: false, reason: 'route was superseded by a newer plan' };
             }
             const outcome = outcomeRef.current;
@@ -1619,26 +1668,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         };
 
         const applyValidatedRoute = (candidate: IsochroneResult, validated: IsochroneNode[]): IsochroneResult => {
-            const cruisingKt = speed > 0 ? speed : 6;
-            const points = validated.map(({ lat, lon }) => ({ lat, lon }));
-            const legs = cumulativeLegs(points, cruisingKt);
-            const route = validated.map((node, index) => ({
-                ...node,
-                timeHours: legs[index].hours,
-                distance: legs[index].nm,
-            }));
-            const totalDistanceNM = legs[legs.length - 1]?.nm ?? 0;
-            const totalDurationHours = legs[legs.length - 1]?.hours ?? 0;
             const departureIso = departureTime || new Date().toISOString();
-            return {
-                ...candidate,
-                route,
-                routeCoordinates: route.map((node) => [node.lon, node.lat] as [number, number]),
-                shallowFlags: route.map(() => false),
-                totalDistanceNM: Math.round(totalDistanceNM * 10) / 10,
-                totalDurationHours: Math.round(totalDurationHours * 10) / 10,
-                arrivalTime: new Date(new Date(departureIso).getTime() + totalDurationHours * 3_600_000).toISOString(),
-            };
+            return verifiedIsochroneRoute(candidate, validated, departureIso, speed);
         };
 
         const markRouteUnverified = (coords: [number, number][], reason: string, terminalsIncluded: boolean): void => {
@@ -1952,6 +1983,175 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 });
                 if (computeGenRef.current !== gen) return;
 
+                const routingSettings = useSettingsStore.getState().settings;
+                const comparisonDeparture = departureTime || new Date().toISOString();
+                const comparisonPolicy = {
+                    ...vesselIsochroneConfig(routingSettings.vessel, straightLineNM),
+                    vesselDraft: vesselDraftMetres(routingSettings.vessel),
+                    ...(minDepthM != null ? { minDepthM } : {}),
+                    ...routingComfortConfig(routingSettings.vessel, routingSettings.comfortParams),
+                };
+                const comparisonFingerprint = () =>
+                    isochroneRoutingContext(departureTime, useSettingsStore.getState().settings);
+                const settingsKey = comparisonFingerprint();
+                const comparisonCurrent = () =>
+                    computeGenRef.current === gen && mapRef.current === map && comparisonFingerprint() === settingsKey;
+                let comparisonInputs: OffshoreComparisonInputs | null = null;
+                let publishComparisonReport: ((report: RouteHazardReport | null) => void) | null = null;
+                const makeComparisonInputs = (
+                    bathymetry: NonNullable<Awaited<ReturnType<typeof preloadBathymetry>>>,
+                    environment: Awaited<ReturnType<typeof loadIsochroneEnvironment>>,
+                ): OffshoreComparisonInputs => {
+                    const eastLon = depGate.lon + (((arrGate.lon - depGate.lon + 540) % 360) - 180);
+                    const padding = Math.max(
+                        2,
+                        Math.min(
+                            8,
+                            Math.max(Math.abs(depGate.lat - arrGate.lat), Math.abs(eastLon - depGate.lon)) * 0.25,
+                        ),
+                    );
+                    return {
+                        base: {
+                            origin: depGate,
+                            destination: arrGate,
+                            departureTime: comparisonDeparture,
+                            polar: routingPolar.polar,
+                            bathymetry,
+                            environment: environment.snapshot,
+                            config: comparisonPolicy,
+                        },
+                        environment,
+                        bounds: {
+                            north: Math.min(89, Math.max(depGate.lat, arrGate.lat) + padding),
+                            south: Math.max(-89, Math.min(depGate.lat, arrGate.lat) - padding),
+                            west: Math.min(depGate.lon, eastLon) - padding,
+                            east: Math.max(depGate.lon, eastLon) + padding,
+                        },
+                    };
+                };
+                modelComparison.prepare({
+                    isCurrent: comparisonCurrent,
+                    disabledReason: viaWaypoints.length
+                        ? 'Model comparison currently supports passages without VIA waypoints.'
+                        : routingSettings.satelliteMode
+                          ? 'Model comparison needs an internet connection outside Satellite Mode.'
+                          : undefined,
+                    load: async () => {
+                        if (comparisonInputs) return comparisonInputs;
+                        const [bathymetry, environment] = await Promise.all([
+                            preloadBathymetry(depGate, arrGate, 6),
+                            loadIsochroneEnvironment({
+                                origin: depGate,
+                                destination: arrGate,
+                                departureTime: comparisonDeparture,
+                                speedKts: comparisonPolicy.motoringSpeed,
+                                currentNrtEnabled: routingSettings.currentNrtEnabled,
+                                satelliteMode: routingSettings.satelliteMode,
+                            }),
+                        ]);
+                        if (!bathymetry)
+                            throw new Error('Public relief unavailable; model comparison cannot safely start.');
+                        if (!comparisonCurrent()) throw new Error('Passage settings changed. Recompute the passage.');
+                        comparisonInputs = makeComparisonInputs(bathymetry, environment);
+                        return comparisonInputs;
+                    },
+                    verify: async (candidate, job, environment, isCurrent) => {
+                        const [{ verifyOffshoreSelection }, { setLastReport }] = await Promise.all([
+                            import('../../services/routing/offshoreSelection'),
+                            import('../../services/enc/EncHazardReportService'),
+                        ]);
+                        publishComparisonReport = setLastReport;
+                        return verifyOffshoreSelection({
+                            candidate,
+                            job,
+                            environment,
+                            cruisingSpeed: speed,
+                            withTerminals: withPassageTerminals,
+                            isCurrent,
+                            validate: async (nodes) => {
+                                let hazardReport: RouteHazardReport | null = null;
+                                const checked = await validateCandidateRoute(
+                                    nodes,
+                                    15_000,
+                                    'Final chart and land verification timed out.',
+                                    {
+                                        stillCurrent: isCurrent,
+                                        onHazardReport: (report) => {
+                                            hazardReport = report;
+                                        },
+                                    },
+                                );
+                                return { ...checked, hazardReport };
+                            },
+                        });
+                    },
+                    commit: (selected, model) => {
+                        if (!comparisonCurrent() || selected.verification !== 'verified-final-geometry')
+                            throw new Error('Comparison is no longer current.');
+                        const chosen = selected.result;
+                        const features = buildFeatures(chosen.routeCoordinates, chosen.shallowFlags, 'verified', true);
+                        if (
+                            !map.getSource('route-line') ||
+                            !features.length ||
+                            features.some(
+                                (feature) =>
+                                    feature.properties?.verification !== 'verified' ||
+                                    feature.properties?.safety === 'unverified',
+                            )
+                        )
+                            throw new Error('Verified route layer is unavailable.');
+                        const wps = detectTurnWaypoints(chosen.route, comparisonDeparture);
+                        const analysis = withRouteEstimates(
+                            {
+                                ...result,
+                                totalDistance: chosen.totalDistanceNM,
+                                estimatedDuration: chosen.totalDurationHours,
+                                maxWindSpeed: selected.maxWindKts,
+                            },
+                            chosen.sailingStats,
+                            useSettingsStore.getState().settings.vessel,
+                            chosen.comfort,
+                        );
+                        commitDisplayedRoute(map, features, 'verified');
+                        isoResultRef.current = chosen;
+                        turnWaypointsRef.current = wps;
+                        setRouteAnalysis(analysis);
+                        setRoutingPolarLabel(routingPolar.label + ' · ' + model.label);
+                        setRouteCaveats([...(chosen.environmentNotes ?? []), 'Forecast model: ' + model.credit]);
+                        dispatchPassageNotice(null);
+                        const source = map.getSource('waypoints') as mapboxgl.GeoJSONSource | undefined;
+                        source?.setData({
+                            type: 'FeatureCollection',
+                            features: wps.map((wp) => ({
+                                type: 'Feature',
+                                properties: {
+                                    name: wp.id,
+                                    distanceNM: wp.distanceNM,
+                                    bearing: wp.bearing,
+                                    eta: wp.eta,
+                                    color: wp.id === 'DEP' ? '#10b981' : wp.id === 'ARR' ? '#ef4444' : '#f59e0b',
+                                },
+                                geometry: { type: 'Point', coordinates: [wp.lon, wp.lat] },
+                            })),
+                        });
+                        pushToPassageStore(
+                            chosen,
+                            wps,
+                            departure,
+                            arrival,
+                            analysis,
+                            comparisonDeparture,
+                            speed,
+                            operationScope,
+                        );
+                        publishComparisonReport?.(selected.hazardReport);
+                        for (const layer of ['isochrone-fan-layer', 'isochrone-time-labels'])
+                            if (map.getLayer(layer)) map.removeLayer(layer);
+                        for (const sourceId of ['isochrone-fan', 'isochrone-labels'])
+                            if (map.getSource(sourceId)) map.removeSource(sourceId);
+                        clearComfortZoneOverlay(map);
+                    },
+                });
                 // ── Check precompute cache first (fired from CTA press) ──
                 try {
                     const { getPrecomputedRoute } = await import('../../services/IsochronePrecomputeCache');
@@ -1961,9 +2161,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         arrGate.lat,
                         arrGate.lon,
                         routingPolar.signature,
+                        undefined,
+                        isochroneRoutingContext(departureTime, routingSettings),
                     );
                     if (cached && cached.routeCoordinates.length >= 2) {
                         if (computeGenRef.current !== gen) return;
+                        setRouteCaveats(cached.environmentNotes ?? []);
                         log.info(
                             `[Isochrone BG] Pre-computed candidate found (${cached.totalDistanceNM} NM) — verifying exact geometry`,
                         );
@@ -1979,9 +2182,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             'fresh verification of the cached route timed out after 15 seconds',
                         );
                         const checkedCached = applyValidatedRoute(cached, cachedValidation.route);
-                        const updatedResult2 = { ...result };
-                        updatedResult2.totalDistance = checkedCached.totalDistanceNM;
-                        updatedResult2.estimatedDuration = checkedCached.totalDurationHours;
+                        setRouteCaveats(checkedCached.environmentNotes ?? []);
+                        const updatedResult2 = withRouteEstimates(
+                            {
+                                ...result,
+                                totalDistance: checkedCached.totalDistanceNM,
+                                estimatedDuration: checkedCached.totalDurationHours,
+                            },
+                            checkedCached.sailingStats,
+                            routingSettings.vessel,
+                            checkedCached.comfort,
+                        );
                         setRouteAnalysis(updatedResult2);
                         setRoutingPolarLabel(routingPolar.label);
                         if (!cachedValidation.verified) {
@@ -2259,24 +2470,27 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.warn(``, _);
                 }
 
-                // ── Read comfort params from persisted settings ──
-                let comfortParams: ComfortParams | undefined;
-                try {
-                    const persistedComfort = useSettingsStore.getState().settings.comfortParams;
-                    if (persistedComfort && hasActiveComfortLimits(persistedComfort)) {
-                        comfortParams = persistedComfort;
-                        log.info(
-                            `[Isochrone BG] Comfort Zone active — wind:${comfortParams.maxWindKts ?? 'off'} wave:${comfortParams.maxWaveM ?? 'off'} gust:${comfortParams.maxGustKts ?? 'off'}`,
-                        );
-                    }
-                } catch {
-                    /* Settings read failed — proceed without comfort limits */
-                }
+                const comfortConfig = routingComfortConfig(routingSettings.vessel, routingSettings.comfortParams);
+                const comfortParams = comfortConfig.comfortParams;
 
                 const isoConfig = {
+                    ...vesselIsochroneConfig(routingSettings.vessel, straightLineNM),
+                    vesselDraft: vesselDraftMetres(routingSettings.vessel),
                     ...(minDepthM != null ? { minDepthM } : {}),
-                    ...(comfortParams ? { comfortParams } : {}),
+                    ...comfortConfig,
+                    shouldContinue: () => computeGenRef.current === gen,
                 };
+                const environment = await loadIsochroneEnvironment({
+                    origin: depGate,
+                    destination: arrGate,
+                    departureTime: depTimeStr,
+                    speedKts: isoConfig.motoringSpeed,
+                    currentNrtEnabled: routingSettings.currentNrtEnabled,
+                    satelliteMode: routingSettings.satelliteMode,
+                });
+                if (computeGenRef.current !== gen) return;
+                if (bathyGrid) comparisonInputs = makeComparisonInputs(bathyGrid, environment);
+                setRouteCaveats(environment.notes);
                 let isoResult = await computeIsochrones(
                     depGate,
                     arrGate,
@@ -2285,7 +2499,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     windField,
                     isoConfig,
                     bathyGrid,
+                    environment.currentField,
+                    environment.exclusionField,
+                    environment.waveField,
                 );
+                if (isoResult) isoResult.environmentNotes = environment.notes;
 
                 if (isoResult && isoResult.routeCoordinates.length >= 2) {
                     // Stale guard: only apply if this is still the current computation
@@ -2323,6 +2541,25 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         'final chart and coarse depth validation timed out after 15 seconds',
                     );
                     isoResult = applyValidatedRoute(isoResult, directValidation.route);
+                    setRouteCaveats(isoResult.environmentNotes ?? []);
+                    const directEnvironment = inspectRouteEnvironment(
+                        isoResult.route,
+                        environment.waveField,
+                        environment.exclusionField,
+                        isoResult.comfort?.usedLimitM ?? comfortParams?.maxWaveM,
+                        isoConfig.comfortVessel,
+                    );
+                    isoResult.comfort = {
+                        ...directEnvironment.comfort,
+                        ...(isoResult.comfort?.relaxedFromM !== undefined
+                            ? { relaxedFromM: isoResult.comfort.relaxedFromM, usedLimitM: isoResult.comfort.usedLimitM }
+                            : {}),
+                    };
+                    if (directEnvironment.rejected) {
+                        directValidation.verified = false;
+                        directValidation.reason =
+                            'The chart-verified path crosses the wave limit or a cyclone exclusion.';
+                    }
                     if (!directValidation.verified) {
                         const reason = directValidation.reason ?? 'final chart and coarse depth validation failed';
                         log.warn(`[IslandValidation] Route remains unverified: ${reason}`);
@@ -2373,9 +2610,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         });
                     }
 
-                    const updatedResult = { ...result };
-                    updatedResult.totalDistance = isoResult.totalDistanceNM;
-                    updatedResult.estimatedDuration = isoResult.totalDurationHours;
+                    const updatedResult = withRouteEstimates(
+                        {
+                            ...result,
+                            totalDistance: isoResult.totalDistanceNM,
+                            estimatedDuration: isoResult.totalDurationHours,
+                        },
+                        isoResult.sailingStats,
+                        routingSettings.vessel,
+                        isoResult.comfort,
+                    );
                     setRouteAnalysis(updatedResult);
                     setRoutingPolarLabel(routingPolar.label);
 
@@ -2520,242 +2764,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             log.warn('[ComfortZone] Overlay rendering failed:', czErr);
                         }
                     }
-                    // ── Multi-Model Confidence Braid ──
-                    // Run a second route through ECMWF and compare with the GFS route
-                    if (isoResult && isoResult.routeCoordinates.length >= 2 && !isShortRoute) {
-                        try {
-                            log.info('[ConfidenceBraid] Starting multi-model comparison...');
-                            try {
-                                window.dispatchEvent(
-                                    new CustomEvent('thalassa:isochrone-progress', {
-                                        detail: { phase: 'multi-model' },
-                                    }),
-                                );
-                            } catch (_) {
-                                log.warn(``, _);
-                            }
-
-                            const { fetchModelWindGrid } = await import('../../services/weather/OpenMeteoWindFetcher');
-
-                            // Compute route bbox with padding for alternative paths
-                            const routeBounds = {
-                                north: Math.min(90, Math.max(depGate.lat, arrGate.lat) + 10),
-                                south: Math.max(-90, Math.min(depGate.lat, arrGate.lat) - 10),
-                                east: Math.min(180, Math.max(depGate.lon, arrGate.lon) + 10),
-                                west: Math.max(-180, Math.min(depGate.lon, arrGate.lon) - 10),
-                            };
-
-                            // Fetch ECMWF wind grid (GFS route already computed above)
-                            const ecmwfGrid = await fetchModelWindGrid('ecmwf', routeBounds, 168);
-
-                            if (ecmwfGrid && computeGenRef.current === gen) {
-                                const { createWindFieldFromGrid } =
-                                    await import('../../services/weather/WindFieldAdapter');
-                                const ecmwfWind = createWindFieldFromGrid(ecmwfGrid);
-
-                                // Run ECMWF route
-                                const ecmwfRoute = await computeIsochrones(
-                                    depGate,
-                                    arrGate,
-                                    depTimeStr,
-                                    polar,
-                                    ecmwfWind,
-                                    isoConfig,
-                                    bathyGrid,
-                                );
-
-                                if (
-                                    ecmwfRoute &&
-                                    ecmwfRoute.routeCoordinates.length >= 2 &&
-                                    computeGenRef.current === gen
-                                ) {
-                                    log.info(
-                                        `[ConfidenceBraid] ECMWF route: ${ecmwfRoute.totalDistanceNM}NM vs GFS: ${isoResult.totalDistanceNM}NM`,
-                                    );
-
-                                    // ── Compare routes using closest-point matching ──
-                                    // For each ECMWF waypoint, find the closest GFS waypoint.
-                                    // If that distance > threshold, the routes diverge there.
-                                    // Uses ORIGINAL coordinates (not resampled) to avoid
-                                    // creating straight-line shortcuts that cross land.
-                                    const R_NM2 = 3440.065;
-                                    const toRad2 = (d: number) => (d * Math.PI) / 180;
-                                    const hav = (la1: number, lo1: number, la2: number, lo2: number) => {
-                                        const dLat = toRad2(la2 - la1),
-                                            dLon = toRad2(lo2 - lo1);
-                                        const a =
-                                            Math.sin(dLat / 2) ** 2 +
-                                            Math.cos(toRad2(la1)) * Math.cos(toRad2(la2)) * Math.sin(dLon / 2) ** 2;
-                                        return R_NM2 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                                    };
-
-                                    // ── Post-process ECMWF route to remove zig-zags ──
-                                    // Apply the same smoothing/crossing/land avoidance as the primary route
-                                    let ecmwfCoords = ecmwfRoute.routeCoordinates;
-                                    if (bathyGrid && ecmwfRoute.route.length > 3) {
-                                        const { smoothRoute } = await import('../../services/isochrone/smoothing');
-                                        const { eliminateCrossings: elimCross, pushRouteOffshore } =
-                                            await import('../../services/isochrone/landAvoidance');
-                                        let ecmwfSmoothed = smoothRoute(ecmwfRoute.route, bathyGrid);
-                                        ecmwfSmoothed = pushRouteOffshore(ecmwfSmoothed, bathyGrid);
-                                        ecmwfSmoothed = elimCross(ecmwfSmoothed, bathyGrid, arrGate);
-                                        ecmwfCoords = ecmwfSmoothed.map((n) => [n.lon, n.lat] as [number, number]);
-                                    }
-
-                                    // Shane (2026-06-22): hide the GFS/ECMWF model-comparison braid over
-                                    // the INSHORE leg. On a short/coastal route depGate=departure (see
-                                    // ~line 687), so the braid is computed from the marina and overlays
-                                    // the buoyed channel where the tier route is authoritative — Shane's
-                                    // "zigzag at the gates". Drop braid points within INSHORE_BRAID_CLIP_NM
-                                    // of EITHER endpoint so it only draws on the open-water middle, where
-                                    // forecast divergence actually matters. Empty (fully-inshore hop) ⇒ no braid.
-                                    const INSHORE_BRAID_CLIP_NM = 3;
-                                    ecmwfCoords = ecmwfCoords.filter(
-                                        (c) =>
-                                            hav(departure.lat, departure.lon, c[1], c[0]) > INSHORE_BRAID_CLIP_NM &&
-                                            hav(arrival.lat, arrival.lon, c[1], c[0]) > INSHORE_BRAID_CLIP_NM,
-                                    );
-
-                                    // Deferred final route validation (same as primary route)
-                                    (async () => {
-                                        try {
-                                            const { validateRouteSegments } =
-                                                await import('../../services/isochrone/landAvoidance');
-                                            // Real cumulative ETAs, not zeros (2026-07-17
-                                            // audit): all-zero timeHours made every
-                                            // tide-aware depth check credit DEPARTURE
-                                            // water to points reached hours later.
-                                            const braidKt = typeof speed === 'number' && speed > 0 ? speed : 6;
-                                            const braidLegs = cumulativeLegs(
-                                                ecmwfCoords.map(([lon, lat]) => ({ lat, lon })),
-                                                braidKt,
-                                            );
-                                            const ecmwfNodes = ecmwfCoords.map(
-                                                ([lon, lat], i) =>
-                                                    ({
-                                                        lat,
-                                                        lon,
-                                                        timeHours: braidLegs[i].hours,
-                                                        bearing: 0,
-                                                        speed: braidKt,
-                                                        tws: 0,
-                                                        twa: 0,
-                                                        parentIndex: null,
-                                                        distance: braidLegs[i].nm,
-                                                    }) as IsochroneNode,
-                                            );
-                                            // validateRouteSegments wants METRES; vessel.draft is FEET
-                                            // (see services/units.ts).
-                                            const vesselDraftM = vesselDraftMetres(
-                                                useSettingsStore.getState().settings.vessel,
-                                            );
-                                            const departureTimeMs = departureTime
-                                                ? new Date(departureTime).getTime()
-                                                : undefined;
-                                            const validated = await Promise.race([
-                                                validateRouteSegments(ecmwfNodes, {
-                                                    vesselDraftM,
-                                                    // Assumed default draft (no draft set) → caution (audit #2).
-                                                    draftAssumed: vesselDraftIsAssumed(
-                                                        useSettingsStore.getState().settings.vessel,
-                                                    ),
-                                                    departureTimeMs,
-                                                    // The braid is the ECMWF COMPARISON line,
-                                                    // not the sailed route — it must never own
-                                                    // the singleton hazard report (2026-07-17
-                                                    // audit: it overwrote the primary's).
-                                                    publishReport: false,
-                                                }),
-                                                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
-                                            ]);
-                                            if (!validated || computeGenRef.current !== gen) return;
-                                            if (validated.length !== ecmwfNodes.length) {
-                                                const newCoords = validated.map(
-                                                    (n) => [n.lon, n.lat] as [number, number],
-                                                );
-                                                const ecmwfSrc2 = map.getSource(
-                                                    'confidence-route-ecmwf',
-                                                ) as mapboxgl.GeoJSONSource;
-                                                if (ecmwfSrc2) {
-                                                    ecmwfSrc2.setData({
-                                                        type: 'FeatureCollection',
-                                                        features: [
-                                                            {
-                                                                type: 'Feature' as const,
-                                                                properties: { model: 'ECMWF' },
-                                                                geometry: {
-                                                                    type: 'LineString' as const,
-                                                                    coordinates: newCoords,
-                                                                },
-                                                            },
-                                                        ],
-                                                    });
-                                                }
-                                                log.info(
-                                                    `[ConfidenceBraid] GEBCO validated ECMWF: ${ecmwfNodes.length} → ${validated.length} points`,
-                                                );
-                                            }
-                                        } catch (err) {
-                                            log.warn('[ConfidenceBraid] GEBCO ECMWF validation failed:', err);
-                                        }
-                                    })();
-
-                                    // Render: show the FULL ECMWF route as magenta
-                                    // Where routes agree, lines overlap (natural braid)
-                                    // Where routes diverge, lines split apart visually
-                                    const ecmwfSrc = map.getSource('confidence-route-ecmwf') as mapboxgl.GeoJSONSource;
-                                    const gfsSrc = map.getSource('confidence-route-gfs') as mapboxgl.GeoJSONSource;
-
-                                    if (ecmwfSrc) {
-                                        ecmwfSrc.setData({
-                                            type: 'FeatureCollection',
-                                            features: [
-                                                {
-                                                    type: 'Feature' as const,
-                                                    properties: { model: 'ECMWF' },
-                                                    geometry: { type: 'LineString' as const, coordinates: ecmwfCoords },
-                                                },
-                                            ],
-                                        });
-                                    }
-                                    // Clear GFS source — primary gold route already shows GFS path
-                                    if (gfsSrc) {
-                                        gfsSrc.setData({ type: 'FeatureCollection', features: [] });
-                                    }
-
-                                    // Count divergent points for logging
-                                    const DIVERGE_NM = 5;
-                                    const gfsCoords = isoResult.routeCoordinates;
-                                    let divergentCount = 0;
-                                    for (let i = 0; i < ecmwfCoords.length; i++) {
-                                        let minDist = Infinity;
-                                        for (let j = 0; j < gfsCoords.length; j++) {
-                                            const d = hav(
-                                                ecmwfCoords[i][1],
-                                                ecmwfCoords[i][0],
-                                                gfsCoords[j][1],
-                                                gfsCoords[j][0],
-                                            );
-                                            if (d < minDist) minDist = d;
-                                            if (d < DIVERGE_NM) break;
-                                        }
-                                        if (minDist > DIVERGE_NM) divergentCount++;
-                                    }
-                                    const totalDivergentPct =
-                                        ecmwfCoords.length > 0
-                                            ? Math.round((divergentCount / ecmwfCoords.length) * 100)
-                                            : 0;
-                                    log.info(
-                                        `[ConfidenceBraid] ✓ ECMWF full route rendered, ${totalDivergentPct}% divergent`,
-                                    );
-                                } else {
-                                    log.info('[ConfidenceBraid] ECMWF route failed — showing GFS only');
-                                }
-                            }
-                        } catch (braidErr) {
-                            log.warn('[ConfidenceBraid] Multi-model comparison failed:', braidErr);
-                        }
-                    }
+                    // Additional models are computed only by the explicit bounded Worker comparison.
 
                     try {
                         window.dispatchEvent(
@@ -2815,19 +2824,27 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         windField,
                         isoConfig,
                         bathyGrid1,
+                        environment.currentField,
+                        environment.exclusionField,
+                        environment.waveField,
                     );
 
                     // Run Leg 2: intermediate → arrival
                     log.info('[Isochrone BG] Running Leg 2...');
                     const leg2DepTime = leg1?.arrivalTime || depTimeStr;
+                    const leg2Environment = isochroneEnvironmentAt(environment, leg2DepTime);
+                    const leg2Offset = (Date.parse(leg2DepTime) - Date.parse(depTimeStr)) / 3_600_000;
                     const leg2 = await computeIsochrones(
                         intermediate,
                         arrGate,
                         leg2DepTime,
                         polar,
-                        windField,
+                        { getWind: (lat, lon, hours) => windField.getWind(lat, lon, hours + leg2Offset) },
                         isoConfig,
                         bathyGrid2,
+                        leg2Environment.currentField,
+                        leg2Environment.exclusionField,
+                        leg2Environment.waveField,
                     );
 
                     if (leg1 && leg2 && leg1.routeCoordinates.length >= 2 && leg2.routeCoordinates.length >= 2) {
@@ -2835,20 +2852,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             `[Isochrone BG] ✓ Multi-leg route: Leg1=${leg1.totalDistanceNM}NM + Leg2=${leg2.totalDistanceNM}NM`,
                         );
                         // Stitch the two legs together
-                        const combinedCoords = [...leg1.routeCoordinates, ...leg2.routeCoordinates.slice(1)];
-                        const combinedFlags = [...leg1.shallowFlags, ...leg2.shallowFlags.slice(1)];
-                        const combinedRoute = [...leg1.route, ...leg2.route.slice(1)];
-
-                        isoResult = {
-                            route: combinedRoute,
-                            isochrones: [...leg1.isochrones, ...leg2.isochrones],
-                            totalDistanceNM: Math.round((leg1.totalDistanceNM + leg2.totalDistanceNM) * 10) / 10,
-                            totalDurationHours:
-                                Math.round((leg1.totalDurationHours + leg2.totalDurationHours) * 10) / 10,
-                            arrivalTime: leg2.arrivalTime,
-                            routeCoordinates: combinedCoords,
-                            shallowFlags: combinedFlags,
-                        };
+                        isoResult = stitchIsochrones(leg1, leg2);
+                        isoResult.environmentNotes = environment.notes;
 
                         // A stitched pair is a new geometry. Neither leg's
                         // independent result proves the seam or terminal legs,
@@ -2857,7 +2862,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         if (computeGenRef.current === gen) {
                             commitDisplayedRoute(
                                 map,
-                                buildFeatures(combinedCoords, combinedFlags, 'unverified'),
+                                buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'unverified'),
                                 'pending',
                                 'stitched multi-leg route is awaiting whole-route verification',
                             );
@@ -2867,9 +2872,38 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 'whole-route verification of the stitched multi-leg route timed out after 15 seconds',
                             );
                             isoResult = applyValidatedRoute(isoResult, multiValidation.route);
-                            const updatedResult = { ...result };
-                            updatedResult.totalDistance = isoResult.totalDistanceNM;
-                            updatedResult.estimatedDuration = isoResult.totalDurationHours;
+                            setRouteCaveats(isoResult.environmentNotes ?? []);
+                            const multiEnvironment = inspectRouteEnvironment(
+                                isoResult.route,
+                                environment.waveField,
+                                environment.exclusionField,
+                                isoResult.comfort?.usedLimitM ?? comfortParams?.maxWaveM,
+                                isoConfig.comfortVessel,
+                            );
+                            isoResult.comfort = {
+                                ...multiEnvironment.comfort,
+                                ...(isoResult.comfort?.relaxedFromM !== undefined
+                                    ? {
+                                          relaxedFromM: isoResult.comfort.relaxedFromM,
+                                          usedLimitM: isoResult.comfort.usedLimitM,
+                                      }
+                                    : {}),
+                            };
+                            if (multiEnvironment.rejected) {
+                                multiValidation.verified = false;
+                                multiValidation.reason =
+                                    'The stitched chart-verified path crosses the wave limit or a cyclone exclusion.';
+                            }
+                            const updatedResult = withRouteEstimates(
+                                {
+                                    ...result,
+                                    totalDistance: isoResult.totalDistanceNM,
+                                    estimatedDuration: isoResult.totalDurationHours,
+                                },
+                                isoResult.sailingStats,
+                                routingSettings.vessel,
+                                isoResult.comfort,
+                            );
                             setRouteAnalysis(updatedResult);
                             setRoutingPolarLabel(routingPolar.label);
 
@@ -3011,6 +3045,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
         computeGenRef.current++; // Invalidate any running computation
+        modelComparison.reset();
         PassageStore.clear();
         clearTideChips(); // window chips die with the route they annotate
 
@@ -3056,6 +3091,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeActionsAvailable,
         routeCaveats,
         routeCellsRef,
+        modelComparison: modelComparison.view,
         routingPolarLabel,
         settingPoint,
         setSettingPoint,

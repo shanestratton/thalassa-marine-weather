@@ -81,6 +81,9 @@ export interface Waypoint {
 }
 
 export interface VoyagePlan {
+    sailingStats?: import('../services/isochrone/routeStats').RouteSailingStats;
+    routeFuel?: import('../services/isochrone/routeStats').RouteFuelEstimate;
+    routeComfort?: import('../services/isochrone/routeComfort').RouteComfortSummary;
     origin: string;
     destination: string;
     departureDate: string;

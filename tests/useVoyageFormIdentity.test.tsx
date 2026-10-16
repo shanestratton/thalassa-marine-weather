@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => ({
     weatherEnhance: vi.fn(),
     depthEnhance: vi.fn(),
     multiModelQuery: vi.fn(),
+    loadEnvironment: vi.fn(),
+    loadWeather: vi.fn(),
+    prepareInshore: vi.fn(),
 }));
 
 vi.mock('../context/SettingsContext', () => ({
@@ -115,6 +118,9 @@ vi.mock('../services/weather/waveField', () => ({
 vi.mock('../services/weather/WaveFieldAdapter', () => ({
     createWaveFieldFromSamples: () => null,
 }));
+vi.mock('../services/routing/isochroneEnvironment', () => ({ loadIsochroneEnvironment: mocks.loadEnvironment }));
+vi.mock('../services/routing/departureWeather', () => ({ loadDepartureWeather: mocks.loadWeather }));
+vi.mock('../services/routing/inshoreDepartureWindow', () => ({ prepareInshoreDepartureWindow: mocks.prepareInshore }));
 
 vi.mock('../services/departureWindow', async (importOriginal) => {
     const original = await importOriginal<typeof import('../services/departureWindow')>();
@@ -201,6 +207,7 @@ const RESOLVED_POLAR = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     vi.useRealTimers();
     setAuthIdentityScope(null);
     setAuthIdentityScope('account-a');
@@ -212,6 +219,9 @@ beforeEach(() => {
     mocks.fetchCurrents.mockResolvedValue({ vectors: [] });
     mocks.buildCycloneExclusionField.mockResolvedValue(null);
     mocks.fetchWaveField.mockResolvedValue([]);
+    mocks.loadEnvironment.mockResolvedValue({ currentField: null, waveField: null, exclusionField: null, notes: [] });
+    mocks.loadWeather.mockResolvedValue(null);
+    mocks.getDraftVoyages.mockResolvedValue([]);
     mocks.bathymetricEnhance.mockImplementation(async (value: VoyagePlan) => value);
     mocks.isochroneEnhance.mockResolvedValue(null);
     mocks.weatherEnhance.mockImplementation(async (value: VoyagePlan) => value);
@@ -232,6 +242,59 @@ afterEach(() => {
 });
 
 describe('useVoyageForm identity ownership', () => {
+    it('uses an inshore chart line and its existing tide check for a hop below 15 NM', async () => {
+        mocks.parseLocation
+            .mockResolvedValueOnce({ lat: -27.4, lon: 153.1 })
+            .mockResolvedValueOnce({ lat: -27.3, lon: 153.1 });
+        const inshore = {
+            route: {
+                routeCoordinates: [
+                    [153.1, -27.4],
+                    [153.1, -27.3],
+                ],
+            },
+            tideForRoute: vi.fn(),
+        };
+        mocks.prepareInshore.mockResolvedValue(inshore);
+        mocks.planDepartureWindow.mockResolvedValue([]);
+        const rendered = renderHook(() => useVoyageForm(vi.fn()));
+        await primeRouteForm(rendered.result);
+        await act(async () => {
+            await rendered.result.current.handlePlanWindow();
+        });
+        expect(mocks.prepareInshore).toHaveBeenCalledOnce();
+        expect(mocks.planDepartureWindow.mock.calls[0][11]).toMatchObject({
+            fixedRoute: inshore.route,
+            tideForRoute: inshore.tideForRoute,
+        });
+        expect(mocks.preloadBathymetry).not.toHaveBeenCalled();
+        rendered.unmount();
+    });
+    it('keeps the exact chosen departure hour through Calculate and the account-scoped plan handoff', async () => {
+        const rendered = renderHook(() => useVoyageForm(vi.fn()));
+        await primeRouteForm(rendered.result);
+        const departureTime = new Date(Date.now() + 48 * 3_600_000).toISOString();
+        await act(async () => {
+            rendered.result.current.acceptWindowScenario({
+                departureTime,
+                routeFound: true,
+                verdict: 'maybe',
+            } as DepartureScenario);
+            await Promise.resolve();
+        });
+        await act(async () => {
+            await rendered.result.current.handleCalculate();
+        });
+        expect(mocks.computeVoyagePlan.mock.calls[0][3]).toBe(departureTime);
+        const { readPlanDeparture } = await import('../services/planDeparture');
+        expect(readPlanDeparture()).toBe(Date.parse(departureTime));
+        act(() => {
+            setAuthIdentityScope('account-b');
+        });
+        expect(readPlanDeparture()).toBeNull();
+        rendered.unmount();
+    });
+
     it('clamps a past departure date to today before it reaches the form', async () => {
         const rendered = renderHook(() => useVoyageForm(vi.fn()));
 

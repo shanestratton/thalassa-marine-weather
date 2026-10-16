@@ -15,7 +15,11 @@ export interface MarineProximityResult {
  * @param lat Center Latitude
  * @param lon Center Longitude
  */
-export const checkMarineProximity = async (lat: number, lon: number): Promise<MarineProximityResult> => {
+export const checkMarineProximity = async (
+    lat: number,
+    lon: number,
+    timezone: 'auto' | 'UTC' = 'auto',
+): Promise<MarineProximityResult> => {
     // 1. Calculate Ring Points (Center + 4 Cardinal Points at 5nm)
     // 5 NM = 9.26 km
     // Lat Offset: 9.26km / 111.32km = ~0.083 degrees
@@ -44,7 +48,7 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
         // downstream).
         hourly: 'wave_height,wave_period,wave_direction',
         daily: 'wave_height_max',
-        timezone: 'auto',
+        timezone,
         forecast_days: 16,
     };
 

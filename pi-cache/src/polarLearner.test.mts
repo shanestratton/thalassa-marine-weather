@@ -90,6 +90,23 @@ test('civil twilight uses -6 degrees, including polar day and night', () => {
     assert.equal(polarPeriodAt(Date.parse('2026-06-21T00:00Z'), 89, 0), 'day');
     assert.equal(polarPeriodAt(Date.parse('2026-12-21T12:00Z'), 89, 0), 'night');
 });
+test('30–45 degree rows learn on the Pi, with 29.9 refused and old history retained', () => {
+    const previous = sample({ at: t0 - 60000, twa: 30, rpm: 0 });
+    assert.equal(polarSailingGate(sample({ twa: 30, rpm: 0 }), previous, baseline), true);
+    assert.equal(polarSailingGate(sample({ twa: 29.9, rpm: 0 }), previous, baseline), false);
+    const h = harness();
+    const learner = h.reopen();
+    learner.configure({ enabled: true, baseline });
+    for (const twa of [30, 35, 40, 45]) {
+        h.add(20, { twa });
+        learner.processBatch();
+    }
+    const p = learner.snapshot().extendedPolars.all!;
+    assert.deepEqual(p.angles, [30, 35, 40, 45, 60, 90, 120, 150, 180]);
+    assert.deepEqual(learner.snapshot().polars.all?.angles, [45, 60, 90, 120, 150, 180]);
+    for (const twa of [30, 35, 40, 45]) assert.ok(p.matrix[p.angles.indexOf(twa)][3] > 0);
+    assert.equal(h.reopen().snapshot().samples.all, learner.snapshot().samples.all);
+});
 test('an engine known to be running stays excluded when its RPM signal disappears', () => {
     const h = harness();
     const learner = h.reopen();

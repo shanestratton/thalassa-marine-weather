@@ -194,6 +194,8 @@ export interface UserSettings {
     autoTrackEnabled?: boolean;
     backgroundLocationEnabled?: boolean;
     polarSource?: 'factory' | 'smart';
+    /** Sailing performance adjustment, 0.7–1.3; independent of engine cruising speed. */
+    routingPolarScale?: number;
     nmeaHost?: string;
     nmeaPort?: number;
     smartPolarsEnabled?: boolean;

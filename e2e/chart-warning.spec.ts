@@ -241,7 +241,7 @@ async function openEmptyChart(
             await expect(tideBadge).toContainText('approx');
             await expect(scrubber).toBeVisible();
         } else {
-            await expect(tideBadge).toHaveText('LIVE DEPTH — no tide data, showing chart datum');
+            await expect(tideBadge).toHaveText('CHART DATUM — tidal clearance unverified');
             await expect(scrubber).toHaveCount(0);
         }
     }

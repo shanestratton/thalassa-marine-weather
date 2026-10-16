@@ -11,12 +11,16 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { routeEstimateLines, type RouteSailingStats, type RouteFuelEstimate } from './isochrone/routeStats';
 
 const log = createLogger('PassageBrief');
 
 // ── Types ──
 
 export interface PassageBriefData {
+    routeComfort?: import('./isochrone/routeComfort').RouteComfortSummary | null;
+    sailingStats?: RouteSailingStats | null;
+    routeFuel?: RouteFuelEstimate | null;
     routeName: string;
     origin: { name: string; lat: number; lon: number };
     destination: { name: string; lat: number; lon: number };
@@ -104,6 +108,7 @@ function formatBriefAsText(data: PassageBriefData): string {
     lines.push(`  Distance: ${data.totalDistanceNM.toFixed(0)} NM`);
     lines.push(`  ETA Duration: ${formatDuration(data.estimatedDuration)}`);
     lines.push(`  Speed: ${data.speed} kts`);
+    lines.push(...routeEstimateLines(data.sailingStats, data.routeFuel, data.routeComfort));
     lines.push(`  Departure: ${formatDateTime(data.departureTime)}`);
 
     const arrivalTime = new Date(new Date(data.departureTime).getTime() + data.estimatedDuration * 3600_000);
@@ -200,6 +205,9 @@ function formatBriefAsHTML(data: PassageBriefData): string {
         ${viaSection}
     </div>
 
+    ${routeEstimateLines(data.sailingStats, data.routeFuel, data.routeComfort)
+        .map((line) => `<p style="color:#cbd5e1;font-size:12px;">${line}</p>`)
+        .join('')}
     <!-- Stats Grid -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div style="background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.15);border-radius:10px;padding:12px;text-align:center;">

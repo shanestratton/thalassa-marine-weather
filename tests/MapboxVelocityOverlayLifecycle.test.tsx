@@ -99,8 +99,8 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('leaflet', () => ({
-    default: mocks.leaflet,
+vi.mock('../utils/leafletRuntime.mjs', () => ({
+    leafletRuntime: mocks.leaflet,
 }));
 
 vi.mock('leaflet-velocity-ts', async () => {

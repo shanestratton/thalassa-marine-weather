@@ -27,7 +27,7 @@ vi.mock('../services/nativeStorage', () => ({
 import { ROUTING_MIN_BUCKET_SAMPLES, SmartPolarStore } from '../services/SmartPolarStore';
 import { LEARNED_CELLS } from '../services/routingPolar';
 
-const ANGLES = [45, 60, 90, 120, 150, 180];
+const ANGLES = [30, 35, 40, 45, 60, 90, 120, 150, 180];
 const WINDS = [6, 8, 10, 12, 15, 20, 25];
 
 /** One exported cell (the 42-cell table: 7 wind speeds × 6 angles). */
@@ -62,9 +62,9 @@ describe('a sample lands in its 2 kn × 5° bucket', () => {
         expect(bucket(10, 90).sumSTW2).toBeCloseTo(6.4 * 6.4, 10);
     });
 
-    it('only inside 0–30 kn of wind and 40–180° of angle', () => {
+    it('only inside 0–30 kn of wind and 30–180° of angle', () => {
         record(30, 90, 7); // 30 kn is past the last bucket
-        record(10, 39.9, 5); // inside 40°
+        record(10, 29.9, 5); // inside 30°
         record(10, 180.1, 5);
         record(-1, 90, 5);
         expect(SmartPolarStore.getStats().totalSamples).toBe(0);
@@ -80,8 +80,8 @@ describe('a sample lands in its 2 kn × 5° bucket', () => {
         const stats = SmartPolarStore.getStats();
         expect(stats.totalSamples).toBe(3);
         expect(stats.filledBuckets).toBe(2);
-        // 15 wind buckets (0–30 kn) × 28 angle buckets (40–180°).
-        expect(stats.totalBuckets).toBe(15 * 28);
+        // 15 wind buckets (0–30 kn) × 31 angle buckets (30–180°, inclusive).
+        expect(stats.totalBuckets).toBe(15 * 31);
         expect(stats.oldestSample).toBe(Date.parse('2026-10-15T00:00:00Z'));
         expect(stats.newestSample).toBe(Date.parse('2026-10-15T01:00:00Z'));
     });
@@ -126,7 +126,7 @@ describe('the 42-cell table it exports', () => {
         expect(cellAt(90, 10, ROUTING_MIN_BUCKET_SAMPLES)).toBe(6.1);
     });
 
-    it('has the factory polar’s rows and columns: 7 wind speeds × 6 angles', () => {
+    it('has seven wind speeds and nine angles including 30, 35 and 40 degrees', () => {
         record(10, 90, ...times(3, 6.1));
         const p = SmartPolarStore.exportToPolarData()!;
         expect(p.windSpeeds).toEqual(WINDS);
@@ -185,11 +185,27 @@ describe('the 42-cell table it exports', () => {
         const local = SmartPolarStore.exportToRoutingPolar()!;
         const pi = { ...local, matrix: local.matrix.map((row) => row.map(() => 0)) };
         pi.matrix[0][0] = 5;
-        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[2][2]).toBe(6);
+        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[ANGLES.indexOf(90)][2]).toBe(6);
         expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[0][0]).toBe(5);
-        pi.matrix[2][2] = 5.5;
-        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[2][2]).toBe(5.5);
+        pi.matrix[ANGLES.indexOf(90)][2] = 5.5;
+        expect(SmartPolarStore.exportToRoutingPolar(pi)!.matrix[ANGLES.indexOf(90)][2]).toBe(5.5);
         expect(SmartPolarStore.getStats().totalSamples).toBe(10);
         expect(SmartPolarStore.exportToRoutingPolar(null)).toEqual(local);
+    });
+    it('learns close-hauled rows and merges an older Pi grid by angle rather than row number', () => {
+        for (const angle of [30, 35, 40]) record(12, angle, ...times(10, 4));
+        record(12, 90, ...times(10, 6));
+        const local = SmartPolarStore.exportToRoutingPolar()!;
+        const pi = {
+            windSpeeds: WINDS,
+            angles: [45, 60, 90, 120, 150, 180],
+            matrix: Array.from({ length: 6 }, () => WINDS.map(() => 0)),
+        };
+        pi.matrix[2][3] = 7;
+        const merged = SmartPolarStore.exportToRoutingPolar(pi)!;
+        for (const angle of [30, 35, 40]) expect(merged.matrix[merged.angles.indexOf(angle)][3]).toBe(4);
+        expect(merged.matrix[merged.angles.indexOf(90)][3]).toBe(7);
+        expect(local.angles).toEqual(ANGLES);
+        expect(SmartPolarStore.getStats().totalSamples).toBe(40);
     });
 });

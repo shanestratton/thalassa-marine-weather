@@ -353,4 +353,29 @@ describe('Open-Meteo commercial secret boundary', () => {
             ),
         ).rejects.toThrow('misaligned coordinate batch');
     });
+
+    it('cancels an in-flight forecast and never starts its queued coordinate batch', async () => {
+        const controller = new AbortController();
+        const fetchMock = vi.fn(
+            (_url: string, init: RequestInit) =>
+                new Promise<Response>((_, reject) => {
+                    init.signal!.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), {
+                        once: true,
+                    });
+                }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        const pending = fetchOpenMeteoPoints(
+            'forecast',
+            Array.from({ length: 51 }, (_, index) => ({ lat: 0, lon: index / 100 })),
+            { hourly: 'wind_speed_10m' },
+            1,
+            controller.signal,
+        );
+        const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+        controller.abort();
+        await rejected;
+        expect(fetchMock).toHaveBeenCalledOnce();
+    });
 });

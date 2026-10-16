@@ -71,7 +71,7 @@ const MID_ATLANTIC = { lat: 14.2, lon: -40.6 };
 /** The Hauraki Gulf. */
 const HAURAKI = { lat: -36.6, lon: 175.0 };
 
-const [ICON, ECMWF, AIFS, UKMO, JMA] = SELECTABLE_MODELS.map((m) => m.id);
+const [ICON, ECMWF, AIFS, UKMO, JMA, GFS] = SELECTABLE_MODELS.map((m) => m.id);
 const BANNED = /\bbest\b|\baccurate\b|\bis right\b|use this model/i;
 
 const empty = (): TimestampedMetric => ({ value: null, lastUpdated: 0, freshness: 'dead' });
@@ -446,6 +446,7 @@ describe('rankModelsAtHer: closest first by the speed gap', () => {
             [ECMWF, -3],
             [UKMO, 8],
             [JMA, 'no wind here'],
+            [GFS, 'no wind here'],
         ]);
         expect(ranking.marginKt).toBeCloseTo(1.8, 9);
         expect(ranking.verdict).toEqual({ kind: 'too-close', ids: [ICON, AIFS] });
@@ -513,6 +514,7 @@ describe('rankModelsAtHer: closest first by the speed gap', () => {
             [AIFS, 'no wind here'],
             [UKMO, 'no wind here'],
             [JMA, 'no wind here'],
+            [GFS, 'no wind here'],
         ]);
         expect(r.verdict).toEqual({ kind: 'only', id: ICON });
         expect(r.rows.some((row) => row.marked)).toBe(false);
@@ -580,7 +582,7 @@ describe('rankModelsAtHer: closest first by the speed gap', () => {
             session([reading({ kt: 12 })]),
             spreadOf({ [UKMO]: { kt: 14 }, [AIFS]: { kt: 10 }, [ECMWF]: { kt: 30 } }),
         );
-        expect(r.rows.map((row) => row.id)).toEqual([AIFS, UKMO, ECMWF, ICON, JMA]);
+        expect(r.rows.map((row) => row.id)).toEqual([AIFS, UKMO, ECMWF, ICON, JMA, GFS]);
     });
 
     it('a model with wind at only some of her sample times: no wind here', () => {
@@ -710,7 +712,7 @@ describe('buildModelCheckView: every string the card shows', () => {
         expect(far.verdict).toBeNull();
         expect(far.rows).toEqual([]);
         expect(far.credit).toBeNull();
-        expect(view({ session: session([reading({ kt: 12, lat: SOLENT.lat + 9 / 60 })]) }).rows).toHaveLength(5);
+        expect(view({ session: session([reading({ kt: 12, lat: SOLENT.lat + 9 / 60 })]) }).rows).toHaveLength(6);
     });
 
     it.each([
@@ -818,6 +820,7 @@ describe('buildModelCheckView: every string the card shows', () => {
             ['ECMWF', '9 kt SW', '3 under', null, 'emerald'],
             ['UKMO', '20 kt SW', '8 over', null, 'rose'],
             ['JMA', '—', 'no wind here', null, null],
+            ['GFS', '—', 'no wind here', null, null],
         ]);
         expect(v.rows[0].gapLong).toBe('1 kt over her wind');
         expect(v.rows[4].gapLong).toBe('no wind here from this model');
@@ -901,6 +904,7 @@ describe('buildModelCheckView: every string the card shows', () => {
             [AIFS, 'rose'],
             [UKMO, null],
             [JMA, null],
+            [GFS, null],
         ]);
     });
 
@@ -915,6 +919,10 @@ describe('buildModelCheckView: every string the card shows', () => {
         expect(creditLine([])).toBeNull();
         for (const m of SELECTABLE_MODELS) {
             expect(m.provider.trim()).not.toBe('');
+            if (m.provider === 'NOAA') {
+                expect(creditLine([m.id])).toBe('Data via Open-Meteo: NOAA (public domain)');
+                continue;
+            }
             expect(creditLine([m.id])).toMatch(
                 new RegExp(`^Data via Open-Meteo: ${m.provider} \\(CC BY(-SA)? 4\\.0\\)$`),
             );

@@ -104,7 +104,7 @@ test('the vault uses the shared exact draft+UKC rule and returns only generic sa
     });
     assert.equal((await new VaultLookahead().query({ ...q, ukcM: 0.7 }, [meta], read(chart(2.6)))).danger, true);
 });
-test('positive tide credit requires explicit matching per-cell datum, negative tide is retained', async () => {
+test('unproven IPC tide data never changes chart-datum screening, even with matching LAT', async () => {
     const q = makeRequest();
     q.tide = {
         datum: 'LAT',
@@ -114,11 +114,11 @@ test('positive tide credit requires explicit matching per-cell datum, negative t
             { dt: q.fix.at / 1000 + 1000, height: 1 },
         ],
     };
-    assert.equal((await new VaultLookahead().query(q, [meta], read(chart(2, 23)))).danger, false);
+    assert.equal((await new VaultLookahead().query(q, [meta], read(chart(2, 23)))).danger, true);
     assert.equal((await new VaultLookahead().query(q, [meta], read(chart(2)))).danger, true);
     assert.equal((await new VaultLookahead().query(q, [meta], read(chart(2, 12)))).danger, true);
     q.tide.points.forEach((p) => (p.height = -0.3));
-    assert.equal((await new VaultLookahead().query(q, [meta], read(chart(2.6, 23)))).danger, true);
+    assert.equal((await new VaultLookahead().query(q, [meta], read(chart(2.6, 23)))).danger, false);
 });
 test('failed reads and partial area coverage never report charted clear water', async () => {
     const q = makeRequest();

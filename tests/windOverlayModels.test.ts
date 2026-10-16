@@ -44,10 +44,9 @@ describe('wind overlay models mirror the Glass picker', () => {
         expect(icon.openMeteoModel).toBe('dwd_icon');
     });
 
-    it('does NOT offer GFS — it publishes no 10 m wind, which is what this draws', () => {
-        // Dropped from the Glass 2026-07-21 for exactly this reason. The wind
-        // overlay would render an empty grid.
-        expect(WIND_OVERLAY_MODELS).not.toContain('gfs');
+    it('offers repaired GFS seamless without restoring the windless single-domain id', () => {
+        expect(WIND_OVERLAY_MODELS).toContain('gfs');
+        expect(AVAILABLE_MODELS.find((model) => model.id === 'gfs')?.openMeteoModel).toBe('gfs_seamless');
         expect(SELECTABLE_MODELS.map((g) => g.id)).not.toContain('ncep_gfs025');
     });
 

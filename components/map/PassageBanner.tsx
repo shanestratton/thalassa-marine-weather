@@ -3,7 +3,7 @@
  *
  * Single card design: route stats + controls in a minimal floating banner.
  */
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passageGpxExport';
@@ -12,6 +12,12 @@ import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlan
 import { Share } from '@capacitor/share';
 import type { PassageNotice, PassageRouteVerification } from './usePassagePlanner';
 import { splitDaysHours } from '../../utils/splitDaysHours';
+import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
+import type { RouteFuelEstimate, RouteSailingStats } from '../../services/isochrone/routeStats';
+import type { RouteComfortSummary } from '../../services/isochrone/routeComfort';
+import type { OffshoreComparisonView } from './useOffshoreComparison';
+
+const OffshoreComparisonSheet = lazy(() => import('../passage/OffshoreComparisonSheet'));
 
 const log = createLogger('PassageBanner');
 
@@ -20,7 +26,13 @@ interface PassageBannerProps {
         showPassage: boolean;
         departure: { lat: number; lon: number; name: string } | null;
         arrival: { lat: number; lon: number; name: string } | null;
-        routeAnalysis: { totalDistance: number; estimatedDuration: number } | null;
+        routeAnalysis: {
+            totalDistance: number;
+            estimatedDuration: number;
+            sailingStats?: RouteSailingStats;
+            routeFuel?: RouteFuelEstimate;
+            routeComfort?: RouteComfortSummary;
+        } | null;
         routeVerification: PassageRouteVerification;
         routeActionsAvailable: boolean;
         /** What the drawn route itself must say (usePassagePlanner routeCaveats). */
@@ -29,6 +41,7 @@ interface PassageBannerProps {
         routeCellsRef?: React.MutableRefObject<string[]>;
         /** Which polar the ETA was sailed on (services/routingPolar label); null when none was. */
         routingPolarLabel?: string | null;
+        modelComparison?: OffshoreComparisonView;
         departureTime: string | null;
         setShowPassage: (v: boolean) => void;
         clearRoute: () => void;
@@ -207,6 +220,9 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 departureTime: passage.departureTime || new Date().toISOString(),
                 totalDistanceNM: isoResult?.totalDistanceNM ?? passage.routeAnalysis?.totalDistance ?? 0,
                 estimatedDuration: isoResult?.totalDurationHours ?? passage.routeAnalysis?.estimatedDuration ?? 0,
+                sailingStats: passage.routeAnalysis?.sailingStats,
+                routeFuel: passage.routeAnalysis?.routeFuel,
+                routeComfort: passage.routeAnalysis?.routeComfort,
                 speed: passage.speed,
                 turnWaypoints:
                     turnWPs.length > 0
@@ -390,6 +406,41 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     >
                         <span className="font-bold text-slate-200">Polar:</span> {passage.routingPolarLabel}
                     </div>
+                )}
+
+                {passage.routeAnalysis && !isoProgress && (
+                    <RouteEstimateSummary
+                        stats={passage.routeAnalysis.sailingStats}
+                        fuel={passage.routeAnalysis.routeFuel}
+                        comfort={passage.routeAnalysis.routeComfort}
+                    />
+                )}
+
+                {passage.routeAnalysis && !isoProgress && passage.modelComparison?.ready && (
+                    <div className="border-t border-white/6 px-3.5 py-2">
+                        <button
+                            type="button"
+                            disabled={!!passage.modelComparison.disabledReason}
+                            onClick={() => void passage.modelComparison?.start()}
+                            className="min-h-11 w-full rounded-lg bg-sky-500/15 px-3 py-2 text-sm font-bold text-sky-200 disabled:opacity-50"
+                        >
+                            Compare four forecast models
+                        </button>
+                        {passage.modelComparison.disabledReason && (
+                            <p className="mt-1 text-xs text-slate-400">{passage.modelComparison.disabledReason}</p>
+                        )}
+                    </div>
+                )}
+                {passage.modelComparison?.open && (
+                    <Suspense
+                        fallback={
+                            <p role="status" className="p-3 text-xs text-slate-300">
+                                Opening comparison…
+                            </p>
+                        }
+                    >
+                        <OffshoreComparisonSheet comparison={passage.modelComparison} />
+                    </Suspense>
                 )}
 
                 {/* ── Cooking indicator ──

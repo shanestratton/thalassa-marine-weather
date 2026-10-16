@@ -244,7 +244,7 @@ describe('PolarPage: the top line is the resolver the passage HUD and Plan Your 
         await settle();
         await waitFor(() =>
             expect(screen.getByTestId('polars-routes-sail-on').textContent).toBe(
-                'Routes sail on: Learning (0 of 42 cells), sailing on Beneteau Oceanis 38.1 (shape scaled to 6.5 kn)',
+                'Routes sail on: Learning (0 of 63 cells), sailing on Beneteau Oceanis 38.1 (shape scaled to 6.5 kn)',
             ),
         );
     });

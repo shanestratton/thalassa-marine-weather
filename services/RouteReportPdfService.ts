@@ -17,6 +17,7 @@ import { traceHealth } from './routeTracer';
 import { traceVerificationSummary, type TraceVerification } from './traceVerification';
 import { windCompass, type WaypointWeather } from './routeReportWeather';
 import { chartFactsKeeper, PDF_FIGURES_ABOARD, TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
+import { routeEstimateLines, type RouteFuelEstimate } from './isochrone/routeStats';
 
 type RGB = [number, number, number];
 const COLORS = {
@@ -69,6 +70,7 @@ function nowLabel(nowMs: number): string {
 }
 
 export interface RouteReportPdfData {
+    routeFuel?: RouteFuelEstimate | null;
     /** The route heading, e.g. "Bribie - Newport". */
     routeName: string;
     pins: TracePoint[];
@@ -185,6 +187,14 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     doc.text(pdfSafe(verificationText), margin + 6, y + 7.8);
     y += 12 + 5;
 
+    for (const line of routeEstimateLines(null, data.routeFuel)) {
+        const wrapped = doc.splitTextToSize(pdfSafe(line), contentW - 12) as string[];
+        ensure(wrapped.length * 4 + 5);
+        doc.setFontSize(8);
+        doc.setTextColor(...COLORS.muted);
+        doc.text(wrapped, margin + 6, y + 4);
+        y += wrapped.length * 4 + 5;
+    }
     // ── Health tally ──
     const h = traceHealth(data.verdicts);
     ensure(13);

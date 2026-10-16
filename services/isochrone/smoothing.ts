@@ -5,10 +5,10 @@
  * and backtracking from arrival node through isochrone chain.
  */
 
-import type { BathymetryGrid } from '../BathymetryCache';
+import type { BathymetryGrid } from './publicBathymetry';
 import type { IsochroneNode, Isochrone } from './types';
 import { haversineNm } from './geodesy';
-import { isSegmentNavigable } from './landAvoidance';
+import { isSegmentNavigable } from './publicLandAvoidance';
 
 /**
  * Reconstruct the optimal route by backtracking from the arrival node

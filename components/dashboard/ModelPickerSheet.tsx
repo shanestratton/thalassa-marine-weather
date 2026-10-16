@@ -54,6 +54,7 @@ interface ModelPickerSheetProps {
      * built-in list is offered and fetches fall through to the live proxy.
      */
     publishedModels?: string[];
+    samplingDescription?: string;
 }
 
 /** Names the credit line uses where 'provider label' would read oddly. */
@@ -137,6 +138,7 @@ const MODEL_RANGE_DAYS: Readonly<Record<string, number>> = {
     ecmwf_aifs025_single: 15,
     ukmo_global_deterministic_10km: 6,
     jma_gsm: 10,
+    gfs_seamless: 15,
 };
 
 /** The attribution line, with 'Météo-France' kept on one line. */
@@ -162,6 +164,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     offshore,
     spitfireAvailable = false,
     spitfireLocationName,
+    samplingDescription,
 }) => {
     const portalTarget = usePanePortalTarget();
     const titleId = useId();
@@ -305,6 +308,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
 
                 {/* Scrollable list */}
                 <div className="overflow-y-auto max-h-[60dvh] px-3 py-3 space-y-1.5">
+                    {samplingDescription && <p className="px-2 pb-2 text-xs text-slate-300">{samplingDescription}</p>}
                     {/* SPITFIRE first when it applies here — it is the only
                         entry scored against real observations. */}
                     {offshore ? (

@@ -47,6 +47,7 @@ import { pruneMap } from '../utils/boundedMap';
 import { fetchWorldTides } from './weather/api/worldtides';
 import { buildExtremesLookup, TideExtremePoint } from './tides/extremesInterp';
 import type { WorldTidesHeight, WorldTidesResponse } from '../types/api';
+import { navigationTideSourceAvailable } from './tides/navigationUse';
 
 const log = createLogger('TideHeightService');
 
@@ -244,6 +245,10 @@ export async function fetchTideCurve(
     endMs: number,
     opts: { days?: number; chartBounds?: ChartBounds } = {},
 ): Promise<TideCurve | null> {
+    // Provider permission is independent of datum proof. The current source
+    // is WorldTides; cached LAT curves must not bypass its informational-only
+    // use. Null means unknown tidal clearance, not a zero-height prediction.
+    if (!navigationTideSourceAvailable()) return null;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
     // All routing/live-depth consumers share this gate, BEFORE cache hits.

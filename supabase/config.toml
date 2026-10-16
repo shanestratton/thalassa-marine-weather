@@ -293,3 +293,9 @@ verify_jwt = false
 # pg_net with the service key; the function requires an exact service-role
 # POST before any database or Gemini work. No user JWT exists in that path.
 verify_jwt = false
+
+[functions.wx-publisher]
+# wx authenticates with its dedicated 256-bit token, checked against a public
+# SHA256 verifier before any privileged database access. No service-role key
+# leaves the Edge runtime; a Supabase user JWT is not this producer's identity.
+verify_jwt = false

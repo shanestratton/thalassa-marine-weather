@@ -664,11 +664,11 @@ describe('the wind she will sail INTO', () => {
         // ONE request, for all five by name — the pinned model is in it.
         expect(proxy.calls).toHaveLength(1);
         expect(proxy.calls[0].models.split(',')).toContain('ecmwf_ifs025');
-        expect(proxy.calls[0].models.split(',')).toHaveLength(5);
+        expect(proxy.calls[0].models.split(',')).toHaveLength(6);
         expect(text('route-scrub-model')).toContain('ECMWF');
         // …and whoever's numbers are in the band is credited, the pinned model's provider first.
         expect(text('route-scrub-credit')).toBe(
-            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, NOAA, Météo-France, Open-Meteo',
         );
     });
 
@@ -878,18 +878,18 @@ describe('where the models disagree, it says so', () => {
         expect(screen.getByTestId('hud-tws-spread').className).toContain('text-red-400');
         expect(text('hud-models-split')).toBe('MODELS SPLIT');
         // Rounded OUTWARD for a screen reader too, so it holds the headline as the visible range does.
-        expect(label('hud-tws')).toContain('5 of 5 models say 12 to 33 knots — the models disagree');
+        expect(label('hud-tws')).toContain('6 of 6 models say 12 to 33 knots — the models disagree');
     });
 
-    it('says how many answered ONLY when someone did not — "4/5" is the news, "5/5" is not', async () => {
+    it('says how many answered ONLY when someone did not — "5/6" is the news, "6/6" is not', async () => {
         const normal = proxy.speedFor;
         proxy.speedFor = (model, station) =>
             model === 'jma_gsm' ? (null as unknown as number) : normal(model, station);
         underWay();
         render(<PassageHudPane />);
         await lookAhead();
-        expect(text('hud-tws-spread')).toBe('12–33 4/5');
-        expect(label('hud-tws')).toContain('4 of 5 models say');
+        expect(text('hud-tws-spread')).toBe('12–33 5/6');
+        expect(label('hud-tws')).toContain('5 of 6 models say');
     });
 
     it('the range always HOLDS the headline: rounded outward, never "6–9" under 9.4', async () => {
@@ -947,7 +947,7 @@ describe('where the models disagree, it says so', () => {
         expect(screen.getByTestId('route-scrub-band')).toBeTruthy();
         expect(screen.getAllByTestId('route-scrub-band-split').length).toBeGreaterThan(0);
         expect(text('route-scrub-credit')).toBe(
-            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, NOAA, Météo-France, Open-Meteo',
         );
     });
 
@@ -1317,7 +1317,7 @@ describe('the sea she will be in (phase 4)', () => {
         expect(text('hud-sea')).toContain('—');
         expect(text('hud-tws')).toMatch(/^TWS1\dkn/);
         // …and nobody is credited for numbers that are not on screen.
-        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA, NOAA');
     });
 
     it('one marine request per route: changing the WIND model does not ask for the sea again', async () => {
@@ -1373,7 +1373,7 @@ describe('the sea she will be in (phase 4)', () => {
         act(() => setPassageAheadMs(6 * HOUR));
         expect(text('hud-sea-reason')).toBe('INSHORE');
         // Nobody is credited for a sea that is not on screen…
-        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA, NOAA');
         // …and it was ONE request: kept for the hour, not retried as though it had failed.
         expect(proxy.seaCalls).toHaveLength(1);
     });
@@ -1423,7 +1423,7 @@ describe('changing the model', () => {
         // INSTANT, and free: ICON came in the same five-model reply. No second request.
         expect(proxy.calls).toHaveLength(1);
         expect(text('route-scrub-credit')).toBe(
-            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, NOAA, Météo-France, Open-Meteo',
         );
     });
 
@@ -1433,7 +1433,7 @@ describe('changing the model', () => {
         render(<PassageHudPane />);
         await lookAhead();
         expect(text('hud-tws')).toMatch(/TWS1\d/);
-        expect(proxy.calls.map((c) => c.models.split(',').length)).toEqual([5, 1]);
+        expect(proxy.calls.map((c) => c.models.split(',').length)).toEqual([6, 1]);
         expect(proxy.calls[1].models).toBe('ecmwf_ifs025');
         expect(screen.queryByTestId('hud-tws-spread')).toBeNull(); // no spread to show, and none invented
         expect(screen.queryByTestId('route-scrub-band')).toBeNull();

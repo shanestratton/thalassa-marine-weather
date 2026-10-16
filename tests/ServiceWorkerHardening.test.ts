@@ -164,6 +164,44 @@ describe('production service worker', () => {
         expect(offlineCache.delete).not.toHaveBeenCalled();
     });
 
+    it('serves explicitly saved relief ahead of ordinary viewed tiles', async () => {
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+        getCache(names.runtimeTiles).match.mockResolvedValue(new Response('old viewed tile'));
+        getCache(names.offlineTiles).match.mockResolvedValue(new Response('validated saved terrain'));
+        let result: Promise<Response> | undefined;
+        listeners.get('fetch')?.({
+            request: new Request('https://tiles.thalassatiles.com/v1/relief-global/idx/0/0/0.png'),
+            respondWith: (r) => {
+                result = r;
+            },
+            waitUntil: vi.fn(),
+        });
+        expect(await (await result)!.text()).toBe('validated saved terrain');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('lets the explicit relief downloader validate a fresh response rather than an old viewed tile', async () => {
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+        getCache(names.runtimeTiles).match.mockResolvedValue(new Response('stale viewed tile'));
+        let result: Promise<Response> | undefined;
+        const request = new Request('https://tiles.thalassatiles.com/v1/relief-global/idx/0/0/0.png', {
+            cache: 'reload',
+            redirect: 'error',
+            credentials: 'omit',
+        });
+        listeners.get('fetch')?.({
+            request,
+            respondWith: (r) => {
+                result = r;
+            },
+            waitUntil: vi.fn(),
+        });
+        expect(await (await result)!.text()).toBe('network');
+        expect(fetchMock).toHaveBeenCalledWith(request);
+        expect(getCache(names.runtimeTiles).match).not.toHaveBeenCalled();
+        expect(getCache(names.offlineTiles).put).not.toHaveBeenCalled();
+    });
+
     it('prunes only the ordinary browsing tile cache to its fixed limit', async () => {
         const { listeners, getCache, names } = loadServiceWorker();
         const runtimeCache = getCache(names.runtimeTiles);

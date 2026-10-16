@@ -9,7 +9,8 @@
  * paints Leaflet's layers above fixed overlays.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
+import type L from 'leaflet';
+import { leafletRuntime } from '../../utils/leafletRuntime.mjs';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../../services/PiCacheService';
 import { installLeafletTileSeamGuard } from '../map/leafletTileSeamGuard';
@@ -32,7 +33,7 @@ export const SightingsMap: React.FC<{
 
     useEffect(() => {
         if (!box.current || map.current) return;
-        const m = L.map(box.current, {
+        const m = leafletRuntime.map(box.current, {
             zoomControl: false,
             attributionControl: true,
             doubleClickZoom: false,
@@ -42,7 +43,7 @@ export const SightingsMap: React.FC<{
             zoomAnimation: false,
         });
         const tiles = logBaseTiles(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined);
-        const base = L.tileLayer(piCache.leafletTileTemplate(tiles.url, undefined, 'image/jpeg'), {
+        const base = leafletRuntime.tileLayer(piCache.leafletTileTemplate(tiles.url, undefined, 'image/jpeg'), {
             maxZoom: tiles.maxZoom,
             attribution: tiles.attribution,
             ...(tiles.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
@@ -56,7 +57,7 @@ export const SightingsMap: React.FC<{
         base.on('tileload', () => setTilesFailed(false));
         base.addTo(m);
         installCompactAttribution(m);
-        layer.current = L.layerGroup().addTo(m);
+        layer.current = leafletRuntime.layerGroup().addTo(m);
         m.setView([-20.27, 148.95], 9);
         map.current = m;
         return () => {
@@ -75,7 +76,7 @@ export const SightingsMap: React.FC<{
         for (const item of items) {
             if (item.latitude === null || item.longitude === null) continue;
             const mine = item.observerId === myUserId;
-            const marker = L.circleMarker([item.latitude, item.longitude], {
+            const marker = leafletRuntime.circleMarker([item.latitude, item.longitude], {
                 radius: 9,
                 weight: 2.5,
                 color: '#e0f2fe',
@@ -87,7 +88,8 @@ export const SightingsMap: React.FC<{
             points.push([item.latitude, item.longitude]);
         }
         if (points.length === 1) m.setView(points[0], 11);
-        else if (points.length > 1) m.fitBounds(L.latLngBounds(points), { padding: [28, 28], maxZoom: 12 });
+        else if (points.length > 1)
+            m.fitBounds(leafletRuntime.latLngBounds(points), { padding: [28, 28], maxZoom: 12 });
     }, [items, myUserId]);
 
     return (

@@ -81,10 +81,14 @@ export async function fetchOpenMeteoProxy<T>(
     operation: OpenMeteoOperation,
     params: OpenMeteoParameters,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal?: AbortSignal,
 ): Promise<T> {
     if (!supabaseUrl) throw new Error('Weather service is not configured');
 
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) controller.abort();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const response = await fetch(`${supabaseUrl}/functions/v1/proxy-openmeteo`, {
@@ -106,6 +110,7 @@ export async function fetchOpenMeteoProxy<T>(
         return data as T;
     } finally {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', cancel);
     }
 }
 
@@ -119,6 +124,7 @@ export async function fetchOpenMeteoPoints<T>(
     points: readonly OpenMeteoPoint[],
     params: OpenMeteoParameters,
     concurrency = 4,
+    signal?: AbortSignal,
 ): Promise<T[]> {
     if (
         points.length === 0 ||
@@ -139,15 +145,21 @@ export async function fetchOpenMeteoPoints<T>(
     let nextBatch = 0;
     const worker = async () => {
         while (true) {
+            if (signal?.aborted) throw new DOMException('Comparison cancelled', 'AbortError');
             const batchIndex = nextBatch++;
             const batch = batches[batchIndex];
             if (!batch) return;
 
-            const payload = await fetchOpenMeteoProxy<T | T[]>(operation, {
-                ...params,
-                latitude: batch.map(({ lat }) => lat.toFixed(4)).join(','),
-                longitude: batch.map(({ lon }) => lon.toFixed(4)).join(','),
-            });
+            const payload = await fetchOpenMeteoProxy<T | T[]>(
+                operation,
+                {
+                    ...params,
+                    latitude: batch.map(({ lat }) => lat.toFixed(4)).join(','),
+                    longitude: batch.map(({ lon }) => lon.toFixed(4)).join(','),
+                },
+                DEFAULT_TIMEOUT_MS,
+                signal,
+            );
             const normalized = Array.isArray(payload) ? payload : [payload];
             if (normalized.length !== batch.length) {
                 throw new Error('Weather service returned a misaligned coordinate batch');

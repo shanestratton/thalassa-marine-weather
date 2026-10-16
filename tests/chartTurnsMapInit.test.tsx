@@ -10,6 +10,9 @@
  */
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type mapboxgl from 'mapbox-gl';
+import { waitFor } from '@testing-library/react';
+const startup = vi.hoisted(() => ({ prepare: vi.fn() }));
+vi.mock('../services/initialReliefMapStyle', () => ({ initialReliefMapStyle: startup.prepare }));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Handler = (event?: unknown) => void;
@@ -21,6 +24,8 @@ const world = vi.hoisted(() => ({
         touchZoomRotate: { disableRotation: ReturnType<typeof vi.fn> };
         bearing: number;
         zoom: number;
+        getSource: ReturnType<typeof vi.fn>;
+        isStyleLoaded: () => boolean;
         fire: (event: string, data?: Record<string, unknown>) => void;
     }>,
     resize: [] as Array<() => void>,
@@ -46,6 +51,8 @@ vi.mock('mapbox-gl', () => ({
             keyboard = { disableRotation: vi.fn() };
             addControl = vi.fn();
             resize = vi.fn();
+            isStyleLoaded = () => false;
+            getSource = vi.fn();
             bearing = 0;
             zoom = 3;
             constructor(public options: Record<string, unknown>) {
@@ -152,6 +159,60 @@ afterEach(() => {
 });
 
 describe('the chart can turn, and only its modes turn it', () => {
+    it('does not create an abandoned chart after asynchronous terrain/style boot completes', async () => {
+        vi.stubGlobal('caches', {});
+        let resolve!: (style: string) => void;
+        startup.prepare.mockImplementation(
+            () =>
+                new Promise<string>((r) => {
+                    resolve = r;
+                }),
+        );
+        try {
+            const view = renderHook(() => useMapInit(options()));
+            await waitFor(() => expect(startup.prepare).toHaveBeenCalledOnce());
+            expect(world.maps).toHaveLength(0);
+            const signal = startup.prepare.mock.calls[0][2] as AbortSignal;
+            view.unmount();
+            expect(signal.aborted).toBe(true);
+            await act(async () => resolve('mapbox://styles/mapbox/dark-v11'));
+            expect(world.maps).toHaveLength(0);
+        } finally {
+            vi.unstubAllGlobals();
+            startup.prepare.mockReset();
+        }
+    });
+    it('boots an inline relief style offline and maps hydrated terrain synchronously without changing charts', async () => {
+        const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        const bridge = await import('../services/offlineReliefRuntime');
+        const url = 'https://tiles.thalassatiles.com/v1/relief-global/idx/0/0/0.png';
+        bridge.publishOfflineRelief(new Map([[url, 'capacitor://localhost/_capacitor_file_/saved-terrain.png']]));
+        try {
+            renderHook(() => useMapInit(options()));
+            const [map] = world.maps;
+            expect(map.options.style).toMatchObject({
+                version: 8,
+                sources: {},
+                layers: [{ id: 'land', type: 'background' }],
+            });
+            const transform = map.options.transformRequest as (url: string, type: string) => { url: string };
+            expect(transform(url, 'Tile')).toEqual({ url: 'capacitor://localhost/_capacitor_file_/saved-terrain.png' });
+            expect(transform('https://api.mapbox.com/styles/v1/mapbox/dark-v11', 'Style')).toEqual({
+                url: 'https://api.mapbox.com/styles/v1/mapbox/dark-v11',
+            });
+            const setTiles = vi.fn();
+            map.getSource.mockReturnValue({ setTiles });
+            expect(map.isStyleLoaded()).toBe(false);
+            bridge.publishOfflineRelief(new Map([[url, 'capacitor://localhost/_capacitor_file_/saved-terrain.png']]));
+            expect(setTiles).toHaveBeenCalledTimes(4);
+            expect(setTiles).toHaveBeenCalledWith([
+                'https://tiles.thalassatiles.com/v1/relief-global/idx/{z}/{x}/{y}.png',
+            ]);
+        } finally {
+            online.mockRestore();
+            bridge.publishOfflineRelief(new Map());
+        }
+    });
     it('locks the keyboard’s Shift+arrow turn beside the twist (the hole in the north-up lock)', () => {
         renderHook(() => useMapInit(options()));
         const [map] = world.maps;

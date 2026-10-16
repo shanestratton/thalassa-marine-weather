@@ -42,6 +42,28 @@ const JOB_OWN = new Set([
     // The satellite crops' pictures, read in the route worker (131-05): no
     // IO, its tiles are fetched on the main thread and handed over as bytes.
     'services/routing/satelliteWaterJob.ts',
+    // Offshore comparison uses public forecasts/relief in separate instances of this script.
+    'services/routing/offshoreJob.ts',
+    'services/routing/offshoreProtocol.ts',
+    'services/isochrone/offshoreKernel.ts',
+    'services/isochrone/comfortKernel.ts',
+    'services/isochrone/publicBathymetry.ts',
+    'services/isochrone/publicLandAvoidance.ts',
+    'services/isochrone/cycloneField.ts',
+    'services/isochrone/types.ts',
+    'services/isochrone/geodesy.ts',
+    'services/isochrone/polar.ts',
+    'services/isochrone/pruning.ts',
+    'services/isochrone/smoothing.ts',
+    'services/isochrone/routeStats.ts',
+    'services/isochrone/routeComfort.ts',
+    'services/isochrone/routeSampling.ts',
+    'services/weather/WindFieldAdapter.ts',
+    'services/weather/CurrentFieldAdapter.ts',
+    'services/weather/WaveFieldAdapter.ts',
+    'services/weather/windLongitude.ts',
+    'utils/seaComfort.ts',
+    'utils/marineFormatters.ts',
     ROUTE_JOB_LOGGER,
 ]);
 

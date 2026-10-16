@@ -69,7 +69,7 @@ const FT_TO_M = 0.3048;
 const wavelengthM = (periodS: number): number => 1.56 * periodS * periodS;
 
 /** Her estimated waterline, metres; null for no boat to judge (no profile, an observer, no length). */
-export function waterlineM(vessel?: VesselProfile | null): number | null {
+export function waterlineM(vessel?: Pick<VesselProfile, 'type' | 'length'> | null): number | null {
     if (!vessel || vessel.type === 'observer' || !(vessel.length > 0)) return null;
     return 0.85 * vessel.length * FT_TO_M;
 }
@@ -79,7 +79,10 @@ function apartDeg(a: number, b: number): number {
     return d > 180 ? 360 - d : d;
 }
 
-export function seaComfort(parts: ComfortParts, vessel?: VesselProfile | null): SeaComfort | null {
+export function seaComfort(
+    parts: ComfortParts,
+    vessel?: Pick<VesselProfile, 'type' | 'length'> | null,
+): SeaComfort | null {
     const { total } = parts;
     if (!total) return null;
     const own = waterlineM(vessel);

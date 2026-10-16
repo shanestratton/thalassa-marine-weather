@@ -61,12 +61,14 @@ import { vesselCruisingSpeedKts } from './units';
 import { useSettingsStore } from '../stores/settingsStore';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
 import { createLogger } from '../utils/createLogger';
+import { routingPolarScale, scalePolar } from './polarTools';
 
 const log = createLogger('RoutingPolar');
 
 export type RoutingPolarSource = 'learned' | 'imported' | 'manual' | 'database-scaled' | 'default';
 
 export interface ResolvedRoutingPolar {
+    routingScale?: number;
     polar: PolarData;
     source: RoutingPolarSource;
     /** Plain words for the banner: "Beneteau Oceanis 38.1 (shape scaled to 6.5 kn)". */
@@ -86,7 +88,13 @@ export interface ResolvedRoutingPolar {
 export type RoutingPolarSettings = Partial<
     Pick<
         UserSettings,
-        'polarData' | 'polarBoatModel' | 'polarSource_type' | 'polarSource' | 'smartPolarsEnabled' | 'vessel'
+        | 'polarData'
+        | 'polarBoatModel'
+        | 'polarSource_type'
+        | 'polarSource'
+        | 'smartPolarsEnabled'
+        | 'vessel'
+        | 'routingPolarScale'
     >
 >;
 
@@ -99,7 +107,7 @@ export interface LearnedPolarSnapshot {
 /** Below this many of the 42 learned cells, the learned polar is not used at all. */
 export const LEARNED_MIN_FILLED_CELLS = 8;
 /** The learned grid's cells: SmartPolarStore exports 7 wind speeds × 6 angles. */
-export const LEARNED_CELLS = 42;
+export const LEARNED_CELLS = 63;
 /** The no-go ramp: zero speed this many degrees inside the first priced angle. */
 const NO_GO_RAMP_DEG = 5;
 /** Columns under this are dropped: the edge refuses them, and the router motors there. */
@@ -428,7 +436,7 @@ function factoryPolar(settings: RoutingPolarSettings, vessel: VesselProfile): Om
  * Which polar a route sails by — pure: the settings, the vessel and a
  * snapshot of the learned grid in; the polar, its name and why out.
  */
-export function resolveRoutingPolarFrom(input: {
+function resolveUnscaledRoutingPolar(input: {
     settings: RoutingPolarSettings | null | undefined;
     vessel: VesselProfile;
     learned: LearnedPolarSnapshot | null;
@@ -444,16 +452,15 @@ export function resolveRoutingPolarFrom(input: {
         // The learner is its own switch (Settings → Preferences), apart from
         // "Routing uses: Smart": off — or never on — nothing is learning.
         const learning = settings.smartPolarsEnabled === true;
-        const cells = `${filled} of ${LEARNED_CELLS} cells`;
+        const totalCells = input.learned?.polar?.matrix.flat().length ?? LEARNED_CELLS;
+        const cells = `${filled} of ${totalCells} cells`;
         const counted = learning ? cells : `${cells}, learning off`;
         const learned = { cells: filled, learning };
         if (input.learned?.polar && filled >= LEARNED_MIN_FILLED_CELLS) {
             return finish(
                 normaliseRoutingPolar(blendLearned(input.learned.polar, factoryNormalised)),
                 'learned',
-                filled >= LEARNED_CELLS
-                    ? `Learned (${counted})`
-                    : `Learned (${counted}), the rest from ${factory.label}`,
+                filled >= totalCells ? `Learned (${counted})` : `Learned (${counted}), the rest from ${factory.label}`,
                 `learned in ${counted}; the rest from ${factory.label}`,
                 learned,
             );
@@ -470,6 +477,23 @@ export function resolveRoutingPolarFrom(input: {
         );
     }
     return finish(factoryNormalised, factory.source, factory.label, factory.reason);
+}
+
+/** Apply the owner's sailing adjustment once, after learned/factory blending. */
+export function resolveRoutingPolarFrom(
+    input: Parameters<typeof resolveUnscaledRoutingPolar>[0],
+): ResolvedRoutingPolar {
+    const resolved = resolveUnscaledRoutingPolar(input);
+    if (input.vessel.type !== 'sail' || input.settings?.routingPolarScale === undefined) return resolved;
+    const factor = routingPolarScale(input.settings.routingPolarScale);
+    const polar = scalePolar(resolved.polar, factor);
+    return {
+        ...resolved,
+        polar,
+        routingScale: factor,
+        label: `${resolved.label} · routing ${Math.round(factor * 100)}%`,
+        signature: signatureOf(resolved.source, polar),
+    };
 }
 
 /**
@@ -495,10 +519,15 @@ export function sailsHerOwnFigures(source: RoutingPolarSource): boolean {
  * table's ends (passagePlan.passageSpeed).
  */
 export function routingSpeedModel(
-    routing: Pick<ResolvedRoutingPolar, 'polar' | 'source'>,
+    routing: Pick<ResolvedRoutingPolar, 'polar' | 'source' | 'routingScale'>,
     base: Omit<PassageSpeedModel, 'polar' | 'polarKind'>,
 ): PassageSpeedModel {
-    return { ...base, polar: routing.polar, polarKind: sailsHerOwnFigures(routing.source) ? 'figures' : 'shape' };
+    return {
+        ...base,
+        polar: routing.polar,
+        polarKind: sailsHerOwnFigures(routing.source) ? 'figures' : 'shape',
+        polarScaleFactor: routing.routingScale,
+    };
 }
 
 /**
@@ -563,7 +592,8 @@ function spread(n: number, max: number): number[] {
  * The edge still applies its own light-air, wave and gale rules on top.
  */
 export function toEdgePolar(resolved: ResolvedRoutingPolar): PolarData | null {
-    if (resolved.source === 'default') return null;
+    if (resolved.source === 'default' && (resolved.routingScale === undefined || resolved.routingScale === 1))
+        return null;
     const p = resolved.polar;
     const zero = (row: number[]) => row.every((v) => !(v > 0));
     let first = 0;

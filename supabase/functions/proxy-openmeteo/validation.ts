@@ -208,6 +208,7 @@ const MARINE_DAILY = new Set([
 const FORECAST_MODELS = new Set([
     'best_match',
     'gfs_seamless',
+    'gfs_global',
     'ncep_gfs025',
     'ecmwf_ifs025',
     'ecmwf_ifs',
@@ -216,6 +217,7 @@ const FORECAST_MODELS = new Set([
     'dwd_icon',
     'bom_access_global',
     'gem_seamless',
+    'gem_global',
     'ukmo_global_deterministic_10km',
     'jma_gsm',
     'meteofrance_arome_france_hd',

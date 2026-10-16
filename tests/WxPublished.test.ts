@@ -5,12 +5,14 @@
  * a published row is preferred only while fresh — everything else falls
  * through to the live proxy silently.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { wxFixture } from './fixtures/wxPublishedFixture';
 
 const sb = vi.hoisted(() => ({
     upserts: [] as unknown[],
     single: null as unknown,
     list: [] as unknown[],
+    filters: [] as unknown[],
 }));
 vi.mock('../services/supabase', () => ({
     supabase: {
@@ -26,22 +28,32 @@ vi.mock('../services/supabase', () => ({
                 return Promise.resolve({ error: null });
             },
             select: () => ({
-                eq: () => ({
-                    eq: () => ({ maybeSingle: () => Promise.resolve({ data: sb.single, error: null }) }),
-                    then: (fn: (r: unknown) => unknown) => Promise.resolve(fn({ data: sb.list, error: null })),
-                }),
+                eq: (key: string, value: string) => {
+                    sb.filters.push([key, value]);
+                    return {
+                        eq: (secondKey: string, secondValue: string) => {
+                            sb.filters.push([secondKey, secondValue]);
+                            return { maybeSingle: () => Promise.resolve({ data: sb.single, error: null }) };
+                        },
+                        then: (fn: (r: unknown) => unknown) => Promise.resolve(fn({ data: sb.list, error: null })),
+                    };
+                },
             }),
         }),
     },
 }));
 
-import { announceCell, cellIdFor, fetchPublishedForecast } from '../services/weather/wxPublished';
+import { announceCell, cellIdFor, fetchPublishedForecast, listPublishedModels } from '../services/weather/wxPublished';
 
 beforeEach(() => {
     sb.upserts.length = 0;
     sb.single = null;
+    sb.list = [];
+    sb.filters = [];
+    vi.useFakeTimers({ now: new Date('2026-10-16T12:30:00Z'), toFake: ['Date'] });
     localStorage.clear();
 });
+afterEach(() => vi.useRealTimers());
 
 describe('cell ids', () => {
     it('snaps to the 0.25° SW corner, matching the migration regex', () => {
@@ -72,8 +84,12 @@ describe('announce is change-detected', () => {
 
 describe('published rows are preferred only while fresh', () => {
     it('returns a fresh row', async () => {
-        sb.single = { payload: { hourly: {} }, run_at: new Date().toISOString() };
-        expect(await fetchPublishedForecast(-27.2, 153.1, 'dwd_icon')).not.toBeNull();
+        const fixture = wxFixture();
+        sb.single = { payload: fixture.payload, run_at: fixture.runAt.replace('Z', '+00:00') };
+        const result = await fetchPublishedForecast(-27.2, 153.1, 'dwd_icon');
+        expect(result?.sampling).toBe('quarter-degree-cell');
+        expect(result?.payload).toMatchObject({ current: { wind_speed_10m: 22 } });
+        expect(sb.filters).toContainEqual(['model', 'wx2:dwd_icon']);
     });
     it('rejects a stale run — the live proxy is better than day-old data', async () => {
         sb.single = { payload: {}, run_at: new Date(Date.now() - 25 * 3_600_000).toISOString() };
@@ -82,5 +98,23 @@ describe('published rows are preferred only while fresh', () => {
     it('absence is silence, not an error', async () => {
         sb.single = null;
         expect(await fetchPublishedForecast(-27.2, 153.1, 'dwd_icon')).toBeNull();
+    });
+    it('does not accept legacy empty payloads or fine-model v2 rows', async () => {
+        sb.single = { payload: {}, run_at: wxFixture().runAt };
+        expect(await fetchPublishedForecast(-27.2, 153.1, 'dwd_icon')).toBeNull();
+        sb.single = { payload: wxFixture().payload, run_at: wxFixture().runAt };
+        expect(await fetchPublishedForecast(-27.2, 153.1, 'ecmwf_ifs')).toBeNull();
+    });
+    it('maps only recognised aliases, deduplicates, and rejects future/unknown versions', async () => {
+        const valid = wxFixture().runAt;
+        sb.list = [
+            { model: 'wx2:dwd_icon', run_at: valid },
+            { model: 'wx2:dwd_icon', run_at: valid },
+            { model: 'wx2:ecmwf_ifs', run_at: valid },
+            { model: 'wx3:dwd_icon', run_at: valid },
+            { model: 'unknown', run_at: valid },
+            { model: 'wx2:jma_gsm', run_at: '2026-10-16T15:00:00Z' },
+        ];
+        expect(await listPublishedModels(-27.2, 153.1)).toEqual(['dwd_icon']);
     });
 });

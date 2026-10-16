@@ -128,6 +128,7 @@
         "storybook": "^10.5.3",
         "tailwindcss": "^4.3.3",
         "terser": "5.51.2",
+        "tsx": "4.23.7",
         "typescript": "^5.4.5",
         "typescript-eslint": "^8.57.0",
         "vite": "^7.3.0",

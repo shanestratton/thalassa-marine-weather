@@ -165,6 +165,10 @@ export default defineConfig({
         // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
         // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
         'route-worker.spec.ts',
+        // Global model comparison runs public forecasts in its own Worker; chart cells stay out of its DTO.
+        'offshore-worker.spec.ts',
+        'offshore-comparison.spec.ts',
+        'offline-relief.spec.ts',
         // Official warnings in the app (129-06): the Glass's official count beside the forecast
         // pill, the Warnings page's official section and Settings → Alerts' switches fit 320 × 568
         // and 390 × 844 in wide fonts (e2e/fixtures/official-warnings.tsx).

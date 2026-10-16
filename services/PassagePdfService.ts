@@ -15,6 +15,7 @@ import { calculateDistance } from '../utils/navigationCalculations';
 import { resolveTimeZone } from '../utils/timezone';
 import { readableZoneName } from '../utils/zoneLabel';
 import type { PassageBriefData } from './PassageBriefService';
+import { routeEstimateLines } from './isochrone/routeStats';
 
 const log = createLogger('PassagePDF');
 
@@ -348,6 +349,21 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
     });
 
     y += 2 * (statH + 3) + 4;
+    const estimateLines = routeEstimateLines(data.sailingStats, data.routeFuel, data.routeComfort);
+    if (estimateLines.length) {
+        doc.setFontSize(8);
+        doc.setTextColor(...COLORS.muted);
+        for (const line of estimateLines) {
+            const wrapped = doc.splitTextToSize(line.replace(/—/g, '-'), contentW - 8);
+            if (y + wrapped.length * 4 + 4 > doc.internal.pageSize.getHeight() - margin) {
+                doc.addPage();
+                fillPage();
+                y = margin;
+            }
+            doc.text(wrapped, margin + 4, y + 4);
+            y += wrapped.length * 4 + 3;
+        }
+    }
 
     // ── Via Waypoints ──
     if (data.viaWaypoints && data.viaWaypoints.length > 0) {

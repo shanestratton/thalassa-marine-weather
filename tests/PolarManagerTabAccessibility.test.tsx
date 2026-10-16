@@ -118,6 +118,81 @@ describe('PolarManagerTab advanced input accessibility', () => {
     });
 });
 
+describe('134-06 owner polar controls', () => {
+    it('persists the explicit sailing adjustment without rewriting the saved polar', async () => {
+        const save = vi.fn();
+        render(<PolarManagerTab settings={settings} onSave={save} />);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        fireEvent.change(screen.getByRole('slider', { name: 'Routing polar performance' }), {
+            target: { value: '85' },
+        });
+        expect(save).toHaveBeenLastCalledWith({ routingPolarScale: 0.85 });
+        expect(screen.getByText('Routing polar: 85%')).toBeDefined();
+    });
+    it('builds a target estimate only after confirming replacement and keeps it manual', async () => {
+        const save = vi.fn();
+        render(<PolarManagerTab settings={settings} onSave={save} />);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Enter polar figures' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Targets' }));
+        fireEvent.change(screen.getByRole('spinbutton', { name: 'Beat angle (°)' }), { target: { value: '40' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Use estimated polar' }));
+        expect(save).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Replace your polar?' })).toBeDefined();
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Replace polar' }));
+        });
+        expect(save).toHaveBeenCalledWith(
+            expect.objectContaining({
+                polarSource_type: 'manual',
+                polarBoatModel: 'Target-speed estimate',
+                polarData: expect.objectContaining({ angles: expect.arrayContaining([40, 90, 180]) }),
+            }),
+        );
+    });
+    it('adds a grid axis, preserves it on leaving, and requires confirmation before removing figures', async () => {
+        const save = vi.fn();
+        const table = {
+            ...settings,
+            polarData: {
+                windSpeeds: [6, 12, 20],
+                angles: [45, 90, 180],
+                matrix: [
+                    [3, 5, 6],
+                    [4, 7, 8],
+                    [2, 4, 5],
+                ],
+            },
+        };
+        const page = render(<PolarManagerTab settings={table} onSave={save} />);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Enter polar figures' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+        fireEvent.change(screen.getByRole('spinbutton', { name: 'New polar angle' }), { target: { value: '30' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add angle' }));
+        expect(
+            screen.getByRole('spinbutton', {
+                name: 'Boat speed at 30 degrees true wind angle and 6 knots true wind speed',
+            }),
+        ).toBeDefined();
+        fireEvent.click(screen.getByRole('button', { name: 'Remove 12 knot wind column' }));
+        expect(screen.getByRole('dialog', { name: 'Remove these polar figures?' })).toBeDefined();
+        fireEvent.click(screen.getByRole('button', { name: 'Keep figures' }));
+        page.unmount();
+        expect(save).toHaveBeenCalledWith(
+            expect.objectContaining({
+                polarData: expect.objectContaining({ windSpeeds: [6, 12, 20], angles: [30, 45, 90, 180] }),
+            }),
+        );
+    });
+});
+
 /**
  * Build 126, package 126-B6a (polars-01): the Smart Polars card says where the
  * learner hears the boat from — the Pi, the gateway, the cloud only, or

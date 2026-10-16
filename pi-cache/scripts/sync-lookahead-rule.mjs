@@ -19,6 +19,7 @@ const sources = [
     'services/underway/lookaheadCoverage.ts',
     'services/underway/underwayRule.ts',
     'services/routeProgress.ts',
+    'services/tides/navigationUse.ts',
     'utils/navigationCalculations.ts',
     'utils/keelDepth.ts',
 ];

@@ -18,6 +18,7 @@ import { AUTO_MODEL, resolveForecastModel, resolveOffshoreModel, isConcreteModel
 import { blendOffshoreForecast } from './transformers';
 import { fetchSpitfire, applySpitfireToReport } from './spitfire';
 import { piCache } from '../PiCacheService';
+import { satelliteModeActive } from '../networkPolicy';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -61,6 +62,7 @@ interface ForecastSelection {
     userId: string | undefined;
     forecastModel: WeatherModel;
     offshoreModel: OffshoreModel;
+    satelliteMode: boolean;
 }
 const forecastSelection = (): ForecastSelection => {
     const settings = useSettingsStore.getState().settings;
@@ -68,10 +70,14 @@ const forecastSelection = (): ForecastSelection => {
         userId: useAuthStore.getState().user?.id,
         forecastModel: resolveForecastModel(settings.forecastModel),
         offshoreModel: resolveOffshoreModel(settings.offshoreModel),
+        satelliteMode: settings.satelliteMode === true,
     };
 };
 const sameSelection = (a: ForecastSelection, b: ForecastSelection) =>
-    a.userId === b.userId && a.forecastModel === b.forecastModel && a.offshoreModel === b.offshoreModel;
+    a.userId === b.userId &&
+    a.forecastModel === b.forecastModel &&
+    a.offshoreModel === b.offshoreModel &&
+    a.satelliteMode === b.satelliteMode;
 
 const matchesOffshoreModel = (report: MarineWeatherReport, model: OffshoreModel): boolean =>
     report.locationType === 'offshore' &&
@@ -173,6 +179,15 @@ const _fetchWeatherByStrategyImpl = async (
     selection: ForecastSelection,
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
+    if (selection.satelliteMode) {
+        // One bounded compact request. A failed compact response must never
+        // fan out into the full-size provider pack on a metered connection.
+        const compact = await withTimeout(fetchUnifiedWeather(lat, lon, name, selection.userId), null, 20_000);
+        if (!compact) throw new Error('Compact forecast unavailable. Retry when the satellite link is ready.');
+        compact.limitedForecast = 'satellite';
+        compact.locationType = locationType;
+        return compact;
+    }
     let isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
     const { userId, offshoreModel } = selection;
@@ -815,6 +830,10 @@ export const fetchFastWeather = async (
     coords?: { lat: number; lon: number },
     model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
+    if (satelliteModeActive()) {
+        if (!coords) throw new Error('Choose a saved position for a compact satellite forecast.');
+        return fetchWeatherByStrategy(coords.lat, coords.lon, location);
+    }
     // 1. Resolve Location
     let lat: number, lon: number, name: string;
 
@@ -869,6 +888,10 @@ export const fetchPrecisionWeather = async (
     forceRefresh = false,
     existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
+    if (satelliteModeActive()) {
+        if (!coords) throw new Error('Choose a saved position for a compact satellite forecast.');
+        return fetchWeatherByStrategy(coords.lat, coords.lon, location, existingLocationType);
+    }
     const selection = forecastSelection();
     let lat: number, lon: number, name: string;
 

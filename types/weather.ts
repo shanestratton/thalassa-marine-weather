@@ -311,6 +311,12 @@ export interface MarineWeatherReport {
     generatedAt: string;
     aiGeneratedAt?: string;
     modelUsed: string;
+    /** wx rows sample the centre of an anonymous 0.25° cell, not this exact position. */
+    forecastSampling?: 'quarter-degree-cell';
+    /** Actual model initialisation, independent of when the phone read the row. */
+    forecastRunAt?: string;
+    /** Limited atmospheric response, with no extra marine/tide provider calls. */
+    limitedForecast?: 'satellite';
     stationId?: string;
     groundingSource?: string;
     groundingUrls?: GroundingSource[];

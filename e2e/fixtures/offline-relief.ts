@@ -1,0 +1,85 @@
+/** Synthetic public terrain, real downloader, real service worker and real Mapbox renderer. */
+import mapboxgl from 'mapbox-gl';
+import { downloadReliefArea, hydrateRelief, reliefStorage } from '../../services/OfflineReliefService';
+import { offlineReliefUrl, subscribeOfflineRelief } from '../../services/offlineReliefRuntime';
+import { initialReliefMapStyle } from '../../services/initialReliefMapStyle';
+import {
+    addReliefBase,
+    offlineReliefStyle,
+    reloadReliefSources,
+    RELIEF_LAYER_IDS,
+    setReliefPalette,
+} from '../../components/map/reliefBase';
+
+const ready = (async () => {
+    await hydrateRelief();
+    mapboxgl.accessToken = 'pk.fixture-offline-terrain';
+    const initialStyle = reliefStorage().tiles
+        ? await initialReliefMapStyle(
+              'mapbox://styles/mapbox/dark-v11',
+              'pk.fixture-offline-terrain',
+              new AbortController().signal,
+          )
+        : offlineReliefStyle();
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: initialStyle,
+        center: [1.05, 0.95],
+        zoom: 4,
+        attributionControl: true,
+        fadeDuration: 0,
+        preserveDrawingBuffer: true,
+        transformRequest: (url, type) => ({ url: type === 'Tile' ? (offlineReliefUrl(url) ?? url) : url }),
+    });
+    subscribeOfflineRelief(() => {
+        if (map.getSource('relief-global-idx')) reloadReliefSources(map);
+    });
+    await new Promise<void>((resolve) =>
+        map.on('load', () => {
+            addReliefBase(map);
+            for (const id of RELIEF_LAYER_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
+            setReliefPalette(map, 'day');
+            resolve();
+        }),
+    );
+    return map;
+})();
+Object.assign(window, {
+    __offlineRelief: {
+        ready: () => ready.then(() => true),
+        save: async () => {
+            const map = await ready,
+                b = map.getBounds()!;
+            let result: unknown;
+            await downloadReliefArea(
+                { north: b.getNorth(), south: b.getSouth(), west: b.getWest(), east: b.getEast() },
+                4,
+                'https://tiles.thalassatiles.com/v1',
+                new AbortController().signal,
+                (p) => {
+                    result = p;
+                },
+            );
+            return { storage: reliefStorage(), result };
+        },
+        probe: async () => {
+            const map = await ready;
+            if (!map.loaded())
+                await new Promise<void>((resolve) => {
+                    map.once('idle', () => resolve());
+                    map.triggerRepaint();
+                });
+            const c = map.getCanvas(),
+                gl = c.getContext('webgl2')!,
+                rgba = new Uint8Array(4);
+            gl.readPixels(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+            return {
+                pixel: [...rgba],
+                loaded: map.isSourceLoaded('relief-global-idx'),
+                storage: reliefStorage(),
+                offline: navigator.onLine === false,
+                attribution: document.querySelector('.mapboxgl-ctrl-attrib')?.textContent,
+            };
+        },
+    },
+});
