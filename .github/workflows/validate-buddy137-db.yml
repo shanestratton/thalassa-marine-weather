@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgis/postgis:17-3.5
+        image: postgres:17.6
         env:
           POSTGRES_PASSWORD: fixture-only-password
           POSTGRES_DB: postgres
@@ -45,7 +45,16 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/buddy137-proof/SOURCE_SHA.txt"
           node --version > "$RUNNER_TEMP/buddy137-proof/NODE_VERSION.txt"
           sha256sum supabase/tests/buddy-watch-db.mjs supabase/tests/buddy-watch-postgres-cases.mjs supabase/held-migrations/20261016171547_buddy_watch.sql utils/buddyWatch.ts > "$RUNNER_TEMP/buddy137-proof/SHA256SUMS"
-          docker image inspect postgis/postgis:17-3.5 --format '{{.Id}}' > "$RUNNER_TEMP/buddy137-proof/POSTGIS_IMAGE_ID.txt"
+          docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/buddy137-proof/POSTGRES_IMAGE_ID.txt"
+      - name: Install spatial binaries without changing the pinned disposable server
+        run: |
+          set -euo pipefail
+          docker exec -u 0 -e DEBIAN_FRONTEND=noninteractive '${{ job.services.postgres.id }}' sh -ec '
+            apt-mark hold postgresql-17 postgresql-client-17
+            apt-get update
+            apt-get install -y --no-install-recommends postgresql-17-postgis-3
+          '
+          docker exec '${{ job.services.postgres.id }}' dpkg-query -W postgresql-17 postgresql-client-17 postgresql-17-postgis-3 postgresql-17-postgis-3-scripts > "$RUNNER_TEMP/buddy137-proof/POSTGRES_SPATIAL_PACKAGES.txt"
       - name: Create a fresh template0 database inside the disposable service
         run: |
           set -euo pipefail
