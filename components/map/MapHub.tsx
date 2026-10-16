@@ -348,6 +348,8 @@ const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
+const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
+
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     onLocationSelect,
@@ -4196,6 +4198,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
+                {mapReady && obsShowing && (
+                    <React.Suspense fallback={null}>
+                        <SailingInstrumentOverlay mapRef={mapRef} />
+                    </React.Suspense>
+                )}
                 {/* ═══ RADIAL HELM MENU (gesture-based layer control) ═══
                     Hidden while TRACING (Shane 2026-07-17: routing page
                     declutter) — Done brings the rail back. */}

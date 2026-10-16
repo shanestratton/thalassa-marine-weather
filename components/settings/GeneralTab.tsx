@@ -18,6 +18,7 @@ import { BoatQuietSection } from './BoatQuietSection';
 import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
+import { InstrumentPanelSettings } from './InstrumentPanelSettings';
 import { AisDisplaySettings } from './AisDisplaySettings';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { Button } from '../ui/Button';
@@ -141,6 +142,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             {/* Australian spelling, as the rest of the app ('Centre', 'Centreboard')
                 — the options said 'Meters' and 'Liters' (UX scorecard run 7).
                 Sentence case and the one field label (UX scorecard run 8). */}
+            <InstrumentPanelSettings />
             <Section title="Units">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
                     <div>

@@ -1477,7 +1477,13 @@ class NmeaListenerServiceClass {
         this.accumulator.twaSigned.push(signed);
         this.accumulator.tws.push(knots);
         this.instrument('tws', knots, 'knots', undefined, 'NMEA MWV true');
-        this.instrument('twaSigned', signed, 'degrees', 'relative', 'NMEA MWV true');
+        this.instrument(
+            'twaSigned',
+            angle >= 0 && angle <= 360 ? signed : null,
+            'degrees',
+            'relative',
+            'NMEA MWV true',
+        );
     }
 
     /**

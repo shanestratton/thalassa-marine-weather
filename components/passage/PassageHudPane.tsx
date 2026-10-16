@@ -97,6 +97,7 @@ import { useHudRecording } from '../../hooks/useHudRecording';
 import { passageHudAvailable } from '../../hooks/usePassageHudAvailable';
 import type { TrackingState } from '../../services/shiplog/TrackingStateStore';
 import { PassageRecordingMetrics } from './PassageRecordingMetrics';
+import { useInstrumentPanelPreferences } from '../../services/instruments/panelPreferences';
 import { usePassageEta } from '../../hooks/usePassageEta';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
@@ -370,12 +371,15 @@ const HOW_WORDS: Record<SpeedHow, string> = {
 /** Narrow read: WindStore changes at scrub rate (its hour); the model does not. */
 const currentWindModel = () => WindStore.getState().model;
 
+const SailingPerformanceHud = React.lazy(() => import('./SailingPerformanceHud'));
+
 const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: TrackingState }> = ({
     open,
     onToggle,
     recording,
 }) => {
     const inst = usePassageHudInstruments();
+    const instrumentPrefs = useInstrumentPanelPreferences();
     const overlayOn = usePassageOverlay();
     const isFollowing = useFollowRouteStore((s) => s.isFollowing);
     const voyagePlan = useFollowRouteStore((s) => s.voyagePlan);
@@ -1812,6 +1816,11 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                 sentence={`Apparent wind angle ${fmtRelative(inst.awa)}, P is port, S is starboard`}
                             />
 
+                            {instrumentPrefs.performanceHud && (
+                                <React.Suspense fallback={null}>
+                                    <SailingPerformanceHud />
+                                </React.Suspense>
+                            )}
                             <p
                                 className={`px-1 pt-1 text-center text-[10px] font-black uppercase leading-tight ${
                                     inst.via === 'cloud' || !anyValue ? 'text-amber-300' : 'text-gray-400'

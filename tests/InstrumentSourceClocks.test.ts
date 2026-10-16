@@ -256,3 +256,11 @@ it('shaft RPM alone cannot qualify an engine identity or engine hours', () => {
     expect(NmeaStore.getState().rpm.value).toBe(1200);
     expect(NmeaStore.getState().instrumentEvidence?.readings.rpm).toBeUndefined();
 });
+
+it('does not wrap an invalid true wind angle into plausible performance evidence', () => {
+    listener.status = 'connected';
+    NmeaStore.start();
+    feed('YDMWV,400,T,15,N,A');
+    listener.emitSample();
+    expect(NmeaStore.getState().instrumentEvidence?.readings.twaSigned?.value).toBeNull();
+});
