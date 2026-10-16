@@ -59,6 +59,7 @@ const host = vi.hoisted(() => ({
     packageLeases: 0,
     packageReleases: 0,
     chartVersion: 0,
+    forgedGuidance: false,
 }));
 
 vi.mock('../services/enc/noaaPackageWindow', () => ({
@@ -97,7 +98,10 @@ vi.mock('../services/routing/routeWorkerHost', async (original) => {
                     aborted: false,
                     release: () => {
                         opts.onStage?.('done');
-                        resolve({ output: runRouteJob(job), where: 'worker', waitMs: 0, handoffMs: 0, backMs: 0 });
+                        const output = runRouteJob(job);
+                        if (host.forgedGuidance && output.result && 'polyline' in output.result)
+                            output.result.trafficLaneGuidance = 'charted-flow';
+                        resolve({ output, where: 'worker', waitMs: 0, handoffMs: 0, backMs: 0 });
                     },
                 };
                 opts.signal?.addEventListener('abort', () => {
@@ -202,6 +206,7 @@ const posted = async (n: number): Promise<void> => {
 const settle = () => new Promise((r) => setTimeout(r, 30));
 
 beforeEach(() => {
+    host.forgedGuidance = false;
     Object.assign(routingAreasFixture, { revision: 0, unavailable: false, leaseValid: true, reads: 0, releases: 0 });
     host.jobs = [];
     host.osmHold = null;
@@ -534,6 +539,66 @@ describe('the 85 s watchdog', () => {
         const res = await run;
         expect(res).toMatchObject({ code: 'watchdog-timeout' });
         expect(host.jobs[0].aborted).toBe(true);
+    });
+});
+
+describe('original traffic-lane sources and the final main-thread verdict', () => {
+    it.each([90, undefined])(
+        'carries original ORIENT %s through the actual held cell and final audit',
+        async (orientation) => {
+            const blob = scene.blobs.values().next().value as {
+                bbox: number[];
+                layers: Record<string, GeoJSON.FeatureCollection>;
+            };
+            const [w, s, e, n] = blob.bbox;
+            const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
+            blob.layers.RESARE = empty();
+            blob.layers.TSEZNE = empty();
+            blob.layers.TSSLPT = {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: orientation === undefined ? {} : { ORIENT: orientation },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [w, s],
+                                    [e, s],
+                                    [e, n],
+                                    [w, n],
+                                    [w, s],
+                                ],
+                            ],
+                        },
+                    },
+                ],
+            };
+            const pending = ask();
+            await posted(1);
+            const sent = host.jobs[0].job as { layers: { TSSLPT: GeoJSON.FeatureCollection } };
+            expect(sent.layers.TSSLPT.features).toEqual(blob.layers.TSSLPT.features);
+            host.jobs[0].release();
+            const result = await pending;
+            expect(result && 'polyline' in result).toBe(true);
+            if (!result || !('polyline' in result)) return;
+            expect(result.trafficLaneGuidance).toBe(orientation === undefined ? 'orientation-unknown' : 'charted-flow');
+            expect(result.exclusionsUnchecked).not.toBe(true);
+            expect(routingAreasFixture.releases).toBe(1);
+        },
+    );
+
+    it('removes a hosted direction claim when the original chart has no traffic-lane layer', async () => {
+        host.forgedGuidance = true;
+        const pending = ask();
+        await posted(1);
+        host.jobs[0].release();
+        const result = await pending;
+        expect(result && 'polyline' in result).toBe(true);
+        if (!result || !('polyline' in result)) return;
+        expect(result.trafficLaneGuidance).toBeUndefined();
+        expect(result.exclusionsUnchecked).toBe(true);
     });
 });
 

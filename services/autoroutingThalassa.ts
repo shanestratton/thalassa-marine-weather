@@ -534,6 +534,8 @@ export async function calculateThalassaProposal(
         destinationInlandTrimM: ok.destinationInlandTrimM,
         structuresUnknownCells: ok.structuresUnknownCells,
         exclusionsUnchecked: ok.exclusionsUnchecked,
+        trafficLaneGuidance: ok.trafficLaneGuidance,
+        routeAreaCaveats: ok.routeAreaCaveats,
         pinOffWater: ok.pinOffWater,
         pinTail: ok.pinTail,
         // Why the route leaves the straight line for deeper water (2026-10-04).
@@ -603,6 +605,8 @@ export async function calculateThalassaProposal(
         ...(ok.surveyUncheckedCells ? { surveyUncheckedCells: [...ok.surveyUncheckedCells] } : {}),
         ...(ok.structuresUnknownCells ? { structuresUnknownCells: [...ok.structuresUnknownCells] } : {}),
         ...(ok.exclusionsUnchecked ? { exclusionsUnchecked: true } : {}),
+        ...(ok.trafficLaneGuidance ? { trafficLaneGuidance: ok.trafficLaneGuidance } : {}),
+        ...(ok.routeAreaCaveats?.length ? { routeAreaCaveats: [...ok.routeAreaCaveats] } : {}),
         ...(ok.pinOffWater ? { pinOffWater: { ...ok.pinOffWater } } : {}),
         ...(ok.tideCheck ? { tideCheck: ok.tideCheck } : {}),
         ...(ok.destinationInlandTrimM ? { destinationInlandTrimM: ok.destinationInlandTrimM } : {}),

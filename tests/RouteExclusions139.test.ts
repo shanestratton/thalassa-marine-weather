@@ -6,6 +6,7 @@ import { runRouteJob, type RouteJob } from '../services/routing/routeJob';
 import { auditFinishedRouteExclusions } from '../services/engine/exclusionField';
 import { inshoreRouteCaveats, savedInshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
 import { inshoreRouteToGeoJSON } from '../services/InshoreRouter';
+import { ROUTING_AREA_CAVEATS } from '../services/routing/routeAreaWords';
 
 const rect = (w: number, s: number, e: number, n: number, properties = {}): Feature<Polygon> => ({
     type: 'Feature',
@@ -95,6 +96,32 @@ describe('139 exclusion application through the real engine', () => {
             expect.stringContaining('Area restrictions were not fully checked'),
         );
     });
+    it.each(['charted-flow', 'orientation-unknown'] as const)(
+        'retains %s and number-free park caveats through a saved route',
+        (guidance) => {
+            const job = cloudJob({ DEPARE: depth });
+            const result = runRouteJob(job).result;
+            expect(result && 'polyline' in result).toBe(true);
+            if (!result || !('polyline' in result)) return;
+            result.trafficLaneGuidance = guidance;
+            result.routeAreaCaveats = [ROUTING_AREA_CAVEATS[1]];
+            const saved = inshoreRouteToGeoJSON(result, job.origin, job.destination);
+            expect(saved.properties?.trafficLaneGuidance).toBe(guidance);
+            const current = inshoreRouteCaveats(result);
+            expect(savedInshoreRouteCaveats({ routeGeoJSON: saved })).toEqual(current);
+            expect(current).toContain(ROUTING_AREA_CAVEATS[1]);
+            expect(current).toContainEqual(
+                expect.stringContaining(
+                    guidance === 'charted-flow' ? 'Planned course follows' : 'Traffic-lane direction is missing',
+                ),
+            );
+            saved.properties!.routeAreaCaveats.push('Protected chart secret: 164.01,-27.2 / 1.2m / licensed name');
+            const reloaded = savedInshoreRouteCaveats({ routeGeoJSON: saved });
+            expect(reloaded).toEqual(current);
+            expect(reloaded.join(' ')).not.toContain('Protected chart secret');
+        },
+    );
+
     it('keeps ordinary routes unchanged when only unrelated no-anchoring restrictions are present', () => {
         const plain = routeInshore({ DEPARE: depth }, request);
         const unrelated = routeInshore(
