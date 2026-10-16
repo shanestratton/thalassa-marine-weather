@@ -24,6 +24,7 @@
  * ever dated as new.
  */
 import { fetchSelfDocument, type BroadcastDeps } from './anchorBroadcaster.js';
+import { appendSystemsExtra } from './systemsTelemetry.js';
 import { readTelemetrySnapshot, type TelemetrySnapshot } from './trackSignalk.js';
 
 export const TELEMETRY_RELAY_PATH = '/functions/v1/telemetry-relay';
@@ -94,7 +95,8 @@ export function buildTelemetryBody(
     trailingExtra?: Record<string, number | string> | null,
 ): Record<string, unknown> {
     const trailing = trailingExtra && Object.keys(trailingExtra).length > 0 ? trailingExtra : null;
-    const extra = leadingExtra || trailing ? { ...leadingExtra, ...snapshot.extra, ...trailing } : snapshot.extra;
+    const critical = leadingExtra || trailing ? { ...leadingExtra, ...snapshot.extra, ...trailing } : snapshot.extra;
+    const extra = appendSystemsExtra(critical, snapshot.systemsExtra);
     return {
         source: 'pi',
         device_label: deviceLabel.slice(0, 60),

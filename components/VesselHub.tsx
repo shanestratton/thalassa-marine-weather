@@ -78,6 +78,7 @@ import {
 import { PageHeader } from './ui/PageHeader';
 import { PUBLIC_BETA_ACCESS, TIER_INFO } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
+import { SystemsEntry } from './vessel/SystemsEntry';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 import { CONTOUR_BG, GLASS } from './vesselHub/glass';
@@ -1531,6 +1532,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('nmea');
                             }}
                         />
+                        <ListDivider />
+                        <SystemsEntry />
                         {/* No ENC Library on this menu: it is retired (127-C-c). */}
                         <ListDivider />
                         {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's

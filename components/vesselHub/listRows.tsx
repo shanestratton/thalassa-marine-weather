@@ -56,7 +56,7 @@ export const OfficeRow: React.FC<{
     /** Short live value on the right ("2 crew") — never a description. */
     value?: string;
     valueColor?: string;
-    onClick: () => void;
+    onClick: React.MouseEventHandler<HTMLButtonElement>;
     disabled?: boolean;
     badge?: number;
     badgeUrgent?: boolean;

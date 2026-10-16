@@ -26,6 +26,7 @@
  */
 
 import { fetchSelfDocument, type BroadcastDeps } from './anchorBroadcaster.js';
+import { readSystemsExtra } from './systemsTelemetry.js';
 import { DEFAULT_TRACK_RULES, type TrackFix } from './trackRecorder.js';
 
 const MS_TO_KNOTS = 1.94384;
@@ -486,6 +487,8 @@ export async function currentTrackFix(deps: BroadcastDeps): Promise<TrackFix | n
 
 /** Everything the Instrument Panel draws, in the units it draws them in. */
 export interface TelemetrySnapshot {
+    /** Optional systems packs admitted only after the final critical extra keys. */
+    systemsExtra?: Record<string, string>;
     /** ISO time of the reading: GPS time when the bus offers it, else the Pi's clock. */
     reportedAt: string;
     lat: number | null;
@@ -726,7 +729,9 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
     if (depth.reference) extra.depth_reference = depth.reference;
     if (depth.offsetM !== null) extra.depth_offset_m = depth.offsetM;
 
+    const systemsExtra = readSystemsExtra(selfDocument, nowMs);
     const snapshot: TelemetrySnapshot = {
+        ...(Object.keys(systemsExtra).length ? { systemsExtra } : {}),
         reportedAt,
         lat: hasPosition ? latRaw : null,
         lon: hasPosition ? lonRaw : null,

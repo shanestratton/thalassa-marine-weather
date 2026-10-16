@@ -6,6 +6,7 @@
  * (GET /api/telemetry). The store learns one conversion; `via` says which
  * wire a reading came down, and NmeaStore ranks the LAN above the cloud.
  */
+import { parseSystemsTelemetry } from './systemsTelemetry';
 import type { RemoteInstrumentSnapshot, RemoteVia } from './NmeaStore';
 import type { NmeaDepthReference } from '../types/navigation';
 import { parseWindHistorySummary } from '../utils/windHistory';
@@ -93,6 +94,7 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
         deviceLabel,
         reportedAt,
         snapshot: {
+            systemsReadings: source === 'pi' ? parseSystemsTelemetry(extra, Date.now()) : [],
             ...rpmSource,
             engineTelemetry,
             measurementTimes: measurementTimes({

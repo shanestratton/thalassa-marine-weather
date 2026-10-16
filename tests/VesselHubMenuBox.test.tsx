@@ -102,11 +102,11 @@ afterEach(() => {
     localStorage.removeItem('thalassa_vessel_connections_open');
 });
 
-const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'];
+const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Systems', 'Music', 'Settings', 'Boat Network'];
 const BOX = ORDER.slice(1);
 
 describe('Vessel page menu box', () => {
-    it('holds the other five rows in one box, most used first', () => {
+    it('holds the other six rows in one box, most used first', () => {
         renderHub();
         const boxes = screen.getAllByTestId('vessel-hub-menu');
         expect(boxes).toHaveLength(1);

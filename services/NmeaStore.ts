@@ -74,6 +74,7 @@ export function reconcileNmeaMetricFreshness(metric: TimestampedMetric, now: num
 // ── Full store state ──
 export interface NmeaStoreState {
     distanceLog?: NmeaSample['distanceLog'];
+    systemsReadings?: import('./systemsTelemetry').SystemsReading[];
     /** Derived instruments use this source-clock evidence, never legacy metric receipt time. */
     instrumentEvidence?: InstrumentEvidence;
     measurementTimes?: InstrumentMeasurementTimes;
@@ -150,6 +151,7 @@ export interface RemoteFeed {
 
 /** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
 export interface RemoteInstrumentSnapshot {
+    systemsReadings?: import('./systemsTelemetry').SystemsReading[];
     engineTelemetry?: import('./instruments/engineTelemetry').EngineTelemetry;
     measurementTimes?: InstrumentMeasurementTimes;
     rpmAtMs?: number;
@@ -411,6 +413,7 @@ class NmeaStoreClass {
             now - this.state.remote.receivedAt <= LAN_REMOTE_HOLD_MS
         )
             return false;
+        this.state.systemsReadings = snapshot.systemsReadings ?? [];
         this.state.instrumentEvidence = remoteInstrumentEvidence(snapshot);
         this.state.distanceLog = undefined;
         this.state.measurementTimes = evidenceTimes(this.state.instrumentEvidence);
@@ -616,6 +619,7 @@ class NmeaStoreClass {
 
     private clearInstrumentEvidence(): void {
         this.state.distanceLog = undefined;
+        this.state.systemsReadings = undefined;
         this.state.instrumentEvidence = undefined;
         this.state.measurementTimes = undefined;
     }
