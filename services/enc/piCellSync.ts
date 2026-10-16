@@ -75,6 +75,7 @@ interface PendingRead {
     context: ReadContext;
     id: string;
     signedKey: string;
+    startedAtMs: number;
     deadlineMs: number;
     retired: boolean;
 }
@@ -126,11 +127,13 @@ function beginCellRead(cell: EncCell | null): PendingRead | null {
     const context = readContext();
     const signedKey = signedCellKey(cell);
     if (!context || !signedKey || !cell || pendingReads.size >= 128) return null;
+    const startedAtMs = Date.now();
     const pending: PendingRead = {
         context,
         signedKey,
         id: canonicalEncCellId(cell.id),
-        deadlineMs: Date.now() + PI_PULL_DEADLINE_MS * 2,
+        startedAtMs,
+        deadlineMs: startedAtMs + PI_PULL_DEADLINE_MS * 2,
         retired: false,
     };
     pendingReads.add(pending);
@@ -142,6 +145,8 @@ function completeCellRead(pending: PendingRead | null, imported: EncCell): void 
     const current = getCell(pending.id);
     if (
         pending.retired ||
+        !Number.isFinite(now) ||
+        now < pending.startedAtMs ||
         now > pending.deadlineMs ||
         !sameReadContext(pending.context, readContext()) ||
         signedCellKey(imported) !== pending.signedKey ||

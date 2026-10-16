@@ -219,4 +219,14 @@ describe('actual Pi download/import read evidence (synthetic transport)', () => 
         expect(readPiChartReadEvidence(cell(), NOW - 1)).toBeNull();
         expect(readPiChartReadEvidence(cell(), NOW)).toBeNull();
     });
+    it('a clock rollback while verified bytes are in flight cannot mint a receipt', async () => {
+        h.fetch.mockImplementationOnce(async () => {
+            vi.spyOn(Date, 'now').mockReturnValue(NOW - 1);
+            return { cells: [{ cellId: 'AU500001' }] };
+        });
+        expect(await downloadPiCell('AU500001')).toBe(true);
+        expect(readPiChartReadEvidence(cell())).toBeNull();
+        vi.spyOn(Date, 'now').mockReturnValue(NOW);
+        expect(readPiChartReadEvidence(cell())).toBeNull();
+    });
 });
