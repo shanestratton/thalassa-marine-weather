@@ -6,6 +6,8 @@ import {
     type RadarRelayUpsert,
 } from '../../../utils/radarRelayContract.ts';
 import { parseRadarRelayRequest, radarRelayAlarmKey } from './radar-contract.ts';
+import { handleRadarRelay, radarCapabilityReady, type RadarRelayDeps } from './radar-relay.ts';
+import { handlePiAlarmRelay, type PiAlarmStore } from './relay.ts';
 
 const assert = (value: unknown, message = 'Assertion failed') => {
     if (!value) throw new Error(message);
@@ -260,4 +262,242 @@ Deno.test('ACK and resolution bind exact episode plus severity and allow upsert+
             { ...r, acks: [{ ...ack, position: { lat: 1, lon: 2 } }] },
         ]
     ) equal(await parse(body), null);
+});
+
+Deno.test('unavailable capability permits an unarmed probe only; malformed input never reaches storage', async () => {
+    let applies = 0;
+    const deps: RadarRelayDeps = {
+        capability: () => Promise.resolve(false),
+        apply: () => {
+            applies++;
+            throw new Error('must stay unarmed');
+        },
+        deliver: () => {
+            throw new Error('no notification');
+        },
+    };
+    const probe = await handleRadarRelay({ family: 'radar', action: 'probe' }, identity, deps, now);
+    equal(probe.status, 200);
+    equal((await probe.json()).radar, { v: 1, enabled: false });
+    equal((await handleRadarRelay(await input(), identity, deps, now)).status, 503);
+    equal(
+        (await handleRadarRelay({ family: 'radar', action: 'probe', position: [1, 2] }, identity, deps, now)).status,
+        400,
+    );
+    equal(applies, 0);
+});
+Deno.test('atomic sync queues only bounded UUIDs and returns acknowledgements only from this exact batch', async () => {
+    const r = await input(), queue = '77777777-7777-4777-8777-777777777777', delivered: string[] = [];
+    const deps: RadarRelayDeps = {
+        capability: () => Promise.resolve(true),
+        apply: () =>
+            Promise.resolve({ contextRevision: r.contextRevision, queued: [queue, queue], acked: [r.upserts[0].key] }),
+        deliver: (id) => {
+            delivered.push(id);
+        },
+    };
+    const response = await handleRadarRelay(r, identity, deps, now);
+    equal(response.status, 200);
+    equal(response.headers.get('cache-control'), 'no-store');
+    const value = await response.json();
+    equal(value.queued, 2);
+    equal(value.acked, [r.upserts[0].key]);
+    equal(delivered, [queue]);
+    assert(!JSON.stringify(value).includes(queue));
+    for (
+        const extra of [
+            { contextRevision: '88888888-8888-4888-8888-888888888888' },
+            { queued: ['not-a-queue'] },
+            { queued: Array(9).fill(queue) },
+            { acked: ['radar-collision:000000000000:' + now] },
+            { acked: Array(9).fill(r.upserts[0].key) },
+        ]
+    ) {
+        const answer = await handleRadarRelay(r, identity, {
+            ...deps,
+            apply: () => Promise.resolve({ contextRevision: r.contextRevision, queued: [], acked: [], ...extra }),
+            deliver: () => {
+                throw new Error('malformed reply must not deliver');
+            },
+        }, now);
+        equal(answer.status, 503);
+    }
+});
+Deno.test('context conflict never rebinds, and a retire must rotate the revision without pushing', async () => {
+    const r = await input(),
+        deps: RadarRelayDeps = {
+            capability: () => Promise.resolve(true),
+            apply: () => Promise.resolve({ conflict: true }),
+            deliver: () => {
+                throw new Error('no notification');
+            },
+        };
+    const response = await handleRadarRelay(r, identity, deps, now);
+    equal(response.status, 409);
+    equal(await response.json(), { error: 'radar_context_conflict' });
+    const retire = { family: 'radar', action: 'retire', context: r.context, contextRevision: r.contextRevision };
+    equal(
+        (await handleRadarRelay(retire, identity, {
+            ...deps,
+            apply: () => Promise.resolve({ contextRevision: r.contextRevision, retired: true, queued: [], acked: [] }),
+        }, now)).status,
+        503,
+    );
+    const accepted = await handleRadarRelay(retire, identity, {
+        ...deps,
+        apply: () =>
+            Promise.resolve({
+                contextRevision: '88888888-8888-4888-8888-888888888888',
+                retired: true,
+                queued: [],
+                acked: [],
+            }),
+    }, now);
+    equal(accepted.status, 200);
+    equal((await accepted.json()).retired, true);
+});
+Deno.test('probe verifies owner-bound returned context and never invokes a delivery', async () => {
+    const r = await input(),
+        result = { devices: 1, contextRevision: r.contextRevision, context: r.context, retired: false };
+    const deps: RadarRelayDeps = {
+        capability: () => Promise.resolve(true),
+        apply: () => Promise.resolve(result),
+        deliver: () => {
+            throw new Error('read must not deliver');
+        },
+    };
+    equal((await handleRadarRelay({ family: 'radar', action: 'probe' }, identity, deps, now)).status, 200);
+    for (
+        const extra of [{ devices: 1001 }, { devices: -1 }, { context: null }, { retired: 'yes' }, {
+            contextRevision: null,
+        }, {
+            context: {
+                ...r.context,
+                binding: { ...r.context.binding, ownerId: '77777777-7777-4777-8777-777777777777' },
+            },
+        }]
+    ) {
+        equal(
+            (await handleRadarRelay({ family: 'radar', action: 'probe' }, identity, {
+                ...deps,
+                apply: () => Promise.resolve({ ...result, ...extra }),
+            }, now)).status,
+            503,
+        );
+    }
+});
+Deno.test('paired credential and existing 8KiB door precede radar dispatch; legacy tables are untouched', async () => {
+    let calls = 0, auths = 0, touches = 0;
+    const fail = () => {
+        throw new Error('legacy storage was accessed');
+    };
+    const store: PiAlarmStore = {
+        touchRelay: () => {
+            touches++;
+        },
+        countDevices: fail,
+        findEvents: fail,
+        openEvents: fail,
+        insertEvent: fail,
+        updateEvent: fail,
+        resolveEvents: fail,
+        lastPushedAt: fail,
+        countPushedSince: fail,
+        alarmPushesSince: fail,
+        enqueuePush: fail,
+        pruneResolved: fail,
+    };
+    const deps = {
+        store,
+        authenticate: (credential: unknown) => {
+            auths++;
+            return Promise.resolve(credential ? identity : { status: 401 as const, error: 'refused' });
+        },
+        now: () => now,
+        radar: () => {
+            calls++;
+            return Promise.resolve(Response.json({ ok: true }));
+        },
+    };
+    const make = (body: unknown, auth = true) =>
+        new Request('https://example.test/pi-alarm-relay', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(auth
+                    ? { 'X-Thalassa-Pi-Relay-Id': identity.relayId, 'X-Thalassa-Pi-Relay-Token': 'a'.repeat(64) }
+                    : {}),
+            },
+            body: JSON.stringify(body),
+        });
+    equal((await handlePiAlarmRelay(make(await input(), false), deps)).status, 401);
+    equal(calls, 0);
+    equal((await handlePiAlarmRelay(make(await input()), deps)).status, 200);
+    equal(calls, 1);
+    equal(touches, 1);
+    equal((await handlePiAlarmRelay(make({ family: 'radar', padding: 'x'.repeat(9000) }), deps)).status, 413);
+    equal(auths, 2);
+    equal(calls, 1);
+    equal((await handlePiAlarmRelay(make(await input()), { ...deps, radar: undefined })).status, 503);
+});
+Deno.test('capability requires both exact schema and configured fixed sender; redirects and oversized replies refuse', async () => {
+    let calls = 0;
+    const fetcher: typeof fetch = (url, init) => {
+        calls++;
+        equal(String(url), 'https://example.supabase.co/functions/v1/send-push');
+        equal(init?.method, 'POST');
+        equal(init?.redirect, 'error');
+        equal(init?.cache, 'no-store');
+        equal(init?.body, JSON.stringify({ action: 'capabilities' }));
+        return Promise.resolve(Response.json({ radar_alarm: 1 }));
+    };
+    equal(
+        await radarCapabilityReady(
+            () => Promise.resolve(1),
+            'https://example.supabase.co',
+            'fictional-service',
+            fetcher,
+        ),
+        true,
+    );
+    for (const schema of [0, true, null]) {
+        equal(
+            await radarCapabilityReady(
+                () => Promise.resolve(schema),
+                'https://example.supabase.co',
+                'fictional-service',
+                fetcher,
+            ),
+            false,
+        );
+    }
+    equal(calls, 1);
+    for (
+        const url of [
+            'http://example.test',
+            'https://user@example.test',
+            'https://example.test/path',
+            'https://example.test?key=value',
+        ]
+    ) equal(await radarCapabilityReady(() => Promise.resolve(1), url, 'fictional-service', fetcher), false);
+    for (const body of [{ radar_alarm: true }, { wake_alarm: 1 }, { radar_alarm: 1, padding: 'x'.repeat(2000) }]) {
+        equal(
+            await radarCapabilityReady(
+                () => Promise.resolve(1),
+                'https://example.supabase.co',
+                'fictional-service',
+                () => Promise.resolve(Response.json(body)),
+            ),
+            false,
+        );
+    }
+    equal(
+        await radarCapabilityReady(
+            () => Promise.resolve(1),
+            'https://example.supabase.co',
+            'fictional-service',
+            () => Promise.resolve(new Response(null, { status: 302 })),
+        ),
+        false,
+    );
 });

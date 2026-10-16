@@ -125,6 +125,8 @@ export interface RelayDeps {
     underwayEnabled?: () => Promise<boolean>;
     /** Separate fixed wake family; the existing authenticated door runs first. */
     wake?: (body: Record<string, unknown>, identity: PiRelayIdentity, now: number) => Promise<Response>;
+    /** Separate fixed radar family, after the same credential and body-size boundary. */
+    radar?: (body: Record<string, unknown>, identity: PiRelayIdentity, now: number) => Promise<Response>;
 }
 
 const CORS: Record<string, string> = {
@@ -398,6 +400,16 @@ export async function handlePiAlarmRelay(req: Request, deps: RelayDeps): Promise
         return identity.status === 401 ? json({ error: 'unauthorised' }, 401) : json({ error: 'unavailable' }, 503);
     }
 
+    if (body.family === 'radar') {
+        if (!deps.radar) return json({ error: 'radar_unavailable' }, 503);
+        try {
+            const response = await deps.radar(body, identity, (deps.now ?? Date.now)());
+            if (response.ok) deps.store.touchRelay(identity.relayId);
+            return response;
+        } catch {
+            return json({ error: 'radar_unavailable' }, 503);
+        }
+    }
     if (body.family === 'wake') {
         if (!deps.wake) return json({ error: 'wake_unavailable' }, 503);
         try {
