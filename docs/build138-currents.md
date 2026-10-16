@@ -27,3 +27,7 @@ Before activation: implement/review the compatible publisher and fixed namespace
 ## Verification
 
 Seven suites pass 91 tests, including the existing lazy-engine source contract. The six functional suites add signed manifest/asset mutation, exact binary bounds, complete date-line cohort, total transfer cap, abort/deadline, serial ownership and no-WAN production-hold tests to the sampler/kernel/clock/privacy regressions. Fixtures are generated public data with a deterministic test-only key. Scoped ESLint and formatting pass. Whole app/native compilation, configured production size and real regional asset proof are pending composition.
+
+## Offline publisher checkpoint
+
+The new `tools/currents138/regionalPublisher.ts` stages a finite signed generation from already normalized public inputs. It reuses the actual app contract and preserves original source/time/mask identity, with deterministic content generations,8MiB decoded/output caps and immutable asset readback before manifests. It has no provider acquisition or upload and leaves all production holds unchanged. Its nine generated tests pass against the real app verifier/decoder, including partial-stage failure and cancellation. See `tools/currents138/README.md` for the exact external-pipeline, resource-controller, licensing, provider-basis, key-rotation and publication work that remains. This checkpoint does not complete138-01/02 or claim operational CMEMS tide/RTOFS availability.
