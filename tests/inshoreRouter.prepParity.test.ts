@@ -21,6 +21,9 @@
  * every route job the prep posted (the *-job goldens): its merged layers in
  * their order, so a lost or reordered answer fails even where it does not
  * move the line (the bridge here is off the route, the NtM zone in deep water).
+ * 139-04 extends those contracts with actual RESARE/TSEZNE inputs and missing
+ * class coverage. The updated goldens retain the same route geometry while
+ * including the new explicit restriction-check caveat and job metadata.
  *
  * The scene is the invented archipelago at 161.0E 20.3S (no real place, no
  * real chart; tests/fixtures/syntheticArchipelago.ts). The notices and the
@@ -41,6 +44,10 @@ import {
     sha256,
 } from './helpers/routeJobScenes';
 import { byName, firstAsked, lastAsked, seeded, waits, type PickWait } from './helpers/prepWaits';
+
+// This scene has no saved private tracks. Keep the IO seam explicit rather
+// than falling through an incomplete global Supabase mock after 139-02.
+vi.mock('../services/shiplog/EntryCrud', () => ({ getLogEntries: async () => [] }));
 
 const fake = vi.hoisted(() => ({
     ends: null as null | { from: [number, number]; to: [number, number] },

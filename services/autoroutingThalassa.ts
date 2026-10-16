@@ -528,6 +528,7 @@ export async function calculateThalassaProposal(
     const engineCaveats = inshoreRouteCaveats({
         destinationInlandTrimM: ok.destinationInlandTrimM,
         structuresUnknownCells: ok.structuresUnknownCells,
+        exclusionsUnchecked: ok.exclusionsUnchecked,
         pinOffWater: ok.pinOffWater,
         pinTail: ok.pinTail,
         // Why the route leaves the straight line for deeper water (2026-10-04).
@@ -596,6 +597,7 @@ export async function calculateThalassaProposal(
         ...(ok.surveyRuns ? { surveyRuns: copy(ok.surveyRuns) } : {}),
         ...(ok.surveyUncheckedCells ? { surveyUncheckedCells: [...ok.surveyUncheckedCells] } : {}),
         ...(ok.structuresUnknownCells ? { structuresUnknownCells: [...ok.structuresUnknownCells] } : {}),
+        ...(ok.exclusionsUnchecked ? { exclusionsUnchecked: true } : {}),
         ...(ok.pinOffWater ? { pinOffWater: { ...ok.pinOffWater } } : {}),
         ...(ok.tideCheck ? { tideCheck: ok.tideCheck } : {}),
         ...(ok.destinationInlandTrimM ? { destinationInlandTrimM: ok.destinationInlandTrimM } : {}),
