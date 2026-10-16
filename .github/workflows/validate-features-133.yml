@@ -1,0 +1,79 @@
+name: Thalassa 133 housekeeping validation
+on:
+    push:
+        branches: ['codex/build-133-housekeeping-validation']
+        paths: ['.github/workflows/validate-features-133.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-133-housekeeping
+    cancel-in-progress: false
+env:
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '133'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+jobs:
+    app:
+        name: App checkpoint (${{ matrix.feature }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 35
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - feature: housekeeping
+                      sha: 2bd81eb40532978a75a0a4854e3b287e42494d94
+        env:
+            CANDIDATE_SHA: ${{ matrix.sha }}
+            FEATURE: ${{ matrix.feature }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: ${{ matrix.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Verify exact checkpoint and released build 132 ancestor
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+            - run: npm ci
+            - name: Source gates, full lint, app types and changed-source formatting
+              run: |
+                  set -euo pipefail
+                  npm run check:beta:source
+                  npm run lint
+                  npm run lint:routes
+                  npx tsc --noEmit
+                  mapfile -t changed < <(git diff --name-only 771716bf91078e86d5a90aedc91f961c89cce1f8 HEAD -- '*.ts' '*.tsx' '*.json' '*.md')
+                  if ! npx prettier --check --ignore-path .prettierignore --ignore-path .gitignore --ignore-path ios/.gitignore "${changed[@]}"; then
+                      npx prettier --write --ignore-path .prettierignore --ignore-path .gitignore --ignore-path ios/.gitignore "${changed[@]}"
+                      git diff -- "${changed[@]}"
+                      exit 1
+                  fi
+            - name: Clear view, dropdown, off-route alarm and chart UI regressions
+              run: >-
+                  npx vitest run tests/ObsClearView.test.tsx tests/ObsClearViewPill.test.tsx
+                  tests/MapBaseSelector.test.tsx tests/UnderwayAlarmWatch.test.ts
+                  tests/UnderwayAlarmUi.test.tsx tests/UnderwayAlarmCardsFallback.test.tsx
+                  tests/UnderwayRule.test.ts tests/DisplayModeCoverage.test.ts
+            - name: Production build and unchanged bundle budgets
+              run: |
+                  set -euo pipefail
+                  npm run check:beta
+                  GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+                  npm run check:web-release
+                  npm run check:bundle
