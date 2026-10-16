@@ -343,6 +343,123 @@ describe('native public relief persistence', () => {
 });
 
 describe('browser terrain cache matching the service worker', () => {
+    it('repairs a successful but invisible index put using only the exact key and a fresh response', async () => {
+        state.native = false;
+        const cache = memoryCache(),
+            legacy = 'https://tiles.thalassatiles.com/__offline-relief-manifest-v1',
+            good = planReliefArea(area, 4).tiles[0],
+            foreign = 'https://tile.openstreetmap.org/0/0/0.png';
+        cache.entries.set(
+            legacy,
+            new Response(JSON.stringify({ schema: 1, tiles: [{ url: good.url, bytes: 44, usedAt: 1 }] })),
+        );
+        cache.entries.set(good.url, new Response(image(good.mime), { headers: { 'x-thalassa-relief-bytes': '44' } }));
+        cache.entries.set(foreign, new Response('viewed tile'));
+        let dangling = true;
+        cache.put.mockImplementation(async (request, response) => {
+            const key = typeof request === 'string' ? request : request.url;
+            if (key === webManifest && dangling) {
+                await response.text(); // Real Cache.put consumes its response even when the record is unreadable.
+                return;
+            }
+            cache.entries.set(key, response.clone());
+        });
+        cache.delete.mockImplementation(async (request) => {
+            const key = typeof request === 'string' ? request : request.url;
+            if (key === webManifest && dangling) {
+                dangling = false;
+                return true; // WebKit's dangling indexed record is absent from keys/match, but delete finds it.
+            }
+            return cache.entries.delete(key);
+        });
+        vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+        const service = await import('../services/OfflineReliefService');
+        await service.hydrateRelief();
+        expect(service.reliefStorage()).toEqual({ tiles: 1, bytes: 44 });
+        expect(cache.put).toHaveBeenCalledTimes(2);
+        expect(cache.put.mock.calls[0][1].bodyUsed).toBe(true);
+        expect(cache.put.mock.calls[1][1]).not.toBe(cache.put.mock.calls[0][1]);
+        expect(cache.delete.mock.calls.map(([request]) => request)).toEqual([webManifest, legacy]);
+        expect(cache.entries.has(legacy)).toBe(false);
+        expect(cache.entries.has(good.url)).toBe(true);
+        expect(cache.entries.has(foreign)).toBe(true);
+        expect((await (await cache.match(webManifest))!.json()).tiles).toEqual([
+            { url: good.url, bytes: 44, usedAt: 1 },
+        ]);
+        expect(fetch).not.toHaveBeenCalled();
+        vi.resetModules();
+        const fresh = await import('../services/OfflineReliefService');
+        await fresh.hydrateRelief();
+        expect(fresh.reliefStorage()).toEqual({ tiles: 1, bytes: 44 });
+    });
+    it('bounds an invisible-index retry, preserves readable terrain, and never claims new offline saves', async () => {
+        state.native = false;
+        const cache = memoryCache(),
+            good = planReliefArea(area, 4).tiles[0],
+            foreign = 'https://tile.openstreetmap.org/0/0/0.png';
+        cache.entries.set(
+            webManifest,
+            new Response(JSON.stringify({ schema: 1, tiles: [{ url: good.url, bytes: 44, usedAt: 1 }] })),
+        );
+        cache.entries.set(good.url, new Response(image(good.mime), { headers: { 'x-thalassa-relief-bytes': '44' } }));
+        cache.entries.set(foreign, new Response('viewed tile'));
+        cache.put.mockImplementation(async (request, response) => {
+            const key = typeof request === 'string' ? request : request.url;
+            if (key === webManifest) {
+                await response.text();
+                cache.entries.delete(key);
+            } else cache.entries.set(key, response.clone());
+        });
+        vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+        const service = await import('../services/OfflineReliefService');
+        await service.hydrateRelief();
+        expect(service.reliefStorage()).toEqual({ tiles: 1, bytes: 44 });
+        expect(cache.put).toHaveBeenCalledTimes(2);
+        expect(cache.delete.mock.calls.map(([request]) => request)).toEqual([webManifest]);
+        expect(cache.entries.has(good.url)).toBe(true);
+        expect(cache.entries.has(foreign)).toBe(true);
+        cache.put.mockClear();
+        cache.delete.mockClear();
+        const progress = vi.fn();
+        await service.downloadReliefArea(area, 4, base, new AbortController().signal, progress);
+        expect(progress.mock.lastCall?.[0]).toMatchObject({ phase: 'error', saved: 0 });
+        expect(progress.mock.lastCall?.[0].message).toContain('could not be read back');
+        const indexPuts = cache.put.mock.calls.filter(([request]) => request === webManifest),
+            indexDeletes = cache.delete.mock.calls.filter(([request]) => request === webManifest);
+        expect(indexPuts.length).toBe(indexDeletes.length * 2);
+        expect(cache.entries.has(foreign)).toBe(true);
+        expect([...cache.entries.keys()].filter((url) => reliefTile(url))).toEqual([]);
+        expect(
+            cache.delete.mock.calls.some(
+                ([request]) => request === 'https://tiles.thalassatiles.com/__offline-relief-manifest-v1',
+            ),
+        ).toBe(false);
+    });
+    it.each(['put', 'match'] as const)(
+        'propagates an index %s rejection without deleting that key or legacy metadata',
+        async (failure) => {
+            state.native = false;
+            const cache = memoryCache();
+            vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+            const service = await import('../services/OfflineReliefService');
+            await service.hydrateRelief();
+            const error = new Error(`Simulated index ${failure} failure`);
+            let wrote = false;
+            cache.put.mockImplementation(async (request, response) => {
+                if (request === webManifest && failure === 'put') throw error;
+                wrote = true;
+                cache.entries.set(typeof request === 'string' ? request : request.url, response.clone());
+            });
+            cache.match.mockImplementation(async (request) => {
+                if (request === webManifest && failure === 'match' && wrote) throw error;
+                return cache.entries.get(typeof request === 'string' ? request : request.url)?.clone();
+            });
+            cache.delete.mockClear();
+            await expect(service.deleteSavedRelief()).rejects.toBe(error);
+            expect(cache.delete).not.toHaveBeenCalled();
+            expect(fetch).not.toHaveBeenCalled();
+        },
+    );
     it('moves a validated legacy manifest onto the app origin without fetching terrain again', async () => {
         state.native = false;
         const cache = memoryCache();
