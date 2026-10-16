@@ -5,7 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { build } from 'vite';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
-import { collectClassNames, packClassNames, shareClassNames } from '../scripts/share-class-names.mjs';
+import { collectClassNames, packClassNames, selectClassNames, shareClassNames } from '../scripts/share-class-names.mjs';
 import { decodeClassNames } from '../utils/decodeClassNames';
 
 const real = collectClassNames(process.cwd());
@@ -15,6 +15,33 @@ const unpack = (values: string[]) => {
     const packed = packClassNames(values);
     return decodeClassNames(packed.encoded, packed.bytes, packed.count, packed.checksum);
 };
+it('packs long unique literal classes through shared words without changing decoder bounds', () => {
+    const repeated = 'flex min-h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm';
+    const unique = `${repeated} text-amber-400 justify-between overflow-hidden whitespace-nowrap`;
+    const selected = selectClassNames(
+        new Map([
+            [repeated, 8],
+            [unique, 1],
+            ['short-unique', 1],
+        ]),
+    );
+    expect(selected).toEqual([repeated, unique].sort());
+    expect(unpack(selected)).toEqual(selected);
+});
+it('selects an exact deterministic bounded subset when future source literals exceed the pool', () => {
+    const values = Array.from(
+        { length: 1800 },
+        (_, i) =>
+            `flex min-h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm justify-between overflow-hidden whitespace-nowrap text-amber-${i}`,
+    );
+    const entries = values.map((value) => [value, 1] as const);
+    const selected = selectClassNames(new Map(entries));
+    expect(selected).toEqual(selectClassNames(new Map([...entries].reverse())));
+    expect(selected.length).toBeGreaterThan(0);
+    expect(selected.length).toBeLessThan(values.length);
+    expect(selected.reduce((sum: number, value: string) => sum + value.length, 0)).toBeLessThanOrEqual(240000);
+    expect(unpack(selected)).toEqual(selected);
+});
 it('reconstructs every production class, exact whitespace, Unicode and escaped characters in original order', () => {
     const values = [...real, ' a  b\tc\n ', 'text-["☀️"] \\ escaped', '', '   ', '\ud800'];
     const decoded = unpack(values);
