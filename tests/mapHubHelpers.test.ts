@@ -119,7 +119,7 @@ describe('mapHubHelpers', () => {
         // queue and saved-list loads, the report's fly-to.
         expect(hub.match(/tracerFlyTo\(/g)?.length).toBeGreaterThanOrEqual(10);
         // What still flies on the whole canvas is not the tracer's: Obs's
-        // recentre, the threat banner, a passage hazard, AIS vessel search,
+        // recentre, the threat banner, a passage hazard, AIS vessel search/Targets,
         // and the parked closed-pill guided start.
         const raw = [...hub.matchAll(/\.flyTo\(/g)].map((m) => hub.slice(Math.max(0, m.index! - 700), m.index));
         const owner = (before: string) =>
@@ -128,6 +128,7 @@ describe('mapHubHelpers', () => {
                 'flyTo={(lat, lon, zoom)',
                 'onHazardClick=',
                 'onSelect={(lat, lon, mmsi, name)',
+                '<AisTargetsSheet',
                 'Guided start',
             ]
                 .map((marker) => [marker, before.lastIndexOf(marker)] as const)
@@ -140,8 +141,17 @@ describe('mapHubHelpers', () => {
                 'onHazardClick=',
                 'onRecenter={',
                 'onSelect={(lat, lon, mmsi, name)',
+                '<AisTargetsSheet',
             ].sort(),
         );
+        // Targets is an Obs-only action. It must not inherit the tracer card's padding,
+        // and choosing a vessel must still open the existing target popup.
+        expect(hub).toContain('showAisTargets && !pickerMode && !planningSurface');
+        const targets = hub.match(/<AisTargetsSheet[\s\S]*?\/>/)?.[0] ?? '';
+        expect(targets).not.toContain('tracerFlyTo(');
+        expect(targets).toContain('padding: 0');
+        expect(targets).toContain('retainPadding: false');
+        expect(targets).toContain('thalassa:select-ais-target');
     });
 
     it('measures nearby distances and preserves route window invariants', () => {

@@ -73,7 +73,7 @@ describe('untrusted popup HTML', () => {
         expect(colours.every((colour) => /^#[0-9a-f]{6}$/i.test(colour))).toBe(true);
     });
 
-    it('escapes every AIS details-row value and accepts only credential-free HTTPS thumbnails', () => {
+    it('escapes every AIS details-row value and never loads third-party vessel photos', () => {
         const markup = buildAisVesselDetailHtml({
             mmsi: ATTACK,
             name: ATTACK,
@@ -107,7 +107,8 @@ describe('untrusted popup HTML', () => {
         expect(dom.querySelector('[data-pwn]')).toBeNull();
         expect(dom.querySelector('[onerror]')).toBeNull();
         expect(dom.querySelector('style')).toBeNull();
-        expect(dom.querySelector('img')?.getAttribute('src')).toContain('%22%20onerror=');
+        expect(dom.querySelector('img')).toBeNull();
+        expect(markup).not.toContain('images.example.test');
         expect(dom.textContent).toContain('<img data-pwn');
         expect(markup).not.toContain('NaN');
         expect(markup).not.toContain('Infinity');
