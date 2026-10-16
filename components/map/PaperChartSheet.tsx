@@ -24,6 +24,8 @@ export interface PaperChartSheetProps {
     onCatalogue?: () => void;
     onFindChart?: () => void;
     onUserOverlays?: () => void;
+    onDrawingTools?: () => void;
+    drawingToolsDisabled?: boolean;
     contours?: ChartContourControlsProps;
     notices?: { enabled: boolean; onChange: (enabled: boolean) => void };
 }
@@ -164,6 +166,19 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             </div>
                         ))}
                     </section>
+                    {props.onDrawingTools && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            disabled={props.drawingToolsDisabled}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                if (isAuthIdentityScopeCurrent(scopeAtOpen.current)) props.onDrawingTools?.();
+                            }}
+                        >
+                            Draw on chart · ruler / annotations
+                        </button>
+                    )}
                     {props.onUserOverlays && (
                         <button
                             type="button"

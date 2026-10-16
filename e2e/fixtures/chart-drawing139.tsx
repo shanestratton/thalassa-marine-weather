@@ -5,6 +5,8 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '../../index.css';
 import ChartDrawingTools from '../../components/map/drawing/ChartDrawingTools';
+import PaperChartSheet from '../../components/map/PaperChartSheet';
+import { MapBaseSelector } from '../../components/map/MapBaseSelector';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { NmeaStore } from '../../services/NmeaStore';
 import { useSettingsStore, awaitSettingsLoaded } from '../../stores/settingsStore';
@@ -22,6 +24,8 @@ declare global {
             switchVessel: () => void;
             fix: (via?: InstrumentEvidence['via'], age?: number, heading?: boolean) => void;
             resetStyle: () => void;
+            foreground: (active: boolean) => void;
+            competing: (active: boolean) => void;
             probe: () => Promise<{
                 annotations: number;
                 ruler: number;
@@ -33,13 +37,25 @@ declare global {
     }
 }
 function Fixture() {
+    const composed = new URLSearchParams(location.search).has('composed');
     const container = React.useRef<HTMLDivElement | null>(null),
         map = React.useRef<mapboxgl.Map | null>(null);
     const [ready, setReady] = React.useState(false),
         [open, setOpen] = React.useState(false),
+        [paper, setPaper] = React.useState(false),
+        [active, setActive] = React.useState(true),
+        [competing, setCompeting] = React.useState(false),
         [owned, setOwned] = React.useState(false);
     const close = React.useCallback(() => setOpen(false), []),
+        closePaper = React.useCallback(() => setPaper(false), []),
         interaction = React.useCallback((value: boolean) => setOwned(value), []);
+    const available = active && ready && !competing;
+    React.useEffect(() => {
+        if (!active) {
+            setOpen(false);
+            setPaper(false);
+        }
+    }, [active]);
     React.useEffect(() => {
         const style = () => ({
             version: 8 as const,
@@ -83,6 +99,8 @@ function Fixture() {
                 };
             },
             resetStyle: () => m.setStyle(style()),
+            foreground: setActive,
+            competing: setCompeting,
             probe: () =>
                 new Promise((resolve) => {
                     m.once('render', () => {
@@ -136,18 +154,49 @@ function Fixture() {
     return (
         <main className="fixed inset-0 overflow-hidden bg-slate-950 text-white" data-owned={owned}>
             <div ref={container} className="thalassa-chart-map" style={{ position: 'absolute', inset: 0 }} />
-            <button
-                className="absolute left-3 top-3 z-20 min-h-11 rounded-xl bg-slate-800 px-3"
-                disabled={!ready || owned}
-                onClick={() => setOpen(true)}
-            >
-                Your drawings
-            </button>
+            {!composed && (
+                <button
+                    className="absolute left-3 top-3 z-20 min-h-11 rounded-xl bg-slate-800 px-3"
+                    disabled={!ready || owned}
+                    onClick={() => setOpen(true)}
+                >
+                    Your drawings
+                </button>
+            )}
+            {composed && (
+                <MapBaseSelector
+                    visible={active && ready}
+                    value="relief"
+                    onChange={() => {}}
+                    encCellCount={0}
+                    encVisible={false}
+                    onToggleEnc={() => {}}
+                    onCharts={() => setPaper(true)}
+                />
+            )}
+            {paper && (
+                <PaperChartSheet
+                    onClose={closePaper}
+                    bounds={[-1, -1, 1, 1]}
+                    sources={[]}
+                    onToggle={() => {}}
+                    onOpacity={() => {}}
+                    onConsent={() => {}}
+                    category="standard"
+                    onCategory={() => {}}
+                    satelliteMode
+                    onDrawingTools={() => {
+                        setOpen(true);
+                        setPaper(false);
+                    }}
+                    drawingToolsDisabled={!available || owned}
+                />
+            )}
             <ChartDrawingTools
                 map={map.current}
                 mapReady={ready}
-                active
-                canDraw
+                active={active}
+                canDraw={composed ? available && !paper : true}
                 open={open}
                 onClose={close}
                 onInteractionChange={interaction}

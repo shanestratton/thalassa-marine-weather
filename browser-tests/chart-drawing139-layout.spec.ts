@@ -1,10 +1,11 @@
 import { test, expect, type Page, type Download } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-async function local(page: Page) {
+async function local(page: Page, origin?: string) {
     const unexpected: string[] = [];
     await page.route('**/*', (route) => {
         const u = new URL(route.request().url());
-        if (['127.0.0.1', 'localhost'].includes(u.hostname) || u.protocol === 'blob:') return route.continue();
+        if (origin ? u.origin === origin : ['127.0.0.1', 'localhost'].includes(u.hostname) || u.protocol === 'blob:')
+            return route.continue();
         if (u.hostname === 'api.mapbox.com' && u.pathname === '/map-sessions/v1')
             return route.fulfill({ status: 200, body: '' });
         if (u.hostname === 'events.mapbox.com' && u.pathname === '/events/v2')
@@ -14,6 +15,57 @@ async function local(page: Page) {
     });
     return unexpected;
 }
+for (const width of [300, 375])
+    test(`Charts drawing handoff and foreground reload fit ${width}px130%`, async ({ page, baseURL }, info) => {
+        await page.setViewportSize({ width, height: 667 });
+        const unexpected = await local(page, new URL(baseURL!).origin),
+            errors: string[] = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        await page.routeWebSocket('**/*', (socket) => socket.close());
+        await page.goto('/e2e/fixtures/chart-drawing139.html?composed=1');
+        await page.addStyleTag({ content: 'html{font-size:130% !important}' });
+        await page.getByRole('button', { name: 'Map base: Relief', exact: true }).click();
+        await page.getByRole('menuitem', { name: 'Charts & detail', exact: true }).click();
+        const paper = page.getByRole('dialog', { name: 'Charts & detail', exact: true });
+        const opener = paper.getByRole('button', { name: 'Draw on chart · ruler / annotations', exact: true });
+        await opener.scrollIntoViewIfNeeded();
+        expect((await opener.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await page.evaluate(() => window.__drawingFixture.competing(true));
+        await expect(opener).toBeDisabled();
+        await page.evaluate(() => window.__drawingFixture.competing(false));
+        await expect(opener).toBeEnabled();
+        await opener.click();
+        await expect(paper).toHaveCount(0);
+        const library = page.getByRole('dialog', { name: 'Draw on chart', exact: true });
+        await library.getByLabel('Drawing label').fill('Fictional integrated label');
+        await page.screenshot({ path: info.outputPath('charts-drawing-library.png') });
+        expect(
+            await page.evaluate(() => ({
+                width: document.documentElement.scrollWidth,
+                height: document.documentElement.scrollHeight,
+            })),
+        ).toEqual({ width, height: 667 });
+        await library.getByRole('button', { name: 'Place label', exact: true }).click();
+        await tap(page, 70, 200);
+        const tools = page.getByRole('complementary', { name: 'Chart drawing tools' });
+        await expect(tools).toContainText('1/256 points');
+        await clearsCredits(page);
+        await page.screenshot({ path: info.outputPath('charts-drawing-dock.png') });
+        await tools.getByRole('button', { name: 'Finish and save', exact: true }).click();
+        await expect.poll(async () => (await page.evaluate(() => window.__drawingFixture.probe())).annotations).toBe(1);
+        await page.evaluate(() => window.__drawingFixture.foreground(false));
+        await expect.poll(async () => (await page.evaluate(() => window.__drawingFixture.probe())).annotations).toBe(0);
+        await page.evaluate(() => window.__drawingFixture.foreground(true));
+        await expect.poll(async () => (await page.evaluate(() => window.__drawingFixture.probe())).annotations).toBe(1);
+        expect(
+            await page.evaluate(() => ({
+                width: document.documentElement.scrollWidth,
+                height: document.documentElement.scrollHeight,
+            })),
+        ).toEqual({ width, height: 667 });
+        expect(unexpected).toEqual([]);
+        expect(errors).toEqual([]);
+    });
 async function open(page: Page) {
     await page.getByRole('button', { name: 'Your drawings', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Draw on chart' });

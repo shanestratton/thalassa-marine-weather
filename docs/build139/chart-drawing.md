@@ -1,6 +1,32 @@
 # Build 139.03: private chart drawings and boat ruler
 
-This package adds user-created lines, areas and point labels, plus an in-memory boat-centred EBL/VRM. `ChartDrawingTools` is the lazy integration boundary; the MapHub opener and gesture conflict policy are integrated separately.
+This package adds user-created lines, areas and point labels, plus an in-memory boat-centred EBL/VRM. `ChartDrawingTools` is the lazy integration boundary.
+
+## Obs integration
+
+`Charts & detail` offers `Draw on chart · ruler / annotations` on Obs. Opening
+it closes the chart sheet, releasing its modal lock before chart placement.
+The tool loads on first foreground Obs so saved visible annotations appear
+without reopening the library, then stays mounted with `active=false` elsewhere.
+It retires private map data off Obs and reloads it on return.
+
+MOB, plotting, weather Inspect, passage-point placement and other chart sheets
+refuse drawing. The tool's own gesture lease is excluded from `canDraw`, so it
+cannot cancel itself when it starts or enters Move map. That lease only joins
+the existing Clear view and ENC-popup suppression policy; no global map tap or
+long-press handler was added. EBL/VRM uses the component's fresh original-clock
+boat source checks and needs no enabled ENC chart layer.
+
+Four added real Chrome/WebKit cases at 300/375 px and 130% text exercise the
+actual MapBaseSelector, Charts sheet and drawing tools: competing-action
+disabled state, 44 px opener, sheet-to-chart handoff, saved label render,
+foreground retirement/reload, bounded dock clear of Mapbox credits, exact
+document extent and zero page errors/unexpected requests. Twenty-four focused
+cases in five suites passed. Existing drawing browser assertions remain intact.
+Logs: `work/validation139-drawing-mount-{browser,focused}.log`; screenshots:
+`work/drawing139-mount-browser-proof`. These component compositions do not mount
+the full MapHub. Combined release TypeScript, bundle and native checks remain
+separate gates.
 
 ```ts
 interface ChartDrawingToolsProps {

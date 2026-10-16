@@ -354,6 +354,7 @@ const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
 const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
 const UserOverlayLayer = React.lazy(() => import('./UserOverlayLayer'));
 const UserOverlaysSheet = React.lazy(() => import('./UserOverlaysSheet'));
+const ChartDrawingTools = React.lazy(() => import('./drawing/ChartDrawingTools'));
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
@@ -2343,6 +2344,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [paperChartsOpen, setPaperChartsOpen] = useState(false);
     const [userOverlaysOpen, setUserOverlaysOpen] = useState(false);
     const closeUserOverlays = useCallback(() => setUserOverlaysOpen(false), []);
+    const [chartDrawingLoaded, setChartDrawingLoaded] = useState(false);
+    const [chartDrawingOpen, setChartDrawingOpen] = useState(false);
+    const [chartDrawingOwnsChart, setChartDrawingOwnsChart] = useState(false);
+    const closeChartDrawing = useCallback(() => setChartDrawingOpen(false), []);
     const [chartFindOpen, setChartFindOpen] = useState(false);
     const closeChartFind = useCallback(() => setChartFindOpen(false), []);
     const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
@@ -2790,13 +2795,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        setEncPopupSuppression(map, pickerMode || browseWeatherInspectMode);
+        setEncPopupSuppression(map, pickerMode || browseWeatherInspectMode || chartDrawingOwnsChart);
         setEncDepthPopupEnabled(map, cleanPlanningMap);
         return () => {
             setEncPopupSuppression(map, false);
             setEncDepthPopupEnabled(map, true);
         };
-    }, [pickerMode, browseWeatherInspectMode, cleanPlanningMap, mapReady]);
+    }, [pickerMode, browseWeatherInspectMode, chartDrawingOwnsChart, cleanPlanningMap, mapReady]);
     // Picker mode pauses the ENC cloud-hydration walk. Panning the
     // location picker from home water to an un-synced coast (SE QLD →
     // GBR: 74 cells / 95 MB, none on-device) otherwise downloads
@@ -3329,8 +3334,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // known one, or the broad view, with one message (obsCentre). After Plan,
     // the picker or a shared pin had the map, Obs centres again (build 124).
     const obsShowing = ownshipStartup && currentView === 'map';
+    const chartDrawingAvailable =
+        obsShowing && mapReady && !mobActive && !coordCaptureMode && !browseWeatherInspectMode && !passage.settingPoint;
+    // The drawing tool's own gesture lease is deliberately excluded: including
+    // it would cancel the draft as soon as its first point claims the chart.
+    const chartDrawingCanDraw =
+        chartDrawingAvailable && !paperChartsOpen && !chartFindOpen && !noaaCatalogueOpen && !userOverlaysOpen;
     useEffect(() => {
-        if (!obsShowing) setUserOverlaysOpen(false);
+        if (obsShowing) setChartDrawingLoaded(true);
+        else {
+            setUserOverlaysOpen(false);
+            setChartDrawingOpen(false);
+        }
     }, [obsShowing]);
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
@@ -3342,7 +3357,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const clearView = useObsClearView({
         frameRef: obsFrameRef,
         available: obsShowing,
-        modeOwnsChart: mobActive || coordCaptureMode || browseWeatherInspectMode || !!passage.settingPoint,
+        modeOwnsChart:
+            mobActive ||
+            coordCaptureMode ||
+            browseWeatherInspectMode ||
+            !!passage.settingPoint ||
+            chartDrawingOwnsChart,
     });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
@@ -6244,6 +6264,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                         className="absolute bottom-32 left-3 right-3 z-40 max-h-[40%] overflow-y-auto"
                     />
                 )}
+                {(obsShowing || chartDrawingLoaded) && (
+                    <ChartDrawingTools
+                        map={mapRef.current}
+                        mapReady={mapReady}
+                        active={obsShowing}
+                        canDraw={chartDrawingCanDraw}
+                        open={chartDrawingOpen && obsShowing}
+                        onClose={closeChartDrawing}
+                        onInteractionChange={setChartDrawingOwnsChart}
+                    />
+                )}
                 {paperChartsOpen && (
                     <PaperChartSheet
                         onClose={closePaperCharts}
@@ -6267,6 +6298,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
                         onFindChart={() => setChartFindOpen(true)}
                         onUserOverlays={obsShowing ? () => setUserOverlaysOpen(true) : undefined}
+                        onDrawingTools={
+                            obsShowing
+                                ? () => {
+                                      setChartDrawingOpen(true);
+                                      setPaperChartsOpen(false);
+                                  }
+                                : undefined
+                        }
+                        drawingToolsDisabled={!chartDrawingAvailable || chartDrawingOwnsChart}
                         notices={{
                             enabled: settings.obsNoticesVisible !== false,
                             onChange: (enabled) => updateSettings({ obsNoticesVisible: enabled }),
