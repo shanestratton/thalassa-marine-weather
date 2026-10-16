@@ -41,7 +41,6 @@ export default function SailInventoryEditor(props: {
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby={titleId}
-                    style={{ colorScheme: 'dark' }}
                     className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-2xl border border-white/20 bg-slate-950 text-white shadow-2xl"
                 >
                     <header className="flex shrink-0 items-start justify-between gap-2 border-b border-white/10 p-4">
