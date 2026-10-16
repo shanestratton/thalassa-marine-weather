@@ -4,12 +4,7 @@ import { NmeaStore } from '../NmeaStore';
 import { NmeaListenerService } from '../NmeaListenerService';
 import { getPairing } from '../PiPairingService';
 import { satelliteModeActive } from '../networkPolicy';
-import {
-    SignalKReadState,
-    signalkRecord,
-    validSignalKSelf,
-    type SignalKNotice,
-} from '../../pi-cache/src/signalkProtocol';
+import { SignalKReadState, signalkRecord, validSignalKSelf, type SignalKNotice } from '../../utils/signalkProtocol';
 import { readSignalKDeviceConfig, saveSignalKDeviceConfig, type SignalKDeviceConfig } from './config';
 import { nativeSignalKAvailable, signalKNativeRequest, openSignalKNative } from './native';
 import { directSignalKSnapshot } from './snapshot';

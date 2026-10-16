@@ -1,9 +1,5 @@
 import { utf8ByteLength } from '../enc/types';
-import {
-    signalkRecord,
-    type SignalKNotice,
-    type SignalKNotificationSnapshot,
-} from '../../pi-cache/src/signalkProtocol';
+import { signalkRecord, type SignalKNotice, type SignalKNotificationSnapshot } from '../../utils/signalkProtocol';
 
 const integer = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 const exact = (row: Record<string, unknown>, keys: string[]) => Object.keys(row).every((key) => keys.includes(key));

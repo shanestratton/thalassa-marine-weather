@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SignalKReadState, signalKReadPath } from '../pi-cache/src/signalkProtocol';
+import { SignalKReadState, signalKReadPath } from '../utils/signalkProtocol';
 const now = Date.parse('2026-10-16T00:00:00Z'),
     self = 'urn:mrn:imo:mmsi:000000001';
 const delta = (path: string, value: unknown, at = now, source = 'test.1') => ({

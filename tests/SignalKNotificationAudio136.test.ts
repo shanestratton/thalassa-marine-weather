@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SignalKNotificationAudio } from '../services/signalk/notificationAudio';
-import type { SignalKNotice } from '../pi-cache/src/signalkProtocol';
+import type { SignalKNotice } from '../utils/signalkProtocol';
 const notice: SignalKNotice = {
     path: 'notifications.mob',
     source: 'fixture',
