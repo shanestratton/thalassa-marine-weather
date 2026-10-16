@@ -102,6 +102,49 @@ function Fixture() {
                         2,
                         0.5,
                     ),
+                async inshore() {
+                    const { tryInshoreRoute } = await import('../../services/InshoreRouter');
+                    const before = noaaResidentBytes();
+                    const result = await tryInshoreRoute(
+                        { lat: 55.5, lon: -133.76 },
+                        { lat: 55.5, lon: -133.74 },
+                        0.5,
+                        null,
+                        'safest',
+                        { tideCeilings: [] },
+                    );
+                    return { result, before, after: noaaResidentBytes() };
+                },
+                async tracer() {
+                    const { buildTracerContext, holdTracerCtx, setTracerCtxLru, validateTraceLeg } =
+                        await import('../../services/routeTracer');
+                    const before = noaaResidentBytes();
+                    const built = await buildTracerContext([-133.77, 55.49, -133.73, 55.51], 0.5, {
+                        airDraftM: null,
+                        chartedDepthOnly: true,
+                    });
+                    if (!('ctx' in built)) return { status: built.status, before, after: noaaResidentBytes() };
+                    let held = holdTracerCtx([], built.ctx);
+                    built.release?.();
+                    try {
+                        const a = { lat: 55.5, lon: -133.76 },
+                            b = { lat: 55.5, lon: -133.74 };
+                        const verdict = validateTraceLeg(a, b, built.ctx);
+                        const retained = noaaResidentBytes();
+                        held = setTracerCtxLru(held, []);
+                        return {
+                            status: built.status,
+                            grid: !!built.ctx.grid,
+                            verdict,
+                            staleVerdict: validateTraceLeg(a, b, built.ctx),
+                            before,
+                            retained,
+                            after: noaaResidentBytes(),
+                        };
+                    } finally {
+                        setTracerCtxLru(held, []);
+                    }
+                },
                 satellite(enabled: boolean) {
                     const s = useSettingsStore.getState();
                     useSettingsStore.setState({ settings: { ...s.settings, satelliteMode: enabled } });

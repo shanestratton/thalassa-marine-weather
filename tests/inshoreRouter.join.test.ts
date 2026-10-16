@@ -51,6 +51,37 @@ const host = vi.hoisted(() => ({
     satCalls: 0,
     vectorCalls: 0,
     ntmCalls: 0,
+    packageCalls: [] as { cells: string[]; bounds: number[] }[],
+    packageHold: null as null | Promise<void>,
+    packageFailure: false,
+    packageLeases: 0,
+    packageReleases: 0,
+    chartVersion: 0,
+}));
+
+vi.mock('../services/enc/noaaPackageWindow', () => ({
+    loadNoaaPackageCohort: async (cells: { id: string }[], bounds: number[], assertCurrent: () => void = () => {}) => {
+        const { scene } = await import('./helpers/routeJobScenes');
+        const version = host.chartVersion;
+        host.packageCalls.push({ cells: cells.map((c) => c.id), bounds });
+        if (host.packageHold) await host.packageHold;
+        assertCurrent();
+        if (host.packageFailure) throw Error('Incomplete package');
+        host.packageLeases++;
+        const blobs = new Map(cells.map((c) => [c.id, structuredClone(scene.blobs.get(c.id))]));
+        return {
+            blobs,
+            check: () => {
+                assertCurrent();
+                if (host.chartVersion !== version) throw Error('Chart revision changed');
+            },
+            release: () => {
+                blobs.clear();
+                host.packageLeases--;
+                host.packageReleases++;
+            },
+        };
+    },
 }));
 
 vi.mock('../services/routing/routeWorkerHost', async (original) => {
@@ -150,7 +181,7 @@ vi.mock('../services/TideHeightService', async (original) => ({
     fetchTideCurve: async () => null,
 }));
 
-import { tryInshoreRoute } from '../services/InshoreRouter';
+import { tryInshoreRoute, assembleTracerLayers } from '../services/InshoreRouter';
 
 let ends: { from: [number, number]; to: [number, number] };
 const ask = (opts: { signal?: AbortSignal; onStage?: (s: string) => void } = {}) =>
@@ -183,6 +214,12 @@ beforeEach(() => {
     host.satCalls = 0;
     host.vectorCalls = 0;
     host.ntmCalls = 0;
+    host.packageCalls = [];
+    host.packageHold = null;
+    host.packageFailure = false;
+    host.packageLeases = 0;
+    host.packageReleases = 0;
+    host.chartVersion = 0;
     // A (fictional) Mapbox token, so the prep always fetches its water crops.
     vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', 'pk.test-not-a-token');
     ends = installAtlanticChannel();
@@ -455,5 +492,128 @@ describe('the 85 s watchdog', () => {
         const res = await run;
         expect(res).toMatchObject({ code: 'watchdog-timeout' });
         expect(host.jobs[0].aborted).toBe(true);
+    });
+});
+
+describe('complete NOAA inshore cohort and its real borrower', () => {
+    const packageCells = () => {
+        for (const c of scene.cells as Array<{ noaaPackage?: object }>) c.noaaPackage = {};
+    };
+
+    it('keeps ordinary and packaged chart layers identical through the real prep and engine', async () => {
+        const ordinary = ask();
+        await posted(1);
+        const layers = structuredClone((host.jobs[0].job as { layers: unknown }).layers);
+        host.jobs[0].release();
+        const first = await ordinary;
+        packageCells();
+        const packaged = ask();
+        await posted(2);
+        expect((host.jobs[1].job as { layers: unknown }).layers).toEqual(layers);
+        expect(host.packageLeases).toBe(1);
+        host.jobs[1].release();
+        const second = await packaged;
+        expect(first && 'polyline' in first ? first.polyline : first).toEqual(
+            second && 'polyline' in second ? second.polyline : second,
+        );
+        expect(host.packageLeases).toBe(0);
+        expect(host.packageReleases).toBe(1);
+        // Generic whole-cell / Pi / cloud reads never see a package.
+        expect(host.cellCalls).toBe(1);
+    });
+
+    it('includes a package outside the pin envelope but inside the full long-leg engine padding', async () => {
+        ends.to = [ends.from[0] + 0.6, ends.from[1]];
+        const coarse = scene.cells[0] as { bbox: number[] };
+        coarse.bbox = [ends.from[0] - 1, ends.from[1] - 1, ends.to[0] + 1, ends.to[1] + 1];
+        const id = 'US5SYN01';
+        const bbox = [ends.from[0] + 0.1, ends.from[1] + 0.2, ends.from[0] + 0.2, ends.from[1] + 0.25];
+        scene.cells.push({ ...coarse, id, bbox, noaaPackage: {} });
+        scene.blobs.set(id, { ...(scene.blobs.values().next().value as object), cellId: id, bbox });
+        const run = ask();
+        await posted(1);
+        const pad = 0.3;
+        expect(host.packageCalls).toHaveLength(1);
+        expect(host.packageCalls[0].cells).toEqual([id]);
+        const wanted = [ends.from[0] - pad, ends.from[1] - pad, ends.to[0] + pad, ends.to[1] + pad];
+        host.packageCalls[0].bounds.forEach((v, i) => expect(v).toBeCloseTo(wanted[i], 10));
+        expect((host.jobs[0].job as { cellsUsed: string[] }).cellsUsed).toContain(id);
+        host.jobs[0].release();
+        await run;
+        expect(host.packageLeases).toBe(0);
+    });
+
+    it('refuses a missing fine package before its extent can hide the coarse chart', async () => {
+        const coarse = scene.cells[0] as { bbox: number[] };
+        scene.cells.push({ ...coarse, id: 'US5SYN01', noaaPackage: {} });
+        host.packageFailure = true;
+        await expect(ask()).resolves.toMatchObject({ code: 'chart-window-unavailable' });
+        expect(host.cellCalls).toBe(0);
+        expect(host.jobs).toHaveLength(0);
+        expect(host.packageLeases).toBe(0);
+    });
+
+    it('never accepts a result computed from a superseded package revision', async () => {
+        packageCells();
+        const run = ask();
+        await posted(1);
+        host.chartVersion++;
+        host.jobs[0].release();
+        await expect(run).rejects.toThrow('revision');
+        expect(host.packageLeases).toBe(0);
+    });
+
+    it('an outer caller abort retains chart geometry until the actual prep wait ends', async () => {
+        packageCells();
+        let release!: () => void;
+        host.osmHold = new Promise<void>((r) => (release = r));
+        const stop = new AbortController();
+        const run = ask({ signal: stop.signal });
+        await vi.waitFor(() => expect(host.packageLeases).toBe(1));
+        await vi.waitFor(() => expect(host.osmCalls).toBe(1));
+        stop.abort();
+        await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+        expect(host.packageLeases).toBe(1);
+        release();
+        await vi.waitFor(() => expect(host.packageLeases).toBe(0));
+        expect(host.packageReleases).toBe(1);
+        expect(host.jobs).toHaveLength(0);
+    });
+
+    it('a watchdog retains chart geometry until the actual prep wait ends', async () => {
+        packageCells();
+        let release!: () => void;
+        host.osmHold = new Promise<void>((r) => (release = r));
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const run = ask();
+        await vi.waitFor(() => expect(host.packageLeases).toBe(1));
+        await vi.waitFor(() => expect(host.osmCalls).toBe(1));
+        await vi.advanceTimersByTimeAsync(85_000);
+        await expect(run).resolves.toMatchObject({ code: 'watchdog-timeout' });
+        expect(host.packageLeases).toBe(1);
+        release();
+        await vi.waitFor(() => expect(host.packageLeases).toBe(0));
+        expect(host.jobs).toHaveLength(0);
+    });
+
+    it('the tracer transfers its complete window lease instead of releasing borrowed geometry on assembly', async () => {
+        packageCells();
+        const bbox: [number, number, number, number] = [-30.06, 39.95, -29.94, 40.05];
+        const bundle = await assembleTracerLayers(bbox, { chartedDepthOnly: true });
+        expect(bundle?.cellsUsed.length).toBe(1);
+        expect(host.packageCalls).toEqual([{ cells: ['ZZ5ATL01'], bounds: bbox }]);
+        expect(host.cellCalls).toBe(0);
+        expect(host.packageLeases).toBe(1);
+        bundle?.chartView?.release();
+        expect(host.packageLeases).toBe(0);
+    });
+
+    it('the tracer refuses a package read failure before coarse/fine deconfliction', async () => {
+        packageCells();
+        host.packageFailure = true;
+        const bundle = await assembleTracerLayers([-30.06, 39.95, -29.94, 40.05]);
+        expect(bundle).toBeNull();
+        expect(host.cellCalls).toBe(0);
+        expect(host.packageLeases).toBe(0);
     });
 });

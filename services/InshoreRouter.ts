@@ -55,7 +55,7 @@ import {
     stampScaleRank,
     type CellScaleFacts,
 } from './enc/scaleShadow';
-import { capCellsForMerge } from './enc/mergeCap';
+import { capCellsForMerge, MAX_MERGE_CELLS } from './enc/mergeCap';
 import { crumb } from '../utils/flightRecorder';
 import { peekLeadGraphForView } from './routing/leadOverlayData';
 import { piCache } from './PiCacheService';
@@ -338,6 +338,7 @@ interface InshoreRunControl {
     asks: AbortSignal;
     onStage: (stage: RouteStage) => void;
     timing: InshoreRunTiming;
+    chartView?: Awaited<ReturnType<typeof import('./enc/noaaPackageWindow').loadNoaaPackageCohort>>;
 }
 
 const exitDurations = (t: InshoreRunTiming): string =>
@@ -593,7 +594,16 @@ function startInshoreRun(
         control,
     );
     entry.run = withDeadline(
-        untilStopped(routed.finally(endAsks), entry.stop.signal),
+        untilStopped(
+            routed.finally(() => {
+                endAsks();
+                // An outer watchdog/last-caller race can settle first. Prep
+                // and the hosted job still borrow the geometry until HERE.
+                control.chartView?.release();
+                control.chartView = undefined;
+            }),
+            entry.stop.signal,
+        ),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -662,7 +672,10 @@ async function tryInshoreRouteInner(
     // A run every caller has stopped drops out at its next wait (review
     // 2026-10-11): it starts no more fetches, cell reads or satellite reads
     // beside a re-tap's fresh run. The waits themselves can't be cancelled.
-    const stillWanted = (): void => run.signal.throwIfAborted();
+    const stillWanted = (): void => {
+        run.signal.throwIfAborted();
+        run.chartView?.check();
+    };
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
         log.warn(
@@ -724,6 +737,31 @@ async function tryInshoreRouteInner(
     const minLon = Math.min(origin.lon, destination.lon);
     const maxLon = Math.max(origin.lon, destination.lon);
     const candidateCells = cellsForBBox([minLon, minLat, maxLon, maxLat]);
+    if (listCells().some((c) => c.noaaPackage)) {
+        // Use the engine's actual request envelope, including the coarse
+        // precheck, rather than the smaller fixed OSM overlay padding.
+        const { corridorBBox } = await import('./enc/corridorPrefetch');
+        stillWanted();
+        const window = corridorBBox([origin, destination]);
+        const packages = cellsForBBox(window).filter((c) => c.noaaPackage);
+        if (packages.length) {
+            for (const cell of packages) if (!candidateCells.some((c) => c.id === cell.id)) candidateCells.push(cell);
+            try {
+                if (candidateCells.length > MAX_MERGE_CELLS)
+                    throw Error('Complete chart cohort exceeds the cell limit.');
+                const { loadNoaaPackageCohort } = await import('./enc/noaaPackageWindow');
+                run.chartView = await loadNoaaPackageCohort(packages, window, () => run.asks.throwIfAborted());
+                stillWanted();
+            } catch (error) {
+                run.signal.throwIfAborted();
+                log.warn('Complete NOAA chart window unavailable', error);
+                return {
+                    error: 'The complete installed NOAA chart window could not be verified within device limits.',
+                    code: 'chart-window-unavailable',
+                };
+            }
+        }
+    }
     if (candidateCells.length === 0) {
         log.warn('GATE: No installed cells intersect the route bbox — skipping inshore router');
         return null;
@@ -874,8 +912,14 @@ async function tryInshoreRouteInner(
     };
     const cellReads: ReturnType<typeof loadCellGeoJSON>[] = [];
     for (const [i, cell] of candidateCells.entries()) {
-        while (cellReads.length < Math.min(i + CELL_READS, candidateCells.length))
-            cellReads.push(askedNow(loadCellGeoJSON(candidateCells[cellReads.length].id, true, oneAtATime)));
+        while (cellReads.length < Math.min(i + CELL_READS, candidateCells.length)) {
+            const next = candidateCells[cellReads.length];
+            cellReads.push(
+                next.noaaPackage
+                    ? Promise.resolve(run.chartView?.blobs.get(next.id) ?? null)
+                    : askedNow(loadCellGeoJSON(next.id, true, oneAtATime)),
+            );
+        }
         const blob = await cellReads[i];
         stillWanted();
         if (!blob) {
@@ -1912,6 +1956,7 @@ async function tryInshoreRouteInner(
     stillWanted();
     run.timing.prepMs = Date.now() - run.timing.t0;
     const hosted = await runRouteJobHosted(job, { signal: run.signal, onStage: run.onStage });
+    stillWanted();
     Object.assign(run.timing, {
         waitMs: hosted.waitMs,
         handoffMs: hosted.handoffMs,
@@ -3857,6 +3902,8 @@ export interface TracerLayerBundle {
      * the chart's overhead clearance was not checked (owner decision 8). The
      * MIRROR of the engine merge's structuresUnknownCells (fix-up, 2026-09-30). */
     structuresUnknownBboxes?: [number, number, number, number][];
+    /** Transferred to the actual grid/context borrower, never assembler-finally. */
+    chartView?: Awaited<ReturnType<typeof import('./enc/noaaPackageWindow').loadNoaaPackageCohort>>;
 }
 
 /**
@@ -3894,301 +3941,340 @@ export async function assembleTracerLayers(
     // carries "no charted depth for part of this leg", never a false green.
     const allCandidates = cellsForBBox(bbox);
     const candidateCells = capCellsForMerge(allCandidates, bbox);
+    // A dropped package cannot continue to contribute its finer shadow
+    // extent, nor can this window silently claim its complete coverage.
+    if (allCandidates.some((c) => c.noaaPackage && !candidateCells.includes(c))) return null;
     if (candidateCells.length < allCandidates.length) {
         crumb('tracer:cells-trim', `${allCandidates.length}→${candidateCells.length}cells`);
     }
     if (candidateCells.length === 0) return null;
 
-    const merged: InshoreLayers = {
-        LNDARE: { type: 'FeatureCollection', features: [] },
-        DEPARE: { type: 'FeatureCollection', features: [] },
-        OBSTRN: { type: 'FeatureCollection', features: [] },
-        WRECKS: { type: 'FeatureCollection', features: [] },
-        UWTROC: { type: 'FeatureCollection', features: [] },
-        FAIRWY: { type: 'FeatureCollection', features: [] },
-        DRGARE: { type: 'FeatureCollection', features: [] },
-        BOYLAT: { type: 'FeatureCollection', features: [] },
-        BCNLAT: { type: 'FeatureCollection', features: [] },
-        RECTRC: { type: 'FeatureCollection', features: [] },
-        NAVLINE: { type: 'FeatureCollection', features: [] },
-    };
-    const cellsUsed: string[] = [];
-    // MIRROR of the engine merge: chart bridges and overhead lines.
-    const chartStructures: Record<ClearanceStructureLayer, GeoJSON.Feature[]> = {
-        BRIDGE: [],
-        CBLOHD: [],
-        PIPOHD: [],
-        CONVYR: [],
-    };
-    const structuresUnknownBboxes: [number, number, number, number][] = [];
-    // MIRROR of the engine merge: every chart NAVLNE before the lead gate.
-    const chartNavLines: GeoJSON.Feature[] = [];
-    const encCardinalSrc: {
-        geometry?: { type?: string; coordinates?: [number, number] } | null;
-        properties?: Record<string, unknown> | null;
-    }[] = [];
-    const cellExtents = candidateCells.map((c) => ({ id: c.id, bbox: c.bbox }));
-    for (const cell of candidateCells) {
-        const blob = await loadCellGeoJSON(cell.id);
-        if (!blob) continue;
-        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents);
-        // MIRROR of the engine merge: the cell's own scale for `_scaleRank`.
-        const scale = cellScaleFacts(cell, blob);
-        for (const layer of [
-            'LNDARE',
-            'DEPARE',
-            'OBSTRN',
-            'WRECKS',
-            'UWTROC',
-            'FAIRWY',
-            'DRGARE',
-            'BOYLAT',
-            'BCNLAT',
-            'RECTRC',
-        ] as const) {
-            const fc = blob.layers?.[layer];
-            const target = merged[layer];
-            if (fc?.features && Array.isArray(fc.features) && target) {
-                if ((layer === 'LNDARE' || layer === 'DEPARE') && shadows.length > 0) {
-                    const kept = (fc.features as GeoJSON.Feature[]).filter((f) => !featureIsShadowed(f, shadows));
-                    // Fineness rank for finest-survey-wins in the grid —
-                    // MIRROR of the engine merge above (tryInshoreRouteInner).
-                    if (SCALE_RANKED_LAYERS.has(layer)) stampScaleRank(kept, scale);
-                    (target.features as unknown[]).push(...kept);
-                } else {
-                    if (SCALE_RANKED_LAYERS.has(layer)) stampScaleRank(fc.features as GeoJSON.Feature[], scale);
-                    (target.features as unknown[]).push(
-                        ...(layer === 'RECTRC'
-                            ? fc.features.map((feature) => withChartTrackSource(feature, cell.id))
-                            : fc.features),
-                    );
+    let chartView: TracerLayerBundle['chartView'];
+    const packages = candidateCells.filter((c) => c.noaaPackage);
+    if (packages.length) {
+        try {
+            const { loadNoaaPackageCohort } = await import('./enc/noaaPackageWindow');
+            chartView = await loadNoaaPackageCohort(packages, bbox);
+        } catch (error) {
+            log.warn('Complete NOAA tracer window unavailable', error);
+            return null;
+        }
+    }
+
+    try {
+        const merged: InshoreLayers = {
+            LNDARE: { type: 'FeatureCollection', features: [] },
+            DEPARE: { type: 'FeatureCollection', features: [] },
+            OBSTRN: { type: 'FeatureCollection', features: [] },
+            WRECKS: { type: 'FeatureCollection', features: [] },
+            UWTROC: { type: 'FeatureCollection', features: [] },
+            FAIRWY: { type: 'FeatureCollection', features: [] },
+            DRGARE: { type: 'FeatureCollection', features: [] },
+            BOYLAT: { type: 'FeatureCollection', features: [] },
+            BCNLAT: { type: 'FeatureCollection', features: [] },
+            RECTRC: { type: 'FeatureCollection', features: [] },
+            NAVLINE: { type: 'FeatureCollection', features: [] },
+        };
+        const cellsUsed: string[] = [];
+        // MIRROR of the engine merge: chart bridges and overhead lines.
+        const chartStructures: Record<ClearanceStructureLayer, GeoJSON.Feature[]> = {
+            BRIDGE: [],
+            CBLOHD: [],
+            PIPOHD: [],
+            CONVYR: [],
+        };
+        const structuresUnknownBboxes: [number, number, number, number][] = [];
+        // MIRROR of the engine merge: every chart NAVLNE before the lead gate.
+        const chartNavLines: GeoJSON.Feature[] = [];
+        const encCardinalSrc: {
+            geometry?: { type?: string; coordinates?: [number, number] } | null;
+            properties?: Record<string, unknown> | null;
+        }[] = [];
+        const cellExtents = candidateCells.map((c) => ({ id: c.id, bbox: c.bbox }));
+        for (const cell of candidateCells) {
+            const blob = cell.noaaPackage ? chartView?.blobs.get(cell.id) : await loadCellGeoJSON(cell.id);
+            chartView?.check();
+            if (!blob) continue;
+            const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents);
+            // MIRROR of the engine merge: the cell's own scale for `_scaleRank`.
+            const scale = cellScaleFacts(cell, blob);
+            for (const layer of [
+                'LNDARE',
+                'DEPARE',
+                'OBSTRN',
+                'WRECKS',
+                'UWTROC',
+                'FAIRWY',
+                'DRGARE',
+                'BOYLAT',
+                'BCNLAT',
+                'RECTRC',
+            ] as const) {
+                const fc = blob.layers?.[layer];
+                const target = merged[layer];
+                if (fc?.features && Array.isArray(fc.features) && target) {
+                    if ((layer === 'LNDARE' || layer === 'DEPARE') && shadows.length > 0) {
+                        const kept = (fc.features as GeoJSON.Feature[]).filter((f) => !featureIsShadowed(f, shadows));
+                        // Fineness rank for finest-survey-wins in the grid —
+                        // MIRROR of the engine merge above (tryInshoreRouteInner).
+                        if (SCALE_RANKED_LAYERS.has(layer)) stampScaleRank(kept, scale);
+                        (target.features as unknown[]).push(...kept);
+                    } else {
+                        if (SCALE_RANKED_LAYERS.has(layer)) stampScaleRank(fc.features as GeoJSON.Feature[], scale);
+                        (target.features as unknown[]).push(
+                            ...(layer === 'RECTRC'
+                                ? fc.features.map((feature) => withChartTrackSource(feature, cell.id))
+                                : fc.features),
+                        );
+                    }
                 }
             }
-        }
-        const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
-        if (navlne?.features && Array.isArray(navlne.features)) {
-            // MIRROR of the engine merge: only CATNAV 3 leading lines lead.
-            chartNavLines.push(...navlne.features);
-            (merged.NAVLINE!.features as unknown[]).push(
-                ...navLineLeads(navlne.features, 'NAVLNE').map((feature) => withChartTrackSource(feature, cell.id)),
-            );
-        }
-        for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
-            const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[cl];
-            if (fc?.features && Array.isArray(fc.features)) {
-                encCardinalSrc.push(...(fc.features as unknown as typeof encCardinalSrc));
+            const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
+            if (navlne?.features && Array.isArray(navlne.features)) {
+                // MIRROR of the engine merge: only CATNAV 3 leading lines lead.
+                chartNavLines.push(...navlne.features);
+                (merged.NAVLINE!.features as unknown[]).push(
+                    ...navLineLeads(navlne.features, 'NAVLNE').map((feature) => withChartTrackSource(feature, cell.id)),
+                );
             }
+            for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
+                const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[cl];
+                if (fc?.features && Array.isArray(fc.features)) {
+                    encCardinalSrc.push(...(fc.features as unknown as typeof encCardinalSrc));
+                }
+            }
+            let structuresExtracted = true;
+            for (const layer of CLEARANCE_STRUCTURE_LAYERS) {
+                const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[layer];
+                if (fc?.features && Array.isArray(fc.features)) chartStructures[layer].push(...fc.features);
+                else structuresExtracted = false;
+            }
+            // MIRROR of the engine merge's structuresUnknownCells.
+            if (!structuresExtracted) structuresUnknownBboxes.push(cell.bbox);
+            cellsUsed.push(cell.id);
         }
-        let structuresExtracted = true;
-        for (const layer of CLEARANCE_STRUCTURE_LAYERS) {
-            const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[layer];
-            if (fc?.features && Array.isArray(fc.features)) chartStructures[layer].push(...fc.features);
-            else structuresExtracted = false;
+        if (cellsUsed.length === 0) {
+            chartView?.release();
+            return null;
         }
-        // MIRROR of the engine merge's structuresUnknownCells.
-        if (!structuresExtracted) structuresUnknownBboxes.push(cell.bbox);
-        cellsUsed.push(cell.id);
-    }
-    if (cellsUsed.length === 0) return null;
 
-    // ── OSM overlay → same injection recipe as the live router ──
-    let supplementalChecksUnavailable = false;
-    let osmOverlay: OsmRouteOverlay | null = null;
-    try {
-        osmOverlay = await getOsmRouteOverlay([minLon - 0.05, minLat - 0.05, maxLon + 0.05, maxLat + 0.05]);
-        // The overlay never throws: after a failure it is EMPTY, which read
-        // as "no berths or breakwaters here" and passed the Auto chart review
-        // clean. Its provenance tells the two apart (Phase 2b, 2026-10-01):
-        // none saved, or only part of the window, is an incomplete check.
-        // Disclosure only — it never blocks a planned-only save.
-        const coverage = osmOverlay?.provenance?.coverage;
-        if (opts.chartedDepthOnly && (coverage === 'none' || coverage === 'partial'))
-            supplementalChecksUnavailable = true;
-        const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
-        if (!opts.chartedDepthOnly && osmOverlay.water.features.length > 0) {
-            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.water.features) {
-                (depare.features as unknown[]).push({
-                    ...f,
-                    properties: { ...(f.properties ?? {}), DRVAL1: 10.0, DRVAL2: 10.0 },
-                });
-                const props = (f.properties ?? {}) as Record<string, unknown>;
-                const promoted =
-                    props['water'] === 'river' ||
-                    props['water'] === 'harbour' ||
-                    props['waterway'] === 'river' ||
-                    props['waterway'] === 'riverbank' ||
-                    props['harbour'] === 'yes';
-                if (promoted && isPolygonWideEnough(f, 200)) {
-                    (fairwy.features as unknown[]).push({
+        // ── OSM overlay → same injection recipe as the live router ──
+        let supplementalChecksUnavailable = false;
+        let osmOverlay: OsmRouteOverlay | null = null;
+        try {
+            osmOverlay = await getOsmRouteOverlay([minLon - 0.05, minLat - 0.05, maxLon + 0.05, maxLat + 0.05]);
+            // The overlay never throws: after a failure it is EMPTY, which read
+            // as "no berths or breakwaters here" and passed the Auto chart review
+            // clean. Its provenance tells the two apart (Phase 2b, 2026-10-01):
+            // none saved, or only part of the window, is an incomplete check.
+            // Disclosure only — it never blocks a planned-only save.
+            const coverage = osmOverlay?.provenance?.coverage;
+            if (opts.chartedDepthOnly && (coverage === 'none' || coverage === 'partial'))
+                supplementalChecksUnavailable = true;
+            const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
+            if (!opts.chartedDepthOnly && osmOverlay.water.features.length > 0) {
+                const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.water.features) {
+                    (depare.features as unknown[]).push({
                         ...f,
-                        properties: { ...(f.properties ?? {}), _promotePreferred: true, _source: 'osm-water-promoted' },
+                        properties: { ...(f.properties ?? {}), DRVAL1: 10.0, DRVAL2: 10.0 },
+                    });
+                    const props = (f.properties ?? {}) as Record<string, unknown>;
+                    const promoted =
+                        props['water'] === 'river' ||
+                        props['water'] === 'harbour' ||
+                        props['waterway'] === 'river' ||
+                        props['waterway'] === 'riverbank' ||
+                        props['harbour'] === 'yes';
+                    if (promoted && isPolygonWideEnough(f, 200)) {
+                        (fairwy.features as unknown[]).push({
+                            ...f,
+                            properties: {
+                                ...(f.properties ?? {}),
+                                _promotePreferred: true,
+                                _source: 'osm-water-promoted',
+                            },
+                        });
+                    }
+                }
+                merged.DEPARE = depare;
+            }
+            if (!opts.chartedDepthOnly && osmOverlay.marina.features.length > 0) {
+                const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.marina.features) {
+                    (depare.features as unknown[]).push({
+                        ...f,
+                        properties: { ...(f.properties ?? {}), DRVAL1: 5.0, DRVAL2: 5.0 },
                     });
                 }
+                merged.DEPARE = depare;
             }
-            merged.DEPARE = depare;
-        }
-        if (!opts.chartedDepthOnly && osmOverlay.marina.features.length > 0) {
-            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.marina.features) {
-                (depare.features as unknown[]).push({
-                    ...f,
-                    properties: { ...(f.properties ?? {}), DRVAL1: 5.0, DRVAL2: 5.0 },
-                });
+            if (osmOverlay.berths.features.length > 0) {
+                merged.BERTH = osmOverlay.berths as unknown as FeatureCollection;
             }
-            merged.DEPARE = depare;
-        }
-        if (osmOverlay.berths.features.length > 0) {
-            merged.BERTH = osmOverlay.berths as unknown as FeatureCollection;
-        }
-        if (fairwy.features.length > 0) merged.FAIRWY = fairwy;
-        if (osmOverlay.reef.features.length > 0) {
-            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.reef.features) {
-                (obstrn.features as unknown[]).push({
-                    ...f,
-                    properties: { ...(f.properties ?? {}), _class: 'osm-reef' },
-                });
-            }
-            merged.OBSTRN = obstrn;
-        }
-        if (osmOverlay.breakwater.features.length > 0) {
-            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
-            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.breakwater.features) {
-                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-                    (lndare.features as unknown[]).push(f);
-                } else if (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString') {
-                    (coast.features as unknown[]).push(f);
+            if (fairwy.features.length > 0) merged.FAIRWY = fairwy;
+            if (osmOverlay.reef.features.length > 0) {
+                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.reef.features) {
+                    (obstrn.features as unknown[]).push({
+                        ...f,
+                        properties: { ...(f.properties ?? {}), _class: 'osm-reef' },
+                    });
                 }
+                merged.OBSTRN = obstrn;
             }
-            merged.LNDARE = lndare;
-            merged.COASTLINE = coast;
-        }
-        if (osmOverlay.aeroway.features.length > 0) {
-            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.aeroway.features) {
-                if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') continue;
-                (obstrn.features as unknown[]).push({
-                    ...f,
-                    properties: { ...(f.properties ?? {}), _class: 'osm-aeroway' },
-                });
+            if (osmOverlay.breakwater.features.length > 0) {
+                const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+                const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.breakwater.features) {
+                    if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                        (lndare.features as unknown[]).push(f);
+                    } else if (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString') {
+                        (coast.features as unknown[]).push(f);
+                    }
+                }
+                merged.LNDARE = lndare;
+                merged.COASTLINE = coast;
             }
-            merged.OBSTRN = obstrn;
+            if (osmOverlay.aeroway.features.length > 0) {
+                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.aeroway.features) {
+                    if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') continue;
+                    (obstrn.features as unknown[]).push({
+                        ...f,
+                        properties: { ...(f.properties ?? {}), _class: 'osm-aeroway' },
+                    });
+                }
+                merged.OBSTRN = obstrn;
+            }
+            if (osmOverlay.coastline.features.length > 0) {
+                const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.coastline.features) (coast.features as unknown[]).push(f);
+                merged.COASTLINE = coast;
+            }
+            if (osmOverlay.canalLines.features.length > 0) {
+                const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of osmOverlay.canalLines.features) (canal.features as unknown[]).push(f);
+                merged.CANAL = canal;
+            }
+            if (osmOverlay.navLines.features.length > 0) {
+                const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
+                // MIRROR of the engine merge: the chart's category decides twins.
+                for (const f of osmNavLineLeads(
+                    osmOverlay.navLines.features,
+                    chartNavLines,
+                    merged.RECTRC?.features ?? [],
+                ))
+                    (navline.features as unknown[]).push(f);
+                merged.NAVLINE = navline;
+            }
+        } catch (err) {
+            log.warn(
+                `[tracer] OSM overlay failed (chart-only verdicts): ${err instanceof Error ? err.message : String(err)}`,
+            );
+            supplementalChecksUnavailable = !!opts.chartedDepthOnly;
         }
-        if (osmOverlay.coastline.features.length > 0) {
-            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.coastline.features) (coast.features as unknown[]).push(f);
-            merged.COASTLINE = coast;
+
+        // ── Regional markers + folded ENC laterals → gate pairs (returned, not injected) ──
+        let gatePairs: TracerLayerBundle['gatePairs'] = [];
+        let gateChecksUnavailable = false;
+        const swCorner = { lat: minLat, lon: minLon };
+        const neCorner = { lat: maxLat, lon: maxLon };
+        const regionalMarkersUrl = await pickRegionalMarkersUrl(swCorner, neCorner);
+        const encLaterals = encLateralsFromFeatures([
+            ...(merged.BCNLAT?.features ?? []),
+            ...(merged.BOYLAT?.features ?? []),
+        ]);
+        let osmRegionalHazards: { geometry?: { coordinates?: [number, number] } }[] = [];
+        if (regionalMarkersUrl || encLaterals.length > 0) {
+            try {
+                const osmWaterForPairing = osmOverlay
+                    ? [...osmOverlay.water.features, ...osmOverlay.marina.features]
+                    : [];
+                const { hazards, acceptedPairs, markerFileFailed } = await fetchRegionalMarkers(
+                    regionalMarkersUrl,
+                    merged.LNDARE?.features ?? [],
+                    osmWaterForPairing,
+                    [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])],
+                    encLaterals,
+                );
+                gatePairs = acceptedPairs;
+                osmRegionalHazards = hazards as { geometry?: { coordinates?: [number, number] } }[];
+                // The chart's own pairs are checked; the file's marks are not.
+                if (markerFileFailed) gateChecksUnavailable = true;
+            } catch (err) {
+                // NOT recoverable-by-silence. Every leg in this window is about to
+                // be graded with zero gate pairs, which reads identically to "this
+                // water has no gates" — so the verdict must be marked untrustworthy
+                // rather than banked. See TracerLayerBundle.gateChecksUnavailable.
+                gateChecksUnavailable = true;
+                log.warn(
+                    `[tracer] regional markers failed (no gate checks): ${err instanceof Error ? err.message : String(err)}`,
+                );
+            }
         }
-        if (osmOverlay.canalLines.features.length > 0) {
+
+        // ── ENC cardinal fold → oriented half-disc hazards (mirror of the live path) ──
+        try {
+            const encCardinalHazards = encCardinalsToHazards(encCardinalSrc, new Set());
+            const encCardinalKeys = new Set<string>(
+                encCardinalHazards.map((h) => {
+                    const [lon, lat] = h.geometry.coordinates;
+                    return `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+                }),
+            );
+            const filteredOsmHazards = osmRegionalHazards.filter((hh) => {
+                const c = hh.geometry?.coordinates;
+                return c ? !encCardinalKeys.has(`${c[1].toFixed(4)}|${c[0].toFixed(4)}`) : true;
+            });
+            const allHazards = [...(filteredOsmHazards as unknown[]), ...encCardinalHazards];
+            if (allHazards.length > 0) {
+                const orientedHazards = orientHazardsTowardLand(
+                    allHazards as {
+                        geometry: { type: 'Point'; coordinates: [number, number] };
+                        properties?: unknown;
+                    }[],
+                    merged.LNDARE?.features ?? [],
+                );
+                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+                (obstrn.features as unknown[]).push(...orientedHazards);
+                merged.OBSTRN = obstrn;
+            }
+        } catch (err) {
+            log.warn(`[tracer] ENC cardinal fold failed: ${err instanceof Error ? err.message : String(err)}`);
+            supplementalChecksUnavailable = !!opts.chartedDepthOnly;
+        }
+
+        // ── Curated fairways + NtM surveyed-depth zones (same gates as live) ──
+        const curatedFairways = curatedFairwayCanalFeatures(bbox);
+        if (curatedFairways.length > 0) {
             const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.canalLines.features) (canal.features as unknown[]).push(f);
+            (canal.features as unknown[]).push(...curatedFairways);
             merged.CANAL = canal;
         }
-        if (osmOverlay.navLines.features.length > 0) {
-            const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            // MIRROR of the engine merge: the chart's category decides twins.
-            for (const f of osmNavLineLeads(osmOverlay.navLines.features, chartNavLines, merged.RECTRC?.features ?? []))
-                (navline.features as unknown[]).push(f);
-            merged.NAVLINE = navline;
-        }
-    } catch (err) {
-        log.warn(
-            `[tracer] OSM overlay failed (chart-only verdicts): ${err instanceof Error ? err.message : String(err)}`,
-        );
-        supplementalChecksUnavailable = !!opts.chartedDepthOnly;
-    }
-
-    // ── Regional markers + folded ENC laterals → gate pairs (returned, not injected) ──
-    let gatePairs: TracerLayerBundle['gatePairs'] = [];
-    let gateChecksUnavailable = false;
-    const swCorner = { lat: minLat, lon: minLon };
-    const neCorner = { lat: maxLat, lon: maxLon };
-    const regionalMarkersUrl = await pickRegionalMarkersUrl(swCorner, neCorner);
-    const encLaterals = encLateralsFromFeatures([
-        ...(merged.BCNLAT?.features ?? []),
-        ...(merged.BOYLAT?.features ?? []),
-    ]);
-    let osmRegionalHazards: { geometry?: { coordinates?: [number, number] } }[] = [];
-    if (regionalMarkersUrl || encLaterals.length > 0) {
         try {
-            const osmWaterForPairing = osmOverlay ? [...osmOverlay.water.features, ...osmOverlay.marina.features] : [];
-            const { hazards, acceptedPairs, markerFileFailed } = await fetchRegionalMarkers(
-                regionalMarkersUrl,
-                merged.LNDARE?.features ?? [],
-                osmWaterForPairing,
-                [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])],
-                encLaterals,
-            );
-            gatePairs = acceptedPairs;
-            osmRegionalHazards = hazards as { geometry?: { coordinates?: [number, number] } }[];
-            // The chart's own pairs are checked; the file's marks are not.
-            if (markerFileFailed) gateChecksUnavailable = true;
+            const { activeNtmZonesFor } = await import('./ntmRouting');
+            const ntmPad = Math.max(Math.max(maxLat - minLat, maxLon - minLon) * 0.5, 0.08);
+            const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
+            if (ntm.features.length > 0) merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
+            if (ntm.tracklines.length > 0) merged.NTMBAR = { type: 'FeatureCollection', features: ntm.tracklines };
         } catch (err) {
-            // NOT recoverable-by-silence. Every leg in this window is about to
-            // be graded with zero gate pairs, which reads identically to "this
-            // water has no gates" — so the verdict must be marked untrustworthy
-            // rather than banked. See TracerLayerBundle.gateChecksUnavailable.
-            gateChecksUnavailable = true;
-            log.warn(
-                `[tracer] regional markers failed (no gate checks): ${err instanceof Error ? err.message : String(err)}`,
-            );
+            log.warn(`[tracer] NtM zone injection failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-    }
 
-    // ── ENC cardinal fold → oriented half-disc hazards (mirror of the live path) ──
-    try {
-        const encCardinalHazards = encCardinalsToHazards(encCardinalSrc, new Set());
-        const encCardinalKeys = new Set<string>(
-            encCardinalHazards.map((h) => {
-                const [lon, lat] = h.geometry.coordinates;
-                return `${lat.toFixed(4)}|${lon.toFixed(4)}`;
-            }),
-        );
-        const filteredOsmHazards = osmRegionalHazards.filter((hh) => {
-            const c = hh.geometry?.coordinates;
-            return c ? !encCardinalKeys.has(`${c[1].toFixed(4)}|${c[0].toFixed(4)}`) : true;
-        });
-        const allHazards = [...(filteredOsmHazards as unknown[]), ...encCardinalHazards];
-        if (allHazards.length > 0) {
-            const orientedHazards = orientHazardsTowardLand(
-                allHazards as { geometry: { type: 'Point'; coordinates: [number, number] }; properties?: unknown }[],
-                merged.LNDARE?.features ?? [],
-            );
-            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
-            (obstrn.features as unknown[]).push(...orientedHazards);
-            merged.OBSTRN = obstrn;
-        }
-    } catch (err) {
-        log.warn(`[tracer] ENC cardinal fold failed: ${err instanceof Error ? err.message : String(err)}`);
-        supplementalChecksUnavailable = !!opts.chartedDepthOnly;
+        chartView?.check();
+        return {
+            merged,
+            cellsUsed,
+            gatePairs,
+            gateChecksUnavailable,
+            supplementalChecksUnavailable,
+            chartStructures,
+            ...(chartView ? { chartView } : {}),
+            ...(structuresUnknownBboxes.length > 0 ? { structuresUnknownBboxes } : {}),
+        };
+    } catch (error) {
+        chartView?.release();
+        throw error;
     }
-
-    // ── Curated fairways + NtM surveyed-depth zones (same gates as live) ──
-    const curatedFairways = curatedFairwayCanalFeatures(bbox);
-    if (curatedFairways.length > 0) {
-        const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
-        (canal.features as unknown[]).push(...curatedFairways);
-        merged.CANAL = canal;
-    }
-    try {
-        const { activeNtmZonesFor } = await import('./ntmRouting');
-        const ntmPad = Math.max(Math.max(maxLat - minLat, maxLon - minLon) * 0.5, 0.08);
-        const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
-        if (ntm.features.length > 0) merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
-        if (ntm.tracklines.length > 0) merged.NTMBAR = { type: 'FeatureCollection', features: ntm.tracklines };
-    } catch (err) {
-        log.warn(`[tracer] NtM zone injection failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    return {
-        merged,
-        cellsUsed,
-        gatePairs,
-        gateChecksUnavailable,
-        supplementalChecksUnavailable,
-        chartStructures,
-        ...(structuresUnknownBboxes.length > 0 ? { structuresUnknownBboxes } : {}),
-    };
 }

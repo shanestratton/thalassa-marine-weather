@@ -74,6 +74,7 @@ import { awaitHeapHeadroom, heapTag } from '../utils/heapGauge';
 import { awaitMergeAbortCooldown } from './enc/mergeSettle';
 import { createSerialQueue } from '../utils/serialQueue';
 import { authScopedStorageKey } from './authIdentityScope';
+import { noaaGeometryOwner } from './enc/noaaGeometryOwner';
 import { normaliseTraceVerification, traceVerificationSummary, type TraceVerification } from './traceVerification';
 import { chartFreeLegEntries, TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
 
@@ -215,8 +216,8 @@ export interface TracerContext {
 
 /** buildTracerContext outcome — statuses drive the panel strip. */
 export type TracerBuildResult =
-    | { status: 'ready'; ctx: TracerContext }
-    | { status: 'marksonly'; ctx: TracerContext }
+    | { status: 'ready'; ctx: TracerContext; release?: () => void }
+    | { status: 'marksonly'; ctx: TracerContext; release?: () => void }
     | { status: 'toolarge' }
     | { status: 'nochart' };
 
@@ -658,7 +659,36 @@ export function parseMarkHazards(features: readonly unknown[]): MarkHazard[] {
 // so superseded builds ran to completion on the main thread. Identical
 // (bbox, draft) requests now share one promise. Chart data is static within a
 // session, so identical inputs ⇒ identical context; entries clear on settle.
-const inflightBuilds = new Map<string, Promise<TracerBuildResult>>();
+interface TracerBuild {
+    promise: Promise<TracerBuildResult>;
+    readers: number;
+    result?: TracerBuildResult;
+}
+const inflightBuilds = new Map<string, TracerBuild>();
+const contextOwners = new WeakMap<TracerContext, ReturnType<typeof noaaGeometryOwner>>();
+const lruOwners = new WeakMap<TracerContext[], Map<TracerContext, () => void>>();
+
+/** Ordinary contexts remain unchanged. Package contexts cannot be reused
+ * after owner/revision changes or after their final borrower detached. */
+export function tracerContextCurrent(ctx: TracerContext): boolean {
+    return contextOwners.get(ctx)?.current() ?? true;
+}
+
+/** Transfer the LRU's own references, independently of a grading/build
+ * caller. Eviction/reset releases only the cache's ownership. */
+export function setTracerCtxLru(previous: TracerContext[], wanted: TracerContext[]): TracerContext[] {
+    const next = [...new Set(wanted)].filter(tracerContextCurrent);
+    const oldOwners = lruOwners.get(previous) ?? new Map<TracerContext, () => void>();
+    const nextOwners = new Map<TracerContext, () => void>();
+    for (const ctx of next) {
+        const owner = contextOwners.get(ctx);
+        if (owner) nextOwners.set(ctx, oldOwners.get(ctx) ?? owner.retain());
+    }
+    for (const [ctx, release] of oldOwners) if (!nextOwners.has(ctx)) release();
+    lruOwners.delete(previous);
+    if (nextOwners.size) lruOwners.set(next, nextOwners);
+    return next;
+}
 
 /** Measured typed-array weight of a context's depth grid, in bytes. */
 export function tracerGridBytes(ctx: TracerContext): number {
@@ -691,7 +721,8 @@ export { TRACE_LAND_CROSSING_MESSAGE };
  * Hold `ctx` at the front of the LRU, evicting from the tail — first past
  * three entries, then while the MEASURED grid bytes exceed the budget. The
  * newest entry always survives: refusing to hold the grid that is in use
- * would just rebuild it on the next edit. Pure; the caller owns the ref.
+ * would just rebuild it on the next edit. Package entries additionally hold
+ * the LRU's independent ownership of their decoded geometry.
  */
 export function holdTracerCtx(
     lru: TracerContext[],
@@ -700,7 +731,7 @@ export function holdTracerCtx(
 ): TracerContext[] {
     const next = [ctx, ...lru.filter((c) => c !== ctx)].slice(0, 3);
     while (next.length > 1 && next.reduce((s, c) => s + tracerGridBytes(c), 0) > budgetBytes) next.pop();
-    return next;
+    return setTracerCtxLru(lru, next);
 }
 
 /** Context builds run ONE at a time (2026-08-10): the fatal trail showed two
@@ -768,13 +799,31 @@ export async function buildTracerContext(
     // request, so the LRU reuse check hits too.
     const snapped = snapTracerBbox(bbox);
     const key = `${snapped.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}|${opts.chartedDepthOnly ? 'charted' : 'legacy'}|air${airDraftM ?? 'unset'}`;
-    const existing = inflightBuilds.get(key);
-    if (existing) return existing;
-    const p = contextBuildQueue(() => buildTracerContextInner(snapped, draftM, { ...opts, airDraftM })).finally(() => {
-        inflightBuilds.delete(key);
-    });
-    inflightBuilds.set(key, p);
-    return p;
+    let entry = inflightBuilds.get(key);
+    if (!entry) {
+        entry = { promise: Promise.resolve({ status: 'nochart' }), readers: 0 };
+        const created = entry;
+        created.promise = contextBuildQueue(() =>
+            buildTracerContextInner(snapped, draftM, { ...opts, airDraftM }),
+        ).then((result) => (created.result = result));
+        inflightBuilds.set(key, created);
+    }
+    entry.readers++;
+    try {
+        const result = await entry.promise;
+        if ('ctx' in result) {
+            const owner = contextOwners.get(result.ctx);
+            if (owner) return { ...result, release: owner.retain() };
+        }
+        return result;
+    } finally {
+        // Every coalesced caller now owns a separate release token. Only
+        // after the last handoff may the build's initial owner detach.
+        if (--entry.readers === 0) {
+            if (inflightBuilds.get(key) === entry) inflightBuilds.delete(key);
+            if (entry.result && 'ctx' in entry.result) entry.result.release?.();
+        }
+    }
 }
 
 async function buildTracerContextInner(
@@ -813,58 +862,71 @@ async function buildTracerContextInner(
         return { status: 'nochart' };
     }
 
-    // Bridges and overhead lines this mast cannot pass under — the router's
-    // verdict, from the chart's BRIDGE / CBLOHD / PIPOHD / CONVYR and the curated
-    // bridge list (Phase 2a review, 2026-09-30: the tracer checked neither).
-    const clearanceBars: ClearanceBar[] = [...chartClearanceBars(bundle.chartStructures ?? {}, opts.airDraftM)];
     try {
-        const { loadLowBridges } = await import('./lowBridges');
-        clearanceBars.push(...curatedClearanceBars(await loadLowBridges(), opts.airDraftM));
-    } catch (err) {
-        log.warn(
-            `[tracer] curated bridge data unavailable (chart structures still checked): ${err instanceof Error ? err.message : String(err)}`,
-        );
-    }
+        bundle.chartView?.check();
 
-    const skipGrid = spanM > MAX_DEPTH_GRID_SPAN_M;
-    // Build the depth grid OFF the main thread (2026-07-15 crash fix): the
-    // synchronous build froze the WKWebView long enough for iOS to kill the
-    // app. The worker keeps the UI alive; on any worker failure it falls back
-    // to the sync build (navGridWorkerHost) so grading never stalls.
-    const grid = skipGrid
-        ? null
-        : await buildNavGridAsync(
-              tracerGridLayersWithBars(
-                  opts.chartedDepthOnly ? chartOnlyTracerGridLayers(bundle.merged) : bundle.merged,
-                  clearanceBars,
-              ),
-              bbox,
-              tracerResolutionM(bbox),
-              draftM,
-              DEFAULT_TIDE_SAFETY_M,
-              60,
-          );
-    const ctx = tracerContextFromLayers(bundle.merged, bundle.gatePairs, bbox, draftM, {
-        draftAssumed: opts.draftAssumed,
-        gateChecksUnavailable: bundle.gateChecksUnavailable,
-        skipGrid,
-        prebuiltGrid: grid,
-        clearanceBars,
-        airDraftM: opts.airDraftM,
-    });
-    ctx.supplementalChecksUnavailable = bundle.supplementalChecksUnavailable;
-    if (bundle.structuresUnknownBboxes?.length) ctx.structuresUnknownBboxes = bundle.structuresUnknownBboxes;
-    if (opts.chartedDepthOnly) ctx.canalLanes = [];
-    log.warn(
-        `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}+osm${ctx.osmLeads?.length ?? 0}`,
-    );
-    crumb(
-        'tracer:ctx-ready',
-        ctx.grid
-            ? `${ctx.grid.width}×${ctx.grid.height},${(tracerGridBytes(ctx) / 1024 / 1024).toFixed(0)}MB,${Date.now() - t0}ms${heapTag()}`
-            : `marksonly,${Date.now() - t0}ms${heapTag()}`,
-    );
-    return { status: skipGrid ? 'marksonly' : 'ready', ctx };
+        // Bridges and overhead lines this mast cannot pass under — the router's
+        // verdict, from the chart's BRIDGE / CBLOHD / PIPOHD / CONVYR and the curated
+        // bridge list (Phase 2a review, 2026-09-30: the tracer checked neither).
+        const clearanceBars: ClearanceBar[] = [...chartClearanceBars(bundle.chartStructures ?? {}, opts.airDraftM)];
+        try {
+            const { loadLowBridges } = await import('./lowBridges');
+            clearanceBars.push(...curatedClearanceBars(await loadLowBridges(), opts.airDraftM));
+        } catch (err) {
+            log.warn(
+                `[tracer] curated bridge data unavailable (chart structures still checked): ${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
+
+        const skipGrid = spanM > MAX_DEPTH_GRID_SPAN_M;
+        // Build the depth grid OFF the main thread (2026-07-15 crash fix): the
+        // synchronous build froze the WKWebView long enough for iOS to kill the
+        // app. The worker keeps the UI alive; on any worker failure it falls back
+        // to the sync build (navGridWorkerHost) so grading never stalls.
+        const grid = skipGrid
+            ? null
+            : await buildNavGridAsync(
+                  tracerGridLayersWithBars(
+                      opts.chartedDepthOnly ? chartOnlyTracerGridLayers(bundle.merged) : bundle.merged,
+                      clearanceBars,
+                  ),
+                  bbox,
+                  tracerResolutionM(bbox),
+                  draftM,
+                  DEFAULT_TIDE_SAFETY_M,
+                  60,
+              );
+        bundle.chartView?.check();
+        const ctx = tracerContextFromLayers(bundle.merged, bundle.gatePairs, bbox, draftM, {
+            draftAssumed: opts.draftAssumed,
+            gateChecksUnavailable: bundle.gateChecksUnavailable,
+            skipGrid,
+            prebuiltGrid: grid,
+            clearanceBars,
+            airDraftM: opts.airDraftM,
+        });
+        ctx.supplementalChecksUnavailable = bundle.supplementalChecksUnavailable;
+        if (bundle.structuresUnknownBboxes?.length) ctx.structuresUnknownBboxes = bundle.structuresUnknownBboxes;
+        if (opts.chartedDepthOnly) ctx.canalLanes = [];
+        log.warn(
+            `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}+osm${ctx.osmLeads?.length ?? 0}`,
+        );
+        crumb(
+            'tracer:ctx-ready',
+            ctx.grid
+                ? `${ctx.grid.width}×${ctx.grid.height},${(tracerGridBytes(ctx) / 1024 / 1024).toFixed(0)}MB,${Date.now() - t0}ms${heapTag()}`
+                : `marksonly,${Date.now() - t0}ms${heapTag()}`,
+        );
+        if (bundle.chartView) {
+            const owner = noaaGeometryOwner(bundle.chartView.check, bundle.chartView.release);
+            contextOwners.set(ctx, owner);
+            return { status: skipGrid ? 'marksonly' : 'ready', ctx, release: owner.release };
+        }
+        return { status: skipGrid ? 'marksonly' : 'ready', ctx };
+    } catch (error) {
+        bundle.chartView?.release();
+        throw error;
+    }
 }
 
 // ── Geometry helpers (local equirectangular, channel scale) ────────────────
@@ -1116,6 +1178,17 @@ export function validateTraceLeg(
      *  (Shane, 2026-10-03: Auto's shallow pins go direct, amber). */
     opts: { lastLeg?: boolean; pinStart?: boolean; pinEnd?: boolean } = {},
 ): TraceLegVerdict {
+    if (!tracerContextCurrent(ctx))
+        return {
+            grade: 'caution',
+            unchecked: true,
+            issues: [{ severity: 'caution', message: 'Not checked: chart ownership or revision changed' }],
+            minDepthM: null,
+            minAt: null,
+            needsTide: false,
+            nudge: null,
+            nudgeTo: null,
+        };
     const issues: TraceIssue[] = [];
     if (ctx.supplementalChecksUnavailable)
         issues.push({ severity: 'caution', message: 'marina/obstacle detail unavailable — inspect independently' });
@@ -1695,6 +1768,7 @@ export async function tideWindowLabelFor(
  *  charted-good water beside a solo mark is a legitimate pin — the leg
  *  verdict carries the mark caution instead. */
 export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'berth' | 'hazard' | null {
+    if (!tracerContextCurrent(ctx)) return null;
     if (!ctx.grid) return null;
     const r = readCell(ctx.grid, p);
     return r.kind === 'blocked' && r.sub !== 'markzone' && r.sub !== 'clearance' ? r.sub : null;
@@ -1714,6 +1788,7 @@ export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'be
  * intent is rarely ambiguous: near a lead you mean the lead.
  */
 export function snapTraceTapToLead(ctx: TracerContext, p: TracePoint, maxM = 120): TracePoint | null {
+    if (!tracerContextCurrent(ctx)) return null;
     let best: { point: TracePoint; dist: number } | null = null;
     for (const lead of [...ctx.leads, ...(ctx.osmLeads ?? [])]) {
         if (lead.pts.length < 2) continue;
@@ -1731,6 +1806,7 @@ export function snapTraceTapToLead(ctx: TracerContext, p: TracePoint, maxM = 120
  * inland tap stays where the skipper put it.
  */
 export function snapTraceTapToWater(ctx: TracerContext, p: TracePoint, maxM = 60): TracePoint | null {
+    if (!tracerContextCurrent(ctx)) return null;
     const grid = ctx.grid;
     if (!grid) return null;
     if (tracePinBlocked(ctx, p) === null) return null; // already navigable
@@ -2160,6 +2236,7 @@ function cellCost(grid: NavGrid, idx: number, keelM: number): number | null {
  * exists — the modal then offers Acknowledge instead. Never fabricates.
  */
 export function fixLegOnGrid(ctx: TracerContext, a: TracePoint, b: TracePoint): TracePoint[] | null {
+    if (!tracerContextCurrent(ctx)) return null;
     const grid = ctx.grid;
     if (!grid) return null;
     const keelM = ctx.draftM + DEFAULT_TIDE_SAFETY_M;
