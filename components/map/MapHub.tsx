@@ -344,6 +344,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
@@ -3071,6 +3072,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // 2026-09-09: a green flag at Lady Musgrave for a route he had not
     // plugged in, and no way on the chart to ask what it was or drop it).
     const [stopFollowAsk, setStopFollowAsk] = useState(false);
+    const [sendFollowedCourse, setSendFollowedCourse] = useState(false);
     const followedPlan = useFollowRouteStore((s) => s.voyagePlan);
     const isFollowingRoute = useFollowRouteStore((s) => s.isFollowing);
     const followedRouteCoords = useFollowRouteStore((s) => s.routeCoords);
@@ -4268,6 +4270,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // No Passage HUD row (build 124): the HUD is standard for a
                             // followed route, a recording or a route pulled up here.
                             sources: [
+                                ...(isFollowingRoute && followedPlan
+                                    ? [
+                                          {
+                                              id: 'send-followed-course',
+                                              label: 'Send to plotter',
+                                              iconKind: 'generic' as const,
+                                              enabled: false,
+                                              onToggle: () => setSendFollowedCourse(true),
+                                              opensSheet: true,
+                                          },
+                                      ]
+                                    : []),
                                 // CAPAD protected-area context belongs with map
                                 // overlays, not the tactical danger menu. Its
                                 // popup remains explicitly indicative and
@@ -5957,6 +5971,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </svg>
                         </button>
                     )}
+
+                {sendFollowedCourse && (
+                    <Suspense fallback={null}>
+                        <FollowedCourseDialog onClose={() => setSendFollowedCourse(false)} />
+                    </Suspense>
+                )}
 
                 {/* Following a route — the flag's own door to stop it. Centred per
                     the standing modal rule; stopping is reversible (Follow again

@@ -163,6 +163,19 @@ async function enrolThisPhone(): Promise<void> {
 }
 
 describe('the token rides every Pi call, through pinnedPiRequest only', () => {
+    it('a caller identity fence is rechecked after asynchronous header loading before native dispatch', async () => {
+        await enrolThisPhone();
+        let current = true;
+        const pending = pairing.pinnedPiRequest({
+            url: `${BASE}/api/course/activate`,
+            method: 'POST',
+            data: { token: 'fictional-confirmation' },
+            isCurrent: () => current,
+        });
+        current = false;
+        await expect(pending).rejects.toThrow('no longer current');
+        expect(tls.request).not.toHaveBeenCalled();
+    });
     it('on every pinned call, reads and commands alike, and on the signed lane', async () => {
         await enrolThisPhone();
         const sent = pi((s) => (path_(s) === '/api/enc/installed' ? undefined : json(200, { status: 'ok' })));

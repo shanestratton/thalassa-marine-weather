@@ -8,6 +8,7 @@ export default defineConfig({
     testMatch: [
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
+        'course136-layout.spec.ts',
         'ais-fleet-layout.spec.ts',
         'marine-places-layout.spec.ts',
         'paper-charts-layout.spec.ts',

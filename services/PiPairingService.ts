@@ -512,11 +512,16 @@ export async function pinnedPiRequest(options: {
     connectTimeout?: number;
     readTimeout?: number;
     responseType?: 'text' | 'arraybuffer';
+    /** Recheck caller identity/intent after asynchronous device-header loading. */
+    isCurrent?: () => boolean;
 }): Promise<PiTlsResponse> {
     if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
+    const { isCurrent, ...request } = options;
+    const headers = await withChartDevice(options.headers);
+    if (isCurrent?.() === false) throw new Error('The Pi request is no longer current.');
     const res = await piRequest({
-        ...options,
-        headers: await withChartDevice(options.headers),
+        ...request,
+        headers,
         pinnedSpki: getPairing()?.publicKeySpki,
     });
     if (res.status === 401 || res.status === 403) encRefusal(options.url, res);
