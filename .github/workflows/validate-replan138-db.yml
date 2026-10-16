@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 8bc51feb76a1d824f3347053c15a46265a001607
+          ref: e3e8554654d0684bf3c86ce67696d49ff8cdd54f
           path: source
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -51,7 +51,7 @@ jobs:
         working-directory: .
         run: |
           set -euo pipefail
-          test "$(git -C source rev-parse HEAD)" = 8bc51feb76a1d824f3347053c15a46265a001607
+          test "$(git -C source rev-parse HEAD)" = e3e8554654d0684bf3c86ce67696d49ff8cdd54f
           test "$(git -C controls rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git -C source status --porcelain)"
           test "$(git -C controls diff --name-only 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD)" = .github/workflows/validate-replan138-db.yml
@@ -63,7 +63,7 @@ jobs:
           node --version > "$RUNNER_TEMP/replan138-proof/NODE_VERSION.txt"
           cd source
           test "$(sha256sum supabase/held-migrations/20261016182725_reviewed_route_replan.sql | cut -d ' ' -f 1)" = 180c5424a90297cdfdb34d028ff50f30dd469c51fd2279b05f4b9fc83d460e20
-          sha256sum supabase/tests/route-replan-db.mjs supabase/held-migrations/20261016182725_reviewed_route_replan.sql supabase/migrations/20260908150000_voyage_plan_links_author_stamp.sql > "$RUNNER_TEMP/replan138-proof/SHA256SUMS"
+          sha256sum supabase/tests/route-replan-db.mjs supabase/tests/replan138-race-observation.mjs supabase/held-migrations/20261016182725_reviewed_route_replan.sql supabase/migrations/20260908150000_voyage_plan_links_author_stamp.sql > "$RUNNER_TEMP/replan138-proof/SHA256SUMS"
       - name: Install exact isolated PostgreSQL client without project dependencies
         run: |
           set -euo pipefail
@@ -135,7 +135,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 8bc51feb76a1d824f3347053c15a46265a001607
+          test "$(git rev-parse HEAD)" = e3e8554654d0684bf3c86ce67696d49ff8cdd54f
           test -z "$(git status --porcelain)"
       - name: Preserve isolated proof and identities
         if: always()
