@@ -21,6 +21,7 @@ import { OFFSHORE_COMPARISON_MODELS } from './offshoreModelComparison';
 import { vesselDraftMetres, vesselDraftIsAssumed, vesselAirDraftMetres } from '../units';
 import { withDeadline } from '../../utils/deadline';
 import { chartedLandFinding } from './landBackstopWords';
+import { RoutingExclusionFailure, isRoutingExclusionFailure } from './passageExclusions';
 
 function coarseLeg(points: RouteConstraintPoint[], departure: string, speed: number, notes: string[]): IsochroneResult {
     const distance = cumulativeLegs(points, speed);
@@ -176,6 +177,11 @@ export async function computeConstrainedPassage(input: {
                     { departureMs: Date.parse(request.departureTime), signal: request.signal },
                 );
                 if (!request.shouldContinue()) return null;
+                if (isRoutingExclusionFailure(inshore))
+                    throw new RoutingExclusionFailure(
+                        inshore.code,
+                        'A waypoint leg has an unresolved route area restriction. Review the route again.',
+                    );
                 if (inshore && 'polyline' in inshore) {
                     const evidence = input.inshoreEvidence(inshore);
                     if (!evidence.masksVerified || chartedLandFinding(inshore.hardLand))
@@ -269,6 +275,8 @@ export async function computeConstrainedPassage(input: {
                     departureTimeMs: departureMs,
                     stillCurrent,
                     publishReport: false,
+                    signal: abort.signal,
+                    onRouteAreaCaveats: (caveats) => caveats.forEach((note) => notes.add(note)),
                     onVerificationOutcome: (next) => {
                         outcome.current = next;
                     },

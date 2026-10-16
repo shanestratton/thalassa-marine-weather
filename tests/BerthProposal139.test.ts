@@ -192,3 +192,31 @@ describe('production berth adapter with synthetic transports only', () => {
         await expect(calculateBerthProposal(request())).rejects.toThrow('did not pass');
     });
 });
+
+describe('berth proposal area-policy refusal and current caveats', () => {
+    it.each(['route-exclusion', 'exclusion-unavailable'])(
+        'keeps a structured approach %s and does not try an offshore bypass',
+        async (code) => {
+            h.short.mockRejectedValueOnce(Object.assign(Error('held'), { code }));
+            await expect(calculateBerthProposal(request())).rejects.toMatchObject({ code });
+            expect(h.ocean).not.toHaveBeenCalled();
+            expect(h.validate).not.toHaveBeenCalled();
+            h.released.forEach((fn) => expect(fn).toHaveBeenCalledOnce());
+        },
+    );
+    it.each(['route-exclusion', 'exclusion-unavailable'])('keeps the whole-joined-line validator %s', async (code) => {
+        h.validate.mockRejectedValueOnce(Object.assign(Error('held'), { code }));
+        await expect(calculateBerthProposal(request())).rejects.toMatchObject({ code });
+        h.released.forEach((fn) => expect(fn).toHaveBeenCalledOnce());
+    });
+    it('preserves final current area caveats in accepted berth warnings', async () => {
+        h.validate.mockImplementationOnce(async (route, options) => {
+            options.onRouteAreaCaveats(['Indicative park fixture; check current local rules.']);
+            options.onVerificationOutcome({ status: 'verified' });
+            return route;
+        });
+        const output = await calculateBerthProposal(request());
+        expect(output.warnings).toContain('Indicative park fixture; check current local rules.');
+        expect(h.validate.mock.calls.at(-1)?.[1].signal).toBeInstanceOf(AbortSignal);
+    });
+});

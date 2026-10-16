@@ -171,3 +171,27 @@ describe('enhanceVoyagePlanWithIsochrone routes on the resolved polar', () => {
         expect(await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).toBeNull();
     });
 });
+
+describe('enhancer final area-policy failures never become corridor fallback', () => {
+    it.each(['route-exclusion', 'exclusion-unavailable'])(
+        'propagates structured %s out of both catch boundaries',
+        async (code) => {
+            mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+            mocks.getPrecomputedRoute.mockReturnValue(candidate());
+            const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+            vi.mocked(validateRouteSegments).mockRejectedValueOnce(Object.assign(Error('held'), { code }));
+            await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({ code });
+        },
+    );
+    it('carries result-local area caveats into accepted enhancement reasoning', async () => {
+        mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+        mocks.getPrecomputedRoute.mockReturnValue(candidate());
+        const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+        vi.mocked(validateRouteSegments).mockImplementationOnce(async (route, options) => {
+            options?.onRouteAreaCaveats?.(['Indicative park fixture; check current local rules.']);
+            return route;
+        });
+        const out = await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART);
+        expect(out?.routeReasoning).toContain('Indicative park fixture; check current local rules.');
+    });
+});

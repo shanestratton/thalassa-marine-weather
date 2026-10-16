@@ -38,6 +38,7 @@ import { routingComfortConfig } from './routing/isochronePolicy';
 import { estimateRouteFuel } from './isochrone/routeStats';
 import { verifiedIsochroneRoute } from './routing/verifiedIsochroneRoute';
 import { inspectRouteEnvironment } from './isochrone/routeComfort';
+import { RoutingExclusionFailure, isRoutingExclusionFailure } from './routing/passageExclusions';
 
 const log = createLogger('IsoEnhancer');
 
@@ -130,7 +131,8 @@ async function ensureWindGridForRoute(
 /**
  * Run isochrone routing on a VoyagePlan. Returns the enhanced plan with
  * isochrone-optimised route, distance, duration, and turn waypoints — or
- * null on any failure so the caller can fall back to the corridor router.
+ * null when no enhancement is available. Structured route-area failures
+ * propagate so callers must hold rather than bypass an enabled no-go policy.
  */
 export async function enhanceVoyagePlanWithIsochrone(
     voyagePlan: VoyagePlan,
@@ -273,9 +275,10 @@ export async function enhanceVoyagePlanWithIsochrone(
         // this step, the form-calculated route renders before the
         // user with potentially-island-clipping geometry.
         //
-        // Capped at 15s (matches usePassagePlanner). If validation is slow
-        // or down, we ship the unvalidated route — better than failing
-        // the whole pipeline.
+        // Capped at 15s (matches usePassagePlanner). An unfinished final
+        // private-policy check holds the route; it cannot adopt an old line.
+        const validationAbort = new AbortController();
+        let validationTimer: ReturnType<typeof setTimeout> | undefined;
         try {
             const { validateRouteSegments } = await import('./isochrone/landAvoidance');
             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
@@ -284,6 +287,7 @@ export async function enhanceVoyagePlanWithIsochrone(
             // for a line we shipped un-verified — and the shipping itself
             // must be announced, not buried in a prod-silenced log.
             let enhancerStale = false;
+            let areaCaveats: readonly string[] = [];
             const validated = await Promise.race([
                 validateRouteSegments(isoResult.route, {
                     // The field name says M — vessel.draft is FEET. Raw
@@ -293,17 +297,27 @@ export async function enhanceVoyagePlanWithIsochrone(
                     draftAssumed: vesselDraftIsAssumed(vessel),
                     departureTimeMs,
                     stillCurrent: () => !enhancerStale,
+                    signal: validationAbort.signal,
+                    onRouteAreaCaveats: (notes) => {
+                        areaCaveats = notes;
+                    },
                 }),
-                new Promise<null>((resolve) =>
-                    setTimeout(() => {
-                        enhancerStale = true;
-                        resolve(null);
-                    }, 15_000),
+                new Promise<null>(
+                    (resolve) =>
+                        (validationTimer = setTimeout(() => {
+                            enhancerStale = true;
+                            validationAbort.abort();
+                            resolve(null);
+                        }, 15_000)),
                 ),
             ]);
             if (!validated) {
                 const { publishRouteNotValidated } = await import('./enc/EncHazardReportService');
                 publishRouteNotValidated('depth validation timed out (15 s)');
+                throw new RoutingExclusionFailure(
+                    'exclusion-unavailable',
+                    'Final passage area verification timed out. Review the route again.',
+                );
             }
             if (validated) {
                 const checked = verifiedIsochroneRoute(
@@ -330,10 +344,21 @@ export async function enhanceVoyagePlanWithIsochrone(
                             : {}),
                     };
                 }
-                isoResult = checked;
+                isoResult = {
+                    ...checked,
+                    environmentNotes: [...new Set([...(checked.environmentNotes ?? []), ...areaCaveats])],
+                };
             }
         } catch (e) {
-            log.warn('Route hazard validation failed — using local-grid-only route:', e);
+            if (isRoutingExclusionFailure(e)) throw e;
+            // Cancellation/unknown validation failure supplies no private-policy proof.
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'Final passage area verification could not complete. Review the route again.',
+            );
+        } finally {
+            clearTimeout(validationTimer);
+            validationAbort.abort();
         }
 
         // ── 6. Map isochrone result back to VoyagePlan ──
@@ -432,6 +457,7 @@ export async function enhanceVoyagePlanWithIsochrone(
 
         return merged;
     } catch (e) {
+        if (isRoutingExclusionFailure(e)) throw e;
         log.warn('isochrone enhancement threw:', e);
         return null;
     }

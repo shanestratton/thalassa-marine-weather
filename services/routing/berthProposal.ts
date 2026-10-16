@@ -14,6 +14,7 @@ import {
     type BerthPortalLease,
 } from './berthToBerth';
 import { withDeadline } from '../../utils/deadline';
+import { isRoutingExclusionFailure } from './passageExclusions';
 
 /** Carry per-segment facts and their indices across exact concatenation. No
  * invented chart depth, survey grade, tide datum or propulsion is added. */
@@ -308,7 +309,7 @@ export async function calculateBerthProposal(
                     };
                 } catch (error) {
                     check();
-                    if (leg.signal.aborted) throw error;
+                    if (leg.signal.aborted || isRoutingExclusionFailure(error)) throw error;
                     return null;
                 }
             },
@@ -336,6 +337,7 @@ export async function calculateBerthProposal(
             verify: async (candidate, stillCurrent, remaining) => {
                 options.onProgress?.('Checking the entire berth-to-berth line and both joins…');
                 const verdict: { current: 'verified' | 'unverified' } = { current: 'unverified' };
+                let areaCaveats: readonly string[] = [];
                 const route = await withDeadline(
                     validateRouteSegments(candidate.route, {
                         vesselDraftM: request.draftM,
@@ -343,6 +345,10 @@ export async function calculateBerthProposal(
                         departureTimeMs: departureMs,
                         stillCurrent: () => current() && stillCurrent(),
                         publishReport: false,
+                        signal: abort.signal,
+                        onRouteAreaCaveats: (notes) => {
+                            areaCaveats = notes;
+                        },
                         onVerificationOutcome: (outcome) => {
                             verdict.current = outcome.status;
                         },
@@ -353,7 +359,12 @@ export async function calculateBerthProposal(
                 check();
                 return {
                     verified: verdict.current === 'verified',
-                    result: { ...candidate, route, routeCoordinates: route.map((p) => [p.lon, p.lat]) },
+                    result: {
+                        ...candidate,
+                        route,
+                        routeCoordinates: route.map((p) => [p.lon, p.lat]),
+                        environmentNotes: [...new Set([...(candidate.environmentNotes ?? []), ...areaCaveats])],
+                    },
                     reason: 'The complete terminal-expanded berth line did not pass current chart/depth/land verification.',
                 };
             },
