@@ -17,7 +17,7 @@ jobs:
         runs-on: macos-26
         timeout-minutes: 40
         env:
-            CANDIDATE_SHA: 101986db98ab31b52da31ef5c96c5ea1e34a465f
+            CANDIDATE_SHA: 5faae40e871ac08118143f1054f14fe21d94ec77
             CI: 'true'
             HUSKY: '0'
             NODE_OPTIONS: --max-old-space-size=4096
@@ -33,7 +33,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 101986db98ab31b52da31ef5c96c5ea1e34a465f
+                  ref: 5faae40e871ac08118143f1054f14fe21d94ec77
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -100,18 +100,18 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 101986db98ab31b52da31ef5c96c5ea1e34a465f
+                  ref: 5faae40e871ac08118143f1054f14fe21d94ec77
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
-                  node-version: 24
+                  node-version: 22
                   cache: npm
                   cache-dependency-path: pi-cache/package-lock.json
             - name: Exact source and Pi runtime
               run: |
                   set -euo pipefail
-                  test "$(git rev-parse HEAD)" = '101986db98ab31b52da31ef5c96c5ea1e34a465f'
+                  test "$(git rev-parse HEAD)" = '5faae40e871ac08118143f1054f14fe21d94ec77'
                   npm ci --prefix pi-cache
                   npm run build --prefix pi-cache
             - name: Real Unix storage, enrolled HTTP, course and track contracts
