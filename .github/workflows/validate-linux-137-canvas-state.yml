@@ -12,7 +12,7 @@ concurrency:
   group: thalassa-137-canvas-state
   cancel-in-progress: false
 env:
-  CANDIDATE_SHA: a89a6aa2db0639f553ecbb8c71e470dd16561a90
+  CANDIDATE_SHA: ab4be4aa36b8d0f646ca100a7f1c32db263a6018
   CI: "true"
   HUSKY: "0"
   NODE_OPTIONS: --max-old-space-size=4096
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a89a6aa2db0639f553ecbb8c71e470dd16561a90
+          ref: ab4be4aa36b8d0f646ca100a7f1c32db263a6018
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
