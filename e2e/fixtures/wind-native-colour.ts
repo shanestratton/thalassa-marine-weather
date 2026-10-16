@@ -2,10 +2,13 @@
 import { MapboxWindField, type WindFieldMap } from '../../components/map/MapboxWindField';
 import type { VelocityGribRecord } from '../../components/map/windVelocityFrame';
 if (!import.meta.env.DEV) throw Error('Development fixture only');
+const large = new URLSearchParams(location.search).has('large');
+const width = large ? 1440 : 360;
+const height = large ? 835 : 240;
 Object.assign(document.body.style, {
     margin: '12px',
     display: 'grid',
-    gridTemplateColumns: '360px 360px',
+    gridTemplateColumns: `${width}px ${width}px`,
     gap: '16px',
     background: '#fff',
     fontFamily: 'sans-serif',
@@ -35,8 +38,8 @@ for (const [name, light, filtered] of [
     const container = document.createElement('div');
     Object.assign(container.style, {
         position: 'relative',
-        width: '360px',
-        height: '240px',
+        width: `${width}px`,
+        height: `${height}px`,
         overflow: 'hidden',
         background: light ? '#d9e8ea' : '#0d2b45',
     });
@@ -49,11 +52,11 @@ for (const [name, light, filtered] of [
         getBearing: () => 0,
         project: ([lng, lat]) => {
             const p = mercator(lng, lat);
-            return { x: 180 + (p.x - centre.x) * world, y: 120 + (p.y - centre.y) * world };
+            return { x: width / 2 + (p.x - centre.x) * world, y: height / 2 + (p.y - centre.y) * world };
         },
         unproject: ([x, y]) => ({
-            lng: (centre.x + (x - 180) / world) * 360 - 180,
-            lat: (Math.atan(Math.sinh(Math.PI * (1 - 2 * (centre.y + (y - 120) / world)))) * 180) / Math.PI,
+            lng: (centre.x + (x - width / 2) / world) * 360 - 180,
+            lat: (Math.atan(Math.sinh(Math.PI * (1 - 2 * (centre.y + (y - height / 2) / world)))) * 180) / Math.PI,
         }),
         on: () => undefined,
         off: () => undefined,
@@ -87,18 +90,21 @@ for (const [name, light, filtered] of [
     const records = [0, 1].map((component) => ({
         header: {
             nx: 2,
-            ny: 5,
-            dx: 2,
-            dy: 0.1,
-            lo1: -1,
-            lo2: 1,
-            la1: 0.2,
-            la2: -0.2,
+            ny: large ? 17 : 5,
+            dx: large ? 4 : 2,
+            dy: large ? 0.175 : 0.1,
+            lo1: large ? -2 : -1,
+            lo2: large ? 2 : 1,
+            la1: large ? 1.4 : 0.2,
+            la2: large ? -1.4 : -0.2,
             parameterCategory: 2,
             parameterNumber: component + 2,
             parameterNumberName: component ? 'V' : 'U',
         },
-        data: Array.from({ length: 10 }, (_, i) => (component ? 0 : ((light && i < 4 ? 26 : 12) * 1852) / 3600)),
+        data: Array.from({ length: large ? 34 : 10 }, (_, i) => {
+            const speed = ((light && i < (large ? 16 : 4) ? 26 : 12) * 1852) / 3600;
+            return large ? speed / Math.SQRT2 : component ? 0 : speed;
+        }),
     }));
     states.push({ field, frames, records });
 }
@@ -106,7 +112,7 @@ for (const [name, light, filtered] of [
 await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 for (const state of states) {
     state.field.setData(state.records);
-    for (let frame = 1; frame <= 120; frame++) {
+    for (let frame = 1; frame <= (large ? 24 : 120); frame++) {
         const callbacks = [...state.frames.values()];
         state.frames.clear();
         callbacks.forEach((callback) => callback(frame * 40));

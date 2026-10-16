@@ -171,6 +171,27 @@ export async function captureWindPair(page: Page) {
     if (!viewport) throw new Error('A real prescribed viewport is required');
     await waitForChartCaptureReady(page);
     const wireOn = await page.screenshot({ animations: 'allow', fullPage: false, timeout: 0 });
+    const native = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLCanvasElement>('[data-wind-field="true"] canvas')].map((canvas) => {
+            const ctx = canvas.getContext('2d')!;
+            const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const counts = { drawn: 0, slate: 0, red: 0, white: 0, black: 0 };
+            for (let i = 0; i < pixels.length; i += 4) {
+                const r = pixels[i],
+                    g = pixels[i + 1],
+                    b = pixels[i + 2],
+                    a = pixels[i + 3];
+                if (a < 64) continue;
+                counts.drawn++;
+                if (b >= r + 5 && r < 60 && g < 70 && b < 80) counts.slate++;
+                if (r > g + 40 && r > b + 40) counts.red++;
+                if (Math.min(r, g, b) >= 240) counts.white++;
+                if (Math.max(r, g, b) < 10) counts.black++;
+            }
+            return { width: canvas.width, height: canvas.height, counts, png: canvas.toDataURL() };
+        }),
+    );
+    console.info('APP_WIND_RGBA ' + JSON.stringify(native.map(({ png: _png, ...result }) => result)));
     const held = await page.evaluateHandle(() => {
         const records = [...document.querySelectorAll<HTMLElement>('[data-wind-field="true"]')].map((el) => ({
             el,
@@ -217,6 +238,7 @@ export async function captureWindPair(page: Page) {
         pair: createPixelPair(decodeScreenshot(wireOn), decodeScreenshot(wireOff!), viewport),
         wireOn,
         wireOff: wireOff!,
+        native,
     };
 }
 
@@ -240,6 +262,12 @@ export function saveCapturedPair(
     extraDirectory = '',
 ): void {
     saveCapturedOn(capture, info, name, extraDirectory);
+    for (const [index, native] of capture.native.entries()) {
+        writeFileSync(
+            info.outputPath(`${name}-raw-canvas-${index}.png`),
+            Buffer.from(native.png.split(',')[1], 'base64'),
+        );
+    }
     const file = `${name}-without-wind-${info.project.name}.png`;
     writeFileSync(info.outputPath(file), capture.wireOff, { flag: 'wx', mode: 0o600 });
     if (extraDirectory) writeFileSync(join(extraDirectory, file), capture.wireOff, { mode: 0o600 });
