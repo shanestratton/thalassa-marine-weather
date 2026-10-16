@@ -258,77 +258,89 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
         // its huge bbox would stamp every short leg inside it "depth
         // unchecked".
         let ctx = opts.ctxFromLru?.(pts) ?? null;
-        if (ctx) crumb('tracer:ctx-reuse', `${cluster.length}legs`);
-        if (!ctx) {
-            opts.onStatus?.('loading');
-            try {
-                const built = await buildTracerContext(traceBboxPadded(pts), opts.draftM, {
-                    draftAssumed: opts.draftAssumed,
-                    ...(opts.airDraftM !== undefined ? { airDraftM: opts.airDraftM } : {}),
-                    ...(opts.chartedDepthOnly ? { chartedDepthOnly: true } : {}),
-                });
-                if (superseded()) return { status: 'ready', superseded: true };
-                if (built.status === 'ready') {
-                    ctx = built.ctx;
-                    // Hold every grid-bearing window unless gate marks are
-                    // missing — holding a gate-less window would let one
-                    // network blip strip gate checking from every later
-                    // cluster that reuses it.
-                    if (!built.ctx.gateChecksUnavailable && !built.ctx.supplementalChecksUnavailable)
-                        opts.holdCtx?.(built.ctx);
-                } else if (built.status === 'marksonly') {
-                    // One genuinely long leg — grade marks with this ctx but
-                    // DON'T hold it: a grid-less window must never shadow
-                    // later clusters.
-                    ctx = built.ctx;
-                    sawMarksOnly = true;
-                } else if (built.status === 'toolarge') {
-                    // A piece is built to fit, so reaching here means
-                    // splitLegForDepthGrid declined — the leg really is beyond
-                    // what MAX_LEG_SUBDIVISIONS can cover. Pure geometry, so
-                    // durable.
-                    failStatus = 'toolarge';
-                    for (const l of cluster)
-                        recordPiece(l.key, cautionVerdict('too long to check — add a waypoint'), false);
-                    foldReadyLegs();
-                    opts.onClusterDone?.();
-                    continue;
-                } else {
-                    // nochart can be a NETWORK BLIP (cloud cells not yet
-                    // hydrated) — volatile, so charts appearing later heal it.
+        let release: (() => void) | undefined;
+        try {
+            if (ctx) crumb('tracer:ctx-reuse', `${cluster.length}legs`);
+            if (!ctx) {
+                opts.onStatus?.('loading');
+                try {
+                    const built = await buildTracerContext(traceBboxPadded(pts), opts.draftM, {
+                        draftAssumed: opts.draftAssumed,
+                        ...(opts.airDraftM !== undefined ? { airDraftM: opts.airDraftM } : {}),
+                        ...(opts.chartedDepthOnly ? { chartedDepthOnly: true } : {}),
+                    });
+                    if ('ctx' in built) release = built.release;
+                    if (superseded()) return { status: 'ready', superseded: true };
+                    if (built.status === 'ready') {
+                        ctx = built.ctx;
+                        // Hold every grid-bearing window unless gate marks are
+                        // missing — holding a gate-less window would let one
+                        // network blip strip gate checking from every later
+                        // cluster that reuses it.
+                        if (!built.ctx.gateChecksUnavailable && !built.ctx.supplementalChecksUnavailable)
+                            opts.holdCtx?.(built.ctx);
+                    } else if (built.status === 'marksonly') {
+                        // One genuinely long leg — grade marks with this ctx but
+                        // DON'T hold it: a grid-less window must never shadow
+                        // later clusters.
+                        ctx = built.ctx;
+                        sawMarksOnly = true;
+                    } else if (built.status === 'toolarge') {
+                        // A piece is built to fit, so reaching here means
+                        // splitLegForDepthGrid declined — the leg really is beyond
+                        // what MAX_LEG_SUBDIVISIONS can cover. Pure geometry, so
+                        // durable.
+                        failStatus = 'toolarge';
+                        for (const l of cluster)
+                            recordPiece(l.key, cautionVerdict('too long to check — add a waypoint'), false);
+                        foldReadyLegs();
+                        opts.onClusterDone?.();
+                        continue;
+                    } else {
+                        // nochart can be a NETWORK BLIP (cloud cells not yet
+                        // hydrated) — volatile, so charts appearing later heal it.
+                        failStatus = 'nochart';
+                        for (const l of cluster)
+                            recordPiece(l.key, sketchVerdict('Not checked: no chart for here on this device'), true);
+                        foldReadyLegs();
+                        opts.onClusterDone?.();
+                        continue;
+                    }
+                } catch (err) {
+                    if (superseded()) return { status: 'ready', superseded: true };
+                    log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
                     failStatus = 'nochart';
                     for (const l of cluster)
-                        recordPiece(l.key, sketchVerdict('Not checked: no chart for here on this device'), true);
+                        recordPiece(l.key, sketchVerdict('Not checked: the chart didn’t load, trying again'), true);
                     foldReadyLegs();
                     opts.onClusterDone?.();
                     continue;
                 }
-            } catch (err) {
-                if (superseded()) return { status: 'ready', superseded: true };
-                log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
-                failStatus = 'nochart';
-                for (const l of cluster)
-                    recordPiece(l.key, sketchVerdict('Not checked: the chart didn’t load, trying again'), true);
-                foldReadyLegs();
-                opts.onClusterDone?.();
-                continue;
             }
+            for (const l of cluster) {
+                const verdict = validateTraceLeg(l.a, l.b, ctx, {
+                    lastLeg: l.lastLeg,
+                    pinStart: l.pinStart,
+                    pinEnd: l.pinEnd,
+                });
+                // A window whose marker fetch threw was never gate-checked, so its
+                // verdict is provisional in exactly the way a 'nochart' one is —
+                // VOLATILE, so the next pass retries and a transient blip cannot
+                // poison the session.
+                recordPiece(
+                    l.key,
+                    verdict,
+                    ctx.gateChecksUnavailable || !!ctx.supplementalChecksUnavailable || !!verdict.unchecked,
+                );
+            }
+            foldReadyLegs();
+            opts.onClusterDone?.();
+            crumb('tracer:grade-done', `${cluster.length}legs${heapTag()}`);
+        } finally {
+            // Includes one-shot/background, marks-only, superseded and
+            // failed grading. A held LRU owns its own separate reference.
+            release?.();
         }
-        for (const l of cluster) {
-            const verdict = validateTraceLeg(l.a, l.b, ctx, {
-                lastLeg: l.lastLeg,
-                pinStart: l.pinStart,
-                pinEnd: l.pinEnd,
-            });
-            // A window whose marker fetch threw was never gate-checked, so its
-            // verdict is provisional in exactly the way a 'nochart' one is —
-            // VOLATILE, so the next pass retries and a transient blip cannot
-            // poison the session.
-            recordPiece(l.key, verdict, ctx.gateChecksUnavailable || !!ctx.supplementalChecksUnavailable);
-        }
-        foldReadyLegs();
-        opts.onClusterDone?.();
-        crumb('tracer:grade-done', `${cluster.length}legs${heapTag()}`);
     }
 
     if (superseded()) return { status: 'ready', superseded: true };

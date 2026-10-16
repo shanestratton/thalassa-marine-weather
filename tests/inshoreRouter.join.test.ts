@@ -60,7 +60,7 @@ const host = vi.hoisted(() => ({
 }));
 
 vi.mock('../services/enc/noaaPackageWindow', () => ({
-    loadNoaaPackageCohort: async (cells: { id: string }[], bounds: number[], assertCurrent: () => void) => {
+    loadNoaaPackageCohort: async (cells: { id: string }[], bounds: number[], assertCurrent: () => void = () => {}) => {
         const { scene } = await import('./helpers/routeJobScenes');
         const version = host.chartVersion;
         host.packageCalls.push({ cells: cells.map((c) => c.id), bounds });
@@ -181,7 +181,7 @@ vi.mock('../services/TideHeightService', async (original) => ({
     fetchTideCurve: async () => null,
 }));
 
-import { tryInshoreRoute } from '../services/InshoreRouter';
+import { tryInshoreRoute, assembleTracerLayers } from '../services/InshoreRouter';
 
 let ends: { from: [number, number]; to: [number, number] };
 const ask = (opts: { signal?: AbortSignal; onStage?: (s: string) => void } = {}) =>
@@ -594,5 +594,26 @@ describe('complete NOAA inshore cohort and its real borrower', () => {
         release();
         await vi.waitFor(() => expect(host.packageLeases).toBe(0));
         expect(host.jobs).toHaveLength(0);
+    });
+
+    it('the tracer transfers its complete window lease instead of releasing borrowed geometry on assembly', async () => {
+        packageCells();
+        const bbox: [number, number, number, number] = [-30.06, 39.95, -29.94, 40.05];
+        const bundle = await assembleTracerLayers(bbox, { chartedDepthOnly: true });
+        expect(bundle?.cellsUsed.length).toBe(1);
+        expect(host.packageCalls).toEqual([{ cells: ['ZZ5ATL01'], bounds: bbox }]);
+        expect(host.cellCalls).toBe(0);
+        expect(host.packageLeases).toBe(1);
+        bundle?.chartView?.release();
+        expect(host.packageLeases).toBe(0);
+    });
+
+    it('the tracer refuses a package read failure before coarse/fine deconfliction', async () => {
+        packageCells();
+        host.packageFailure = true;
+        const bundle = await assembleTracerLayers([-30.06, 39.95, -29.94, 40.05]);
+        expect(bundle).toBeNull();
+        expect(host.cellCalls).toBe(0);
+        expect(host.packageLeases).toBe(0);
     });
 });

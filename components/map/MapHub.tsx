@@ -175,6 +175,8 @@ import {
     traceAsVoyagePlan,
     splitLegForDepthGrid,
     holdTracerCtx,
+    setTracerCtxLru,
+    tracerContextCurrent,
     type TraceLegVerdict,
     type TracePoint,
     type TracerContext,
@@ -208,6 +210,7 @@ import { setEncHydrationPaused } from '../../services/enc/EncHazardService';
 import {
     getRegistryFingerprint as getEncRegistryFingerprint,
     getVersion as getEncRegistryVersion,
+    subscribe as subscribeEncRegistry,
 } from '../../services/enc/EncCellMetadata';
 import { evaluateTraceRelease, traceRegistryScope } from '../../services/traceVerification';
 import {
@@ -548,15 +551,35 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  single slot: grid required, 0.008° interior margin, marks-only NEVER
      *  held. Cleared with the ctx on draft change and Done. */
     const tracerCtxLruRef = useRef<TracerContext[]>([]);
+    const tracerMountedRef = useRef(true);
     const tracerCtxFromLru = useCallback((pts: ReadonlyArray<{ lat: number; lon: number }>): TracerContext | null => {
+        tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, tracerCtxLruRef.current);
+        if (tracerCtxRef.current && !tracerContextCurrent(tracerCtxRef.current)) tracerCtxRef.current = null;
         for (const c of tracerCtxLruRef.current) {
             if (c.grid && pts.every((p) => pointInBbox(p, c.bbox, 0.008))) return c;
         }
         return null;
     }, []);
     const tracerCtxHold = useCallback((ctx: TracerContext) => {
-        tracerCtxRef.current = ctx;
+        if (!tracerMountedRef.current || !tracerContextCurrent(ctx)) return;
         tracerCtxLruRef.current = holdTracerCtx(tracerCtxLruRef.current, ctx);
+        tracerCtxRef.current = ctx;
+    }, []);
+    useEffect(() => {
+        tracerMountedRef.current = true;
+        const discardStale = () => {
+            tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, tracerCtxLruRef.current);
+            if (tracerCtxRef.current && !tracerContextCurrent(tracerCtxRef.current)) tracerCtxRef.current = null;
+        };
+        const stopRegistry = subscribeEncRegistry(discardStale);
+        const stopIdentity = subscribeAuthIdentityScope(discardStale);
+        return () => {
+            tracerMountedRef.current = false;
+            stopRegistry();
+            stopIdentity();
+            tracerCtxRef.current = null;
+            tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, []);
+        };
     }, []);
     // A background route check frees these windows before each check and at
     // the end of its queue (125-07): kept alive here, hidden, they sat under
@@ -574,7 +597,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     tracingPinsRef.current,
                 );
                 tracerCtxRef.current = kept.current;
-                tracerCtxLruRef.current = kept.lru;
+                tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, kept.lru);
             }),
         [],
     );

@@ -216,6 +216,15 @@ test('complete package survives a genuinely new browser context with local data 
     expect(inshore.result.polyline.length).toBeGreaterThan(1);
     expect(inshore.result.cellsUsed).toContain('US3AK1EX');
     expect(inshore.after).toBe(inshore.before);
+    const tracer = await api<{ before: number; retained: number; after: number }>(page, 'tracer()');
+    expect(tracer).toMatchObject({
+        status: 'ready',
+        grid: true,
+        verdict: { minDepthM: 2 },
+        staleVerdict: { unchecked: true, minDepthM: null },
+    });
+    expect(tracer.retained).toBeGreaterThan(tracer.before);
+    expect(tracer.after).toBe(tracer.before);
     await expect(api(page, 'view([-134,55,-132,56])')).rejects.toThrow(/resident/);
     await api(page, 'satellite(true)');
     const stored = await context.storageState({ indexedDB: true });
@@ -267,6 +276,7 @@ test('cancel/tamper/account transitions fail closed and cleanup preserves a late
     expect(await api(page, 'datum()')).toBeNull();
     expect(await api(page, 'ahead()')).toEqual({ hit: null, coverage: 'none' });
     expect(await api(page, 'inshore()')).toMatchObject({ result: { code: 'chart-window-unavailable' } });
+    expect(await api(page, 'tracer()')).toMatchObject({ status: 'nochart' });
     await api(page, 'replaceManual()');
     await api(page, 'removeOriginal()');
     const final = await api<Inspection>(page, 'inspect()');
