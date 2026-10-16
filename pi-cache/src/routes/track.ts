@@ -67,6 +67,39 @@ export function createTrackRoutes(store: TrackStore, runner: TrackRecorderRunner
         const from = finiteParam(req.query.from) ?? to - DEFAULT_WINDOW_MS;
         if (from > to) return res.status(400).json({ error: 'from must not be after to' });
 
+        // Opt-in only: old callers retain their exact response and limit.
+        if (req.query.page !== undefined) {
+            const safe = (n: number) => Number.isSafeInteger(n) && n >= 0;
+            const requested = req.query.limit === undefined ? 500 : finiteParam(req.query.limit);
+            if (
+                req.query.page !== '1' ||
+                !safe(from) ||
+                !safe(to) ||
+                (req.query.from !== undefined && finiteParam(req.query.from) === null) ||
+                (req.query.to !== undefined && finiteParam(req.query.to) === null) ||
+                requested === null ||
+                !safe(requested) ||
+                requested < 1
+            )
+                return res.status(400).json({ error: 'Invalid track page window or limit' });
+            let cursor: { atMs: number; rowId: number; snapshot: number } | undefined;
+            if (req.query.cursor !== undefined) {
+                if (typeof req.query.cursor !== 'string' || !/^\d{1,16}:\d{1,16}:\d{1,16}$/.test(req.query.cursor))
+                    return res.status(400).json({ error: 'Invalid track cursor' });
+                const [atMs, rowId, snapshot] = req.query.cursor.split(':').map(Number);
+                if (![atMs, rowId, snapshot].every(safe) || rowId < 1 || rowId > snapshot || atMs < from || atMs > to)
+                    return res.status(400).json({ error: 'Invalid track cursor' });
+                cursor = { atMs, rowId, snapshot };
+            }
+            try {
+                const page = store.pointsPage({ fromMs: from, toMs: to, limit: Math.min(requested, 2000), cursor });
+                return res.json({ page: 1, from, to, limit: Math.min(requested, 2000), ...page });
+            } catch (error) {
+                if (error instanceof RangeError) return res.status(400).json({ error: 'Invalid track snapshot' });
+                throw error;
+            }
+        }
+
         const requested = finiteParam(req.query.limit);
         const limit = Math.max(1, Math.min(requested ?? MAX_POINTS, MAX_POINTS));
         const points = store.points({ fromMs: from, toMs: to, limit });
