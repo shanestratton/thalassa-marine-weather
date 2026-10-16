@@ -1,0 +1,86 @@
+name: Build137 isolated overdue transaction proof
+on:
+  push:
+    branches: ['codex/build-137-overdue-db-validation']
+    paths: ['.github/workflows/validate-overdue137-db.yml']
+permissions:
+  contents: read
+concurrency:
+  group: overdue137-isolated-transaction-proof
+  cancel-in-progress: false
+jobs:
+  transaction:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: overdue137_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HUSKY: '0'
+      THALASSA_DISPOSABLE_OVERDUE_TEST: '1'
+      OVERDUE_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/overdue137_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: '1d62119f7de4ce21c29cef68fb081cb9c01d1582'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact source and preserve isolated proof closure
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 1d62119f7de4ce21c29cef68fb081cb9c01d1582
+          mkdir -p "$RUNNER_TEMP/overdue137-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/overdue137-proof/SOURCE_SHA.txt"
+          sha256sum supabase/held-migrations/20261016174406_shore_contacts.sql supabase/held-migrations/20261016182715_overdue_watch.sql supabase/tests/overdue-watch-db.mjs supabase/tests/overdue-watch-postgres-cases.mjs > "$RUNNER_TEMP/overdue137-proof/SHA256SUMS"
+      - name: Install only pinned disposable PostgreSQL client
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/overdue137-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          test "$(node -p "require('$RUNNER_TEMP/overdue137-pg/node_modules/pg/package.json').version")" = 8.16.3
+          sha256sum "$RUNNER_TEMP/overdue137-pg/package-lock.json" > "$RUNNER_TEMP/overdue137-proof/CLIENT_LOCK_SHA256.txt"
+      - name: Actual PostgreSQL17.6 ACL, five observed-lock cohorts and exact quotas
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/overdue137-pg/node_modules/pg/lib/index.js
+        run: |
+          set -euo pipefail
+          node supabase/tests/overdue-watch-db.mjs 2>&1 | tee "$RUNNER_TEMP/overdue137-proof/CONCURRENCY.txt"
+          node --input-type=module <<'NODE'
+          import {readFile,writeFile} from 'node:fs/promises';
+          import assert from 'node:assert/strict';
+          const dir=process.env.RUNNER_TEMP+'/overdue137-proof';
+          const lines=(await readFile(dir+'/CONCURRENCY.txt','utf8')).trim().split('\n');
+          const result=JSON.parse(lines.at(-1));
+          assert.equal(result.engine,'PostgreSQL disposable');
+          assert.match(result.postgresVersion,/^17\.6(?:\D|$)/);
+          assert.equal(result.checks,99);
+          assert.equal(result.productDatabase,false);
+          assert.equal(result.providerCalls,0);
+          assert.deepEqual(result.races,[
+            {name:'overdue-owner-slots',backends:16,blocked:16},
+            {name:'overdue-configuration-CAS',backends:2,blocked:2},
+            {name:'owner-http-attempt',backends:16,blocked:16},
+            {name:'overdue-contact-claim',backends:16,blocked:16},
+            {name:'overdue-provider-attempt',backends:16,blocked:16}
+          ]);
+          await writeFile(dir+'/VERIFIED.json',JSON.stringify({schema:1,source:'1d62119f7de4ce21c29cef68fb081cb9c01d1582',...result},null,2)+'\n');
+          NODE
+      - name: Preserve isolated proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build137-overdue-transaction-proof
+          path: ${{ runner.temp }}/overdue137-proof/
+          retention-days: 7
+          if-no-files-found: error
