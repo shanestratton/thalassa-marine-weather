@@ -17,6 +17,31 @@ function prepared() {
     return feed;
 }
 describe('same-input radar uses the single collision rule', () => {
+    it('retains the earliest actual dependency so a newer report cannot renew an older vector', () => {
+        const f = new RadarFeed('pi:generated');
+        f.ingest(frame('GPRMC,120004,A,0000.000,N,00000.000,E,5,0,020126,,,A'), T + 4000, T + 4000);
+        f.ingest(frame('HEHDT,0,T'), T + 4000, T + 4000);
+        f.ingest(frame('RATTM,1,1,0,R,10,180,R,0,6,N,Generated,T,,120010,A'), T + 10000, T + 10000);
+        f.ingest(frame('GPRMC,120010,A,0000.000,N,00000.000,E,5,0,020126,,,A'), T + 10000, T + 10000);
+        const c = f.contacts(T + 10000)[0],
+            own = f.ownshipSnapshot();
+        expect(gradeRadarContact(c, own, T + 10000)).toMatchObject({
+            sourceAt: T + 4000,
+            contact: { at: T + 10000 },
+            assessment: { alarm: true },
+        });
+        expect(
+            gradeRadarContact(
+                c,
+                {
+                    ...own,
+                    position: { ...own.position!, at: T + 20000 },
+                    motion: { ...own.motion!, sogAt: T + 20000, cogAt: T + 20000 },
+                },
+                T + 20000,
+            ),
+        ).toMatchObject({ sourceAt: null, assessment: { rangeOnly: true, alarm: false } });
+    });
     it('grades actual qualified relative motion identically to125, without a fake MMSI', () => {
         const f = prepared(),
             c = f.contacts(T)[0],
