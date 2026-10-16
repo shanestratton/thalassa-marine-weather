@@ -59,9 +59,10 @@ import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
 import { RadarRawReader } from './radar/rawReader.js';
-import { RadarContextSession, radarContextKey } from './radar/contextSession.js';
+import { RadarContextSession } from './radar/contextSession.js';
 import { createRadarRoutes } from './routes/radar.js';
 import { RadarWatch } from './radar/watch.js';
+import { RadarRelay } from './radar/relay.js';
 import { radarServerContext, createRadarControllerVerifier } from './radar/serverContext.js';
 import { createRadarWatchRoutes } from './routes/radarWatch.js';
 import { createAppJsonParser } from './appJson.js';
@@ -222,16 +223,31 @@ try {
     radarReader = new RadarRawReader();
     console.warn('[radar] local passthrough unavailable; review the operator configuration');
 }
-const radarSession = new RadarContextSession(radarReader, () => {
+const currentRadarWatchContext = () => {
     if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
     const config = diaryRelayOutbox.getConfiguration();
-    return radarContextKey(
+    return radarServerContext(
         config.ownerId,
         identity.deviceId,
         config.relayId,
         signalkRead?.notificationSnapshot() ?? null,
     );
-});
+};
+const radarSession = new RadarContextSession(
+    radarReader,
+    () => currentRadarWatchContext()?.contextToken ?? null,
+    () => {
+        const context = currentRadarWatchContext();
+        return context
+            ? {
+                  ownerId: context.ownerId,
+                  piDeviceId: context.piDeviceId,
+                  pairingId: context.pairingId,
+                  feedId: context.feedId,
+              }
+            : null;
+    },
+);
 if (APP_API_ENABLED) radarSession.start();
 const windHistory = new WindHistory({
     cacheDir: CACHE_DIR,
@@ -395,35 +411,36 @@ const wakeKeeper = new PiWakeKeeper({
 });
 if (APP_API_ENABLED)
     void wakeKeeper.start().catch(() => console.warn('[wake] keeper unavailable; review local storage'));
-const currentRadarWatchContext = () => {
-    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
-    const config = diaryRelayOutbox.getConfiguration();
-    return radarServerContext(
-        config.ownerId,
-        identity.deviceId,
-        config.relayId,
-        signalkRead?.notificationSnapshot() ?? null,
-    );
-};
-const radarWatch = new RadarWatch({
+const radarRelay = new RadarRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+});
+const radarWatch: RadarWatch = new RadarWatch({
     readSnapshot: () => radarSession.snapshot(),
     currentContext: currentRadarWatchContext,
     aisArmed: () => aisWatch.describe().armed === true,
     atAnchor: () => anchorWatch.isRunning(),
     controllerCurrent: createRadarControllerVerifier(currentRadarWatchContext, () => chartDevices.list()),
+    onEvent: (event) => radarRelay.event(event),
+    onPass: (pass, current) =>
+        radarRelay.update(pass, current, (context, acks) => radarWatch.applyRemoteAcks(context, acks)),
+    pushStatus: () => radarRelay.status(),
 });
 let radarWatchFailureLogged = false;
 const radarWatchTimer = APP_API_ENABLED
-    ? setInterval(
-          () =>
-              void radarWatch.tick().catch(() => {
-                  if (!radarWatchFailureLogged) {
-                      radarWatchFailureLogged = true;
-                      console.warn('[radar] watch evaluation unavailable; review local status');
-                  }
-              }),
-          1000,
-      )
+    ? setInterval(() => {
+          radarRelay.pump();
+          void radarWatch.tick().catch(() => {
+              if (!radarWatchFailureLogged) {
+                  radarWatchFailureLogged = true;
+                  console.warn('[radar] watch evaluation unavailable; review local status');
+              }
+          });
+      }, 1000)
     : null;
 radarWatchTimer?.unref();
 const enrolledRadarController = async (req: Request) => {
@@ -433,6 +450,8 @@ const enrolledRadarController = async (req: Request) => {
         ? { deviceId: verdict.device.id, enrollmentRevision: wakeEnrollmentRevision(verdict.device) }
         : null;
 };
+const reviewRadarRelay = (revision: string, context: Parameters<RadarRelay['review']>[1]) =>
+    radarRelay.review(revision, context);
 // Read access never grants route writes. Only the operator's separately approved
 // token and explicit switch can enable this fixed course/resource surface.
 let courseClient: SignalKClient | null = null;
@@ -1110,7 +1129,7 @@ if (APP_API_ENABLED) {
         '/api/radar',
         requireAppApi,
         createEncFrontDoor({ devices: chartDevices }),
-        createRadarWatchRoutes({ watch: radarWatch, enrolled: enrolledRadarController }),
+        createRadarWatchRoutes({ watch: radarWatch, enrolled: enrolledRadarController, reviewRelay: reviewRadarRelay }),
         createRadarRoutes(radarSession),
     );
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));

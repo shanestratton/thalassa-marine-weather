@@ -312,6 +312,76 @@ test('relay facts contain only fixed scalar original evidence and lose eligibili
     s.watch.stop();
     assert.equal(last.current(), false);
 });
+
+test('relay review requires the current controller and exact context and cannot arm an off watch', async (t) => {
+    const s = setup(),
+        app = express(),
+        revision = '11111111-1111-4111-8111-111111111111';
+    let caller = controller,
+        reviews = 0;
+    app.use(
+        '/api/radar',
+        createRadarWatchRoutes({
+            watch: s.watch,
+            enrolled: () => caller,
+            reviewRelay: (r, context) => {
+                if (r !== revision || context.binding.deviceId !== controller.deviceId) return false;
+                reviews++;
+                return true;
+            },
+        }),
+    );
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => {
+        server.closeAllConnections();
+        server.close();
+    });
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/radar/watch/relay-review`;
+    const post = (context: unknown, expectedContextRevision = revision) =>
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context, expectedContextRevision }),
+        });
+    assert.equal((await post(fixture.context)).status, 409);
+    assert.equal(s.events.length, 0);
+    const active = await s.arm();
+    assert.equal((await post(active.context, '22222222-2222-4222-8222-222222222222')).status, 409);
+    caller = other;
+    assert.equal((await post(active.context)).status, 409);
+    caller = controller;
+    assert.equal((await post(active.context)).status, 200);
+    assert.equal(reviews, 1);
+    assert.equal((await s.watch.describe()).context!.watchEpoch, active.context!.watchEpoch);
+    assert.equal(s.events.filter((e) => e.action === 'bind').length, 1);
+});
+
+test('an off status cannot cross an owner or source change during final enrollment verification', async (t) => {
+    const s = setup(),
+        app = express();
+    let calls = 0;
+    app.use(
+        '/api/radar',
+        createRadarWatchRoutes({
+            watch: s.watch,
+            enrolled: () => {
+                if (++calls === 2) s.context({ ...s.getContext(), contextToken: 'b'.repeat(64) });
+                return controller;
+            },
+        }),
+    );
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => {
+        server.closeAllConnections();
+        server.close();
+    });
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/radar/watch`);
+    assert.equal(response.status, 409);
+    assert.equal(s.events.length, 0);
+    assert.equal((await s.watch.describe()).context, null);
+});
 test('root parser assembly enforces the smaller raw radar body cap before a command can arm', async (t) => {
     const s = setup(),
         app = express();
@@ -324,7 +394,12 @@ test('root parser assembly enforces the smaller raw radar body cap before a comm
         server.close();
     });
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/radar/watch`;
-    const body = JSON.stringify({ armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS });
+    const body = JSON.stringify({
+        armed: true,
+        expected: null,
+        expectedOwnerRevision: (await s.watch.describe()).ownerRevision,
+        prefs: DEFAULT_COLLISION_PREFS,
+    });
     assert.equal(
         (
             await fetch(url, {

@@ -2,10 +2,12 @@
 import express, { Router, type Request, type Response, type NextFunction } from 'express';
 import { RadarWatch, RadarWatchError } from '../radar/watch.js';
 import { validRadarController, type RadarController, type RadarWatchStatus } from '../radar/radarWatchContract.js';
+import type { RadarRelayContext } from '../radar/radarRelayContract.js';
 export interface RadarWatchRouteDeps {
     watch: RadarWatch;
     /** Reverify the current enrollment; never accept a device/owner identity from the body. */
     enrolled: (req: Request) => RadarController | null | Promise<RadarController | null>;
+    reviewRelay?: (revision: string, context: RadarRelayContext) => boolean;
 }
 export function createRadarWatchRoutes(deps: RadarWatchRouteDeps): Router {
     const router = Router();
@@ -54,6 +56,9 @@ export function createRadarWatchRoutes(deps: RadarWatchRouteDeps): Router {
     route('get', '/watch', () => deps.watch.describe());
     route('post', '/watch', (req, caller) => deps.watch.command(caller, req.body));
     route('post', '/watch/ack', (req, caller) => deps.watch.acknowledge(caller, req.body));
+    route('post', '/watch/relay-review', (req, caller) =>
+        deps.watch.reviewRelay(caller, req.body, deps.reviewRelay ?? (() => false)),
+    );
     router.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
         if (!error) return next();
         res.setHeader('Cache-Control', 'no-store');

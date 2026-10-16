@@ -65,6 +65,7 @@ export function stageUpdate7({ repository, commit, output }) {
         'pi-cache/src/radar/radarRelayContract.ts',
         'pi-cache/src/radar/radarWatchContract.ts',
         'pi-cache/src/radar/watch.ts',
+        'pi-cache/src/radar/relay.ts',
         'pi-cache/src/radar/serverContext.ts',
         'pi-cache/src/collisionRule/collisionRule.ts',
         'pi-cache/src/collisionRule/syncedFrom.ts',

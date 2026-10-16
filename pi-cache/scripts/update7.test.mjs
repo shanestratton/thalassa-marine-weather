@@ -57,6 +57,7 @@ const required = [
     'radar/radarRelayContract',
     'radar/radarWatchContract',
     'radar/watch',
+    'radar/relay',
     'radar/serverContext',
     'routes/radarWatch',
     'collisionRule/collisionRule',
@@ -188,6 +189,7 @@ test('missing wake/radar or checked-mirror source is rejected before any bundle 
     for (const missing of [
         'src/wakeKeeper/relay.ts',
         'src/radar/rawReader.ts',
+        'src/radar/relay.ts',
         'src/collisionRule/collisionRule.ts',
         'scripts/sync-radar-target.mjs',
     ]) {

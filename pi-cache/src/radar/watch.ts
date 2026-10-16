@@ -460,6 +460,7 @@ export class RadarWatch {
         );
     }
     statusCurrent(status: RadarWatchStatus): boolean {
+        if (status.ownerRevision !== radarServerOwnerRevision(this.deps.currentContext())) return false;
         return status.context
             ? !!this.active && this.current(this.active) && same(status.context, this.active.context)
             : this.active === null;

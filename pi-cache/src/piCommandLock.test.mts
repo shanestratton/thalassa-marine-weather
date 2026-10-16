@@ -365,6 +365,7 @@ test('every route the Pi registers has a row in the table, and every row is a ro
     assert.equal(classOf('GET /api/radar/watch'), 'read');
     assert.equal(classOf('POST /api/radar/watch'), 'command');
     assert.equal(classOf('POST /api/radar/watch/ack'), 'command');
+    assert.equal(classOf('POST /api/radar/watch/relay-review'), 'command');
     assert.equal(classOf('DELETE /api/anchor/watch'), 'command');
     // A command, but for the internet policy said again as the Pi last took it.
     assert.equal(classOf('POST /api/configure'), 'by body');
