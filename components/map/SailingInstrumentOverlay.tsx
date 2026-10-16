@@ -144,7 +144,7 @@ export default function SailingInstrumentOverlay({ mapRef }: { mapRef: MutableRe
         p = e?.position;
     const position =
         p &&
-        e?.via !== 'cloud' &&
+        (e?.via === 'gateway' || e?.via === 'lan') &&
         Number.isFinite(p.lat) &&
         Number.isFinite(p.lon) &&
         Math.abs(p.lat) <= 85 &&
@@ -171,7 +171,7 @@ export default function SailingInstrumentOverlay({ mapRef }: { mapRef: MutableRe
         [positionLat, positionLon, following, prefs.laylines, route, plan],
     );
     const laylines =
-        position && mark && derived.performance.kind === 'available' && e?.via !== 'cloud'
+        position && mark && derived.performance.kind === 'available' && (e?.via === 'gateway' || e?.via === 'lan')
             ? instrumentLaylines({
                   boat: position,
                   mark: mark.point,

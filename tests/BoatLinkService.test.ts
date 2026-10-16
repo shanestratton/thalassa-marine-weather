@@ -674,6 +674,31 @@ describe('BoatLinkService', () => {
         expect(s.where).toBe('unknown');
     });
 
+    it('direct Signal K is explicitly read-only, with no local alarm or phone-substitution privilege', () => {
+        pairing.record = null;
+        listener.saved = null;
+        setPhone(PHONE_ABOARD);
+        NmeaStore.ingestRemote(
+            snapshot('lan', {
+                source: 'device',
+                via: 'signalk',
+                gaugeTimes: {
+                    sog: Date.now() - 2000,
+                    tws: Date.now() - 2000,
+                    latitude: Date.now() - 2000,
+                    longitude: Date.now() - 2000,
+                },
+            }),
+        );
+        const state = BoatLinkService.evaluate();
+        expect(state.lane).toBe('signalk');
+        expect(state.kind).toBe('direct');
+        expect(state.line).toContain('Signal K');
+        expect(state.line).toContain('read only');
+        expect(state.phoneStandsInForBoat).toBe(false);
+        expect(BoatLinkService.boatFeedFacts()).toMatchObject({ live: false, lastLive: null });
+    });
+
     it('subscribers hear a change once, and not for an identical re-evaluation', () => {
         setPhone(PHONE_AWAY);
         const heard = vi.fn();

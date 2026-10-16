@@ -13,7 +13,13 @@ export function remoteInstrumentEvidence(snapshot: RemoteInstrumentSnapshot): In
     ) => {
         const at = times[key];
         if (typeof at === 'number')
-            readings[key] = { value: value ?? null, at, unit, reference, source: 'Pi Signal K measured leaf' };
+            readings[key] = {
+                value: value ?? null,
+                at,
+                unit,
+                reference,
+                source: snapshot.via === 'signalk' ? 'Direct Signal K measured leaf' : 'Pi Signal K measured leaf',
+            };
     };
     add('sog', snapshot.sogKts, 'knots', 'ground');
     add('cogTrue', snapshot.cogDeg, 'degrees', 'true');

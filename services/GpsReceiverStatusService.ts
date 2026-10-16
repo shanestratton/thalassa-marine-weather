@@ -22,7 +22,7 @@ import { NmeaListenerService, type NmeaConnectionInfo } from './NmeaListenerServ
 import { NmeaStore } from './NmeaStore';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 
-export type GpsReceiverKind = 'vessel-nmea' | 'ios-accessory' | 'precision-location' | 'phone';
+export type GpsReceiverKind = 'vessel-nmea' | 'ios-accessory' | 'precision-location' | 'phone' | 'signalk-reader';
 
 export interface GpsReceiverStatus {
     /** Whether there is a connected / proven non-phone receiver to surface. */
@@ -53,7 +53,7 @@ export interface GpsReceiverStatusInput {
         qualityLabel: string;
         /** The store fed without a socket — the Pi over the boat LAN, or her
          *  cloud row (2026-09-09). Optional so older callers/tests stay drop-in. */
-        remote?: { via: 'lan' | 'cloud'; ageMs: number | null } | null;
+        remote?: { via: 'lan' | 'cloud' | 'signalk'; ageMs: number | null } | null;
     };
     native: NativeGpsReceiverInfo;
     precision: {
@@ -210,6 +210,23 @@ export function resolveGpsReceiverStatus(input: GpsReceiverStatusInput): GpsRece
             },
             input,
         );
+    }
+    if (remote?.via === 'signalk') {
+        return {
+            active: true,
+            kind: 'signalk-reader',
+            label: 'Signal K position',
+            detail:
+                remote.ageMs === null
+                    ? 'Read only · source-dated position unavailable'
+                    : `Read only · source position ${formatAge(remote.ageMs)} old · this phone steers by its own GPS`,
+            isNmea: false,
+            satellites: null,
+            hdop: null,
+            avgAccuracy: null,
+            qualityLabel: null,
+            deviceName: null,
+        };
     }
     if (remote?.via === 'cloud') {
         const age = remote.ageMs === null ? '' : ` · ${formatAge(remote.ageMs)} ago`;
@@ -376,9 +393,14 @@ class GpsReceiverStatusServiceClass {
                     nmeaState.connectionStatus === 'remote' && nmeaState.remote
                         ? {
                               via: nmeaState.remote.via,
-                              ageMs: Number.isFinite(nmeaState.remote.receivedAt)
-                                  ? Math.max(0, now - nmeaState.remote.receivedAt)
-                                  : null,
+                              ageMs:
+                                  nmeaState.remote.via === 'signalk'
+                                      ? typeof nmeaState.remote.positionSampleAt === 'number'
+                                          ? Math.max(0, now - nmeaState.remote.positionSampleAt)
+                                          : null
+                                      : Number.isFinite(nmeaState.remote.receivedAt)
+                                        ? Math.max(0, now - nmeaState.remote.receivedAt)
+                                        : null,
                           }
                         : null,
             },

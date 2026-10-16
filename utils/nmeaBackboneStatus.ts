@@ -65,7 +65,7 @@ const FUTURE_TOLERANCE_MS = 1_000;
  * because those modules construct service singletons; a status resolver must
  * not import their transport and authentication lifecycle merely for limits.
  */
-const REMOTE_MAX_AGE_MS = { lan: 20_000, cloud: 60_000 } as const;
+const REMOTE_MAX_AGE_MS = { lan: 20_000, cloud: 60_000, signalk: 13_000 } as const;
 
 function withinAge(timestamp: number, now: number, maxAge: number): boolean {
     return (
@@ -131,6 +131,15 @@ export function deriveNmeaBackboneStatus({
 
     const remote = store.connectionStatus === 'remote' ? store.remote : null;
     if (remote) {
+        if (remote.via === 'signalk')
+            return {
+                active: remote.source === 'device' && usableReading && withinAge(remote.receivedAt, now, 13_000),
+                detail: usableReading
+                    ? 'Direct Signal K · read only'
+                    : 'Direct Signal K · no current instrument readings',
+                faulted: false,
+                showRates: false,
+            };
         // A phone can publish a fresh position without receiving the NMEA bus.
         // Its cloud row must not make this separate backbone indicator green.
         if (remote.source !== 'pi') {

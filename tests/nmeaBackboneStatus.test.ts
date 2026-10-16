@@ -69,6 +69,26 @@ function derive(overrides: Partial<NmeaBackboneStatusInput> = {}) {
 }
 
 describe('the NMEA backbone through the Pi', () => {
+    it('names qualified direct Signal K instruments without calling them a shared phone or Pi', () => {
+        const store = piStore();
+        store.remote = {
+            source: 'device',
+            via: 'signalk',
+            deviceLabel: 'Direct Signal K',
+            reportedAt: NOW,
+            receivedAt: NOW,
+        };
+        expect(derive({ store })).toMatchObject({
+            active: true,
+            detail: 'Direct Signal K · read only',
+            showRates: false,
+        });
+        store.depth = metric();
+        expect(derive({ store })).toMatchObject({
+            active: false,
+            detail: 'Direct Signal K · no current instrument readings',
+        });
+    });
     it.each<NmeaConnectionStatus>(['disconnected', 'connecting', 'error'])(
         'shows a fresh LAN feed despite the unused direct socket being %s',
         (directStatus) => {

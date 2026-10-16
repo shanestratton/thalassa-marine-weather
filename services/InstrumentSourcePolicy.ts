@@ -44,6 +44,7 @@ import { boatLinkIfConfigured, loadBoatLink } from './boatLink/boatLinkGate';
 import { setSocketOwnerReader } from './boatLink/socketOwner';
 import type { SocketOwner, Where } from './boatLink/boatLinkModel';
 import { createLogger } from '../utils/createLogger';
+import { readSignalKDeviceConfig, saveSignalKDeviceConfig } from './signalk/config';
 
 const log = createLogger('InstrumentSource');
 
@@ -67,8 +68,15 @@ export const CLOUD_PRESENCE_POLL_MS = 30_000;
 /** A cloud row this fresh means the Pi is alive — this phone is merely not aboard. */
 export const CLOUD_PRESENCE_MAX_AGE_MS = 60_000;
 
-export type InstrumentBoot = 'pi-first' | 'direct' | 'idle';
-export type InstrumentSourceMode = 'pi' | 'pi-silent-direct' | 'direct' | 'manual' | 'none';
+export type InstrumentBoot = 'pi-first' | 'direct' | 'signalk' | 'idle';
+export type InstrumentSourceMode = 'pi' | 'pi-silent-direct' | 'direct' | 'signalk' | 'manual' | 'none';
+
+function startSelectedSignalK(): boolean {
+    if (!readSignalKDeviceConfig()?.selected) return false;
+    NmeaListenerService.stop();
+    void import('./signalk/DirectSignalKService').then(({ DirectSignalKService }) => DirectSignalKService.start());
+    return true;
+}
 
 class InstrumentSourcePolicyClass {
     private booted: InstrumentBoot | null = null;
@@ -96,12 +104,13 @@ class InstrumentSourcePolicyClass {
      * 2026-09-08: "if we have a pi at the vessel, then nothing should try to
      * connect").
      */
-    ensureFeed(direct?: { host: string; port: number }): 'pi' | 'direct' | 'none' {
+    ensureFeed(direct?: { host: string; port: number }): 'pi' | 'direct' | 'signalk' | 'none' {
         NmeaStore.start();
         if (getPairing()) {
             PiTelemetryService.start();
             return 'pi';
         }
+        if (!direct && startSelectedSignalK()) return 'signalk';
         if (direct) NmeaListenerService.configure(direct.host, direct.port);
         else if (!NmeaListenerService.getSavedConfig()) return 'none';
         NmeaListenerService.start();
@@ -126,6 +135,13 @@ class InstrumentSourcePolicyClass {
             return this.booted;
         }
 
+        if (readSignalKDeviceConfig()?.selected) {
+            NmeaStore.start();
+            startSelectedSignalK();
+            void loadBoatLink();
+            this.booted = 'signalk';
+            return this.booted;
+        }
         const saved = NmeaListenerService.getSavedConfig();
         if (!saved) {
             this.booted = 'idle';
@@ -143,6 +159,13 @@ class InstrumentSourcePolicyClass {
 
     /** The skipper pressed Connect on the NMEA page: that socket is theirs. */
     noteManualConnect(now = Date.now()): void {
+        const selected = readSignalKDeviceConfig();
+        if (selected?.selected) {
+            saveSignalKDeviceConfig({ ...selected, selected: false });
+            void import('./signalk/DirectSignalKService').then(({ DirectSignalKService }) =>
+                DirectSignalKService.stop(),
+            );
+        }
         this.manual = true;
         this.socketOwned = false;
         this.lastSwitchAt = now;
@@ -156,6 +179,7 @@ class InstrumentSourcePolicyClass {
 
     mode(): InstrumentSourceMode {
         if (this.manual) return 'manual';
+        if (this.booted === 'signalk') return 'signalk';
         if (this.booted === 'direct') return 'direct';
         if (this.booted !== 'pi-first') return 'none';
         return this.socketOwned ? 'pi-silent-direct' : 'pi';

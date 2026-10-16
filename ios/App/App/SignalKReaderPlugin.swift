@@ -62,8 +62,10 @@ public final class SignalKReaderPlugin: CAPPlugin, CAPBridgedPlugin {
             path = "/signalk/v1/access/requests"; method = "POST"
             body = try? JSONSerialization.data(withJSONObject: ["clientId": clientId, "description": "Thalassa instrument reader (read only)"])
         case "accessStatus":
-            guard let accessId = call.getString("accessId"), Self.matches(accessId, "^[A-Za-z0-9_-]{1,128}$") else { call.reject("Invalid approval request"); return }
-            path = "/signalk/v1/access/requests/" + accessId
+            guard let accessId = call.getString("accessId"), !accessId.isEmpty, accessId.utf8.count <= 512,
+                  accessId != ".", accessId != "..", !accessId.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }),
+                  let encoded = accessId.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) else { call.reject("Invalid approval request"); return }
+            path = "/signalk/v1/access/requests/" + encoded
         default: call.reject("Signal K read target unavailable"); return
         }
         guard let url = URL(string: path, relativeTo: base)?.absoluteURL else { call.reject("Invalid Signal K origin"); return }

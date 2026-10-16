@@ -4,12 +4,13 @@
  * Shows connection status, configuration controls, and AIS Hub settings.
  * The "Instrument Panel" CTA navigates to the full multimeter dashboard.
  */
-import React, { useState, useCallback, useEffect, useId } from 'react';
+import React, { useState, useCallback, useEffect, useId, lazy, Suspense } from 'react';
 import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import { getPairing } from '../../services/PiPairingService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
+const SignalKReaderCard = lazy(() => import('./SignalKReaderCard'));
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -194,6 +195,7 @@ const CARD_TONE: Record<Tone, string> = {
 };
 
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
+    const [signalKSetup, setSignalKSetup] = useState(false);
     // Idempotent and flag-guarded, so the render-phase call is safe under
     // StrictMode's double-invoke — it does its work once per install.
     clearLegacyGatewayDefaultsOnce();
@@ -742,6 +744,21 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         </div>
                     </div>
 
+                    <div className="mb-3">
+                        <Button
+                            variant="secondary"
+                            className="w-full"
+                            onClick={() => setSignalKSetup((value) => !value)}
+                            aria-expanded={signalKSetup}
+                        >
+                            Signal K device setup
+                        </Button>
+                    </div>
+                    {signalKSetup && (
+                        <Suspense fallback={<p className="p-3 text-sm text-gray-300">Loading Signal K setup…</p>}>
+                            <SignalKReaderCard />
+                        </Suspense>
+                    )}
                     {/* Short screens only: the CTA flows here, after Connect,
                         instead of pinned over the Host IP, Port and Connect
                         (UX scorecard run 7). The pinned copy below hides. */}

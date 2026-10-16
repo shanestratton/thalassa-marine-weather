@@ -6,8 +6,8 @@ const number = (value: number | null, suffix = '') => (value === null ? '—' : 
 export function InstrumentSampleTime({ at, now, via }: { at: number; now: number; via: string }) {
     return (
         <p className="text-xs text-gray-400">
-            {via === 'cloud' ? 'Cloud copy · ' : ''}Samples {new Date(at).toISOString().slice(11, 19)} UTC ·{' '}
-            {Math.max(0, Math.floor((now - at) / 1000))} s old
+            {via === 'cloud' ? 'Cloud copy · ' : via === 'signalk' ? 'Direct Signal K · ' : ''}Samples{' '}
+            {new Date(at).toISOString().slice(11, 19)} UTC · {Math.max(0, Math.floor((now - at) / 1000))} s old
         </p>
     );
 }

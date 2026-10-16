@@ -49,7 +49,7 @@ export function instrumentLaylines(args: {
     const corrected =
         c &&
         c.identity === p.identity &&
-        c.via !== 'cloud' &&
+        (c.via === 'gateway' || c.via === 'lan') &&
         c.freshness === 'live' &&
         args.now - c.observedAt <= 6_500 &&
         c.observedAt <= args.now + 1_000 &&

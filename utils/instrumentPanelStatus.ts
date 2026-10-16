@@ -64,7 +64,7 @@ export function diagnosePanel(params: {
         source: 'pi' | 'device';
         deviceLabel: string | null;
         /** The Pi over the boat LAN, or its cloud row; absent means the cloud. */
-        via?: 'lan' | 'cloud';
+        via?: 'lan' | 'cloud' | 'signalk';
         ageSeconds: number;
     } | null;
     /**
@@ -99,6 +99,15 @@ export function diagnosePanel(params: {
     // from 900 km away over a VPN that carries the boat's network. Where the
     // phone is comes from `link`, which decides it by position.
     if (connectionStatus === 'remote') {
+        if (remote?.via === 'signalk') {
+            const present = metrics.some((metric) => metric.value !== null && metric.freshness !== 'dead');
+            return {
+                state: present ? 'remote' : 'waiting',
+                label: present ? 'Signal K' : 'Signal K quiet',
+                detail: 'Direct Signal K · read only. Each gauge uses its sensor’s original clock.',
+                actionable: false,
+            };
+        }
         // The Pi's hostname (deviceLabel) stays out of the punter's eye —
         // Shane 2026-09-07: it is the internal Pi name, not the boat's.
         const who = remote?.source === 'device' ? 'the skipper’s phone' : 'the Pi';

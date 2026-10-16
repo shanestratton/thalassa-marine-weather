@@ -23,6 +23,7 @@ export default defineConfig({
         'nmea-daylight.spec.ts',
         'instruments136-layout.spec.ts',
         'nmea-udp136-layout.spec.ts',
+        'signalk136-layout.spec.ts',
         'wind-tide-layout.spec.ts',
         'vessel-scroll.spec.ts',
         // Menu pages fit one screen; the split-pane Plan and Log front doors fit their pane.

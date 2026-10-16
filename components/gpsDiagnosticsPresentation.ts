@@ -173,10 +173,12 @@ export function boatGpsDiagnosticSource(
     return {
         label: direct
             ? 'Boat GPS · NMEA'
-            : `${remote?.source === 'device' ? 'Shared device GPS' : 'Boat GPS'} · ${remote?.via === 'lan' ? 'Pi direct' : 'cloud'}`,
+            : remote?.via === 'signalk'
+              ? 'Signal K position · read only'
+              : `${remote?.source === 'device' ? 'Shared device GPS' : 'Boat GPS'} · ${remote?.via === 'lan' ? 'Pi direct' : 'cloud'}`,
         maxAgeMs: NMEA_USABLE_MAX_AGE_MS,
         // The same live gate the chart's own-ship marker uses for the boat.
-        positionMaxAgeMs: boatLiveFixMaxAgeMs(state),
+        positionMaxAgeMs: remote?.via === 'signalk' ? NMEA_USABLE_MAX_AGE_MS : boatLiveFixMaxAgeMs(state),
         // A row can be republished by a fresh clock sentence with old GPS
         // coordinates. Only its actual position sample dates those coordinates.
         positionAt: positionValid

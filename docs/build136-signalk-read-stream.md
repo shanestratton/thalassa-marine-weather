@@ -23,9 +23,9 @@ sensor's freshness gate: a live connection does not make every cached leaf live.
 
 Notifications stay separate from scalar telemetry. There are at most 64 source/path clocks,
 including clear tombstones, and 160 display characters per active message. A source-dated
-null clears only that source/path; an older clear cannot erase a newer alert. The first
-event on each path is treated as an initial snapshot, so it is never marked for a siren.
-Only a later unique, source-dated event within ten seconds can have `fresh:true`; this is
+null clears only that source/path; an older clear cannot erase a newer alert. Events
+dated at or before this connection started are treated as replay, with no siren eligibility.
+Only a newer unique, source-dated event within ten seconds can have `fresh:true`; this is
 eligibility, not permission to play sound. UI opt-in, foreground/account/session fences and
 an owned alarm-audio lease remain required. There is no audio or background notification
 claim in this core. Restart/reconnect creates a new cache and suppresses initial replay.
@@ -36,7 +36,7 @@ connecting/reading/disconnected/stopped, not navigation or write permission. A c
 failure closes the stream. Stop clears notification state and destroys its dispatcher.
 The server integration must retain the paired/app API gates and keep subscriptions private.
 
-Validation: seven portable protocol tests; three real local HTTP-upgrade/WebSocket tests
+Validation: eight portable protocol tests; three real local HTTP-upgrade/WebSocket tests
 cover header authentication with no query credential, timestamp preservation, receiver
 oversize rejection, and no credential forwarding through a two-server redirect. Pi TypeScript
 passes. No boat server capability, physical phone operation or live deployment was probed.

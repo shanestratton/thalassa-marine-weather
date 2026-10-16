@@ -7,6 +7,12 @@ const delta = (path: string, value: unknown, at = now, source = 'test.1') => ({
     updates: [{ $source: source, timestamp: new Date(at).toISOString(), values: [{ path, value }] }],
 });
 describe('bounded self Signal K read protocol', () => {
+    it('builds own engine branches even when a legitimate identifier names an inherited object method', () => {
+        const state = new SignalKReadState(self);
+        state.ingestDelta(delta('propulsion.toString.revolutions', 20), now);
+        expect(state.document()).toMatchObject({ propulsion: { toString: { revolutions: { value: 20 } } } });
+        expect(Object.prototype.toString).not.toHaveProperty('revolutions');
+    });
     it('keeps original clocks across unrelated updates and clones values', () => {
         const state = new SignalKReadState(self);
         state.ingestDelta(delta('navigation.headingTrue', Math.PI, now - 5000), now);
@@ -88,7 +94,7 @@ describe('bounded self Signal K read protocol', () => {
         expect(state.document()).toEqual({ uuid: self });
     });
     it('separates notification providers, dates clears, deduplicates replay and bounds messages', () => {
-        const state = new SignalKReadState(self),
+        const state = new SignalKReadState(self, now),
             notice = { message: 'Alarm', state: 'alarm', method: ['visual', 'sound'] };
         const first = state.ingestDelta(delta('notifications.depth', notice), now);
         expect(first.notices[0].fresh).toBe(false); // initial snapshot is never a new siren

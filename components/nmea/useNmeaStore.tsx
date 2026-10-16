@@ -73,7 +73,9 @@ export const NmeaStatusDot: React.FC<{ className?: string }> = ({ className = ''
     const c =
         state.connectionStatus === 'remote' && state.remote?.via === 'lan'
             ? { color: 'bg-emerald-400', label: 'Live via the Pi' }
-            : config[state.connectionStatus];
+            : state.connectionStatus === 'remote' && state.remote?.via === 'signalk'
+              ? { color: 'bg-sky-400', label: 'Direct Signal K · read only' }
+              : config[state.connectionStatus];
 
     return (
         <div className={`flex items-center gap-1.5 ${className}`} title={c.label}>

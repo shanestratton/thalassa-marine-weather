@@ -32,6 +32,24 @@ import { weatherLocationTitle } from '../utils/weatherLocationTitle';
 import { useSettingsStore } from '../stores/settingsStore';
 
 describe('resolveGpsSourceState', () => {
+    it('never promotes a direct Signal K reader to the navigation GPS', () => {
+        expect(
+            resolveGpsSourceState({
+                weatherKind: null,
+                storeStatus: 'remote',
+                remoteVia: 'signalk',
+                hasWeatherContext: false,
+            }),
+        ).toMatchObject({ glyph: 'none', tone: 'none' });
+        expect(
+            resolveGpsSourceState({
+                weatherKind: 'phone',
+                storeStatus: 'remote',
+                remoteVia: 'signalk',
+                hasWeatherContext: true,
+            }),
+        ).toMatchObject({ glyph: 'phone', tone: 'phone' });
+    });
     const at = (weatherKind: any, storeStatus: any = 'disconnected', remoteVia: any = null) =>
         resolveGpsSourceState({ weatherKind, storeStatus, remoteVia });
 

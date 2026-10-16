@@ -82,7 +82,7 @@ function validValue(path: string, value: unknown): boolean {
     if (path === 'navigation.leewayAngle') return finite(value, -Math.PI / 9, Math.PI / 9);
     return finite(value, -2 * Math.PI, 2 * Math.PI);
 }
-function expectedUnit(path: string): string {
+export function signalKExpectedUnit(path: string): string {
     if (path === 'navigation.position') return 'position';
     if (path.endsWith('revolutions')) return 'Hz';
     if (path.endsWith('runTime')) return 's';
@@ -116,7 +116,10 @@ export class SignalKReadState {
     private notices = new Map<string, SignalKNotice>();
     private noticeClocks = new Map<string, number>();
     private engines = new Set<string>();
-    constructor(public readonly selfUrn: string) {
+    constructor(
+        public readonly selfUrn: string,
+        private readonly startedAt = Date.now(),
+    ) {
         if (!validSignalKSelf(selfUrn)) throw new Error('Signal K self identity unavailable');
     }
     clear(): void {
@@ -156,7 +159,7 @@ export class SignalKReadState {
         )
             return false;
         const units = signalkRecord(meta)?.units;
-        if (units !== undefined && units !== expectedUnit(path)) return false;
+        if (units !== undefined && units !== signalKExpectedUnit(path)) return false;
         if (path.startsWith('propulsion.')) {
             const id = path.split('.')[1];
             if (!this.engines.has(id) && this.engines.size >= 8) return false;
@@ -230,13 +233,16 @@ export class SignalKReadState {
             source,
             at,
             receivedAt: now,
-            message: v.message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160),
+            message: [...v.message]
+                .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? ' ' : char))
+                .join('')
+                .slice(0, 160),
             state: v.state as SignalKNotice['state'],
             soundRequested: Array.isArray(v.method) && v.method.length <= 4 && v.method.includes('sound'),
         };
         this.noticeClocks.set(key, at);
         this.notices.set(key, notice);
-        return { notice: { ...notice }, fresh: now - at >= 0 && now - at <= 10_000 && previous !== undefined };
+        return { notice: { ...notice }, fresh: now - at >= 0 && now - at <= 10_000 && at > this.startedAt };
     }
     notifications(now = Date.now()): SignalKNotice[] {
         return [...this.notices.values()].filter((n) => now - n.at <= 72 * 3600_000).map((n) => ({ ...n }));
@@ -247,7 +253,7 @@ export class SignalKReadState {
             const parts = path.split('.');
             let node = root;
             for (const key of parts.slice(0, -1)) {
-                node[key] ??= {};
+                if (!Object.hasOwn(node, key)) node[key] = {};
                 node = node[key] as Record<string, unknown>;
             }
             node[parts.at(-1)!] = {

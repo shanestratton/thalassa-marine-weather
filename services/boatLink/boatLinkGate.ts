@@ -18,6 +18,7 @@
  * connected" or a place. A boat with a Pi must not flash "No gateway" for the
  * moment the import takes.
  */
+import { readSignalKDeviceConfig } from '../signalk/config';
 import { NmeaListenerService } from '../NmeaListenerService';
 import { getPairing } from '../PiPairingService';
 import { createLogger } from '../../utils/createLogger';
@@ -46,7 +47,11 @@ export const BOAT_LINK_CHECKING: BoatLinkWords = {
 /** Any way to the boat's instruments: a Pi paired, or a gateway saved. Never throws. */
 export function boatLinkConfigured(): boolean {
     try {
-        return getPairing() !== null || NmeaListenerService.getSavedConfig() !== null;
+        return (
+            getPairing() !== null ||
+            NmeaListenerService.getSavedConfig() !== null ||
+            readSignalKDeviceConfig()?.selected === true
+        );
     } catch {
         return false;
     }

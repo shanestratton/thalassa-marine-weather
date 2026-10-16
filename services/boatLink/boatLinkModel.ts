@@ -186,7 +186,7 @@ export function resolveWhere(input: WhereInput): WhereResult {
  * PHONE published (the skipper's phone sharing what it reads, for crew or the
  * skipper's iPad): the boat's readings, but never the boat's position.
  */
-export type Lane = 'socket' | 'pi-direct' | 'cloud' | 'shared' | 'none';
+export type Lane = 'socket' | 'pi-direct' | 'cloud' | 'shared' | 'signalk' | 'none';
 /**
  * How it reaches this phone. 'direct' = a boat device answered and nothing
  * here can tell which path carried it (no interface data, place unknown).
@@ -324,7 +324,7 @@ export function fallbackSocketPermitted(
 
 export interface StoreFacts {
     status: SocketStatus | 'remote';
-    via: 'lan' | 'cloud' | null;
+    via: 'lan' | 'cloud' | 'signalk' | null;
     source: 'pi' | 'device' | null;
     /** The Pi's (or the bus's) reading time for the current feed. */
     readingAt: number | null;
@@ -336,6 +336,7 @@ export interface StoreFacts {
 export function resolveLane(store: StoreFacts): Lane {
     if (store.status === 'connected') return 'socket';
     if (store.status !== 'remote') return 'none';
+    if (store.via === 'signalk' && store.source === 'device') return 'signalk';
     if (store.source === 'device') return 'shared';
     if (store.source !== 'pi') return 'none';
     return store.via === 'lan' ? 'pi-direct' : 'cloud';
@@ -362,6 +363,7 @@ export function resolveKind(params: {
 }): LinkKind {
     const { lane, where, network, pi, gatewayHost, piHost = null } = params;
     if (lane === 'none') return 'none';
+    if (lane === 'signalk') return 'direct';
     if (lane === 'cloud' || lane === 'shared') return 'cloud';
     const byPlace = (deviceHost: string | null): LinkKind => {
         if (tunnelUp(network)) return where === 'aboard' ? 'boat-wifi' : 'private-network';
@@ -440,6 +442,7 @@ export function phoneMayStandInForBoat(params: {
     directEvidence: boolean;
 }): boolean {
     const { where, lane, data, directEvidence } = params;
+    if (lane === 'signalk') return false;
     if (where.where === 'aboard') return true;
     return (
         where.where === 'unknown' &&
@@ -558,7 +561,7 @@ export interface WordsInput {
     kind: LinkKind;
     networkName: 'Tailscale' | 'your VPN';
     data: DataResult;
-    setup: { piPaired: boolean; gatewaySaved: boolean; gatewayLabel: string };
+    setup: { piPaired: boolean; gatewaySaved: boolean; gatewayLabel: string; signalkConfigured?: boolean };
     socket: { status: SocketStatus; owner: SocketOwner };
     /**
      * With no lane now and the last reading still on screen ('stale'): the
@@ -586,7 +589,7 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
     const { where, lane, kind, networkName, data, setup, socket, last = null } = input;
     const place = placeWord(where.where);
     const prefix = place ? `${place} · ` : '';
-    const anySetup = setup.piPaired || setup.gatewaySaved;
+    const anySetup = setup.piPaired || setup.gatewaySaved || setup.signalkConfigured === true;
     const label = setup.gatewayLabel;
     const pi = setup.piPaired ? 'your Pi' : 'the boat’s Pi';
     const age = data.ageMs === null ? null : ageWords(data.ageMs);
@@ -639,6 +642,8 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
         line = viaPath ? `Reading the boat through ${pi}, ${viaPath}.` : `Reading the boat directly from ${pi}.`;
     } else if (lane === 'cloud') {
         line = `Reading the boat through ${setup.piPaired ? 'your' : 'the'} Pi’s internet updates.`;
+    } else if (lane === 'signalk') {
+        line = 'Reading the boat directly from Signal K · read only.';
     } else if (lane === 'shared') {
         line = 'Reading the boat through the skipper’s phone.';
     } else if (lane === 'socket') {
@@ -650,11 +655,13 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
     } else if (gone) {
         const lastPath = gone.lane === 'socket' ? pathWords(gone.kind) : null;
         const through =
-            gone.lane === 'socket'
-                ? `the ${label}${lastPath ? ` ${lastPath}` : ''}`
-                : gone.lane === 'shared'
-                  ? 'the skipper’s phone'
-                  : 'the boat’s Pi';
+            gone.lane === 'signalk'
+                ? 'Direct Signal K (read only)'
+                : gone.lane === 'socket'
+                  ? `the ${label}${lastPath ? ` ${lastPath}` : ''}`
+                  : gone.lane === 'shared'
+                    ? 'the skipper’s phone'
+                    : 'the boat’s Pi';
         line = `Last reading came through ${through}, ${age ?? 'some time'} ago.${
             gone.lane === 'socket' ? ' It isn’t connected now.' : ''
         }`;
@@ -678,6 +685,7 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
     let source: string | null = null;
     if (lane === 'pi-direct') source = `Pi ${pathShort}`;
     else if (lane === 'cloud') source = 'Pi through the cloud';
+    else if (lane === 'signalk') source = 'Direct Signal K · read only';
     else if (lane === 'shared') source = 'Skipper’s phone through the cloud';
     else if (lane === 'socket') source = fallback ? `${label} direct, Pi silent` : `${label} ${pathShort}`;
     else if (gone)
@@ -711,19 +719,21 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
                   : 'Not connected';
     const hubPath = kind === 'boat-wifi' ? 'boat Wi-Fi' : kind === 'private-network' ? networkName : null;
     const hubStatus =
-        lane === 'pi-direct'
-            ? `Through the Pi${hubPath ? ` · ${hubPath}` : ''}`
-            : lane === 'cloud'
-              ? 'Through the Pi · cloud'
-              : lane === 'shared'
-                ? 'Through the skipper’s phone'
-                : lane === 'socket'
-                  ? `${label}${fallback ? ' · Pi silent' : hubPath ? ` · ${hubPath}` : ''}`
-                  : gone && setup.piPaired
-                    ? 'Pi not answering'
-                    : gone?.lane === 'socket'
-                      ? `${label} · not connected`
-                      : 'Instruments & AIS';
+        lane === 'signalk'
+            ? 'Direct Signal K · read only'
+            : lane === 'pi-direct'
+              ? `Through the Pi${hubPath ? ` · ${hubPath}` : ''}`
+              : lane === 'cloud'
+                ? 'Through the Pi · cloud'
+                : lane === 'shared'
+                  ? 'Through the skipper’s phone'
+                  : lane === 'socket'
+                    ? `${label}${fallback ? ' · Pi silent' : hubPath ? ` · ${hubPath}` : ''}`
+                    : gone && setup.piPaired
+                      ? 'Pi not answering'
+                      : gone?.lane === 'socket'
+                        ? `${label} · not connected`
+                        : 'Instruments & AIS';
 
     return {
         pill,
