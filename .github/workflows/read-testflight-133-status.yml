@@ -1,0 +1,33 @@
+name: Thalassa 133 read-only beta status
+on:
+    push:
+        branches: ['codex/build-133-tester-status']
+        paths: ['.github/workflows/read-testflight-133-status.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-133-beta-status
+    cancel-in-progress: false
+jobs:
+    read:
+        name: Read Apple beta metadata only
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 04e3649d9b51c8b9a2408da35e8c64c755e612f9
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  package-manager-cache: false
+            - name: Test read-only destination, identity and pagination checks
+              run: node --test ci/build133/tester-status.test.mjs
+            - name: Read exact build 133 beta state and anonymous group counts
+              env:
+                  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+                  ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+              run: node ci/build133/tester-status.mjs
