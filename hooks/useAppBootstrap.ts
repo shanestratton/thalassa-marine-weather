@@ -139,6 +139,7 @@ export function useAppBootstrap() {
         let disposed = false;
         let stop: (() => void) | undefined;
         let stopWatchCheck: (() => void) | undefined;
+        let stopWakeRules: (() => void) | undefined;
         const load = () => {
             import('../services/underway/UnderwayAlarmWatch')
                 .then(({ startUnderwayAlarmWatch }) => {
@@ -150,6 +151,11 @@ export function useAppBootstrap() {
                     if (!disposed) stopWatchCheck = startWatchCheck();
                 })
                 .catch((err) => console.error('[Boot] watch check failed to start:', err?.message || err));
+            import('../services/alarms/wakeRuleRuntime')
+                .then(({ startWakeRuleRuntime }) => {
+                    if (!disposed) stopWakeRules = startWakeRuleRuntime();
+                })
+                .catch(() => console.error('[Boot] wake rules could not start'));
         };
         // WKWebView has no requestIdleCallback: a second after the first paint there.
         const idle = typeof window.requestIdleCallback === 'function';
@@ -160,6 +166,7 @@ export function useAppBootstrap() {
             else window.clearTimeout(handle);
             stop?.();
             stopWatchCheck?.();
+            stopWakeRules?.();
         };
     }, []);
 

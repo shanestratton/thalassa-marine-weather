@@ -16,17 +16,9 @@ import {
     type WakeSourceOption,
 } from '../../services/alarms/wakeRuleSources';
 import { validWakeRule, WAKE_PRESETS, wakeRuleKey, type WakePreset, type WakeRule } from '../../utils/wakeRule';
+import { WAKE_LABELS as LABELS } from '../../services/alarms/wakeRuleLabels';
+import { WakePiControls } from './WakePiControls';
 
-const LABELS: Record<WakePreset, string> = {
-    'depth-below-keel': 'Depth below keel',
-    'wind-above': 'True wind above',
-    'speed-below': 'Ground speed below',
-    'pressure-fall': 'Pressure fall / 3 h',
-    'engine-coolant-above': 'Engine coolant above',
-    'engine-oil-below': 'Engine oil pressure below',
-    'engine-rpm-above': 'Engine RPM above',
-    'battery-below': 'Battery voltage below',
-};
 const REFERENCES: Record<WakePreset, string> = {
     'depth-below-keel': 'Below keel',
     'wind-above': 'True wind over water',
@@ -139,7 +131,7 @@ function RuleForm({ preferences, onClose }: { preferences: WakeRulePreferences; 
             fitViewport
             footer={
                 <div className="space-y-2">
-                    <p role="status" className="text-xs text-amber-200">
+                    <p role="status" aria-label="Wake rule save status" className="text-xs text-amber-200">
                         {message ||
                             (externalChange
                                 ? 'Saved rules changed. Close and reopen to reload.'
@@ -161,7 +153,7 @@ function RuleForm({ preferences, onClose }: { preferences: WakeRulePreferences; 
             }
         >
             <div className="space-y-2">
-                <p className="text-xs text-gray-400">Phone watch needs the app active. Pi keeper not confirmed.</p>
+                <WakePiControls />
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
                     <label className={LABEL}>
                         Preset

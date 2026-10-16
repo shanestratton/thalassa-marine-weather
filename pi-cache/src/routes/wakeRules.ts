@@ -103,8 +103,9 @@ export function createWakeRuleRoutes(options: {
     router.get('/sensors', async (req, res) => {
         try {
             if (Object.keys(req.query).some((k) => k !== 'draftM')) throw new WakeKeeperError('invalid');
-            let draftM: number | undefined;
-            if (req.query.draftM !== undefined) {
+            let draftM: number | null | undefined;
+            if (req.query.draftM === 'none') draftM = null;
+            else if (req.query.draftM !== undefined) {
                 if (typeof req.query.draftM !== 'string' || !/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(req.query.draftM))
                     throw new WakeKeeperError('invalid');
                 draftM = Number(req.query.draftM);

@@ -58,6 +58,11 @@ import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { createAppJsonParser } from './appJson.js';
+import { PiWakeKeeper } from './wakeKeeper/runner.js';
+import { WakeKeeperStore } from './wakeKeeper/store.js';
+import { wakePairingId } from './wakeKeeper/contract.js';
+import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
@@ -338,6 +343,23 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+const wakeKeeper = new PiWakeKeeper({
+    store: new WakeKeeperStore(CACHE_DIR),
+    devices: chartDevices,
+    selfDocument,
+    identity: () => {
+        const config = diaryRelayOutbox.getConfiguration();
+        return config.ownerId && config.relayId
+            ? {
+                  ownerId: config.ownerId,
+                  piDeviceId: identity.deviceId,
+                  pairingId: wakePairingId(config.ownerId, identity.deviceId, config.relayId),
+              }
+            : null;
+    },
+});
+if (APP_API_ENABLED)
+    void wakeKeeper.start().catch(() => console.warn('[wake] keeper unavailable; review local storage'));
 // Read access never grants route writes. Only the operator's separately approved
 // token and explicit switch can enable this fixed course/resource surface.
 let courseClient: SignalKClient | null = null;
@@ -399,7 +421,7 @@ app.use('/api/enc', encNoStore);
 // simplification — the 100kb default would reject them on POST. ENC
 // imports go through a different code path (raw octet-stream / base64)
 // so they aren't affected by this limit.
-app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
+app.use(createAppJsonParser(UNSAFE_ADMIN_API_ENABLED));
 // Only her own devices can command the Pi (129-12): every route's class from
 // one table (piCommandLock.ts), before any route and after the body parser, so
 // a stand-down is told from an arm by its body. Observe until the skipper turns
@@ -1009,6 +1031,7 @@ app.use(
 // THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
+    app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
     app.use(
         '/api/signalk',
         requireAppApi,
@@ -1064,6 +1087,7 @@ if (APP_API_ENABLED) {
         '/api/underway-watch',
         '/api/signalk',
         '/api/course',
+        '/api/wake-rules',
         '/api/polars',
         '/api/offline-weather',
     ]) {
@@ -1231,6 +1255,7 @@ function shutdown() {
     });
     vaultLink?.stop();
     signalkRead?.stop();
+    wakeKeeper.stop();
     windHistory.stop();
     polarLearner.stop();
     underwayWatch.close();

@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
+import { createAppJsonParser } from '../appJson.js';
 import { EncDeviceStore, type BoatLanView } from '../encDevices.js';
 import { PiWakeKeeper } from '../wakeKeeper/runner.js';
 import { WakeKeeperStore } from '../wakeKeeper/store.js';
@@ -71,6 +72,7 @@ async function fixture(t: TestContext, earlierParser = false) {
     await keeper.tick();
     const app = express();
     if (earlierParser) app.use(express.json({ limit: '64kb' }));
+    else app.use(createAppJsonParser(false));
     app.use(
         '/api/wake-rules',
         (req, res, next) => {
@@ -157,6 +159,19 @@ test('actual HTTP configuration is exact bounded CAS; no path/URL/query surface 
     });
     assert.equal(response.status, 200);
     const config = (await response.json()).configuration;
+    const noDraft = await fetch(f.base + '/sensors?draftM=none', { headers: f.headers });
+    assert.equal(noDraft.status, 200);
+    assert.equal(
+        (await noDraft.json()).draftM,
+        null,
+        'another saved profile draft is never borrowed after an explicit none',
+    );
+    const inherited = await fetch(f.base + '/sensors', { headers: f.headers });
+    assert.equal(
+        (await inherited.json()).draftM,
+        2,
+        'omission retains the explicit existing Pi configuration contract',
+    );
     assert.equal(
         config.rules.every((r: { enabled: boolean }) => !r.enabled),
         true,

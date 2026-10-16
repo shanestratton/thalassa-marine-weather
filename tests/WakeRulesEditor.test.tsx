@@ -45,7 +45,7 @@ describe('wake rule editor configuration boundary', () => {
         expect(screen.getByLabelText('Enable selected wake rule')).toBeDisabled();
         choose('pressure-fall');
         expect(screen.getByText(/measured history is collecting/)).toBeVisible();
-        expect(screen.getByText(/Pi keeper not confirmed/)).toBeVisible();
+        expect(screen.getByText(/Phone only while the app is active/)).toBeVisible();
         expect(getWakeRulePreferences().saved).toBe(false);
     });
     it('saves only on explicit Save, with actual source/reference, holds and fixed-offset quiet hours', () => {
@@ -64,7 +64,7 @@ describe('wake rule editor configuration boundary', () => {
         fireEvent.change(screen.getByLabelText('UTC offset'), { target: { value: '600' } });
         expect(getWakeRulePreferences().saved).toBe(false);
         save();
-        expect(screen.getByRole('status')).toHaveTextContent('Saved.');
+        expect(screen.getByRole('status', { name: 'Wake rule save status' })).toHaveTextContent('Saved.');
         expect(getWakeRulePreferences().rules.find((rule) => rule.preset === wind.preset)).toEqual({
             ...defaultWakeRules().find((rule) => rule.preset === wind.preset),
             enabled: true,
@@ -84,7 +84,9 @@ describe('wake rule editor configuration boundary', () => {
         fireEvent.click(screen.getByLabelText('Enable selected wake rule'));
         vi.setSystemTime(T + 14_000);
         save();
-        expect(screen.getByRole('status')).toHaveTextContent('Sources or saved rules changed');
+        expect(screen.getByRole('status', { name: 'Wake rule save status' })).toHaveTextContent(
+            'Sources or saved rules changed',
+        );
         expect(getWakeRulePreferences().saved).toBe(false);
     });
     it('retains an unavailable enabled rule unchanged and allows explicit disabling', () => {
@@ -121,7 +123,7 @@ describe('wake rule editor configuration boundary', () => {
         const external = defaultWakeRules();
         external[0].threshold = 8;
         act(() => saveWakeRulePreferences(external, getAuthIdentityScope()));
-        expect(screen.getByRole('status')).toHaveTextContent('Close and reopen');
+        expect(screen.getByRole('status', { name: 'Wake rule save status' })).toHaveTextContent('Close and reopen');
         expect(screen.getByRole('button', { name: 'Save rules' })).toBeDisabled();
         expect(getWakeRulePreferences().rules[0].threshold).toBe(8);
     });
@@ -135,10 +137,12 @@ describe('wake rule editor configuration boundary', () => {
             localStorage.setItem(key, '{');
             window.dispatchEvent(new StorageEvent('storage', { key, storageArea: localStorage }));
         });
-        expect(screen.getByRole('status')).toHaveTextContent('Last valid rules are retained');
+        expect(screen.getByRole('status', { name: 'Wake rule save status' })).toHaveTextContent(
+            'Last valid rules are retained',
+        );
         expect(getWakeRulePreferences().rules[1].enabled).toBe(true);
         save();
-        expect(screen.getByRole('status')).toHaveTextContent('Saved.');
+        expect(screen.getByRole('status', { name: 'Wake rule save status' })).toHaveTextContent('Saved.');
         expect(getWakeRulePreferences().unreadable).toBe(false);
     });
     it('blocks malformed quiet hours and timing values without changing saved rules', () => {

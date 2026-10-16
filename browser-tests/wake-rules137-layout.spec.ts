@@ -42,7 +42,7 @@ for (const width of [300, 375])
         await opener.click();
         const dialog = page.getByRole('dialog', { name: 'Wake rules' });
         await expect(dialog).toBeVisible();
-        await expect(dialog.getByText(/Pi keeper not confirmed/)).toBeVisible();
+        await expect(dialog.getByText(/Phone only while the app is active/)).toBeVisible();
         for (const preset of presets) {
             await dialog.getByLabel('Preset', { exact: true }).selectOption(preset);
             const sources = dialog.getByLabel('Sensor source');
@@ -67,7 +67,7 @@ for (const width of [300, 375])
         await dialog.getByLabel('Enable selected wake rule').check();
         await dialog.getByLabel('Threshold (kn)').fill('30');
         await dialog.getByRole('button', { name: 'Save rules' }).click();
-        await expect(dialog.getByRole('status')).toHaveText('Saved.');
+        await expect(dialog.getByRole('status', { name: 'Wake rule save status' })).toHaveText('Saved.');
         await dialog.getByLabel('Minimum hold (s)').focus();
         await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:keyboard', { detail: 280 })));
         await expect.poll(() => page.locator('html').getAttribute('data-keyboard-open')).toBe('true');
@@ -102,5 +102,5 @@ test('empty qualified catalogue cannot enable a wake rule or claim a Pi keeper',
     await expect(dialog.getByLabel('Enable selected wake rule')).toBeDisabled();
     await expect(dialog.getByLabel('Enable selected wake rule')).not.toBeChecked();
     await expect(dialog.getByText(/No qualified live source/)).toBeVisible();
-    await expect(dialog.getByText(/Pi keeper not confirmed/)).toBeVisible();
+    await expect(dialog.getByText(/Phone only while the app is active/)).toBeVisible();
 });

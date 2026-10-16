@@ -36,6 +36,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test, type TestContext } from 'node:test';
 import express, { type Router } from 'express';
+import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { loadOrCreateIdentity } from './identity.js';
 import { EncDeviceStore, type BoatLanView } from './encDevices.js';
 import {
@@ -277,6 +278,7 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createRemoteAccessRoutes: createRemoteAccessRoutes(),
         createAisWatchRoutes: createAisWatchRoutes(watch),
         createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
+        createWakeRuleRoutes: createWakeRuleRoutes({ keeper: stub, devices }),
         createSignalKReadRoutes: createSignalKReadRoutes(
             {
                 notificationSnapshot: () => ({
@@ -1146,7 +1148,7 @@ test('the anchor watch keeps running through a refused stop, and still alarms wh
 
 test('server.ts: the lock is in front of every route, fed the chart door’s devices, the switch mounted, a renewal kept', () => {
     const lock = serverSource.indexOf('app.use(\n    createPiCommandLock({');
-    const json = serverSource.indexOf("app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));");
+    const json = serverSource.indexOf('app.use(createAppJsonParser(UNSAFE_ADMIN_API_ENABLED));');
     const firstRoute = serverSource.indexOf("app.get('/health'");
     assert.ok(lock > 0, 'the lock is mounted at the app level');
     assert.ok(json > 0 && json < lock, 'after the body parser, so a stand-down is read from its body');

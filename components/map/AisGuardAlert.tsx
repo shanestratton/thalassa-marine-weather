@@ -71,6 +71,8 @@ import {
 import { NIGHT_SCRIM_Z_INDEX } from '../ui/OverlayPortal';
 import { PiNightWatchStatus, type PiWatchAlarm } from '../../services/piNightWatchStatus';
 import { UnderwayAlarmStore, type UnderwayAlarmCard } from '../../services/underway/underwayAlarmStore';
+import { WakeAlarmStore } from '../../services/alarms/wakeAlarmStore';
+const WakeAlarmCards = React.lazy(() => import('./WakeAlarmCards').then((m) => ({ default: m.WakeAlarmCards })));
 
 const UnderwayAlarmCards = React.lazy(() =>
     import('./UnderwayAlarmCards').then((m) => ({ default: m.UnderwayAlarmCards })),
@@ -485,6 +487,12 @@ export const AisGuardAlert: React.FC = () => {
         return UnderwayAlarmStore.subscribe(sync);
     }, []);
     const showingUnderway = underway.cards.length > 0 || underway.notices.length > 0;
+    const [wake, setWake] = useState(WakeAlarmStore.get);
+    useEffect(() => {
+        const sync = () => setWake(WakeAlarmStore.get());
+        sync();
+        return WakeAlarmStore.subscribe(sync);
+    }, []);
 
     // On the Go to it page the followed beacon's card stands aside: it would
     // cover the bearing, and the page carries the same facts and its Silence.
@@ -493,12 +501,20 @@ export const AisGuardAlert: React.FC = () => {
     const shownDistress = view === 'mob' && goTo !== null ? distress.filter((b) => b.mmsi !== goTo) : distress;
 
     const status = notice ? noticeText(notice) : null;
-    if (alerts.length === 0 && !status && shownDistress.length === 0 && piAlarms.length === 0 && !showingUnderway) {
+    if (
+        alerts.length === 0 &&
+        !status &&
+        shownDistress.length === 0 &&
+        piAlarms.length === 0 &&
+        !showingUnderway &&
+        wake.length === 0
+    ) {
         return null;
     }
     const alarming =
         piAlarms.length > 0 ||
         underway.cards.some((c) => c.sounding) ||
+        wake.some((c) => !c.quiet && !c.muted) ||
         alerts.some((a) => a.collision && !a.collision.cleared) ||
         shownDistress.some((b) => AisGuardAlertStore.distressSounding(b));
     const piDistress = piAlarms.filter((a) => a.kind === 'distress');
@@ -571,12 +587,22 @@ export const AisGuardAlert: React.FC = () => {
                     <CollisionCard key={`c-${alert.mmsi}`} alert={alert as CollisionAlertCard} />
                 ))}
             {/* Shoal water, then off route (126-02a): under the collision cards, above the guard ring. */}
+            {wake.some((c) => c.preset === 'depth-below-keel') && (
+                <React.Suspense fallback={null}>
+                    <WakeAlarmCards cards={wake.filter((c) => c.preset === 'depth-below-keel')} />
+                </React.Suspense>
+            )}
             {showingUnderway && (
                 <UnderwayCardsBoundary cards={underway.cards} notices={underway.notices}>
                     <React.Suspense fallback={null}>
                         <UnderwayAlarmCards cards={underway.cards} notices={underway.notices} />
                     </React.Suspense>
                 </UnderwayCardsBoundary>
+            )}
+            {wake.some((c) => c.preset !== 'depth-below-keel') && (
+                <React.Suspense fallback={null}>
+                    <WakeAlarmCards cards={wake.filter((c) => c.preset !== 'depth-below-keel')} />
+                </React.Suspense>
             )}
             {alerts
                 .filter((alert) => !alert.collision)
