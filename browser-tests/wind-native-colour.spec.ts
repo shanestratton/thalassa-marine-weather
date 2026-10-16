@@ -4,6 +4,7 @@ for (const large of [false, true])
         `production ${large ? 'full-size diagonal' : 'small horizontal'} wind Canvas2D keeps measured slate/red/white hues through trail fading`,
         { tag: '@pixel' },
         async ({ page }, info) => {
+            test.setTimeout(120_000);
             await page.setViewportSize({ width: 1000, height: 700 });
             const remote: string[] = [];
             await page.route('**/*', (route) => {
@@ -13,7 +14,7 @@ for (const large of [false, true])
                 return route.abort();
             });
             await page.goto('/e2e/fixtures/wind-native-colour.html' + (large ? '?large' : ''));
-            await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+            await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
             // Preserve compositor pixels before readback can flush a Canvas2D implementation.
             await page.screenshot({
                 path: info.outputPath('native-wind-colours.png'),

@@ -30,17 +30,18 @@ describe('the actual native field blend recipe', () => {
             const fills = ctx.log.filter((x) => x.kind === 'fill'),
                 strokes = ctx.log.filter((x) => x.kind === 'stroke');
             expect(fills).toHaveLength(2);
-            expect(
-                fills.every(
-                    (x) => x.op === 'destination-in' && x.alpha === 0.98 * 0.9 && x.colour === 'rgba(0,0,0,0.98)',
-                ),
-            ).toBe(true);
+            expect(fills.every((x) => x.op === 'destination-out' && x.colour === '#000000')).toBe(true);
+            for (const fill of fills) {
+                // Destination-out preserves old premultiplied colour and multiplies alpha by 1-A.
+                expect(1 - fill.alpha).toBeCloseTo(0.98 * (0.98 * 0.9), 12);
+            }
             expect(strokes.length).toBeGreaterThan(0);
             expect(
                 strokes.every(
                     (x) =>
                         x.op === (palette === 'light' ? 'source-over' : 'lighter') &&
                         x.width === (palette === 'light' ? 1.5 : 1) &&
+                        x.alpha === 0.98 * 0.9 &&
                         x.colour === windParticleColorForKt(26, palette),
                 ),
             ).toBe(true);

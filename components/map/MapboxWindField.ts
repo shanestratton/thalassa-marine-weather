@@ -318,11 +318,14 @@ export class MapboxWindField {
             this.then = time - (this.then ? (time - this.then) % FRAME_MS : 0);
             const ctx = this.ctx!;
             const fade = this.options.fade ?? 0.98;
-            // Preserve the former field's carried alpha and separate Light/dark blend recipes.
-            ctx.globalAlpha = fade * 0.9;
-            ctx.globalCompositeOperation = 'destination-in';
-            ctx.fillStyle = `rgba(0,0,0,${fade})`;
+            // Same retained alpha as destination-in at fade * (fade * 0.9).
+            // Erasing its complement avoids full-size WebKit trails taking a later stroke's tint.
+            const inkAlpha = fade * 0.9;
+            ctx.globalAlpha = 1 - fade * inkAlpha;
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, this.width, this.height);
+            ctx.globalAlpha = inkAlpha;
             ctx.globalCompositeOperation = this.options.palette === 'light' ? 'source-over' : 'lighter';
             ctx.lineWidth = this.options.lineWidth ?? 1;
             const colours = this.options.palette === 'light' ? WIND_PARTICLE_COLORS_LIGHT : WIND_PARTICLE_COLORS;
