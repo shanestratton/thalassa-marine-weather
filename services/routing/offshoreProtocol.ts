@@ -14,7 +14,7 @@ export interface OffshoreJob {
     wind: WindGrid;
     bathymetry: BathymetryGrid;
     environment: IsochroneEnvironmentSnapshot;
-    config: Omit<Partial<IsochroneConfig>, 'shouldContinue'>;
+    config: Omit<Partial<IsochroneConfig>, 'shouldContinue' | 'segmentAllowed'>;
     deadlineMs: number;
 }
 export interface OffshoreCandidate {

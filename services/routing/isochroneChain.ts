@@ -24,6 +24,8 @@ function clockedGeometry(result: IsochroneResult, departureMs: number): boolean 
         result.route.length >= 2 &&
         result.route.length <= 8192 &&
         result.routeCoordinates.length === result.route.length &&
+        result.shallowFlags.length === result.route.length &&
+        result.shallowFlags.every((value) => typeof value === 'boolean') &&
         Number.isFinite(result.totalDurationHours) &&
         result.totalDurationHours >= 0 &&
         Number.isFinite(result.totalDistanceNM) &&
@@ -69,6 +71,13 @@ export async function computeVerifiedIsochroneChain(input: {
         monotonicEnd = performance.now() + budget;
     const abort = new AbortController(),
         timer = setTimeout(() => abort.abort(), Math.max(1, budget));
+    const contextTimer = setInterval(() => {
+        try {
+            if (!(input.shouldContinue?.() ?? true)) abort.abort();
+        } catch {
+            abort.abort();
+        }
+    }, 100);
     const current = () =>
         !abort.signal.aborted &&
         Date.now() < input.deadlineMs &&
@@ -127,6 +136,7 @@ export async function computeVerifiedIsochroneChain(input: {
         return final.result;
     } finally {
         clearTimeout(timer);
+        clearInterval(contextTimer);
         abort.abort();
     }
 }

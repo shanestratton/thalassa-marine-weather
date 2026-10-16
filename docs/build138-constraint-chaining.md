@@ -1,8 +1,9 @@
 # Build 138: must-pass and leave-side chaining
 
-The first core checkpoint defines bounded user-authored constraints and a
-shared ordered-leg executor. It is preparation for wiring the planner and
-tracer; an unreferenced helper alone does not complete 138-08.
+The planner now sends an explicit via request through a shared ordered-leg
+executor before any direct-route shortcut. The actual inshore and offshore
+engines retain their existing chart and land verification. This checkpoint
+does not yet complete Tracer editing, persistence or reviewed re-plan vias.
 
 Each ordinary via is an exact required vertex. A leave-side mark instead has
 an explicit 5–2000 m passing-point offset, shown to the user, and a forbidden
@@ -22,8 +23,15 @@ pin refuses the complete result. Fixed limits are 256 intermediate marks,
 8192 final vertices and 50,000 aggregate frontier nodes; no chart resident or
 offline cache limit changes.
 
+The offshore engine applies the forbidden-side guard during expansion and
+after smoothing/recovery. Inshore results are refused if their line crosses
+that guard. A required hop under 15 NM cannot use an offshore shortcut when
+the charted engine is unavailable. The final whole-route chart, land,
+weather-coverage and ordered-point checks must all pass before route actions
+become available. Short/coastal legs retain cruising-speed estimates with
+unknown propulsion and local-current caveats.
+
 Remaining wiring must carry user constraints through GPX, Tracer save/restore,
-per-leg Auto and reviewed re-plans, and must apply the forbidden-side segment
-guard during expansion and after every chart/smoothing pass. Generated shape
+per-leg Auto and reviewed re-plans. Generated shape
 points must not silently become new user constraints. The actual planner
 cannot expose Save/Export/Follow until its complete final verdict passes.

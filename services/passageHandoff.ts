@@ -25,6 +25,8 @@ export interface PassagePoint {
     lat: number;
     lon: number;
     name?: string;
+    leaveSide?: 'port' | 'starboard';
+    standOffM?: number;
 }
 
 export interface PassageHandoffDetail {

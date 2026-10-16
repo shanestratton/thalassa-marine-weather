@@ -22,6 +22,7 @@ const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
 import {
     computeRoute,
+    computeRouteFromPolyline,
     type RouteWaypoint,
     type RouteAnalysis,
     type RouteSegment,
@@ -82,6 +83,7 @@ import type { RouteHazardReport } from '../../services/enc/EncHazardReportServic
 import { readRouteReplan, cancelRouteReplan, setRouteReplan } from '../../services/routing/routeReplanSession';
 import { sampleWindGrid } from '../../services/weather/importedGribSample';
 import { useRouteReplanPreview, clearRouteReplanReference } from './useRouteReplanPreview';
+import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -97,7 +99,7 @@ function clearComfortZoneOverlay(map: mapboxgl.Map): void {
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
     arrival: { lat: number; lon: number; name: string } | null;
-    viaWaypoints: { lat: number; lon: number; name: string }[];
+    viaWaypoints: Array<RouteConstraintPoint & { name: string }>;
     departureTime: string;
     speed: number;
     routeAnalysis: RouteAnalysis | null;
@@ -233,7 +235,7 @@ function pushToPassageStore(
 export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
     const [departure, setDeparture] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const [arrival, setArrival] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [viaWaypoints, setViaWaypoints] = useState<{ lat: number; lon: number; name: string }[]>([]);
+    const [viaWaypoints, setViaWaypoints] = useState<Array<RouteConstraintPoint & { name: string }>>([]);
     const [departureTime, setDepartureTime] = useState('');
     const [speed, setSpeed] = useState(6);
     const replanTokenRef = useRef<string | null>(peekPassageRequest()?.replanToken ?? null);
@@ -513,6 +515,139 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             } catch {
                 /* */
             }
+        }
+
+        // A VIA request is one ordered cohort. The existing direct-route
+        // shortcuts must never return a route that silently drops those pins.
+        if (viaWaypoints.length) {
+            const settingsSnapshot = structuredClone(useSettingsStore.getState().settings);
+            const selectedBoat = useSettingsStore.getState().activeVesselId;
+            const depIso = departureTime || new Date().toISOString();
+            const policyKey = isochroneRoutingContext(depIso, settingsSnapshot);
+            const current = () =>
+                computeGenRef.current === gen &&
+                mapRef.current === map &&
+                getAuthIdentityScope().key === operationScope.key &&
+                getAuthIdentityScope().generation === operationScope.generation &&
+                useSettingsStore.getState().activeVesselId === selectedBoat &&
+                isochroneRoutingContext(depIso, useSettingsStore.getState().settings) === policyKey;
+            const preview: GeoJSON.Feature<GeoJSON.LineString> = {
+                type: 'Feature',
+                properties: { safety: 'unverified', verification: 'unverified', dashed: true },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [departure, ...viaWaypoints, arrival].map((p) => [p.lon, p.lat]),
+                },
+            };
+            commitDisplayedRoute(
+                map,
+                [preview],
+                'pending',
+                'ordered waypoint legs and final chart verification are running',
+            );
+            dispatchPassageNotice({
+                severity: 'info',
+                title: 'Checking every required waypoint…',
+                message: 'One bounded route job; every pin and the complete final line must pass verification.',
+            });
+            try {
+                const { computeConstrainedPassage } = await import('../../services/routing/constrainedPassage');
+                const route = await computeConstrainedPassage({
+                    origin: departure,
+                    destination: arrival,
+                    vias: viaWaypoints,
+                    departureTime: depIso,
+                    speed,
+                    settings: settingsSnapshot,
+                    model: WindStore.getState().model,
+                    privateWind: replanBase?.wind,
+                    deadlineMs: replanBase?.deadlineMs ?? Date.now() + 60000,
+                    stillCurrent: current,
+                    inshoreEvidence: (r) => ({
+                        masksVerified: !!inshoreSegmentStates(r),
+                        caveats: inshoreRouteCaveats({ ...r, nearShallow: nearShallowSummary(r.chartedShallowSpans) }),
+                    }),
+                });
+                if (!current()) return;
+                const base = computeRouteFromPolyline(route.result.routeCoordinates, {
+                    speed,
+                    departureTime: new Date(depIso),
+                });
+                const analysis = withRouteEstimates(
+                    {
+                        ...base,
+                        totalDistance: route.result.totalDistanceNM,
+                        estimatedDuration: route.result.totalDurationHours,
+                        arrivalTime: route.result.arrivalTime,
+                        averageSpeed:
+                            route.result.totalDurationHours > 0
+                                ? route.result.totalDistanceNM / route.result.totalDurationHours
+                                : speed,
+                    },
+                    route.result.sailingStats,
+                    settingsSnapshot.vessel,
+                    route.result.comfort,
+                );
+                setRouteAnalysis(analysis);
+                setRouteCaveats(route.result.environmentNotes ?? []);
+                setRoutingPolarLabel(route.polarLabel);
+                routeCellsRef.current = route.cells;
+                isoResultRef.current = route.result;
+                turnWaypointsRef.current = route.turns;
+                commitDisplayedRoute(
+                    map,
+                    route.result.routeCoordinates.slice(1).map((point, i) => ({
+                        type: 'Feature',
+                        properties: {
+                            safety:
+                                route.result.shallowFlags[i] || route.result.shallowFlags[i + 1] ? 'danger' : 'safe',
+                            verification: 'verified',
+                        },
+                        geometry: { type: 'LineString', coordinates: [route.result.routeCoordinates[i], point] },
+                    })),
+                    'verified',
+                );
+                pushToPassageStore(
+                    route.result,
+                    route.turns,
+                    departure,
+                    arrival,
+                    analysis,
+                    depIso,
+                    speed,
+                    operationScope,
+                );
+                dispatchPassageNotice(null);
+                const source = map.getSource('waypoints') as mapboxgl.GeoJSONSource | undefined;
+                source?.setData({
+                    type: 'FeatureCollection',
+                    features: route.points.map((p, i) => ({
+                        type: 'Feature',
+                        properties: {
+                            name:
+                                p.name ??
+                                (i === 0 ? 'Departure' : i === route.points.length - 1 ? 'Arrival' : `VIA${i}`),
+                            color: i === 0 ? '#10b981' : i === route.points.length - 1 ? '#ef4444' : '#fbbf24',
+                        },
+                        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+                    })),
+                });
+            } catch (error) {
+                if (!current()) return;
+                isoResultRef.current = null;
+                turnWaypointsRef.current = [];
+                setRouteAnalysis(null);
+                PassageStore.clear(operationScope);
+                const reason =
+                    error instanceof Error ? error.message : 'The complete waypoint route could not be verified.';
+                commitDisplayedRoute(map, [preview], 'unverified', reason);
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Waypoint route not verified',
+                    message: reason + ' Every required point stays in the request; no direct shortcut was substituted.',
+                });
+            }
+            return;
         }
 
         // Forward bearing (needed for both short and long route paths)
@@ -3033,7 +3168,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
         }, 100);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [departure, arrival, departureTime, speed, showPassage]);
+    }, [departure, arrival, viaWaypoints, departureTime, speed, showPassage]);
 
     // Auto-compute when both points set + map ready
     useEffect(() => {
