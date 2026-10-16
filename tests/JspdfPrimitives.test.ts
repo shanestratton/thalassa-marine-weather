@@ -14,7 +14,7 @@ import { installFakeCanvas } from './helpers/jspdfPages';
 const root = process.cwd();
 const source = fs.readFileSync(path.join(root, 'node_modules/jspdf/dist/jspdf.es.js'), 'utf8');
 const published = fs.readFileSync(path.join(root, 'node_modules/jspdf/dist/jspdf.es.min.js'), 'utf8');
-const trimmed = pruneJspdfPlugins(source, parseAst);
+const trimmed = pruneJspdfPlugins(source, parseAst, { acroform: true });
 type PdfConstructor = typeof jsPDF;
 let original: PdfConstructor, pruned: PdfConstructor;
 
@@ -68,13 +68,65 @@ function blobBytes(blob: Blob): Promise<Uint8Array> {
 }
 
 describe('reviewed jsPDF primitive build', () => {
+    it('proves removed AcroForm bindings have no outside consumers except its twelve removed exports', () => {
+        const file = fs.realpathSync(path.join(root, 'node_modules/jspdf/dist/jspdf.es.js'));
+        const program = ts.createProgram([file], { allowJs: true, noLib: true, noResolve: true });
+        const checker = program.getTypeChecker(),
+            tree = program.getSourceFile(file)!;
+        const start = source.indexOf('var jsPDFAPI = jsPDF.API;');
+        const end = source.indexOf('var AcroForm = jsPDF.AcroForm;') + 'var AcroForm = jsPDF.AcroForm;'.length;
+        const symbols = new Set<ts.Symbol>();
+        function collect(node: ts.Node) {
+            if (
+                node.getStart(tree) >= start &&
+                node.end <= end &&
+                (ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node)) &&
+                node.name &&
+                ts.isIdentifier(node.name)
+            ) {
+                const symbol = checker.getSymbolAtLocation(node.name);
+                if (symbol) symbols.add(symbol);
+            }
+            ts.forEachChild(node, collect);
+        }
+        collect(tree);
+        const references: string[] = [];
+        function inspect(node: ts.Node) {
+            if (ts.isIdentifier(node) && (node.getStart(tree) < start || node.end > end)) {
+                let symbol = checker.getSymbolAtLocation(node);
+                if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+                if (symbol && symbols.has(symbol)) {
+                    expect(ts.isExportSpecifier(node.parent), node.text).toBe(true);
+                    references.push(node.text);
+                }
+            }
+            ts.forEachChild(node, inspect);
+        }
+        inspect(tree);
+        expect(references).toEqual([
+            'AcroForm',
+            'AcroFormAppearance',
+            'AcroFormButton',
+            'AcroFormCheckBox',
+            'AcroFormChoiceField',
+            'AcroFormComboBox',
+            'AcroFormEditBox',
+            'AcroFormListBox',
+            'AcroFormPasswordField',
+            'AcroFormPushButton',
+            'AcroFormRadioButton',
+            'AcroFormTextField',
+        ]);
+    });
     it('removes exactly three complete AST IIFEs and rejects any unreviewed bytes', () => {
         expect(trimmed.plugins.sort()).toEqual(['canvas', 'context2d', 'html']);
         expect(() => parseAst(trimmed.code)).not.toThrow();
         expect(() => pruneJspdfPlugins(source + '\n', parseAst)).toThrow(/Unreviewed jsPDF ESM source/);
         expect(() => pruneJspdfPlugins(source.replace('Context2D', 'Context3D'), parseAst)).toThrow();
         expect(trimmed.code).toContain('jsPDFAPI.processWEBP');
-        expect(trimmed.code).toContain('AcroFormAppearance');
+        expect(trimmed.acroFormRemoved).toBe(true);
+        expect(trimmed.code).not.toContain('AcroFormAppearance');
+        expect(pruneJspdfPlugins(source, parseAst).code).toContain('AcroFormAppearance');
     });
     it('is production-build-only and resolves the reviewed browser module', () => {
         const plugin = jspdfPrimitives(root);
@@ -111,6 +163,12 @@ describe('reviewed jsPDF primitive build', () => {
                 if (member === 'html' || member === 'context2d') offenders.push(file);
                 if (
                     pdfConsumer &&
+                    ts.isIdentifier(node) &&
+                    (node.text === 'addField' || node.text.startsWith('AcroForm') || node.text === '__acroform__')
+                )
+                    offenders.push(file);
+                if (
+                    pdfConsumer &&
                     member === 'canvas' &&
                     ts.isPropertyAccessExpression(node) &&
                     node.expression.kind !== ts.SyntaxKind.ThisKeyword
@@ -122,7 +180,7 @@ describe('reviewed jsPDF primitive build', () => {
         }
         expect(offenders).toEqual([]);
     });
-    it('preserves all actual PDF primitives, image decoders and AcroForm methods', () => {
+    it('preserves all actual PDF primitives and image decoders with no unused form registration', () => {
         const base = new original(),
             doc = new pruned();
         for (const name of [
@@ -134,7 +192,6 @@ describe('reviewed jsPDF primitive build', () => {
             'processJPEG',
             'processWEBP',
             'processRGBA',
-            'addField',
             'splitTextToSize',
         ]) {
             expect(typeof doc[name as keyof jsPDF], name).toBe(typeof base[name as keyof jsPDF]);
@@ -143,6 +200,8 @@ describe('reviewed jsPDF primitive build', () => {
         expect('context2d' in doc).toBe(false);
         expect('canvas' in doc).toBe(false);
         expect('html' in doc).toBe(false);
+        expect('addField' in doc).toBe(false);
+        expect('AcroForm' in doc).toBe(false);
     });
     it('keeps real float-plan, checklist, service-history and hourly-route PDFs byte-identical', async () => {
         vi.useFakeTimers({ now: PDF_FIXTURE_NOW, toFake: ['Date'] });

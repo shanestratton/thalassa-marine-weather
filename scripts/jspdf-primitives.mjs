@@ -1,6 +1,7 @@
 /** Remove only the unused, self-contained HTML/canvas emulation plugins from
- * the reviewed jsPDF browser build. PDF primitives, image formats, fonts and
- * AcroForm stay intact. Unknown package bytes or AST structure fail closed. */
+ * the reviewed jsPDF browser build. PDF primitives, image formats and fonts
+ * stay intact. The optional AcroForm cut removes its reviewed, unused
+ * registration region only. Unknown bytes or AST structure fail closed. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -13,12 +14,28 @@ const PLUGINS = {
     html: { symbol: 'loadHtml2Canvas', sha: '66e22063645153124ff2789f9f0be81c8007f7ae07fb85bae55978822b805f6d' },
 };
 const sha = (code) => createHash('sha256').update(code).digest('hex');
+const ACROFORM_SHA256 = '5101634ff10803fcd6a17b731426c401355534cd915f5b4ecadc99dc11010fd7';
+const ACROFORM_EXPORTS = [
+    'AcroForm',
+    'AcroFormAppearance',
+    'AcroFormButton',
+    'AcroFormCheckBox',
+    'AcroFormChoiceField',
+    'AcroFormComboBox',
+    'AcroFormEditBox',
+    'AcroFormListBox',
+    'AcroFormPasswordField',
+    'AcroFormPushButton',
+    'AcroFormRadioButton',
+    'AcroFormTextField',
+];
 
 /** @param {string} code @param {(source:string)=>any} parse */
-export function pruneJspdfPlugins(code, parse) {
+export function pruneJspdfPlugins(code, parse, { acroform = false } = {}) {
     if (sha(code) !== JSPDF_ES_SHA256) throw Error('Unreviewed jsPDF ESM source; review the primitive-only transform');
     const found = new Map();
-    for (const node of parse(code).body) {
+    const program = parse(code);
+    for (const node of program.body) {
         const call = node.type === 'ExpressionStatement' ? node.expression : null;
         if (
             call?.type !== 'CallExpression' ||
@@ -49,10 +66,40 @@ export function pruneJspdfPlugins(code, parse) {
     if (found.size !== 3) throw Error('Expected exactly three reviewed jsPDF HTML/canvas plugins');
     const output = new MagicString(code);
     for (const node of found.values()) output.remove(node.start, node.end);
+    if (acroform) {
+        const declaration = (name) =>
+            program.body.filter(
+                (node) =>
+                    node.type === 'VariableDeclaration' && node.declarations.some((item) => item.id.name === name),
+            );
+        const first = declaration('jsPDFAPI'),
+            last = declaration('AcroForm');
+        if (first.length !== 1 || last.length !== 1 || sha(code.slice(first[0].start, last[0].end)) !== ACROFORM_SHA256)
+            throw Error('Unreviewed jsPDF AcroForm registration region');
+        const exports = program.body.filter((node) => node.type === 'ExportNamedDeclaration');
+        if (exports.length !== 1 || exports[0].declaration || exports[0].source)
+            throw Error('Unreviewed jsPDF export structure');
+        const removed = exports[0].specifiers.filter((item) => ACROFORM_EXPORTS.includes(item.local.name));
+        if (
+            removed.length !== ACROFORM_EXPORTS.length ||
+            removed.some((item, index) => item.local.name !== ACROFORM_EXPORTS[index])
+        )
+            throw Error('Unreviewed jsPDF AcroForm exports');
+        output.remove(first[0].start, last[0].end);
+        output.overwrite(
+            exports[0].start,
+            exports[0].end,
+            `export {${exports[0].specifiers
+                .filter((item) => !ACROFORM_EXPORTS.includes(item.local.name))
+                .map((item) => code.slice(item.start, item.end))
+                .join(',')}};`,
+        );
+    }
     return {
         code: output.toString(),
         map: output.generateMap({ source: 'jspdf.es.js', includeContent: true, hires: true }),
         plugins: [...found.keys()],
+        acroFormRemoved: acroform,
     };
 }
 
@@ -76,7 +123,7 @@ export function jspdfPrimitives(root) {
         },
         transform(code, id) {
             if (!enabled || path.resolve(id.split('?')[0]) !== source) return null;
-            const result = pruneJspdfPlugins(code, (value) => this.parse(value));
+            const result = pruneJspdfPlugins(code, (value) => this.parse(value), { acroform: true });
             return { code: result.code, map: result.map };
         },
     };
