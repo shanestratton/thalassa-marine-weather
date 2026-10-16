@@ -88,6 +88,7 @@ describe('native field sampling and ownership', () => {
     it('draws crisp Retina ink at the same CSS width and particle density with a bounded backing store', () => {
         vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(3);
         const h = setup();
+        expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalledWith('2d', { willReadFrequently: true });
         expect(h.field.canvas.width).toBe(780);
         expect(h.field.canvas.style.width).toBe('390px');
         expect(h.ctx.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0);
