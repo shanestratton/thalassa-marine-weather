@@ -67,6 +67,7 @@ export interface ThalassaRouteDisclosure {
     surveyRuns?: SurveyRunInfo[];
     surveyUncheckedCells?: string[];
     structuresUnknownCells?: string[];
+    exclusionsUnchecked?: boolean;
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
     tideCheck?: 'not-loaded';
     destinationInlandTrimM?: number;
