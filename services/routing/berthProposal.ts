@@ -14,6 +14,8 @@ import {
     type BerthPortalLease,
 } from './berthToBerth';
 import { withDeadline } from '../../utils/deadline';
+import { RoutingExclusionFailure, isRoutingExclusionFailure } from './passageExclusions';
+import { routingExclusionContextKey } from './routingExclusions';
 
 /** Carry per-segment facts and their indices across exact concatenation. No
  * invented chart depth, survey grade, tide datum or propulsion is added. */
@@ -271,6 +273,7 @@ export async function calculateBerthProposal(
         const owned = leases;
         if (!owned || owned.length !== 2 || !owned[0] || !owned[1])
             throw Error('Complete charted berth portals are unavailable. Review the passage again.');
+        let acceptedAreaKey: string | undefined;
         const mixed = await computeBerthToBerth({
             origin: request.departure,
             destination: request.destination,
@@ -308,7 +311,7 @@ export async function calculateBerthProposal(
                     };
                 } catch (error) {
                     check();
-                    if (leg.signal.aborted) throw error;
+                    if (leg.signal.aborted || isRoutingExclusionFailure(error)) throw error;
                     return null;
                 }
             },
@@ -336,6 +339,8 @@ export async function calculateBerthProposal(
             verify: async (candidate, stillCurrent, remaining) => {
                 options.onProgress?.('Checking the entire berth-to-berth line and both joins…');
                 const verdict: { current: 'verified' | 'unverified' } = { current: 'unverified' };
+                let areaCaveats: readonly string[] = [];
+                const validationAreaKey = routingExclusionContextKey();
                 const route = await withDeadline(
                     validateRouteSegments(candidate.route, {
                         vesselDraftM: request.draftM,
@@ -343,6 +348,10 @@ export async function calculateBerthProposal(
                         departureTimeMs: departureMs,
                         stillCurrent: () => current() && stillCurrent(),
                         publishReport: false,
+                        signal: abort.signal,
+                        onRouteAreaCaveats: (notes) => {
+                            areaCaveats = notes;
+                        },
                         onVerificationOutcome: (outcome) => {
                             verdict.current = outcome.status;
                         },
@@ -350,14 +359,30 @@ export async function calculateBerthProposal(
                     remaining(),
                     'whole berth chart/depth/land check',
                 );
+                if (routingExclusionContextKey() !== validationAreaKey)
+                    throw new RoutingExclusionFailure(
+                        'exclusion-unavailable',
+                        'The passage area policy changed before acceptance. Review the route again.',
+                    );
                 check();
+                acceptedAreaKey = validationAreaKey;
                 return {
                     verified: verdict.current === 'verified',
-                    result: { ...candidate, route, routeCoordinates: route.map((p) => [p.lon, p.lat]) },
+                    result: {
+                        ...candidate,
+                        route,
+                        routeCoordinates: route.map((p) => [p.lon, p.lat]),
+                        environmentNotes: [...new Set([...(candidate.environmentNotes ?? []), ...areaCaveats])],
+                    },
                     reason: 'The complete terminal-expanded berth line did not pass current chart/depth/land verification.',
                 };
             },
         });
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'The passage area policy changed before acceptance. Review the route again.',
+            );
         check();
         const engine = berthDisclosure(mixed, performance.now() - start);
         const warnings = [

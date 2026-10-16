@@ -6,6 +6,8 @@ export const ROUTING_AREA_CAVEATS = [
     'Retained marine park data has expired; marine park caution is unavailable.',
     'Marine park geometry exceeds this route window’s bounded budget; marine park caution is unavailable.',
     'No verified marine park dataset is retained; marine park caution is unavailable.',
+    'The finished passage intersects an indicative marine park footprint. Check current local rules; the footprint grants no permission or clearance.',
+    'Offshore charted restricted areas, traffic separation zones and traffic-lane direction have not been fully checked; review original charts and local rules.',
 ] as const;
 
 export function knownRouteAreaCaveats(value: unknown): string[] {
