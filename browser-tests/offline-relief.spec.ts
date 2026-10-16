@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { RELIEF_WEB_CACHE } from '../services/offlineReliefPlan';
+import { RELIEF_WEB_CACHE, RELIEF_WEB_MANIFEST_PATH } from '../services/offlineReliefPlan';
 const servers: Server[] = [];
 test.afterEach(async () => {
     for (const server of servers.splice(0)) {
@@ -202,7 +202,7 @@ test('saved terrain renders after an offline cold restart through the real servi
     );
     expect(
         keys
-            .filter((url) => !url.includes('__offline-relief-manifest'))
+            .filter((url) => new URL(url).pathname !== RELIEF_WEB_MANIFEST_PATH)
             .every((url) => url.startsWith('https://tiles.thalassatiles.com/v1/relief-')),
     ).toBe(true);
     // Mapbox may ask for finer, unsaved tiles before overzooming a saved parent.
