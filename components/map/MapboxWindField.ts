@@ -123,7 +123,8 @@ export class MapboxWindField {
         this.canvas = document.createElement('canvas');
         Object.assign(this.canvas.style, { position: 'absolute', transformOrigin: '50% 50%' });
         this.element.appendChild(this.canvas);
-        this.ctx = this.canvas.getContext('2d');
+        // A read-optimized backing avoids large accelerated WebKit canvases corrupting carried ink.
+        this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
         map.getContainer().appendChild(this.element);
         fields.set(map, this);
         map.on('move', this.onMove);
