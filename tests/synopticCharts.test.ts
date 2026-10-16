@@ -87,7 +87,7 @@ describe('bounded official chart bytes and proxy', () => {
         expect(fetcher).toHaveBeenCalledWith(
             synopticChart('opc-atl-analysis')!.url,
             expect.objectContaining({
-                redirect: 'error',
+                redirect: 'manual',
                 credentials: 'omit',
                 headers: { Accept: 'image/gif', 'User-Agent': 'Thalassa/1.2 (+https://www.thalassawx.app)' },
             }),
@@ -108,6 +108,27 @@ describe('bounded official chart bytes and proxy', () => {
         expect(result.headers.get('x-thalassa-upstream-status')).toBe('403');
         expect(result.headers.get('cache-control')).toBe('no-store');
         expect(await result.text()).toBe('Official chart unavailable');
+    });
+    it('refuses redirects and partial images without following their target', async () => {
+        const fetcher = vi.fn();
+        vi.stubGlobal('fetch', fetcher);
+        for (const status of [301, 302, 307, 308, 206]) {
+            fetcher.mockResolvedValueOnce(
+                new Response(gif, {
+                    status,
+                    headers: { 'content-type': 'image/gif', location: 'https://evil.test/chart.gif' },
+                }),
+            );
+            const result = await handler(new Request('https://example.test/api/synoptic-chart?id=opc-atl-analysis'));
+            expect(result.status).toBe(502);
+            expect(result.headers.get('x-thalassa-upstream-status')).toBe(String(status));
+        }
+        expect(fetcher).toHaveBeenCalledTimes(5);
+        expect(
+            fetcher.mock.calls.every(
+                ([url, init]) => url === synopticChart('opc-atl-analysis')!.url && init.redirect === 'manual',
+            ),
+        ).toBe(true);
     });
     it('suppresses network exceptions while distinguishing that no HTTP response arrived', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('private diagnostic')));

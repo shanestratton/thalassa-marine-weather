@@ -27,7 +27,9 @@ export default async function handler(request: Request): Promise<Response> {
     try {
         const response = await fetch(chart.url, {
             signal: controller.signal,
-            redirect: 'error',
+            // Edge isolates can reject redirect:'error' before sending. Manual
+            // still forbids following a redirect; readChartBytes rejects 3xx.
+            redirect: 'manual',
             credentials: 'omit',
             headers: { Accept: chart.mime, 'User-Agent': 'Thalassa/1.2 (+https://www.thalassawx.app)' },
         });

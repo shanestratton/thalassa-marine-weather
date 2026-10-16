@@ -3,7 +3,7 @@ export const SYNOPTIC_MAX_ASSET_BYTES = 2 * 1024 * 1024;
 export async function readChartBytes(response: Response, mime: 'image/gif' | 'image/png'): Promise<Uint8Array> {
     const length = Number(response.headers.get('content-length') ?? 0);
     if (
-        !response.ok ||
+        response.status !== 200 ||
         response.headers.get('content-type')?.split(';')[0].trim() !== mime ||
         !Number.isSafeInteger(length) ||
         length < 0 ||
