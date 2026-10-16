@@ -42,6 +42,9 @@ function feed() {
                   wind_twd_at_ms: now,
                   wind_history_identity: 'fictional-instrument-boat',
                   instrument_times_v1: JSON.stringify([now, now, now, now, now, now, null, null]),
+                  ...(mode === 'engine'
+                      ? { engine_metrics_v1: JSON.stringify([1, 'main', now, 36000, 1000, 80, 2000, 300, 3000]) }
+                      : {}),
               };
     const snapshot = snapshotFromWire(
         {

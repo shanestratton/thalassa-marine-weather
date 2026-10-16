@@ -1,6 +1,6 @@
 # Confirmed voyage engine time
 
-This checkpoint connects explicit Log engine declarations and source-clock-qualified RPM to an ended-voyage review. It has no deployment or native build-number change. The Engine instrument section and Signal K run-time/coolant/oil display remain part of the following136 integration.
+This checkpoint connects explicit Log engine declarations and source-clock-qualified RPM to an ended-voyage review, plus the Engine Instrument Panel section. It has no deployment or native build-number change.
 
 The counter has no speed/polar heuristic. Time before a declaration or outside a measured RPM window stays unknown. A measured RPM sample can override a declaration only for13 seconds after its original sensor clock; repeated/late/future samples cannot renew it. Pausing or changing account retires the declaration and RPM evidence, keeping that gap unknown. Normal cold-start continuation preserves its explicit declaration. A backwards or implausible clock marks the counter for manual meter review. End freezes the counter once, after verified GPS teardown.
 
@@ -20,3 +20,9 @@ Validation so far:
 - Full app TypeScript and owned ESLint passed before the final narrow review changes; final combined source/browser checks remain pending.
 
 Signal K engine units are defined in its [primary vessel schema reference](https://signalk.org/specification/1.7.0/doc/vesselsBranch.html): revolutions Hz, runTime seconds, temperature Kelvin and oil pressure Pascals. Device readings and calibration still need hardware verification.
+
+The Engine section appends to the existing fixed panel order, is optional in device Preferences, and auto-hides without identified fresh RPM. Its meter, coolant and oil values come only from the same identified engine. `coolantTemperature` is distinct from general engine `temperature`; no substitution is made. Each value ages on its original sensor timestamp, dims after6.5 seconds and becomes unknown after13 seconds. Multiple reported engines are labelled and their meters are never combined.
+
+The Pi emits one bounded `engine_metrics_v1` scalar `[1, engineId, baseEpochMs, runTimeSeconds, offsetMs, coolantC, offsetMs, oilKPa, offsetMs]`. It replaces the separate RPM source scalar only when the complete payload fits120 characters. Long identifiers or missing valid metrics retain RPM-only metadata. The full populated sensor/watch/history/AIS path still fits40 keys and4KiB, and its actual Edge parser round-trip preserves every key. Signal K fields with absent timestamps, incompatible units or invalid ranges remain unknown. This source belongs in staged Pi update6; it is not installed aboard.
+
+Combined checks:71 focused panel/counter/review tests pass;12 real Chrome/WebKit cases pass at300/375 pixels, including Engine geometry, performance suppression, current guides and source retirement. The narrow WebKit Engine screenshot was inspected. Actual end-to-end iPhone sensor readings and a physical meter comparison remain unverified.

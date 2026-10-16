@@ -1,5 +1,49 @@
 import { test, expect } from '@playwright/test';
 for (const width of [300, 375]) {
+    test(`identified Engine panel fits at ${width}px and clears with its source`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 667 });
+        const remote: string[] = [];
+        await page.route('**/*', (route) => {
+            const u = new URL(route.request().url());
+            if (u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.protocol === 'blob:')
+                return route.continue();
+            remote.push(u.hostname);
+            return route.abort();
+        });
+        await page.goto('/e2e/fixtures/instruments136.html');
+        await page.evaluate(() =>
+            (window as unknown as { __instruments136: { mode: (v: string) => void } }).__instruments136.mode('engine'),
+        );
+        const engine = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Engine ·/ }) });
+        await engine.scrollIntoViewIfNeeded();
+        await expect(engine.getByText('Engine: main')).toBeVisible();
+        for (const text of [
+            '10 h',
+            '80.0 °C',
+            '300 kPa',
+            'Measured aboard. Maintenance hours require your confirmation.',
+        ])
+            await expect(engine.getByText(text, { exact: true })).toBeVisible();
+        const fitting = await engine.evaluate((node) => {
+            const box = node.getBoundingClientRect();
+            return {
+                width: node.scrollWidth <= node.clientWidth + 1,
+                height: node.scrollHeight <= node.clientHeight + 1,
+                children: [...node.querySelectorAll('p,dt,dd')].every((child) => {
+                    const r = child.getBoundingClientRect();
+                    return r.left >= box.left - 1 && r.right <= box.right + 1 && r.bottom <= box.bottom + 1;
+                }),
+            };
+        });
+        expect(fitting).toEqual({ width: true, height: true, children: true });
+        await expect(page.getByRole('heading', { name: /^Performance ·/ })).toHaveCount(0);
+        await page.screenshot({ path: test.info().outputPath('instrument-engine.png') });
+        await page.evaluate(() =>
+            (window as unknown as { __instruments136: { mode: (v: string) => void } }).__instruments136.mode('empty'),
+        );
+        await expect(page.getByRole('heading', { name: /^Engine ·/ })).toHaveCount(0);
+        expect(remote).toEqual([]);
+    });
     test(`real instrument panel at ${width}px preserves visibility and sailing state`, async ({ page }) => {
         await page.setViewportSize({ width, height: 667 });
         const remote: string[] = [];

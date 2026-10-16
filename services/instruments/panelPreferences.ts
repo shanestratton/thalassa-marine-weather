@@ -13,6 +13,7 @@ export const INSTRUMENT_SECTIONS = [
     'Sea temp',
     'Heading',
     'Helm',
+    'Engine',
 ] as const;
 export type InstrumentSection = (typeof INSTRUMENT_SECTIONS)[number];
 export interface InstrumentPanelPreferences {

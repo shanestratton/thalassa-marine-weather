@@ -3,11 +3,18 @@ import type { EngineMetric } from '../../services/instruments/engineTelemetry';
 import { type InstrumentEvidence, usableReading } from '../../services/instruments/measurements';
 
 export function enginePanelAvailable(evidence: InstrumentEvidence | undefined, now: number): boolean {
-    return usableReading(evidence?.readings.rpm, 'rpm', now, 0, 20_000);
+    const rpm = evidence?.readings.rpm;
+    return (
+        usableReading(rpm, 'rpm', now, 0, 20_000) &&
+        !!rpm.engineId &&
+        Number.isInteger(rpm.engineCount) &&
+        rpm.engineCount! >= 1 &&
+        rpm.engineCount! <= 32
+    );
 }
 export function EngineReadout({ evidence, now }: { evidence: InstrumentEvidence; now: number }) {
     const rpm = evidence.readings.rpm;
-    if (!usableReading(rpm, 'rpm', now, 0, 20_000)) return null;
+    if (!enginePanelAvailable(evidence, now) || !usableReading(rpm, 'rpm', now, 0, 20_000)) return null;
     const metrics = rpm.engineCount === 1 && evidence.engine?.engineId === rpm.engineId ? evidence.engine : undefined;
     const rows: [string, EngineMetric | undefined, (n: number) => string][] = [
         [

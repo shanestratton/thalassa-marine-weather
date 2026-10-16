@@ -76,6 +76,7 @@ import {
     type InstrumentSection,
 } from '../../services/instruments/panelPreferences';
 import { CurrentReadout, PerformanceReadout } from './DerivedInstrumentPanels';
+import { EngineReadout, enginePanelAvailable } from './EngineReadout';
 import { useViewportHeight } from '../../hooks/useViewportHeight';
 
 /** Picker value meaning “wherever the boat is”. */
@@ -937,6 +938,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
             'Sea temp': waterTemp.value !== null,
             Heading: heading.value !== null,
             Helm: rudder.value !== null || helmWindow !== null,
+            Engine: enginePanelAvailable(state.instrumentEvidence, nowMs),
         },
         panelPrefs,
     );
@@ -2388,6 +2390,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                         </div>
                                     )}
                                 </div>
+                            </section>
+                        )}
+                        {showSection('Engine') && state.instrumentEvidence && (
+                            <section
+                                className={`w-full ${sectionSizing('Engine')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Engine" place={placeOf('Engine')} />
+                                <EngineReadout evidence={state.instrumentEvidence} now={nowMs} />
                             </section>
                         )}
                     </div>
