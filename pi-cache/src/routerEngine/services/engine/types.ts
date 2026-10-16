@@ -12,6 +12,13 @@ import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson';
  * either redundant with LNDARE (COALNE) or display-only.
  */
 export interface InshoreLayers {
+    /** Original chart entry restrictions and traffic separation zones, kept in RAM. */
+    RESARE?: FeatureCollection;
+    TSEZNE?: FeatureCollection;
+    /** Explicitly enabled private no-go polygons; never a source of water/depth. */
+    USER_NOGO?: FeatureCollection;
+    /** Indicative marine park polygons: caution cost only. */
+    MPA_CAUTION?: FeatureCollection;
     LNDARE?: FeatureCollection;
     DEPARE?: FeatureCollection;
     OBSTRN?: FeatureCollection;
@@ -201,6 +208,8 @@ export interface SurveyUncheckedCell {
 }
 
 export interface RouteRequest {
+    /** INTERNAL: rebuilt by routeInshore from the current original layer snapshot. */
+    _exclusionField?: import('./exclusionField.js').ExclusionField;
     /** Private own tracks / APPROVED lanes: optional cost hints only, never water or depth evidence. */
     trackPriors?: readonly import('./trackPriors.js').TrackRoutingPrior[];
     fromLat: number;
@@ -1091,6 +1100,8 @@ export interface RouteFailure {
         | 'origin-out-of-bounds'
         | 'destination-out-of-bounds'
         | 'empty-grid'
+        | 'route-exclusion'
+        | 'exclusion-unavailable'
         | 'uncharted-corridor'
         /** The final emitted geometry would sustain a run across exact charted
          * land with no overlapping water evidence. */
@@ -1130,6 +1141,9 @@ export interface RouteFailure {
 // Exported for services/seaway/connector.ts (Phase 11) — the connector
 // runs on the SAME grid + cost function as the engine, by construction.
 export interface NavGrid {
+    /** Private per-request masks; never alter the cached chart grid or supply water. */
+    exclusionBlocked?: Uint8Array;
+    exclusionCaution?: Uint8Array;
     /** Ephemeral per-request cost hint; never written into cached chart grids. */
     trackPrior?: Uint8Array;
     trackPriorRequiredM?: number;

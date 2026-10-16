@@ -267,7 +267,8 @@ export function rasterizePolygonCells(
 
 export function isNavigable(grid: NavGrid, x: number, y: number): boolean {
     if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
-    return !Number.isNaN(grid.cells[y * grid.width + x]);
+    const index = y * grid.width + x;
+    return grid.exclusionBlocked?.[index] !== 1 && !Number.isNaN(grid.cells[index]);
 }
 
 export function gridToLatLon(grid: NavGrid, x: number, y: number): [number, number] {

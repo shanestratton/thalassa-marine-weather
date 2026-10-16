@@ -7,6 +7,7 @@ import type { NavGrid } from './types';
 import { mPerDegLon, bresenhamCells, isNavigable } from './geometry';
 import { euclideanDistanceTransform } from '../marinaCenterline';
 import { TRACK_PRIOR_MIN_FACTOR, trackPriorFactor } from './trackPriors';
+import { exclusionCostFactor } from './exclusionField';
 
 // ── Min-heap for A* open set ────────────────────────────────────────
 
@@ -503,6 +504,7 @@ export function aStar(
     cameFrom.fill(-1);
 
     const startIdx = start.y * w + start.x;
+    if (grid.exclusionBlocked?.[startIdx] === 1 || grid.exclusionBlocked?.[end.y * w + end.x] === 1) return null;
     const endIdx = end.y * w + end.x;
 
     // Pre-compute mPerLon at grid's mid-latitude. The variation across
@@ -577,7 +579,13 @@ export function aStar(
             if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
             const nIdx = ny * w + nx;
             const cellDepth = grid.cells[nIdx];
-            if (Number.isNaN(cellDepth)) continue; // blocked
+            if (Number.isNaN(cellDepth) || grid.exclusionBlocked?.[nIdx] === 1) continue;
+            if (
+                dx !== 0 &&
+                dy !== 0 &&
+                (grid.exclusionBlocked?.[cy * w + nx] === 1 || grid.exclusionBlocked?.[ny * w + cx] === 1)
+            )
+                continue;
 
             const cellPreferred = grid.preferred[nIdx] === 1;
             // Corridor-exit surcharge (additive ≥0 → the distance heuristic
@@ -601,7 +609,8 @@ export function aStar(
                         grid.assistCostMul ?? 10.0,
                     ) *
                     centreFactor[nIdx] *
-                    trackPriorFactor(grid, nIdx) +
+                    trackPriorFactor(grid, nIdx) *
+                    exclusionCostFactor(grid, nIdx) +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
@@ -620,6 +629,7 @@ export function aStar(
  */
 export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     const idx = y * grid.width + x;
+    if (grid.exclusionBlocked?.[idx] === 1) return Infinity;
     // × centreFactor so the smoother + acceptance gates price edges EXACTLY as
     // aStar did (centred). Absent on cached/test grids ⇒ 1 (prior behaviour).
     const centre = centreFactorAt(grid, idx);
@@ -636,7 +646,8 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
             grid.assistCostMul ?? 10.0,
         ) *
         centre *
-        trackPriorFactor(grid, idx)
+        trackPriorFactor(grid, idx) *
+        exclusionCostFactor(grid, idx)
     );
 }
 
