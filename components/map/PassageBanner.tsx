@@ -18,6 +18,9 @@ import type { RouteComfortSummary } from '../../services/isochrone/routeComfort'
 import type { OffshoreComparisonView } from './useOffshoreComparison';
 
 const OffshoreComparisonSheet = lazy(() => import('../passage/OffshoreComparisonSheet'));
+const RouteReplanReview = lazy(() =>
+    import('../passage/RouteReplanControl').then((module) => ({ default: module.RouteReplanReview })),
+);
 
 const log = createLogger('PassageBanner');
 
@@ -392,6 +395,14 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     </button>
                 </div>
 
+                <Suspense fallback={null}>
+                    <RouteReplanReview
+                        onFinished={() => {
+                            passage.clearRoute();
+                            passage.setShowPassage(false);
+                        }}
+                    />
+                </Suspense>
                 {/* ── Which polar the ETA was sailed on (W1-03) ──
                     Said plainly — the skipper's own, a database shape scaled
                     to her cruising speed, learned, or the generic one — so an

@@ -79,6 +79,9 @@ import { CAUTION_WHY } from '../../services/engine/types';
 import { chartFitBearing } from './chartOrientation';
 import { useOffshoreComparison, type OffshoreComparisonInputs } from './useOffshoreComparison';
 import type { RouteHazardReport } from '../../services/enc/EncHazardReportService';
+import { readRouteReplan, cancelRouteReplan, setRouteReplan } from '../../services/routing/routeReplanSession';
+import { sampleWindGrid } from '../../services/weather/importedGribSample';
+import { useRouteReplanPreview, clearRouteReplanReference } from './useRouteReplanPreview';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -233,6 +236,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [viaWaypoints, setViaWaypoints] = useState<{ lat: number; lon: number; name: string }[]>([]);
     const [departureTime, setDepartureTime] = useState('');
     const [speed, setSpeed] = useState(6);
+    const replanTokenRef = useRef<string | null>(peekPassageRequest()?.replanToken ?? null);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
     const [routeVerification, setRouteVerification] = useState<PassageRouteVerification>({
         status: 'idle',
@@ -267,6 +271,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             status: Exclude<PassageRouteVerificationStatus, 'idle'>,
             reason?: string,
         ): void => {
+            const review = readRouteReplan();
+            if (
+                replanTokenRef.current &&
+                (review.base?.token !== replanTokenRef.current || !['computing', 'ready'].includes(review.phase))
+            )
+                return;
             const geometryKey = routeFeatureGeometryKey(features);
             const featureContractVerified =
                 features.length > 0 &&
@@ -337,6 +347,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 dispatchPassageNotice(null);
 
                 const map = mapRef.current;
+                clearRouteReplanReference(map);
                 const empty: GeoJSON.FeatureCollection = {
                     type: 'FeatureCollection',
                     features: [],
@@ -354,6 +365,22 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage mode activation (from Ship's Office / RoutePlanner → MAP tab) ──
     useEffect(() => {
         const handlePassageMode = (e: Event) => {
+            const request = (e as CustomEvent)?.detail;
+            replanTokenRef.current = typeof request?.replanToken === 'string' ? request.replanToken : null;
+            if (readRouteReplan().base && readRouteReplan().base?.token !== replanTokenRef.current)
+                setRouteReplan({ phase: 'idle', base: null, candidate: null, message: null });
+            setDepartureTime(
+                typeof request?.departureTime === 'string' && Number.isFinite(Date.parse(request.departureTime))
+                    ? request.departureTime
+                    : '',
+            );
+            if (
+                typeof request?.speed === 'number' &&
+                Number.isFinite(request.speed) &&
+                request.speed > 0 &&
+                request.speed <= 50
+            )
+                setSpeed(request.speed);
             setShowPassage(true);
 
             // ── Kill Follow Route layers IMMEDIATELY on passage activation ──
@@ -435,6 +462,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage Route Computation ──
     const computePassage = useCallback(async () => {
         if (!departure || !arrival) return;
+        const reviewedReplan = readRouteReplan();
+        const replanBase = replanTokenRef.current === reviewedReplan.base?.token ? reviewedReplan.base : null;
+        if (replanTokenRef.current && (!replanBase || reviewedReplan.phase !== 'computing')) return;
         const operationScope = getAuthIdentityScope();
         triggerHaptic('medium');
 
@@ -2293,7 +2323,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
 
                 const windState = WindStore.getState();
-                let windGrid = windState.grid;
+                let windGrid = replanBase?.wind ?? windState.grid;
 
                 if (!windGrid && map) {
                     log.info('[Isochrone BG] Loading wind data...');
@@ -2316,7 +2346,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     windGrid.west <= routeMinLon - 5 &&
                     windGrid.east >= routeMaxLon + 5;
 
-                if (!gridCoversRoute) {
+                if (!gridCoversRoute && !replanBase) {
                     log.info('[Isochrone BG] Wind grid does not cover full route — fetching route-covering grid...');
                     try {
                         const supabaseUrl =
@@ -2415,7 +2445,19 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return;
                 }
 
-                const windField = createWindFieldFromGrid(windGrid);
+                const windField = replanBase
+                    ? {
+                          getWind: (lat: number, lon: number, hours: number) => {
+                              const value = sampleWindGrid(
+                                  windGrid!,
+                                  lat,
+                                  lon,
+                                  Date.parse(replanBase.departureTime) + hours * 3600000,
+                              );
+                              return value ? { speed: value.speedKts, direction: value.directionFromDeg } : null;
+                          },
+                      }
+                    : createWindFieldFromGrid(windGrid);
                 const polar = routingPolar.polar;
                 const depTimeStr = departureTime || new Date().toISOString();
 
@@ -3033,6 +3075,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
     // Clear route
     const clearRoute = useCallback(() => {
+        replanTokenRef.current = null;
+        cancelRouteReplan();
         clearPassageRequest(); // don't resurrect a dismissed passage on the next MapHub mount
         setDeparture(null);
         setArrival(null);
@@ -3073,6 +3117,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeVerification.status === 'verified' &&
         routeVerification.geometryKey !== null &&
         routeVerification.geometryKey === displayedRouteGeometryKeyRef.current;
+    const invalidateReplan = useCallback(() => {
+        computeGenRef.current++;
+    }, []);
+    useRouteReplanPreview({
+        mapRef,
+        mapReady,
+        tokenRef: replanTokenRef,
+        show: showPassage,
+        verified: routeActionsAvailable,
+        geometryKey: routeVerification.geometryKey,
+        departureTime,
+        speed,
+        result: isoResultRef,
+        turns: turnWaypointsRef,
+        caveats: routeCaveats,
+        cells: routeCellsRef,
+        invalidate: invalidateReplan,
+    });
 
     return {
         departure,

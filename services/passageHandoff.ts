@@ -32,6 +32,10 @@ export interface PassageHandoffDetail {
     arrival?: PassagePoint;
     /** Intermediate waypoints (GPX import). */
     via?: PassagePoint[];
+    /** A reviewed underway candidate; never followed or published by this handoff. */
+    replanToken?: string;
+    departureTime?: string;
+    speed?: number;
 }
 
 const pendingByIdentity = new Map<string, PassageHandoffDetail>();

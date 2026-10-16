@@ -378,6 +378,7 @@ const currentWindModel = () => WindStore.getState().model;
 
 const SailingPerformanceHud = React.lazy(() => import('./SailingPerformanceHud'));
 const SailAdviceLine = React.lazy(() => import('./SailAdviceLine'));
+const RouteReplanControl = React.lazy(() => import('./RouteReplanControl'));
 const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 
 const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: TrackingState }> = ({
@@ -1935,6 +1936,14 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                 ride is a boat adrift on the chart. OFF still lives in the
                 layer button. A preview keeps it in the bottom row instead. */}
                 {followingRoute && renderLookAhead('h-10 border-t border-white/10')}
+                {followingRoute && (
+                    <React.Suspense fallback={null}>
+                        <RouteReplanControl
+                            xteNm={fix && fix.source !== 'phone-old' ? fix.progress.offTrackNm : null}
+                            etaMs={liveEta.arrivalMs}
+                        />
+                    </React.Suspense>
+                )}
 
                 <div className="flex shrink-0 border-t border-white/10">
                     {/* A preview's departure shares this row: the strip's fixed height
