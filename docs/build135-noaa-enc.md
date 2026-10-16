@@ -84,12 +84,22 @@ terrain cache can keep a stale mutable index or deleted original.
 
 See `scripts/noaa-enc/README.md` for commands, caps, credentials boundary and
 rollback. The prepared local pilot generation is
-`7d8d345f3e5807b535f1fd9d` in `work/noaa-publication135` outside Git. It lists
+`3847831cfee29f42821c545a` in `work/noaa-publication135-corrected-timestamp` outside Git. It lists
 all active NOAA coverage but marks only US5CA1LK ready; other cells explicitly
-say a verified phone conversion is not yet available. Root index 22,424 B,
+say a verified phone conversion is not yet available. Root index 22,425 B,
 largest shard 260,770 B, all shards 2,003,209 B. Empty-remote simulation requires 106
-immutable objects / 2,172,964 B plus the mutable root, 2,195,388 B total. The live R2
+immutable objects / 2,172,965 B plus the mutable root, 2,195,390 B total. The live R2
 inventory/ETag has not been queried; the simulation is not an apply authorization.
+
+The earlier `7d8d345f3e5807b535f1fd9d` generation is historical and invalid for
+publication. Its `sourceAt` was the literal series title, not a timestamp. The
+corrected parser recognizes only this exact documented provider placeholder,
+validates all real UTC/calendar stamps, and preserves actual per-cell issuance
+`2026-10-16T04:59:07Z`. It never substitutes the check time. The full corrected
+real root plus all 102 actual shards were accepted by the app contract; one
+ready cell retains the exact previously verified ZIP/chart hashes. Generation
+identity now includes normalized catalogue metadata as well as the original
+source hash, conversion objects and check time.
 
 Initial complete conversion requires 28 bounded 256-cell cycles at most by count;
 runtime/output sizes have not been measured globally. No whole global geometry
@@ -98,7 +108,7 @@ worldwide ENC coverage, LINZ ENC or paid charts.
 
 ## Validation
 
-67 focused app/consent/source/SW tests pass, as do 10 publisher/archive tests and
+68 focused app/consent/source/SW tests pass, as do 12 publisher/archive tests and
 13 Pi layer/datum/isolation tests. Pi full TypeScript passes; the shared app
 compiler passed after integration. Four actual Chrome/WebKit phone tests at 300
 and 375 pixels accepted the terms, fetched only fixed static paths, preserved the
@@ -114,3 +124,9 @@ an immutable conversion receipt and an unchanged runtime reuses its output.
 A separate failure test proves that the root may already be updated if its final
 readback fails after CAS; the operator must inspect the live root before retrying
 or preparing rollback. No live R2 request is part of these tests.
+
+A bounded 13,689-byte excerpt of the actual public metadata retains the bad
+series title and real US5CA1LK record. Python must reproduce the exact generated
+index fixture; the app must parse that same object and reject the historical bad
+title. This closes the earlier synthetic-browser-only metadata gap. Invalid
+UTC syntax, impossible calendar/time values and future-of-check issuance fail.

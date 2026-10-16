@@ -1,0 +1,22 @@
+{
+    "activeCells": 1,
+    "agreementSha256": "175f625ba0ae7b8656bf41010d6e5226b70f66a5a5c00ceff450c2eba2411c24",
+    "agreementUrl": "https://charts.noaa.gov/ENCs/ENC_Agreement.shtml",
+    "attribution": "Contains NOAA ENC data. Thalassa display is not a certified ECDIS or a substitute for required charts.",
+    "checkedAt": "2026-10-16T06:00:00Z",
+    "generation": "48cc872692c42dc6446902bc",
+    "schema": 1,
+    "shards": [
+        {
+            "bbox": [-120, 30, -110, 40],
+            "bytes": 358,
+            "id": "x06y12",
+            "key": "generations/48cc872692c42dc6446902bc/shards/x06y12.json",
+            "sha256": "417bb12a55c486e2a304e68b0835dc9b85b8787fd9b1e9888e4d17a4e0f8ecfd"
+        }
+    ],
+    "sourceAt": "2026-10-16T04:59:07Z",
+    "sourceSha256": "a0ee585bbb99d5b1db20628c54aab0209e6344907fac1acfd828b692f76ce1eb",
+    "sourceUrl": "https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml",
+    "withdrawn": []
+}

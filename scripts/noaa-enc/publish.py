@@ -104,7 +104,8 @@ def prepare(store,root,generation,agreement,rollback=False):
     if total>MAX_REMOTE or len(existing)+len([r for r in uploads if r['key'] not in existing])+1>MAX_OBJECTS: raise ValueError('NOAA remote32GiB/40000object cap; review retention before growth')
     current=store.get(PREFIX+'index.json',256*1024)
     previous=json.loads(current[0]) if current else None
-    if previous and previous.get('sourceAt','')>index['sourceAt'] and not rollback: raise ValueError('Older source catalogue cannot replace current')
+    source_time=catalogue.timestamp_value(index['sourceAt'])
+    if previous and catalogue.timestamp_value(previous.get('sourceAt'))>source_time and not rollback: raise ValueError('Older source catalogue cannot replace current')
     return {'schema':1,'rollback':rollback,'generation':generation.name,'previousGeneration':previous.get('generation') if previous else None,
         'expectedETag':current[1] if current else None,'uploads':uploads,'manifestLast':{'key':PREFIX+'index.json','file':str(generation/'index.json'),
         'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)},'newBytes':new_bytes,'totalRemoteBytesAfter':total,'retentionDeletes':[]}

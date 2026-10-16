@@ -87,12 +87,23 @@ https://developers.cloudflare.com/r2/buckets/cors/.
 
 ## Concrete initial review and activation order
 
-The local outside-Git pilot generation
-`work/noaa-publication135/generations/7d8d345f3e5807b535f1fd9d` contains full active
+The corrected local outside-Git pilot generation
+`work/noaa-publication135-corrected-timestamp/generations/3847831cfee29f42821c545a` contains full active
 catalogue metadata with just one verified ready cell. Its empty-inventory
-simulation is 106 immutable objects, 2,172,964 B; root-last total 2,195,388 B. All other
+simulation is 106 immutable objects, 2,172,965 B; root-last total 2,195,390 B. All other
 rows explicitly carry null chart/original objects. This is not complete global
 rendering coverage. No R2 request has been made for this pilot.
+
+The preceding `7d8d345f3e5807b535f1fd9d` pilot is retained as historical evidence,
+but is invalid: the provider's series DateTime contained its title, which the old
+parser wrongly used as `sourceAt`. It must never be published. Only that exact
+known series placeholder is treated as unavailable; other malformed timestamps
+fail closed. Validated per-cell metadata supplies the actual issuance time,
+`2026-10-16T04:59:07Z`, independently of the later `checkedAt`. The corrected real
+root and every one of its 102 shards pass the actual app parsers. US5CA1LK's
+original ZIP and converted chart hashes are unchanged. Normalized metadata is
+part of generation identity, so a parser correction cannot reuse an immutable
+generation name with different content.
 
 After code/destination review, copy the immutable generation, object files,
 source receipts and canonical agreement to the isolated NOAA staging root.
@@ -102,7 +113,7 @@ ETag and byte inventory:
 
 ```sh
 python3 scripts/noaa-enc/publish.py --root /srv/weather/thalassa-noaa/catalogue \
-  --generation /srv/weather/thalassa-noaa/catalogue/generations/7d8d345f3e5807b535f1fd9d \
+  --generation /srv/weather/thalassa-noaa/catalogue/generations/3847831cfee29f42821c545a \
   --agreement public/data/noaa-enc-user-agreement.txt --review-plan /srv/weather/thalassa-noaa/pilot-plan.json
 ```
 
