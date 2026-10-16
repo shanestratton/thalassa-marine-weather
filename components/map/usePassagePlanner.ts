@@ -87,6 +87,7 @@ import { readRouteReplan, cancelRouteReplan, setRouteReplan } from '../../servic
 import { sampleWindGrid } from '../../services/weather/importedGribSample';
 import { useRouteReplanPreview, clearRouteReplanReference } from './useRouteReplanPreview';
 import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
+import { knownRouteAreaCaveats } from '../../services/routing/routeAreaWords';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -2118,36 +2119,71 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 stillCurrent: () => boolean;
                 onHazardReport: (report: RouteHazardReport | null) => void;
             },
-        ): Promise<{ route: IsochroneNode[]; verified: boolean; reason?: string }> => {
-            const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
+        ): Promise<{ route: IsochroneNode[]; verified: boolean; reason?: string; areaCaveats?: readonly string[] }> => {
+            const [{ validateRouteSegments }, { routingExclusionContextKey }] = await Promise.all([
+                import('../../services/isochrone/landAvoidance'),
+                import('../../services/routing/routingExclusions'),
+            ]);
+            const areaContext = routingExclusionContextKey();
             const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
             let timedOut = false;
+            let areaCaveats: readonly string[] = [];
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const abort = new AbortController();
+            const current = () =>
+                !timedOut &&
+                mounted.current &&
+                mapRef.current === map &&
+                computeGenRef.current === gen &&
+                liveTideInputEpoch.current === tideInputEpoch &&
+                routingExclusionContextKey() === areaContext &&
+                (reportOptions?.stillCurrent() ?? true);
             const outcomeRef: {
                 current: { status: 'verified' | 'unverified'; reason?: string } | null;
             } = { current: null };
-            const validated = await Promise.race([
-                validateRouteSegments(candidate, {
-                    vesselDraftM,
-                    draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
-                    departureTimeMs,
-                    stillCurrent: () =>
-                        !timedOut && computeGenRef.current === gen && (reportOptions?.stillCurrent() ?? true),
-                    ...(reportOptions ? { publishReport: false, onHazardReport: reportOptions.onHazardReport } : {}),
-                    onVerificationOutcome: (nextOutcome) => {
-                        outcomeRef.current = nextOutcome;
-                    },
-                }),
-                new Promise<null>((resolve) =>
-                    setTimeout(() => {
-                        timedOut = true;
-                        resolve(null);
-                    }, timeoutMs),
-                ),
-            ]);
+            let validated: IsochroneNode[] | null;
+            try {
+                validated = await Promise.race([
+                    validateRouteSegments(candidate, {
+                        vesselDraftM,
+                        draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
+                        departureTimeMs,
+                        signal: abort.signal,
+                        stillCurrent: current,
+                        onRouteAreaCaveats: (notes) => {
+                            if (current()) areaCaveats = knownRouteAreaCaveats(notes);
+                        },
+                        ...(reportOptions
+                            ? { publishReport: false, onHazardReport: reportOptions.onHazardReport }
+                            : {}),
+                        onVerificationOutcome: (nextOutcome) => {
+                            if (current()) outcomeRef.current = nextOutcome;
+                        },
+                    }),
+                    new Promise<null>(
+                        (resolve) =>
+                            (timer = setTimeout(() => {
+                                timedOut = true;
+                                resolve(null);
+                                abort.abort(new DOMException(timeoutReason, 'AbortError'));
+                            }, timeoutMs)),
+                    ),
+                ]);
+            } finally {
+                if (timer !== undefined) clearTimeout(timer);
+                abort.abort();
+            }
 
             if (!validated) return { route: candidate, verified: false, reason: timeoutReason };
-            if (computeGenRef.current !== gen || !(reportOptions?.stillCurrent() ?? true)) {
+            if (routingExclusionContextKey() !== areaContext)
+                throw Object.assign(
+                    new Error('The route’s current area restrictions changed during final acceptance.'),
+                    {
+                        code: 'exclusion-unavailable',
+                    },
+                );
+            if (!current()) {
                 return { route: validated, verified: false, reason: 'route was superseded by a newer plan' };
             }
             const outcome = outcomeRef.current;
@@ -2158,12 +2194,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     reason: outcome?.reason ?? 'chart and depth verification did not complete',
                 };
             }
-            return { route: validated, verified: true };
+            return { route: validated, verified: true, areaCaveats };
         };
 
-        const applyValidatedRoute = (candidate: IsochroneResult, validated: IsochroneNode[]): IsochroneResult => {
+        const applyValidatedRoute = (
+            candidate: IsochroneResult,
+            validated: IsochroneNode[],
+            areaCaveats?: readonly string[],
+        ): IsochroneResult => {
             const departureIso = departureTime || new Date().toISOString();
-            return verifiedIsochroneRoute(candidate, validated, departureIso, speed);
+            const result = verifiedIsochroneRoute(candidate, validated, departureIso, speed);
+            result.environmentNotes = [
+                ...new Set([...(result.environmentNotes ?? []), ...knownRouteAreaCaveats(areaCaveats)]),
+            ];
+            return result;
         };
 
         const markRouteUnverified = (coords: [number, number][], reason: string, terminalsIncluded: boolean): void => {
@@ -2273,6 +2317,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         lon,
                     }));
                     let shortRouteVerified = false;
+                    let shortRouteAreaCaveats: readonly string[] = [];
                     let shortRouteVerificationReason = 'depth validation did not complete';
                     try {
                         // Feed the validator just the [origin, destination]
@@ -2314,6 +2359,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         );
                         validatedRoute = validation.route.map((n) => ({ lat: n.lat, lon: n.lon }));
                         shortRouteVerified = validation.verified;
+                        if (validation.verified) shortRouteAreaCaveats = validation.areaCaveats ?? [];
                         shortRouteVerificationReason = validation.reason ?? shortRouteVerificationReason;
                         if (validation.verified) {
                             if (validation.route.length !== seedNodes.length) {
@@ -2328,6 +2374,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             publishRouteNotValidated(shortRouteVerificationReason);
                         }
                     } catch (e) {
+                        if (routingConstraintReason(e)) throw e;
                         log.warn('[Passage] Short route: GEBCO validation failed — using great-circle:', e);
                         shortRouteVerificationReason = 'final chart and coarse depth validation failed';
                         try {
@@ -2367,6 +2414,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const validatedCoords: [number, number][] = validatedRoute.map((p) => [p.lon, p.lat]);
 
                     if (shortRouteVerified) {
+                        setRouteCaveats([...shortRouteAreaCaveats]);
                         commitDisplayedRoute(
                             map,
                             buildFeatures(
@@ -2402,6 +2450,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         arrivalTime: arrIso,
                         isochrones: [],
                         engineFlags: { stallRecovery: false, finalApproach: false },
+                        environmentNotes: shortRouteVerified ? [...shortRouteAreaCaveats] : [],
                     } as unknown as IsochroneResult;
                     const minimalWps: TurnWaypoint[] = [
                         {
@@ -2456,7 +2505,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.warn('[Passage] Short-route bypass push failed:', e);
                     markRouteUnverified(
                         waterAwareCoords as [number, number][],
-                        'the verified short route could not be prepared for display and export',
+                        routingConstraintReason(e) ??
+                            'the verified short route could not be prepared for display and export',
                         false,
                     );
                     window.dispatchEvent(
@@ -2675,7 +2725,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             15_000,
                             'fresh verification of the cached route timed out after 15 seconds',
                         );
-                        const checkedCached = applyValidatedRoute(cached, cachedValidation.route);
+                        const checkedCached = applyValidatedRoute(
+                            cached,
+                            cachedValidation.route,
+                            cachedValidation.verified ? cachedValidation.areaCaveats : undefined,
+                        );
                         setRouteCaveats(checkedCached.environmentNotes ?? []);
                         const updatedResult2 = withRouteEstimates(
                             {
@@ -2711,7 +2765,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         dispatchPassageNotice(null);
                         isoResultRef.current = checkedCached;
                         const depTimeStr2 = departureTime || new Date().toISOString();
-                        const { detectTurnWaypoints } = await import('../../services/IsochroneRouter');
                         const wps = detectTurnWaypoints(checkedCached.route, depTimeStr2);
                         turnWaypointsRef.current = wps;
                         const wpSource2 = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
@@ -3047,7 +3100,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         15_000,
                         'final chart and coarse depth validation timed out after 15 seconds',
                     );
-                    isoResult = applyValidatedRoute(isoResult, directValidation.route);
+                    isoResult = applyValidatedRoute(
+                        isoResult,
+                        directValidation.route,
+                        directValidation.verified ? directValidation.areaCaveats : undefined,
+                    );
                     setRouteCaveats(isoResult.environmentNotes ?? []);
                     const directEnvironment = inspectRouteEnvironment(
                         isoResult.route,
@@ -3378,7 +3435,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 15_000,
                                 'whole-route verification of the stitched multi-leg route timed out after 15 seconds',
                             );
-                            isoResult = applyValidatedRoute(isoResult, multiValidation.route);
+                            isoResult = applyValidatedRoute(
+                                isoResult,
+                                multiValidation.route,
+                                multiValidation.verified ? multiValidation.areaCaveats : undefined,
+                            );
                             setRouteCaveats(isoResult.environmentNotes ?? []);
                             const multiEnvironment = inspectRouteEnvironment(
                                 isoResult.route,
