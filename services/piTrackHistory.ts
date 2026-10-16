@@ -283,7 +283,10 @@ export async function loadPiTrackHistory(options: {
             throw new PiTrackHistoryError('invalid');
         points.push(...rows);
         cursor = body.truncated ? expected : null;
-        if (!body.truncated) return { points, truncated: false, from, to, nextCursor: null, snapshot };
+        // A resumed tail is still only part of the requested window, even
+        // when this page reaches the snapshot's end. Exports must retain that fact.
+        if (!body.truncated)
+            return { points, truncated: options.cursor !== undefined, from, to, nextCursor: null, snapshot };
         if (points.length === maxPoints) return partial();
     }
     guard();

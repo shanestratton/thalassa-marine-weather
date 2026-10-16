@@ -67,7 +67,8 @@ describe('bounded private Pi track history', () => {
         mocks.request.mockResolvedValueOnce(page([point(501)], false, 501));
         const second = await loadPiTrackHistory({ from, to, cursor: first.nextCursor! });
         expect(second.points.map((row) => row.sample_id)).toEqual([501]);
-        expect(second.truncated).toBe(false);
+        expect(second.truncated).toBe(true);
+        expect(second.nextCursor).toBeNull();
     });
     it.each([true, false])('requires Pi update for a legacy response, truncated=%s', async (truncated) => {
         mocks.request.mockResolvedValue({
