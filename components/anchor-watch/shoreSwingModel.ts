@@ -16,6 +16,7 @@
  */
 import type { PositionBroadcast } from '../../services/AnchorWatchSyncService';
 import type { SwingCanvasModel } from './SwingCircleCanvas';
+import { parseAnchorSafeZone } from '../../utils/anchorSafeZone';
 
 /** Half-minutes of trail drawn (about 4 h): as many points as the boat's own radar draws. */
 export const SHORE_TRAIL_DRAW_MAX = 500;
@@ -73,7 +74,12 @@ export function shoreSwingModel(
     }
     if (run.length > max) run = run.slice(run.length - max);
     const drawn = run.length > 1 ? run : NO_TRAIL;
+    const zone =
+        data.safeZone &&
+        data.anchor &&
+        parseAnchorSafeZone(data.safeZone, { ...data.anchor, radiusM: data.swingRadius });
     return {
+        safeZone: zone && zone.ok ? zone.zone : null,
         state: isAlarm ? 'alarm' : 'watching',
         anchorPosition: data.anchor ? place(data.anchor) : null,
         vesselPosition: data.vessel ? place(data.vessel) : null,

@@ -45,6 +45,8 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { validAnchorGps } from '../_shared/anchor-alarm.ts';
+import { parseAnchorBoundary } from '../_shared/anchorSafeZone.ts';
+import { validAreaReport, validAreaRevision, validAreaVessel } from './safeArea.ts';
 
 const CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -148,6 +150,34 @@ Deno.serve(async (req: Request) => {
             return json({ error: 'not_authorised_for_session' }, 403);
         }
         const expiresAt = new Date(Math.min(now + AUTHORISATION_TTL_MS, Date.parse(session.expires_at))).toISOString();
+        const explicitArea = Object.prototype.hasOwnProperty.call(body, 'safe_area');
+        const parsedArea = body.safe_area == null ? null : parseAnchorBoundary(body.safe_area);
+        if (
+            explicitArea &&
+            (!parsedArea || !validAreaRevision(body.safe_area_revision) || !validAreaVessel(body.safe_area_vessel_id))
+        )
+            return json({ error: 'invalid_safe_area' }, 400);
+        const { data: prior, error: priorError } = await admin
+            .from('pi_anchor_sessions')
+            .select('session_code,owner_id,safe_area,safe_area_revision,safe_area_vessel_id')
+            .eq('relay_id', relayId)
+            .maybeSingle();
+        if (priorError) return json({ error: 'unavailable' }, 503);
+        const sameSession = prior?.session_code === sessionCode && prior?.owner_id === ownerId;
+        const safeArea = explicitArea ? parsedArea : sameSession ? prior.safe_area : null;
+        const safeAreaRevision = explicitArea ? body.safe_area_revision : sameSession ? prior.safe_area_revision : null;
+        const safeAreaVesselId = explicitArea
+            ? body.safe_area_vessel_id
+            : sameSession
+              ? prior.safe_area_vessel_id
+              : null;
+        if (
+            safeArea != null &&
+            (!parseAnchorBoundary(safeArea) ||
+                !validAreaRevision(safeAreaRevision) ||
+                !validAreaVessel(safeAreaVesselId))
+        )
+            return json({ error: 'invalid_saved_safe_area' }, 409);
         const { error: writeError } = await admin.from('pi_anchor_sessions').upsert(
             {
                 relay_id: relayId,
@@ -161,6 +191,9 @@ Deno.serve(async (req: Request) => {
                 expiry_alarm_at: null,
                 gps_available: false,
                 is_dragging: false,
+                safe_area: safeArea,
+                safe_area_revision: safeAreaRevision,
+                safe_area_vessel_id: safeAreaVesselId,
             },
             { onConflict: 'relay_id' },
         );
@@ -173,6 +206,10 @@ Deno.serve(async (req: Request) => {
             expires_in_ms: Date.parse(expiresAt) - now,
             expires_at: expiresAt,
             session_expires_at: session.expires_at,
+            safeZoneVersion: 1,
+            safe_area: safeArea,
+            safe_area_revision: safeAreaRevision,
+            safe_area_vessel_id: safeAreaVesselId,
         });
     }
 
@@ -194,7 +231,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: binding, error: bindingError } = await admin
         .from('pi_anchor_sessions')
-        .select('session_code, owner_id, expires_at')
+        .select('session_code, owner_id, expires_at, safe_area, safe_area_revision, safe_area_vessel_id')
         .eq('relay_id', relayId)
         .maybeSingle();
     if (bindingError) return json({ error: 'unavailable' }, 503);
@@ -235,6 +272,8 @@ Deno.serve(async (req: Request) => {
     }
     const p = payload as Record<string, unknown>;
     const gpsAvailable = validAnchorGps(p, Date.now());
+    if (!validAreaReport(binding.safe_area, binding.safe_area_revision, p, gpsAvailable, binding.safe_area_vessel_id))
+        return json({ error: 'safe_area_revision_mismatch' }, 409);
     const vessel = (p.vessel ?? {}) as Record<string, unknown>;
     const finiteOrZero = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : 0);
     // Atomic lease + event write comes BEFORE realtime. A realtime outage must

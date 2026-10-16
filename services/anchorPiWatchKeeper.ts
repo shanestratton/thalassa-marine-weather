@@ -12,13 +12,9 @@
  * hands the assignment over, keeps the six-hour authorisation renewed while
  * the watch runs, and gives it back when the watch stops.
  *
- * ── The phone keeps broadcasting too, on purpose ──────────────────────────
- * This does not switch the phone off. The Pi exists because a phone in a bunk
- * gets backgrounded by iOS and leaves the boat in a pocket; while the app IS
- * awake and aboard, two reports of the same boat ten seconds apart are
- * agreement, not conflict — both read the same vessel, and the shore device
- * simply sees the more recent one. What the Pi adds is that the reports do not
- * stop when the phone sleeps, which is the entire point of the feature.
+ * The page retires the local phone watch only after the Pi's exact acceptance.
+ * This keeper renews that Pi assignment; it does not promise phone GPS or a
+ * second phone area watch after handoff. An older Pi keeps only its circle.
  *
  * ── Nothing here throws ───────────────────────────────────────────────────
  * A Pi that is asleep, unpaired, or on the far side of a dead tailnet must
@@ -37,6 +33,7 @@ import {
     judgePiMove,
     piAnchorMatches,
     piMoveWords,
+    piFixIsFresh,
     type LatLonPoint,
     type PiMoveLive,
     type PiMoveResult,
@@ -49,6 +46,13 @@ import { piCommandRefusalWords } from './piCommandRefusal';
 import type { SyncBroadcast } from './AnchorWatchSyncService';
 import { calculateBearing, calculateDistance } from '../utils/navigationCalculations';
 import { createLogger } from '../utils/createLogger';
+import {
+    anchorAssignmentSafeArea,
+    anchorSafeAreaPairKey,
+    anchorSafeAreaVesselId,
+    captureAnchorAreaLease,
+} from './anchorSafeAreaAssignment';
+import { sameAnchorSafeArea, isAnchorAreaRevision } from '../utils/anchorSafeZone';
 
 const log = createLogger('AnchorPiWatchKeeper');
 
@@ -76,6 +80,7 @@ export function resolvePiWatchTarget(): PiWatchTarget | null {
 
 /** What the Pi says about its own fitness to keep a watch. */
 export interface PiWatchCapability {
+    safeZoneVersion?: 1;
     capable: boolean;
     /** Plain words for the skipper when it cannot — never an error code. */
     reason: string | null;
@@ -148,8 +153,9 @@ async function askPiCapability(
                 transportFailed: false,
             };
         }
-        const parsed = body as { capable?: unknown; reason?: unknown; hasFix?: unknown };
+        const parsed = body as { capable?: unknown; reason?: unknown; hasFix?: unknown; safeZoneVersion?: unknown };
         const result = {
+            ...(parsed.safeZoneVersion === 1 ? { safeZoneVersion: 1 as const } : {}),
             capable: parsed.capable === true,
             reason: typeof parsed.reason === 'string' ? parsed.reason : null,
             hasFix: parsed.hasFix === true,
@@ -290,6 +296,9 @@ const ENDED_MEANWHILE: PiMoveResult = {
 
 /** A watch handed to the Pi, as this phone holds it. */
 interface HeldWatch {
+    safeAreaPairKey?: string;
+    safeAreaVesselId?: string | null;
+    safeAreaOwnerKey?: string;
     assignment: PiWatchAssignment;
     target: PiWatchTarget;
     /**
@@ -298,6 +307,12 @@ interface HeldWatch {
      * move at a time. A record saved before 126 has none: its anchor stands in.
      */
     centreAtSet: LatLonPoint;
+}
+interface AreaMovePlan {
+    held: HeldWatch;
+    next: PiWatchAssignment;
+    lease: NonNullable<Awaited<ReturnType<typeof captureAnchorAreaLease>>>;
+    restore: () => Promise<boolean>;
 }
 
 /**
@@ -367,7 +382,7 @@ class AnchorPiWatchKeeperClass {
      * and refuses to clobber a live in-memory watch.
      */
     restore(): boolean {
-        if (this.current) return true;
+        if (this.current) return this.isKeeping();
         try {
             const raw = localStorage.getItem(authScopedStorageKey(KEEPER_STATE_KEY));
             if (!raw) return false;
@@ -376,12 +391,32 @@ class AnchorPiWatchKeeperClass {
                 target?: PiWatchTarget;
                 centreAtSet?: unknown;
                 pending?: Partial<HeldMove>;
+                safeAreaPairKey?: string;
+                safeAreaVesselId?: string | null;
+                safeAreaOwnerKey?: string;
             };
             if (!saved?.assignment?.sessionCode || !saved.target?.baseUrl || !saved.target.relayId) {
                 localStorage.removeItem(authScopedStorageKey(KEEPER_STATE_KEY));
                 return false;
             }
+            if (
+                saved.assignment.safeZone !== undefined &&
+                (!isAnchorAreaRevision(saved.assignment.safeAreaRevision) ||
+                    !anchorAssignmentSafeArea(saved.assignment) ||
+                    saved.safeAreaPairKey !== anchorSafeAreaPairKey() ||
+                    saved.safeAreaOwnerKey !== getAuthIdentityScope().key ||
+                    saved.assignment.safeAreaVesselId !== saved.safeAreaVesselId ||
+                    saved.safeAreaVesselId !== anchorSafeAreaVesselId())
+            )
+                return false;
             this.current = {
+                ...(saved.assignment.safeZone !== undefined
+                    ? {
+                          safeAreaPairKey: saved.safeAreaPairKey,
+                          safeAreaVesselId: saved.safeAreaVesselId,
+                          safeAreaOwnerKey: saved.safeAreaOwnerKey,
+                      }
+                    : {}),
                 assignment: saved.assignment,
                 target: saved.target,
                 centreAtSet: isPoint(saved.centreAtSet) ? saved.centreAtSet : anchorOf(saved.assignment),
@@ -392,7 +427,12 @@ class AnchorPiWatchKeeperClass {
                 (move.status === 'sent' || move.status === 'confirmed' || move.status === 'unknown') &&
                 isPoint(move.target) &&
                 isPoint(move.previous) &&
-                move.assignment?.sessionCode === saved.assignment.sessionCode
+                move.assignment?.sessionCode === saved.assignment.sessionCode &&
+                (saved.assignment.safeZone === undefined ||
+                    (move.assignment.safeZone !== undefined &&
+                        isAnchorAreaRevision(move.assignment.safeAreaRevision) &&
+                        move.assignment.safeAreaVesselId === saved.safeAreaVesselId &&
+                        !!anchorAssignmentSafeArea(move.assignment)))
                     ? {
                           target: move.target,
                           previous: move.previous,
@@ -417,17 +457,20 @@ class AnchorPiWatchKeeperClass {
     /** True once the PI is keeping the watch. False means the phone carries on
      *  alone, which is the behaviour that existed before this module. */
     isKeeping(): boolean {
-        return this.current !== null;
+        return (
+            this.current !== null &&
+            (this.current.assignment.safeZone === undefined || this.areaContextCurrent(this.current))
+        );
     }
 
     /** The session the Pi is currently broadcasting, for the UI to show. */
     keepingSessionCode(): string | null {
-        return this.current?.assignment.sessionCode ?? null;
+        return this.isKeeping() ? (this.current?.assignment.sessionCode ?? null) : null;
     }
 
     /** Where the Pi's watch was first set, for the Move anchor sheet's reach check. */
     centreAtSet(): LatLonPoint | null {
-        return this.current ? { ...this.current.centreAtSet } : null;
+        return this.isKeeping() && this.current ? { ...this.current.centreAtSet } : null;
     }
 
     /**
@@ -443,7 +486,7 @@ class AnchorPiWatchKeeperClass {
      */
     answersFromAshore(): boolean {
         const held = this.current;
-        if (!held) return false;
+        if (!held || !this.isKeeping()) return false;
         const remote = piCache.getRemoteBaseUrl();
         if (remote && held.target.baseUrl === remote) return true;
         const base = piCache.getBaseUrl();
@@ -456,7 +499,7 @@ class AnchorPiWatchKeeperClass {
     /** The latest move of the Pi's mark, for this account, until the next watch. */
     getPending(): PiMovePending | null {
         const move = this.pending;
-        if (!move || !this.current || move.scopeKey !== getAuthIdentityScope().key) return null;
+        if (!move || !this.current || !this.isKeeping() || move.scopeKey !== getAuthIdentityScope().key) return null;
         return { target: { ...move.target }, previous: { ...move.previous }, status: move.status, at: move.at };
     }
 
@@ -467,13 +510,44 @@ class AnchorPiWatchKeeperClass {
      * code, anchor and radius does nothing, so an effect that re-runs on every
      * snapshot cannot restart the Pi's loop ten times a minute.
      */
-    async begin(assignment: PiWatchAssignment): Promise<boolean> {
-        if (this.current && sameAssignment(this.current.assignment, assignment)) return true;
-        return this.serial(() => this.beginLocked(assignment));
+    async begin(
+        assignment: PiWatchAssignment,
+        options: { isCurrent?: () => boolean | Promise<boolean> } = {},
+    ): Promise<boolean> {
+        if (assignment.safeZone === undefined && this.current && sameAssignment(this.current.assignment, assignment))
+            return true;
+        return this.serial(() => this.beginLocked(assignment, options));
     }
 
-    private async beginLocked(assignment: PiWatchAssignment): Promise<boolean> {
-        if (this.current && sameAssignment(this.current.assignment, assignment)) return true;
+    private async beginLocked(
+        assignment: PiWatchAssignment,
+        options: { isCurrent?: () => boolean | Promise<boolean> } = {},
+    ): Promise<boolean> {
+        const lease = assignment.safeZone !== undefined ? await captureAnchorAreaLease() : null;
+        if (assignment.safeZone !== undefined && (!lease || !((await options.isCurrent?.()) ?? true))) return false;
+        if (lease) {
+            const previous = this.current?.assignment;
+            const candidate = {
+                ...assignment,
+                safeAreaVesselId: lease.vesselId,
+                safeAreaRevision: assignment.safeAreaRevision ?? previous?.safeAreaRevision,
+            };
+            assignment = {
+                ...candidate,
+                safeAreaRevision:
+                    assignment.safeAreaRevision ??
+                    (previous && sameAssignment(previous, candidate) ? previous.safeAreaRevision : crypto.randomUUID()),
+            };
+        }
+        if (
+            this.current &&
+            sameAssignment(this.current.assignment, assignment) &&
+            (!lease ||
+                (this.current.safeAreaPairKey === lease.pairKey &&
+                    this.current.safeAreaVesselId === lease.vesselId &&
+                    this.current.safeAreaOwnerKey === lease.ownerKey))
+        )
+            return true;
         // The probe above no longer consults piCache's cached mirror, so by
         // the time the skipper says yes that mirror may still be stale — and
         // this is the one place that genuinely needs `diaryRelayId`, which
@@ -501,7 +575,12 @@ class AnchorPiWatchKeeperClass {
 
         let took = false;
         for (const baseUrl of addresses) {
-            took = await handOffToPi(assignment, target.relayId, baseUrl);
+            const current = async () => (!lease || lease.current()) && (await (options.isCurrent?.() ?? true));
+            if (!(await current())) return false;
+            took = lease
+                ? await handOffToPi(assignment, target.relayId, baseUrl, undefined, current)
+                : await handOffToPi(assignment, target.relayId, baseUrl);
+            if (!(await current())) return false;
             if (took) {
                 target = { ...target, baseUrl };
                 break;
@@ -513,7 +592,14 @@ class AnchorPiWatchKeeperClass {
             return false;
         }
         // A new watch: its own first centre, and no move yet.
-        this.current = { assignment, target, centreAtSet: anchorOf(assignment) };
+        this.current = {
+            assignment,
+            target,
+            centreAtSet: anchorOf(assignment),
+            ...(lease
+                ? { safeAreaPairKey: lease.pairKey, safeAreaVesselId: lease.vesselId, safeAreaOwnerKey: lease.ownerKey }
+                : {}),
+        };
         this.pending = null;
         this.disarmMoveWatch();
         this.persist();
@@ -536,12 +622,23 @@ class AnchorPiWatchKeeperClass {
      * is taken, rather than forgetting a watch that is still broadcasting.
      */
     async end(): Promise<boolean> {
+        if (this.current?.assignment.safeZone !== undefined && this.current && !this.areaContextCurrent(this.current))
+            return true;
+        const lease =
+            this.current?.assignment.safeZone !== undefined && this.current ? await captureAnchorAreaLease() : null;
+        if (
+            this.current?.assignment.safeZone !== undefined &&
+            this.current &&
+            (!lease || !lease.current() || !this.areaContextCurrent(this.current))
+        )
+            return true;
         this.stopRenewing();
         const held = this.current;
         this.current = null;
         this.persist();
         if (!held) return false;
         const refused = await clearWatchOnPi(held.target.baseUrl);
+        if (lease && !lease.current()) return refused;
         if (refused) {
             log.warn('Her Pi would not stop the shore watch: this phone is not set up for it, so it is still kept');
             // Unless another watch was handed over meanwhile.
@@ -580,21 +677,55 @@ class AnchorPiWatchKeeperClass {
     async relocate(lat: number, lon: number, live: PiMoveLive): Promise<PiMoveResult> {
         const held = this.current;
         if (!held) return NOT_KEEPING;
+        if (held.assignment.safeZone)
+            return {
+                ok: false,
+                outcome: 'invalid',
+                error: 'Clear the custom safe area explicitly in this move sheet first. It will not move with the mark.',
+            };
         const atTap = judgeMoveOf(held, lat, lon, live, Date.now());
         if (!atTap.ok) return notSent(atTap);
-        return this.serial(() => this.relocateLocked(lat, lon, live));
+        return this.serial(() =>
+            held.assignment.safeZone !== undefined
+                ? this.relocateAreaCircleLocked(lat, lon, live)
+                : this.relocateLocked(lat, lon, live),
+        );
     }
 
-    private async relocateLocked(lat: number, lon: number, tapped: PiMoveLive): Promise<PiMoveResult> {
+    private async relocateLocked(
+        lat: number,
+        lon: number,
+        tapped: PiMoveLive,
+        areaPlan?: AreaMovePlan,
+    ): Promise<PiMoveResult> {
         if (!this.current) return NOT_KEEPING;
+        if (this.current.assignment.safeZone)
+            return {
+                ok: false,
+                outcome: 'invalid',
+                error: 'Clear the custom safe area explicitly before moving its anchor.',
+            };
+        const areaLease = areaPlan?.lease ?? null;
+        if (this.current.assignment.safeZone !== undefined && (!areaLease || !this.areaContextCurrent(this.current)))
+            return {
+                ok: false,
+                outcome: 'invalid',
+                error: 'The paired account or vessel context changed. Review this watch again.',
+            };
         const live = await latestPiLive(tapped, this.current.assignment.sessionCode);
         const held = this.current;
         if (!held) return NOT_KEEPING;
+        if (areaPlan && held !== areaPlan.held)
+            return { ok: false, outcome: 'unknown', error: 'The paired watch changed before the move could be sent.' };
         if (this.getPending()?.status === 'unknown') return STILL_UNKNOWN;
         const target = { latitude: lat, longitude: lon };
         const verdict = judgeMoveOf(held, lat, lon, live, Date.now());
         if (!verdict.ok) return notSent(verdict);
-        const next: PiWatchAssignment = { ...held.assignment, anchorLat: lat, anchorLon: lon };
+        const next: PiWatchAssignment = areaPlan?.next ?? {
+            ...held.assignment,
+            anchorLat: lat,
+            anchorLon: lon,
+        };
         const previous = anchorOf(held.assignment);
         // The SAME ladder begin() and renew() use: the boat's LAN, then the tailnet.
         const via = resolvePiWatchTarget() ?? held.target;
@@ -603,7 +734,19 @@ class AnchorPiWatchKeeperClass {
         if (remote && remote !== via.baseUrl) addresses.push(remote);
 
         for (const baseUrl of addresses) {
+            if (areaLease && (!areaLease.current() || this.current !== held))
+                return {
+                    ok: false,
+                    outcome: 'unknown',
+                    error: 'The watch context changed; the move was not confirmed.',
+                };
             const answer = await sendAssignmentToPi(next, baseUrl, MOVE_TIMEOUTS);
+            if (areaLease && !areaLease.current())
+                return {
+                    ok: false,
+                    outcome: 'unknown',
+                    error: 'The account, vessel or pairing changed; the Pi move is unverified.',
+                };
             if (answer.taken) {
                 const still = this.current;
                 if (!still) {
@@ -624,6 +767,12 @@ class AnchorPiWatchKeeperClass {
                 return { ok: true, ashore };
             }
             if (answer.status !== null) {
+                if (areaPlan && !(await areaPlan.restore()))
+                    return {
+                        ok: false,
+                        outcome: 'refused',
+                        error: 'The Pi refused the move. Its prior relay boundary could not be confirmed; check Shore Watch.',
+                    };
                 // A real answer, not a wrong address: nothing changed, and
                 // asking the same Pi elsewhere would only ask it again.
                 log.warn(
@@ -653,6 +802,130 @@ class AnchorPiWatchKeeperClass {
         this.pending = { ...move, scopeKey: getAuthIdentityScope().key };
         this.persist();
         if (move.status !== 'confirmed') this.armMoveWatch();
+    }
+
+    private areaContextCurrent(held: HeldWatch): boolean {
+        return (
+            held.safeAreaOwnerKey === getAuthIdentityScope().key &&
+            held.safeAreaPairKey === anchorSafeAreaPairKey() &&
+            held.safeAreaVesselId === anchorSafeAreaVesselId()
+        );
+    }
+
+    /** New boundary-protocol circles renew their owner-authorised frame; legacy moves keep their original path. */
+    private async relocateAreaCircleLocked(lat: number, lon: number, tapped: PiMoveLive): Promise<PiMoveResult> {
+        const held = this.current;
+        if (!held || held.assignment.safeZone)
+            return { ok: false, outcome: 'invalid', error: 'Clear the custom area explicitly before moving the mark.' };
+        const lease = await captureAnchorAreaLease();
+        if (!lease || this.current !== held || !this.areaContextCurrent(held))
+            return { ok: false, outcome: 'invalid', error: 'The paired watch context changed. Review the move again.' };
+        const live = await latestPiLive(tapped, held.assignment.sessionCode);
+        const verdict = judgeMoveOf(held, lat, lon, live, Date.now());
+        if (!verdict.ok) return notSent(verdict);
+        if (this.getPending()?.status === 'unknown') return STILL_UNKNOWN;
+        const next = { ...held.assignment, anchorLat: lat, anchorLon: lon, safeAreaRevision: crypto.randomUUID() };
+        if (
+            !lease.current() ||
+            !(await authoriseRelay(held.target.relayId, next.sessionCode, next)) ||
+            !lease.current() ||
+            this.current !== held
+        )
+            return {
+                ok: false,
+                outcome: 'unknown',
+                error: 'The relay boundary for this move was not confirmed. Keep checking Shore Watch; the move was not sent.',
+            };
+        const restore = async () =>
+            lease.current() &&
+            this.current === held &&
+            (await authoriseRelay(held.target.relayId, held.assignment.sessionCode, held.assignment));
+        const result = await this.relocateLocked(lat, lon, tapped, { held, next, lease, restore });
+        if (!result.ok && result.outcome === 'invalid' && this.current === held && !(await restore()))
+            return {
+                ok: false,
+                outcome: 'unknown',
+                error: 'The move was not sent, and the prior relay boundary is unverified. Check Shore Watch.',
+            };
+        return result;
+    }
+
+    /** An explicit no-alarm return to the circle. Never translates a custom area with the mark. */
+    async clearSafeArea(live: PiMoveLive): Promise<{ ok: true } | { ok: false; error: string }> {
+        return this.serial(() => this.clearSafeAreaLocked(live));
+    }
+
+    private async clearSafeAreaLocked(tapped: PiMoveLive): Promise<{ ok: true } | { ok: false; error: string }> {
+        const held = this.current;
+        if (!held?.assignment.safeZone || !this.areaContextCurrent(held))
+            return { ok: false, error: 'No custom Pi area is available in this paired watch context.' };
+        const live = await latestPiLive(tapped, held.assignment.sessionCode);
+        if (live.alarm || live.gpsLost || !live.boatFix || !piFixIsFresh(live.boatFix, Date.now()))
+            return { ok: false, error: 'A fresh Pi fix with no alarm is required to return to the circle.' };
+        const lease = await captureAnchorAreaLease();
+        if (!lease || !this.areaContextCurrent(held) || this.current !== held)
+            return { ok: false, error: 'The paired watch changed. Review the area again.' };
+        const next = { ...held.assignment, safeZone: null, safeAreaRevision: crypto.randomUUID() };
+        if (
+            !(await authoriseRelay(held.target.relayId, next.sessionCode, next)) ||
+            !lease.current() ||
+            this.current !== held
+        )
+            return {
+                ok: false,
+                error: 'The circle-only relay boundary was not confirmed. The Pi watch is unchanged; check Shore Watch.',
+            };
+        const target = resolvePiWatchTarget() ?? held.target;
+        const addresses = [target.baseUrl],
+            remote = piCache.getRemoteBaseUrl();
+        if (remote && remote !== target.baseUrl) addresses.push(remote);
+        for (const baseUrl of addresses) {
+            if (!lease.current() || this.current !== held)
+                return { ok: false, error: 'The paired watch changed. The circle-only change is unverified.' };
+            const answer = await sendAssignmentToPi(next, baseUrl, MOVE_TIMEOUTS);
+            if (!lease.current())
+                return {
+                    ok: false,
+                    error: 'The account, vessel or pairing changed; the circle-only change is unverified.',
+                };
+            if (this.current !== held) {
+                if (!this.current && answer.taken) await clearWatchOnPi(baseUrl);
+                return { ok: false, error: 'The watch ended or changed while the circle-only change was pending.' };
+            }
+            if (answer.taken) {
+                this.current = { ...held, assignment: next, target: { ...target, baseUrl } };
+                this.pending = null;
+                this.disarmMoveWatch();
+                this.persist();
+                return { ok: true };
+            }
+            if (answer.status !== null) {
+                const restored = await authoriseRelay(
+                    held.target.relayId,
+                    held.assignment.sessionCode,
+                    held.assignment,
+                );
+                return {
+                    ok: false,
+                    error:
+                        restored && lease.current()
+                            ? 'The Pi refused circle only. It keeps the custom area; nothing was moved.'
+                            : 'The Pi refused circle only. Its prior relay boundary is unverified; check Shore Watch.',
+                };
+            }
+        }
+        if (lease.current() && this.current === held)
+            this.setPending({
+                assignment: next,
+                target: anchorOf(next),
+                previous: anchorOf(held.assignment),
+                status: 'unknown',
+                at: Date.now(),
+            });
+        return {
+            ok: false,
+            error: 'The circle-only change is unverified. The Pi may still watch the custom area; Shore Watch will show its confirmed boundary.',
+        };
     }
 
     /**
@@ -709,12 +982,27 @@ class AnchorPiWatchKeeperClass {
     private hearReport(data: SyncBroadcast, sessionCode: string | null): void {
         const held = this.current;
         const move = this.pending;
+        if (held?.assignment.safeZone !== undefined && held && !this.areaContextCurrent(held)) return;
         if (!held || !move || move.status === 'confirmed') {
             this.disarmMoveWatch();
             return;
         }
         if (data.type !== 'position' || sessionCode !== held.assignment.sessionCode) return;
-        if (piAnchorMatches(data.anchor, move.target)) {
+        const boundaryMatches =
+            !move.assignment.safeAreaRevision ||
+            (data.safeAreaRevision === move.assignment.safeAreaRevision &&
+                data.safeAreaVesselId === move.assignment.safeAreaVesselId &&
+                data.timestamp >= move.at &&
+                sameAnchorSafeArea(
+                    anchorAssignmentSafeArea(move.assignment),
+                    anchorAssignmentSafeArea({
+                        anchorLat: data.anchor.latitude,
+                        anchorLon: data.anchor.longitude,
+                        swingRadius: data.swingRadius,
+                        safeZone: data.safeZone ?? null,
+                    }),
+                ));
+        if (piAnchorMatches(data.anchor, move.target) && boundaryMatches) {
             if (move.status === 'unknown') {
                 // It did take it: the new mark is the watch now.
                 this.current = { ...held, assignment: move.assignment };
@@ -730,7 +1018,11 @@ class AnchorPiWatchKeeperClass {
         if (
             move.status === 'unknown' &&
             Date.now() - move.at >= PI_MOVE_SETTLE_MS &&
-            piAnchorMatches(data.anchor, anchorOf(held.assignment))
+            piAnchorMatches(data.anchor, anchorOf(held.assignment)) &&
+            (!held.assignment.safeAreaRevision ||
+                (data.safeAreaRevision === held.assignment.safeAreaRevision &&
+                    data.safeAreaVesselId === held.assignment.safeAreaVesselId &&
+                    data.timestamp >= move.at))
         ) {
             log.warn("Pi anchor move unknown: the Pi's report shows it kept the old point");
             this.pending = null;
@@ -812,6 +1104,15 @@ class AnchorPiWatchKeeperClass {
     private async renewLocked(): Promise<PiRenewal> {
         const held = this.current;
         if (!held) return false;
+        const lease = held.assignment.safeZone !== undefined ? await captureAnchorAreaLease() : null;
+        if (
+            held.assignment.safeZone !== undefined &&
+            (!lease ||
+                lease.pairKey !== held.safeAreaPairKey ||
+                lease.vesselId !== held.safeAreaVesselId ||
+                lease.ownerKey !== held.safeAreaOwnerKey)
+        )
+            return false;
         let authorised = false;
         // The Pi may have moved (remote access) or dropped off the tailnet.
         const target = resolvePiWatchTarget() ?? held.target;
@@ -822,7 +1123,11 @@ class AnchorPiWatchKeeperClass {
         const unsettled = this.pending?.status === 'unknown' ? this.pending : null;
         const waitedMs = unsettled ? Date.now() - unsettled.at : 0;
         if (unsettled && waitedMs < PI_MOVE_UNKNOWN_LIMIT_MS) {
-            authorised = await authoriseRelay(target.relayId, held.assignment.sessionCode);
+            if (lease && !lease.current()) return false;
+            authorised = lease
+                ? await authoriseRelay(target.relayId, held.assignment.sessionCode, unsettled.assignment)
+                : await authoriseRelay(target.relayId, held.assignment.sessionCode);
+            if (lease && !lease.current()) return false;
             log.warn(
                 `Pi watch renewal: a move is unconfirmed, so only the authorisation was renewed (${authorised ? 'ok' : 'failed'})`,
             );
@@ -847,7 +1152,18 @@ class AnchorPiWatchKeeperClass {
         const remote = piCache.getRemoteBaseUrl();
         if (remote && remote !== target.baseUrl) addresses.push(remote);
         for (const baseUrl of addresses) {
-            if (await handOffToPi(assignment, target.relayId, baseUrl, () => (authorised = true))) {
+            if (lease && !lease.current()) return false;
+            const taken = lease
+                ? await handOffToPi(
+                      assignment,
+                      target.relayId,
+                      baseUrl,
+                      () => (authorised = true),
+                      () => lease.current() && this.current === held,
+                  )
+                : await handOffToPi(assignment, target.relayId, baseUrl, () => (authorised = true));
+            if (taken) {
+                if (lease && !lease.current()) return false;
                 if (!this.current) {
                     // Weighed while this was on its way: its DELETE may have
                     // landed first. The anchor coming up wins.
@@ -867,8 +1183,7 @@ class AnchorPiWatchKeeperClass {
                 return 'assigned';
             }
         }
-        // Do NOT tear down: the phone is still broadcasting, and the next
-        // renew may well succeed once the Pi is reachable again. Forgetting
+        // Do NOT tear down: the next renew may succeed once the Pi is reachable. Forgetting
         // the watch here would mean never trying it again this session.
         log.warn(
             `Pi watch renewal failed at every known address (${addresses.join(', ')}); will try again at the next interval`,
@@ -921,7 +1236,10 @@ function sameAssignment(a: PiWatchAssignment, b: PiWatchAssignment): boolean {
         a.sessionCode === b.sessionCode &&
         a.anchorLat === b.anchorLat &&
         a.anchorLon === b.anchorLon &&
-        a.swingRadius === b.swingRadius
+        a.swingRadius === b.swingRadius &&
+        sameAnchorSafeArea(anchorAssignmentSafeArea(a), anchorAssignmentSafeArea(b)) &&
+        (a.safeAreaRevision ?? null) === (b.safeAreaRevision ?? null) &&
+        (a.safeAreaVesselId ?? null) === (b.safeAreaVesselId ?? null)
     );
 }
 

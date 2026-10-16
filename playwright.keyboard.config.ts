@@ -85,6 +85,8 @@ export default defineConfig({
         // "Anchor is 33 m from the boat, bearing 212 °T": the Move anchor sheet
         // fits, centred above the tab bar and the keyboard (e2e/fixtures/move-anchor.tsx).
         'move-anchor-layout.spec.ts',
+        'anchor-safe-zone139-layout.spec.ts',
+        'anchor-safe-area-move139-layout.spec.ts',
         // Sightings: the page, quick log, species list and detail fit at 390,
         // 320 and in the split pane, centred above the tab bar
         // (e2e/fixtures/sightings.tsx).

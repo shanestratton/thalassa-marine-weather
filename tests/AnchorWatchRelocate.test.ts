@@ -19,6 +19,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { destinationPoint } from '../utils/navigationCalculations';
+import { anchorZonePosition } from '../utils/anchorSafeZone';
+
+const editContext = vi.hoisted(() => ({ vesselRevision: 0 }));
+vi.mock('../services/anchorSafeZoneContext', async () => {
+    const { getAuthIdentityScope } = await vi.importActual<typeof import('../services/authIdentityScope')>(
+        '../services/authIdentityScope',
+    );
+    return { anchorSafeZoneContextKey: () => JSON.stringify([getAuthIdentityScope(), editContext.vesselRevision]) };
+});
 
 const watchMocks = vi.hoisted(() => ({
     keepAwake: vi.fn().mockResolvedValue(undefined),
@@ -165,6 +174,7 @@ vi.mock('../services/anchorWatchRecoveryStorage', () => ({
 
 import { AnchorWatchService, calculateSwingRadius, haversineDistance } from '../services/AnchorWatchService';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { readAnchorWatchRecovery } from '../services/anchorWatchRecoveryStorage';
 import { Capacitor } from '@capacitor/core';
 
 // A rode of 30 m in 5 m of chain-laid water: a 35.1 m circle.
@@ -747,6 +757,158 @@ describe('AnchorWatchService.relocateAnchor', () => {
         expect(moved.anchorPosition.timestamp).toBe(armed.anchorPosition.timestamp);
         expect(moved.watchStartedAt).toBe(armed.watchStartedAt);
         expect(moved.config).toEqual(armed.config);
+    });
+
+    describe('custom safe area, circle backstop and edit transactions (139-06)', () => {
+        const area = () => ({
+            version: 1,
+            kind: 'polygon',
+            anchor: ANCHOR,
+            vertices: [
+                [-15, -15],
+                [15, -15],
+                [15, 15],
+                [-15, 15],
+            ].map(([x, y]) => anchorZonePosition(ANCHOR, x, y)!),
+        });
+        async function zone() {
+            await arm();
+            fix(ANCHOR);
+            expect(
+                await AnchorWatchService.updateSafeZone(area(), await AnchorWatchService.getSafeZoneEditToken()),
+            ).toEqual({ ok: true });
+        }
+        it('persists only admitted manual geometry and leaves the verified native circle in place', async () => {
+            await arm();
+            fix(ANCHOR);
+            const fences = watchMocks.addGeofence.mock.calls.length;
+            const token = await AnchorWatchService.getSafeZoneEditToken();
+            expect(await AnchorWatchService.updateSafeZone(area(), token)).toEqual({ ok: true });
+            expect(lastPersisted().safeZone).toMatchObject({ kind: 'polygon', anchor: ANCHOR });
+            expect(watchMocks.addGeofence).toHaveBeenCalledTimes(fences);
+            expect(AnchorWatchService.getSnapshot().swingRadius).toBe(RADIUS);
+            expect(await AnchorWatchService.updateSafeZone(null, token)).toMatchObject({ ok: false });
+        });
+        it.each(['account', 'vessel'])('retires a stale editor after %s A/B/A', async (kind) => {
+            await arm();
+            fix(ANCHOR);
+            const token = await AnchorWatchService.getSafeZoneEditToken();
+            if (kind === 'account') {
+                setAuthIdentityScope('b');
+                setAuthIdentityScope('skipper-a');
+            } else editContext.vesselRevision += 2;
+            expect(await AnchorWatchService.updateSafeZone(area(), token)).toMatchObject({ ok: false });
+            expect(AnchorWatchService.getSnapshot().safeZone).toBeNull();
+        });
+        it('refuses an outside or stale boat fix, unsupported geometry, and a late editor from a former watch', async () => {
+            await arm();
+            fix(toward(ANCHOR, 90, 25));
+            expect(
+                await AnchorWatchService.updateSafeZone(area(), await AnchorWatchService.getSafeZoneEditToken()),
+            ).toMatchObject({ ok: false, error: expect.stringMatching(/inside/) });
+            await vi.advanceTimersByTimeAsync(31_000);
+            expect(
+                await AnchorWatchService.updateSafeZone(area(), await AnchorWatchService.getSafeZoneEditToken()),
+            ).toMatchObject({ ok: false, error: expect.stringMatching(/recent/) });
+            const token = await AnchorWatchService.getSafeZoneEditToken();
+            await AnchorWatchService.stopWatch();
+            await arm();
+            expect(await AnchorWatchService.updateSafeZone(area(), token)).toMatchObject({ ok: false });
+            expect(
+                await AnchorWatchService.updateSafeZone(
+                    { ...area(), borrowedChart: [] },
+                    await AnchorWatchService.getSafeZoneEditToken(),
+                ),
+            ).toMatchObject({ ok: false });
+        });
+        it('retains the prior area on failed persistence and blocks verification if rollback cannot be saved', async () => {
+            await zone();
+            const previous = AnchorWatchService.getSnapshot().safeZone;
+            recovery.failWrite = true;
+            expect(
+                await AnchorWatchService.updateSafeZone(null, await AnchorWatchService.getSafeZoneEditToken()),
+            ).toMatchObject({ ok: false });
+            expect(AnchorWatchService.getSnapshot()).toMatchObject({
+                state: 'paused',
+                safeZone: previous,
+                swingRadius: RADIUS,
+            });
+        });
+        it('never publishes a provisional area while storage is pending, and rolls it back after an account change', async () => {
+            await zone();
+            const previous = AnchorWatchService.getSnapshot().safeZone;
+            recovery.hangNextWrite = true;
+            const edit = AnchorWatchService.updateSafeZone(null, await AnchorWatchService.getSafeZoneEditToken());
+            await vi.advanceTimersByTimeAsync(0);
+            expect(recovery.pending).toHaveLength(1);
+            expect(AnchorWatchService.getSnapshot().safeZone).toEqual(previous);
+            setAuthIdentityScope('b');
+            setAuthIdentityScope('skipper-a');
+            recovery.pending.shift()!();
+            expect(await edit).toMatchObject({ ok: false });
+            expect(AnchorWatchService.getSnapshot().safeZone).toEqual(previous);
+            expect(lastPersisted().safeZone).toEqual(previous);
+        });
+        it('recovers only a valid area bound to its original anchor and circle', async () => {
+            await zone();
+            const saved = lastPersisted();
+            await AnchorWatchService.stopWatch();
+            vi.mocked(readAnchorWatchRecovery).mockResolvedValueOnce({
+                raw: JSON.stringify(saved),
+                deviceRecovery: false,
+            });
+            expect(await AnchorWatchService.restoreWatchState()).toBe(true);
+            expect(AnchorWatchService.getSnapshot().safeZone).toEqual(saved.safeZone);
+            await AnchorWatchService.stopWatch();
+            saved.safeZone.anchor.longitude += 0.001;
+            vi.mocked(readAnchorWatchRecovery).mockResolvedValueOnce({
+                raw: JSON.stringify(saved),
+                deviceRecovery: false,
+            });
+            expect(await AnchorWatchService.restoreWatchState()).toBe(true);
+            expect(AnchorWatchService.getSnapshot()).toMatchObject({
+                state: 'paused',
+                safeZone: null,
+                setupError: expect.stringMatching(/safe area is invalid/),
+            });
+        });
+        it('never shifts an area on move or clips it with a smaller circle; explicit clear keeps the alarm active', async () => {
+            await zone();
+            expect(await AnchorWatchService.relocateAnchor(ANCHOR.latitude, ANCHOR.longitude)).toMatchObject({
+                ok: false,
+                error: expect.stringMatching(/clear/i),
+            });
+            expect(
+                await AnchorWatchService.updateConfig({ rodeLength: 6, waterDepth: 1, scopeRatio: 6, safetyMargin: 1 }),
+            ).toBe(false);
+            watchMocks.geofenceCallback?.({ identifier: 'anchor-swing-radius', action: 'EXIT' });
+            await drain();
+            expect(AnchorWatchService.getSnapshot().state).toBe('alarm');
+            expect(await AnchorWatchService.relocateAnchorFromAlarm(ANCHOR.latitude, ANCHOR.longitude)).toMatchObject({
+                ok: false,
+                error: expect.stringMatching(/clear/i),
+            });
+            expect(
+                await AnchorWatchService.clearSafeZoneForMove(await AnchorWatchService.getSafeZoneEditToken()),
+            ).toEqual({ ok: true });
+            expect(AnchorWatchService.getSnapshot()).toMatchObject({ state: 'alarm', safeZone: null });
+        });
+        it('confirms leaving the custom polygon while still inside the circle using the existing accepted-fix path', async () => {
+            await zone();
+            // Re-reading one frozen sample cannot accumulate three confirmations.
+            for (let i = 0; i < 8; i++) {
+                fix(toward(ANCHOR, 90, 25));
+                await drain();
+            }
+            expect(AnchorWatchService.getSnapshot().state).toBe('watching');
+            for (let i = 0; i < 8; i++) {
+                await vi.advanceTimersByTimeAsync(3_000);
+                fix(toward(ANCHOR, 90, 25));
+                await drain();
+            }
+            expect(AnchorWatchService.getSnapshot()).toMatchObject({ state: 'alarm', alarmCause: 'drag' });
+            expect(AnchorWatchService.getSnapshot().distanceFromAnchor).toBeLessThan(RADIUS);
+        });
     });
 });
 

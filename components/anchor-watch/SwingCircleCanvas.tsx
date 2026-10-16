@@ -23,6 +23,7 @@
 import React, { useRef, useEffect } from 'react';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
 import type { AnchorDragGeometry, AnchorDragHandlers } from './anchorDrag';
+import { anchorZoneOffset, parseAnchorSafeZone, type AnchorSafeZone } from '../../utils/anchorSafeZone';
 
 export interface AisTargetDot {
     mmsi: number;
@@ -60,6 +61,7 @@ export function offsetFromAnchorM(anchor: LatLon, point: LatLon): { dx: number; 
  * half-minute mean has no heading, and a Pi's anchor no time.
  */
 export type SwingCanvasModel = Pick<AnchorWatchSnapshot, 'state' | 'swingRadius' | 'gpsAccuracy'> & {
+    safeZone?: AnchorSafeZone | null;
     anchorPosition: LatLon | null;
     vesselPosition: LatLon | null;
     /** Her trail, oldest first. */
@@ -304,6 +306,60 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
             ctx.setLineDash([2, 4]);
             ctx.stroke();
             ctx.setLineDash([]);
+
+            // Manual area only; validate again before drawing received/recovered geometry.
+            const zone =
+                !previewing &&
+                snapshot.safeZone &&
+                parseAnchorSafeZone(snapshot.safeZone, { ...anchorNow, radiusM: snapshot.swingRadius });
+            if (zone && zone.ok) {
+                ctx.save();
+                ctx.strokeStyle = '#22d3ee';
+                ctx.lineWidth = 2;
+                if (zone.zone.kind === 'polygon') {
+                    ctx.beginPath();
+                    zone.zone.vertices.forEach((v, i) => {
+                        const offset = anchorZoneOffset(anchorNow, v)!;
+                        const x = cx + offset[0] * scale,
+                            y = cy - offset[1] * scale;
+                        if (i) ctx.lineTo(x, y);
+                        else ctx.moveTo(x, y);
+                    });
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(34,211,238,0.12)';
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, displayRadius, 0, Math.PI * 2);
+                    ctx.moveTo(
+                        cx + anchorZoneOffset(anchorNow, zone.zone.vertices[0])![0] * scale,
+                        cy - anchorZoneOffset(anchorNow, zone.zone.vertices[0])![1] * scale,
+                    );
+                    zone.zone.vertices.slice(1).forEach((v) => {
+                        const offset = anchorZoneOffset(anchorNow, v)!;
+                        ctx.lineTo(cx + offset[0] * scale, cy - offset[1] * scale);
+                    });
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(251,113,133,0.18)';
+                    ctx.fill('evenodd');
+                } else
+                    for (const w of zone.zone.exclusions) {
+                        ctx.beginPath();
+                        ctx.moveTo(cx, cy);
+                        ctx.arc(
+                            cx,
+                            cy,
+                            displayRadius,
+                            ((w.startDeg - 90) * Math.PI) / 180,
+                            ((w.startDeg + w.sweepDeg - 90) * Math.PI) / 180,
+                        );
+                        ctx.closePath();
+                        ctx.fillStyle = 'rgba(251,113,133,0.28)';
+                        ctx.fill();
+                        ctx.stroke();
+                    }
+                ctx.restore();
+            }
 
             // ── Anchor icon at center ──
             ctx.font = '18px serif';
