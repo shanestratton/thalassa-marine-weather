@@ -28,8 +28,10 @@ describe('IHO seabed semantics and advice', () => {
         }
         expect(chartBottomNature({ _caution: 'WEDKLP', CATWED: 255 })).toMatchObject({
             unknown: true,
-            label: 'Unknown',
+            label: 'Weed / kelp (type unknown)',
+            abbreviation: 'Weed',
         });
+        expect(chartBottomNature({ _caution: 'WEDKLP' })).toMatchObject({ unknown: true, abbreviation: 'Weed' });
         expect(chartBottomNature({ NATSUR: 4 })).toMatchObject({ label: 'Sand', poor: false });
     });
     it('keeps lava, coral, shells and boulders in their actual S-57 slots', () => {

@@ -76,9 +76,12 @@ export function seabedNature(value: unknown) {
 /** CATWED belongs to WEDKLP, never to the NATSUR code list. These are
  * plain-language vegetation labels, separate from S-52 bottom abbreviations. */
 export function chartBottomNature(properties: Record<string, unknown>) {
-    return properties._caution === 'WEDKLP' || properties.acronym === 'WEDKLP'
-        ? decodeNature(properties.CATWED ?? properties.catwed, VEGETATION, true)
-        : seabedNature(properties.NATSUR ?? properties.natsur);
+    if (properties._caution !== 'WEDKLP' && properties.acronym !== 'WEDKLP')
+        return seabedNature(properties.NATSUR ?? properties.natsur);
+    const vegetation = decodeNature(properties.CATWED ?? properties.catwed, VEGETATION, true);
+    return vegetation.codes.some((code) => VEGETATION[code])
+        ? vegetation
+        : { ...vegetation, label: 'Weed / kelp (type unknown)', abbreviation: 'Weed', tint: '#80966b' };
 }
 
 /** Bounded, in-memory advisory only. Never fetches, stores, logs, grades or
