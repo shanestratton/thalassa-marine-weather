@@ -67,6 +67,7 @@ export const Icon=()=>h('path',{id:'original-id',className:(effects.push('class'
     if (Array.isArray(result) || !('output' in result)) throw Error('Expected one SVG production bundle');
     const chunk = result.output.find((output) => output.type === 'chunk');
     if (!chunk || chunk.type !== 'chunk') throw Error('Missing SVG production proof');
+    expect(Object.keys(chunk.modules).includes('\0virtual:thalassa-svg-paths')).toBe(shared);
     return {
         bytes: Buffer.byteLength(chunk.code),
         exports: await import(
