@@ -123,6 +123,8 @@ describe('clean OBS startup', () => {
         expect(hub).not.toContain('lastFlownCoordsRef');
         expect(hub).toContain('encSafetyDepthM, encHazardDepthM, coordCaptureMode)');
         expect(hub).toContain('useAnchorSwingLayer(mapRef, mapReady)');
-        expect(hub).toContain('useChartCatalog(mapRef, mapReady, !planningSurface, true)');
+        expect(hub).toMatch(
+            /useChartCatalog\(\s*mapRef,\s*mapReady,\s*!embedded && !pickerMode && !isPinView && shownBase !== 'enc',\s*true,\s*settings.satelliteMode === true,?\s*\)/,
+        );
     });
 });

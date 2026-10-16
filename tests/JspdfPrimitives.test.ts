@@ -101,6 +101,22 @@ describe('reviewed jsPDF primitive build', () => {
         for (const file of files) {
             const text = fs.readFileSync(path.join(root, file), 'utf8');
             const pdfConsumer = /from\s*['"]jspdf['"]|import\(\s*['"]jspdf['"]/.test(text);
+            // Decode escaped identifiers/string keys too, then parse only files
+            // that can contain a guarded member. The AST invariant is unchanged;
+            // building every unrelated React AST dominated coverage runs.
+            const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.JSX, text);
+            let relevant = false;
+            for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+                const value = scanner.getTokenValue();
+                if (
+                    (token === ts.SyntaxKind.Identifier || token === ts.SyntaxKind.StringLiteral) &&
+                    (value === 'html' || value === 'context2d' || (pdfConsumer && value === 'canvas'))
+                ) {
+                    relevant = true;
+                    break;
+                }
+            }
+            if (!relevant) continue;
             const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
             function visit(node: ts.Node) {
                 const member = ts.isPropertyAccessExpression(node)

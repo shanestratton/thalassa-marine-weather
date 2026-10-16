@@ -888,10 +888,15 @@ test.describe('the phone’s planner on Light (128-LIGHT)', () => {
             }
             await shot(page, info, `phone-planner-${size.width}x${size.height}-light`);
 
-            // The bases only: no ENC, Seamarks or Wind row on the phone.
+            // Bases include the installed-charts-only view; no overlay toggles on the phone.
             await trigger.click();
             const menu = page.getByRole('menu', { name: 'Map base' });
-            await expect(menu.getByRole('menuitemradio')).toHaveText([/^Light/, /^Relief \+ Sat/, /^Hybrid/]);
+            await expect(menu.getByRole('menuitemradio')).toHaveText([
+                /^Light/,
+                /^Relief \+ Sat/,
+                /^Hybrid/,
+                /^ENC only/,
+            ]);
             await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(0);
             await expectWideFaceDrawn(menu.getByRole('menuitemradio').first());
             const open = (await menu.boundingBox())!;
@@ -947,7 +952,13 @@ test.describe('the phone’s planner on Light (128-LIGHT)', () => {
         await expect(trigger).not.toHaveAccessibleName(/Light/);
         await trigger.click();
         const menu = page.getByRole('menu', { name: 'Map base' });
-        await expect(menu.getByRole('menuitemradio')).toHaveText([/^Relief/, /^Relief \+ Sat/, /^Ocean/, /^Hybrid/]);
+        await expect(menu.getByRole('menuitemradio')).toHaveText([
+            /^Relief/,
+            /^Relief \+ Sat/,
+            /^Ocean/,
+            /^Hybrid/,
+            /^ENC only/,
+        ]);
         await expect(menu.getByRole('menuitemcheckbox', { name: /^ENC charts/ })).toHaveCount(1);
         await context.close();
     });

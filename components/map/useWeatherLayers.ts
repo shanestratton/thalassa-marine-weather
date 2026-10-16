@@ -15,6 +15,7 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('WeatherLayers');
 
 import mapboxgl from 'mapbox-gl';
+import { chartFitBearing } from './chartOrientation';
 import { generateIsobars, generateIsobarsFromGrid, FORECAST_HOURS } from '../../services/weather/isobars';
 import {
     pressureFrameValidAt,
@@ -1105,7 +1106,13 @@ export function useWeatherLayers(
                         return;
                     const bounds = grib.consumeImportedGribView(path);
                     if (bounds && mapRef.current && !planMode && !embedded && !passageOwnsCamera)
-                        mapRef.current.fitBounds(bounds, { padding: 36, duration: 700, maxZoom: 9 });
+                        mapRef.current.fitBounds(bounds, {
+                            padding: 36,
+                            duration: 700,
+                            maxZoom: 9,
+                            retainPadding: false,
+                            bearing: chartFitBearing(mapRef.current),
+                        });
                     setUserLayers((previous) => {
                         const layers = new Set(previous);
                         layers.delete('velocity');
