@@ -196,6 +196,12 @@ export async function readPassageTideContext(
                                 'A local chart geometry exceeds the 65,536-vertex review bound or is malformed.',
                             );
                         if (cls === 'DEPARE') {
+                            if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') {
+                                complete = false;
+                                unknownDepth = true;
+                                notes.add('A depth area has non-area geometry; coverage remains unknown.');
+                                continue;
+                            }
                             if (pointInGeometry(point.lon, point.lat, f.geometry)) {
                                 const depth = number(p.DRVAL1 ?? p.drval1);
                                 if (depth !== null) depths.push(depth);
@@ -222,7 +228,7 @@ export async function readPassageTideContext(
                                 closedClearanceM: clearance.clearanceM,
                                 openClearanceM: number(p.VERCOP ?? p.vercop),
                                 opening: clearance.opening,
-                                estimated: clearance.estimated,
+                                estimated: clearance.estimated === true,
                                 aboardOnly: protectedChart,
                             });
                         } else
