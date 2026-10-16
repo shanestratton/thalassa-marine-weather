@@ -683,6 +683,8 @@ export interface EncCell {
     updateNumber?: number;
     /** SHA-256 of the signed Pi response that supplied this revision. */
     contentSha256?: string;
+    /** Explicit, fully verified public NOAA record package; never a Pi/vault file. */
+    noaaPackage?: import('./noaaPackageStore').NoaaPackageReference;
     /** S-57 issue date (ISO 8601). */
     issued: string;
     /** When the user imported this cell into the device. */

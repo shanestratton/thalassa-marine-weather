@@ -796,6 +796,54 @@ export function importCell(
     );
 }
 
+/** A public package becomes one logical chart only after every local part
+ * passed the staged worker/hash/readback gate. No empty monolith is written. */
+export function importNoaaPackage(
+    manifest: import('./noaaPackageContract').NoaaPackage,
+    ref: import('./noaaPackageStore').NoaaPackageReference,
+    assertAuthority: () => void,
+): Promise<EncCell> {
+    return serializeCellMutation(manifest.metadata.cellId, async () => {
+        assertAuthority();
+        const { assertStagedNoaaPackage } = await import('./noaaPackageStore');
+        assertAuthority();
+        assertStagedNoaaPackage(manifest, ref);
+        const m = manifest.metadata,
+            held = cellMeta.getRegisteredCell(m.cellId);
+        if (
+            m.sourceHO !== 'US' ||
+            !/^US[1-6][A-Z0-9]{5}$/.test(m.cellId) ||
+            held?.licence === 'protected' ||
+            (held &&
+                (held.edition > m.edition ||
+                    (held.edition === m.edition &&
+                        ((held.updateNumber ?? -1) > (m.updateNumber ?? -1) || held.issued > m.issued))))
+        )
+            throw Error('Existing chart authority/revision is newer; package was not activated.');
+        const cell: EncCell = {
+            id: m.cellId,
+            sourceHO: 'US',
+            edition: m.edition,
+            updateNumber: m.updateNumber,
+            issued: m.issued,
+            importedAt: new Date().toISOString(),
+            bbox: m.bbox,
+            geojsonPath: ref.path + '/manifest.json',
+            contentSha256: ref.manifestSha256,
+            noaaPackage: ref,
+            sizeBytes: manifest.bytes,
+            hazardCount: manifest.layers.filter((l) => l.name !== 'M_QUAL').reduce((n, l) => n + l.count, 0),
+            usage: 'navigation',
+            licence: 'open',
+        };
+        assertAuthority();
+        cellMeta.putCell(cell, { allowAuthorityUpgrade: true });
+        dropIndex(cell.id);
+        clearMergedData();
+        return cell;
+    });
+}
+
 /**
  * Forget a cell: remove metadata, delete blob, drop any cached
  * spatial index. Idempotent.

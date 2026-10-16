@@ -532,6 +532,50 @@ function getParseWorker(): Worker | null {
     return parseWorker;
 }
 
+/** Public NOAA part parse/validation is always off-thread, bounded and has
+ * no main-thread fallback. Licensed bytes never enter this new protocol. */
+export async function parseNoaaPartOffThread(
+    text: string,
+    manifest: import('./noaaPackageContract').NoaaPackage,
+    descriptor: import('./noaaPackageContract').NoaaPartObject,
+    bounds?: [number, number, number, number],
+    select = false,
+): Promise<EncConversionResult & { selectedBytes: number }> {
+    if (utf8ByteLength(text, 4 * 1024 * 1024) > 4 * 1024 * 1024 || manifest.metadata.sourceHO !== 'US')
+        throw Error('Invalid public NOAA part.');
+    const worker = getParseWorker();
+    if (!worker) throw Error('Chart worker unavailable. Reopen charts to retry.');
+    const result = await new Promise<unknown>((resolve, reject) => {
+        const seq = ++parseSeq;
+        const timer = setTimeout(() => {
+            parseWaiters.delete(seq);
+            reject(Error('NOAA part worker timed out.'));
+        }, 20000);
+        parseWaiters.set(seq, (value) => {
+            clearTimeout(timer);
+            resolve(value);
+        });
+        try {
+            worker.postMessage({
+                seq,
+                cellId: manifest.metadata.cellId,
+                text,
+                noaaPackage: manifest,
+                descriptor,
+                bounds,
+                select,
+            });
+        } catch (error) {
+            clearTimeout(timer);
+            parseWaiters.delete(seq);
+            reject(error);
+        }
+    });
+    if (!result || typeof result !== 'object' || (result as EncConversionResult).cellId !== manifest.metadata.cellId)
+        throw Error('NOAA part validation failed.');
+    return result as EncConversionResult & { selectedBytes: number };
+}
+
 /** Async parse: the WORKER pays the multi-MB JSON.parse; the main thread
  *  pays only the (much cheaper) structured clone in. Falls back to the
  *  sync path when workers are unavailable or the worker died. Same
