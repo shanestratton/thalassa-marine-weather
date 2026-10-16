@@ -57,6 +57,7 @@ import {
     type WeatherFix,
     type WeatherFollowTarget,
 } from '../services/weatherPosition';
+const MarinePlacesSheet = React.lazy(() => import('./weather/MarinePlacesSheet'));
 
 /** The boat, drawn as the ℹ panel's GPS glyph draws her. */
 const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -102,6 +103,8 @@ export const LocationStarMenu: React.FC = () => {
     const { weatherData, selectLocation, positionSource } = useWeather();
 
     const [open, setOpen] = useState(false);
+    const [marinePlacesOpen, setMarinePlacesOpen] = useState(false);
+    const closeMarinePlaces = React.useCallback(() => setMarinePlacesOpen(false), []);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const menuId = useId();
     const popoverRef = useMenuNavigation<HTMLDivElement>(open, {
@@ -446,6 +449,11 @@ export const LocationStarMenu: React.FC = () => {
 
     return (
         <>
+            {marinePlacesOpen && (
+                <React.Suspense fallback={null}>
+                    <MarinePlacesSheet onClose={closeMarinePlaces} />
+                </React.Suspense>
+            )}
             <button
                 ref={buttonRef}
                 type="button"
@@ -574,6 +582,18 @@ export const LocationStarMenu: React.FC = () => {
                                 )}
 
                                 {/* Saved spots */}
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    className={`${rowBase} w-full`}
+                                    onClick={() => {
+                                        setOpen(false);
+                                        setMarinePlacesOpen(true);
+                                    }}
+                                >
+                                    <MapPinIcon className="w-4 h-4 text-sky-300 shrink-0" />
+                                    <span>Marine places · search worldwide</span>
+                                </button>
                                 {/* The row the Glass is showing carries a tick and a
                                     faint wash (UX scorecard run 7). Set home has a
                                     one-word caption, since a bare house read as

@@ -83,6 +83,22 @@ function loadServiceWorker() {
 }
 
 describe('production service worker', () => {
+    it('never replays or double-caches owned catalogue manifests or shards in the terrain cache', async () => {
+        const { listeners, fetchMock, caches, names } = loadServiceWorker();
+        for (const path of ['places/manifest.json', 'osm/202610-fixture/areas/36_179.json']) {
+            const respondWith = vi.fn();
+            const request = new Request(`https://tiles.thalassatiles.com/marine-catalogue/v1/${path}`, {
+                cache: 'no-store',
+            });
+            listeners.get('fetch')?.({ request, respondWith, waitUntil: vi.fn() });
+            await respondWith.mock.calls[0][0];
+            expect(fetchMock).toHaveBeenCalledWith(request);
+        }
+        // Startup may sweep the separately licensed Mapbox cache. Neither
+        // terrain cache may read/write catalogue objects.
+        expect(caches.open).not.toHaveBeenCalledWith(names.runtimeTiles);
+        expect(caches.open).not.toHaveBeenCalledWith(names.offlineTiles);
+    });
     it('installs only stable URLs that survive Vite fingerprinting', async () => {
         const { listeners, cache } = loadServiceWorker();
         const pending: Promise<unknown>[] = [];

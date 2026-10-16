@@ -1,0 +1,28 @@
+[Unit]
+Description=Thalassa reviewed public marine catalogue monthly preparation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=thalassa-catalogue
+Group=thalassa-catalogue
+EnvironmentFile=/etc/thalassa/marine-catalogue.env
+WorkingDirectory=/opt/thalassa/scripts/marine-catalogue
+ExecStart=/usr/bin/python3 monthly.py --plan ${CATALOGUE_SOURCE_PLAN} --root /srv/thalassa-catalogue --execute --plan-sha256 ${CATALOGUE_SOURCE_PLAN_SHA256}
+TimeoutStartSec=6h
+MemoryMax=2G
+TasksMax=16
+CPUQuota=50%
+Nice=15
+IOSchedulingClass=idle
+LimitFSIZE=8G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/thalassa-catalogue
+UMask=0077
+
+# Preparation only: no publication, deletion or credentials in this unit.
+# Copy/install/enable only after the first concrete plan and source caps review.

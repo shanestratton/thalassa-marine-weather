@@ -1,4 +1,5 @@
 import { Preferences } from '@capacitor/preferences';
+import { satelliteModeActive } from '../networkPolicy';
 import { validFetchTable } from './placeConditions';
 import {
     CrowdedCellError,
@@ -81,7 +82,7 @@ function tileStore<P>(key: string, maxTiles: number, maxPoints: number, valid: (
 
 const references = tileStore('thalassa_cruising_reference_v1', 24, 6000, validCachedReference);
 let official: Promise<CruisingPoint[]> | null = null;
-const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+const offline = () => satelliteModeActive() || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
 /**
  * The public Overpass mirrors, in turn; a cut-short or malformed answer fails over like an error. `reached` is
@@ -100,6 +101,7 @@ async function askOverpass<T>(
         'https://overpass-api.de/api/interpreter',
         'https://overpass.kumi.systems/api/interpreter',
     ]) {
+        if (offline()) throw new Error('Offline or Satellite Mode');
         try {
             signal.throwIfAborted();
             const res = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, {
@@ -169,6 +171,26 @@ export async function loadReferenceTile(
     )
         return { points: previous.points, stale: false };
     try {
+        // Own published extract first; no global Overpass dump on the phone.
+        // An unpublished catalogue keeps the existing small live-cell fallback.
+        try {
+            const [{ loadMarineCells }, { areaKey }, { catalogueMoorings }] = await Promise.all([
+                import('../marineCatalogue/service'),
+                import('../marineCatalogue/schema'),
+                import('../marineCatalogue/adapters'),
+            ]);
+            const published = await loadMarineCells([areaKey(tile.south + 0.5, tile.west + 0.5)], ['osm'], signal);
+            const snapshot = published.manifests[0];
+            if (snapshot && !published.partial) {
+                const points = catalogueMoorings(published.records, snapshot).filter(
+                    (p) => p.lat >= tile.south && p.lat <= tile.north && p.lon >= tile.west && p.lon <= tile.east,
+                );
+                await references.remember(tile.key, { at: Date.now(), points });
+                return { points, stale: Date.now() - Date.parse(snapshot.sourceAt) > 45 * 86400000 };
+            }
+        } catch {
+            signal.throwIfAborted(); /* Unpublished/unreachable: retain the existing bounded live query. */
+        }
         let at = 0;
         const points = await askOverpass(referenceQuery(tile), signal, (body) => {
             at = Date.now();

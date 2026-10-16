@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const storage = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }));
 vi.mock('@capacitor/preferences', () => ({ Preferences: storage }));
+// This suite pins the legacy fallback/cache/Overpass budget. The published
+// extract path has its own integration regression in MarineCatalogueMoorings.
+vi.mock('../services/marineCatalogue/service', () => ({
+    loadMarineCells: async () => ({ records: [], manifests: [], partial: true }),
+}));
 const tile = { key: '-21:148', south: -21, north: -20, west: 148, east: 149 };
 const response = {
     elements: [{ type: 'node', id: 123, lat: -20.07, lon: 148.92, tags: { mooring: 'buoy', colour: 'white' } }],
