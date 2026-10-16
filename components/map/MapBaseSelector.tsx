@@ -79,6 +79,14 @@ export interface MapBaseSelectorProps {
     className?: string;
 }
 
+function focusMenuItem(item: HTMLButtonElement | null | undefined) {
+    if (!item) return;
+    item.focus({ preventScroll: true });
+    // Native focus can leave the last pixel behind the scroller's border.
+    // Explicit nearest scrolling honours its padding and keeps the whole row.
+    item.scrollIntoView?.({ block: 'nearest' });
+}
+
 /**
  * Compact visual-base picker for the browsing chart. It deliberately changes
  * only the raster underneath the ENC stack; navigation marks, safety depth and
@@ -156,7 +164,7 @@ export function MapBaseSelector({
 
     useEffect(() => {
         if (!open) return;
-        optionRefs.current[options.findIndex((option) => option.id === value)]?.focus({ preventScroll: true });
+        focusMenuItem(optionRefs.current[options.findIndex((option) => option.id === value)]);
 
         const closeOnOutsidePointer = (event: PointerEvent) => {
             if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
@@ -179,7 +187,7 @@ export function MapBaseSelector({
             // The closed trigger shares the zoom readout's z-700, so the layer
             // menu (z-700, later in the tree) dims it with the rest of the
             // chart's controls instead of leaving it lit (UX scorecard run 7).
-            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'} ${className}`}
+            className={`thalassa-map-base-selector absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'} ${className}`}
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {
@@ -193,7 +201,7 @@ export function MapBaseSelector({
                 const focusedIndex = optionRefs.current.findIndex((option) => option === document.activeElement);
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
                 const nextIndex = (focusedIndex + direction + itemCount) % itemCount;
-                optionRefs.current[nextIndex]?.focus({ preventScroll: true });
+                focusMenuItem(optionRefs.current[nextIndex]);
             }}
         >
             <button
@@ -203,7 +211,7 @@ export function MapBaseSelector({
                     triggerHaptic('light');
                     setOpen((current) => !current);
                 }}
-                className="flex h-12 min-h-[44px] items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
+                className="flex h-12 min-h-[44px] shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
                 aria-label={`Map base: ${selected.label}`}
                 aria-haspopup="menu"
                 aria-expanded={open}

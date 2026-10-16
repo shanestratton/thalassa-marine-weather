@@ -1045,6 +1045,68 @@ for (const size of [
 const WIDE_FONT = ':root { --font-sans: Verdana, sans-serif; }';
 const orientKey = 'thalassa_chart_orientation_obs_v1';
 
+for (const wideFont of [false, true]) {
+    test(`map-base menu keeps every choice reachable in a short split${wideFont ? ' with wide fonts' : ''}`, async ({
+        page,
+        baseURL,
+    }, testInfo) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize({ width: 1024, height: 520 });
+        await page.addInitScript(() => localStorage.setItem('thalassa_split_view', '1'));
+        await openEmptyChart(page, baseURL!, testInfo);
+        // Apply the fallback before reopening the menu: the orientation-card
+        // cases above/below change fonts only after their initial menu setup.
+        if (wideFont) {
+            await page.addStyleTag({ content: WIDE_FONT });
+            await page.evaluate(() => document.fonts.ready);
+        }
+        const trigger = page.getByRole('button', { name: /^Map base:/ });
+        await trigger.click();
+        const menu = page.getByRole('menu', { name: 'Map base' });
+        await expect(menu.getByRole('menuitemradio')).toHaveText([
+            /^Relief/,
+            /^Relief \+ Sat/,
+            /^Ocean/,
+            /^Hybrid/,
+            /^ENC only/,
+        ]);
+        await expect(menu.getByRole('menuitem', { name: 'Charts & detail', exact: true })).toBeVisible();
+        const clear = menu.getByRole('menuitem', { name: /^Clear the screen/ });
+        await expect(clear).toBeVisible();
+        const menuBox = await visibleBox(menu, page);
+        const navBox = await visibleBox(page.getByRole('navigation', { name: 'Main', exact: true }), page);
+        expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(navBox.y);
+        expect(await menu.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+        const rows = menu.locator('button[role^="menuitem"]');
+        const count = await rows.count();
+        await rows.first().focus();
+        for (let index = 0; index < count; index++) {
+            const row = rows.nth(index);
+            await expect(row).toBeFocused();
+            await expect(row).toBeInViewport({ ratio: 1 });
+            expect((await visibleBox(row, page)).height).toBeGreaterThanOrEqual(44);
+            await expectFullHitTarget(row, `menu keyboard row ${index + 1}`);
+            if (index < count - 1) await page.keyboard.press('ArrowDown');
+        }
+        await expect(clear).toBeFocused();
+        const screenshot = testInfo.outputPath('menu-last-row.png');
+        await page.screenshot({ path: screenshot });
+        await testInfo.attach('all menu rows reachable, last row above navigation', {
+            path: screenshot,
+            contentType: 'image/png',
+        });
+        await page.keyboard.press('ArrowDown');
+        await expect(rows.first()).toBeFocused();
+        await expect(rows.first()).toBeInViewport({ ratio: 1 });
+        await page.keyboard.press('ArrowUp');
+        await expect(clear).toBeFocused();
+        await expect(clear).toBeInViewport({ ratio: 1 });
+        await page.keyboard.press('Escape');
+        await expect(menu).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+    });
+}
+
 for (const size of [
     { width: 320, height: 568 },
     { width: 375, height: 667 },

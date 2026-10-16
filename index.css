@@ -4570,16 +4570,27 @@ main:has(.thalassa-chart-controls-panel)
    pressed. Bounded instead, like every panel over the chart: it ends 8px above
    the bar and scrolls, rows and text unchanged. Above it: the trigger's 8px
    top offset, its h-12 (3rem) and the menu's mt-2 (0.5rem), all fluid with the
-   root font. */
+   root font. The selector's flex column also pays its actual map-frame height:
+   a split pane starts below the app header, so 100dvh alone lets a longer menu
+   run under the tab bar. Keep the trigger whole and shrink only the scroller. */
+.thalassa-map-base-selector {
+    max-height: calc(100% - env(safe-area-inset-top) - 16px - 4rem - 1px - env(safe-area-inset-bottom));
+}
 .thalassa-map-base-menu {
     max-height: calc(100dvh - env(safe-area-inset-top) - 16px - 3.5rem - 4rem - 1px - env(safe-area-inset-bottom));
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+    /* Native keyboard focus must clear the border and rounded clipping edge. */
+    scroll-padding-block: 0.5rem;
 }
 @media (orientation: landscape) and (max-height: 500px) {
     /* The bar folded away: keep the credits band clear instead. */
     :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-base-menu {
         max-height: calc(100dvh - env(safe-area-inset-top) - 16px - 3.5rem - var(--thalassa-chart-credits-bottom));
+    }
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-base-selector {
+        max-height: calc(100% - env(safe-area-inset-top) - 16px - var(--thalassa-chart-credits-bottom));
     }
 }
 
