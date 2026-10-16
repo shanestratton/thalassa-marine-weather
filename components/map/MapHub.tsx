@@ -3073,6 +3073,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const caveats = inshoreRouteCaveats({
                         structuresUnknownCells: res.structuresUnknownCells,
                         exclusionsUnchecked: res.exclusionsUnchecked,
+                        trafficLaneGuidance: res.trafficLaneGuidance,
+                        routeAreaCaveats: res.routeAreaCaveats,
                         pinOffWater: res.pinOffWater,
                         pinTail: res.pinTail,
                         depthBend: res.depthBend,

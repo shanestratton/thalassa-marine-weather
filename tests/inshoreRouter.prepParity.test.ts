@@ -1,3 +1,5 @@
+import './helpers/noPrivateRoutingAreas';
+
 /**
  * The router prep's answers can land in any order: the route does not move by
  * a byte (128-ROUTE-P).

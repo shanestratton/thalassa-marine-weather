@@ -1,3 +1,5 @@
+import './helpers/noPrivateRoutingAreas';
+
 /**
  * Package 125-05 through the app's own router, tryInshoreRoute (Shane,
  * 2026-10-08: "better we just have red at the "dry" zones, rather than just

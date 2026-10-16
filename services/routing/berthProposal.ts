@@ -269,6 +269,8 @@ export async function calculateBerthProposal(
         );
         check();
         const owned = leases;
+        if (!owned || owned.length !== 2 || !owned[0] || !owned[1])
+            throw Error('Complete charted berth portals are unavailable. Review the passage again.');
         const mixed = await computeBerthToBerth({
             origin: request.departure,
             destination: request.destination,

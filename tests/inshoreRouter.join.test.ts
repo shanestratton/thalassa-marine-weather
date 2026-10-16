@@ -1,3 +1,5 @@
+import { routingAreasFixture } from './helpers/noPrivateRoutingAreas';
+
 /**
  * tryInshoreRoute can be stopped (127-ROUTE-W decision 7).
  *
@@ -57,6 +59,7 @@ const host = vi.hoisted(() => ({
     packageLeases: 0,
     packageReleases: 0,
     chartVersion: 0,
+    forgedGuidance: false,
 }));
 
 vi.mock('../services/enc/noaaPackageWindow', () => ({
@@ -95,7 +98,10 @@ vi.mock('../services/routing/routeWorkerHost', async (original) => {
                     aborted: false,
                     release: () => {
                         opts.onStage?.('done');
-                        resolve({ output: runRouteJob(job), where: 'worker', waitMs: 0, handoffMs: 0, backMs: 0 });
+                        const output = runRouteJob(job);
+                        if (host.forgedGuidance && output.result && 'polyline' in output.result)
+                            output.result.trafficLaneGuidance = 'charted-flow';
+                        resolve({ output, where: 'worker', waitMs: 0, handoffMs: 0, backMs: 0 });
                     },
                 };
                 opts.signal?.addEventListener('abort', () => {
@@ -200,6 +206,8 @@ const posted = async (n: number): Promise<void> => {
 const settle = () => new Promise((r) => setTimeout(r, 30));
 
 beforeEach(() => {
+    host.forgedGuidance = false;
+    Object.assign(routingAreasFixture, { revision: 0, unavailable: false, leaseValid: true, reads: 0, releases: 0 });
     host.jobs = [];
     host.osmHold = null;
     host.osmCalls = 0;
@@ -234,6 +242,36 @@ afterEach(() => {
 });
 
 describe('callers asking for the same leg share one run', () => {
+    it('returns a hard-policy read refusal without starting a route job', async () => {
+        routingAreasFixture.unavailable = true;
+        const result = await ask();
+        expect(result && 'error' in result && result.code).toBe('exclusion-unavailable');
+        expect(host.jobs).toHaveLength(0);
+        expect(host.osmCalls).toBe(0);
+    });
+    it('does not join a run from before a private no-go edit or adopt its late line', async () => {
+        const old = ask();
+        await posted(1);
+        routingAreasFixture.revision++;
+        const fresh = ask();
+        await posted(2);
+        host.jobs[0].release();
+        const stale = await old;
+        expect(stale && 'error' in stale && stale.code).toBe('exclusion-unavailable');
+        host.jobs[1].release();
+        const current = await fresh;
+        expect(current && 'polyline' in current).toBe(true);
+        expect(routingAreasFixture.releases).toBe(2);
+    });
+    it('holds a late line when its source lease expires without a key event', async () => {
+        const pending = ask();
+        await posted(1);
+        routingAreasFixture.leaseValid = false;
+        host.jobs[0].release();
+        const result = await pending;
+        expect(result && 'error' in result && result.code).toBe('exclusion-unavailable');
+        expect(routingAreasFixture.releases).toBe(1);
+    });
     it('two callers, one run, one answer', async () => {
         const a = ask();
         const b = ask();
@@ -446,6 +484,12 @@ describe('a stop during the prep', () => {
 
     it('leaves the dedupe map at once: a re-tap starts a fresh run, which the stopped run never disturbs', async () => {
         let releaseFirst!: () => void;
+        let releaseStoppedCells!: () => void;
+        // The private-area read precedes prep now. Hold this actual cell wait
+        // explicitly so the first run is stopped before its water crops start,
+        // independent of which microtask observes the first OSM request.
+        host.cellHold = new Promise<void>((resolve) => (releaseStoppedCells = resolve));
+        host.missing.add((scene.cells[0] as { id: string }).id);
         host.osmHold = new Promise<void>((r) => (releaseFirst = r));
         const stop = new AbortController();
         const stopped = ask({ signal: stop.signal });
@@ -455,6 +499,8 @@ describe('a stop during the prep', () => {
 
         // The re-tap: a fresh run (a second prep), not the stopped one.
         host.osmHold = null;
+        host.cellHold = null;
+        host.missing.clear();
         const fresh = ask();
         await posted(1);
         expect(host.osmCalls).toBe(2);
@@ -462,6 +508,7 @@ describe('a stop during the prep', () => {
         // The stopped run's OSM wait now ends; its late clean-up must not
         // remove the fresh run from the dedupe map…
         const freshAsked = { sat: host.satCalls, vector: host.vectorCalls, ntm: host.ntmCalls };
+        releaseStoppedCells();
         releaseFirst();
         await settle();
         expect(host.jobs).toHaveLength(1);
@@ -492,6 +539,66 @@ describe('the 85 s watchdog', () => {
         const res = await run;
         expect(res).toMatchObject({ code: 'watchdog-timeout' });
         expect(host.jobs[0].aborted).toBe(true);
+    });
+});
+
+describe('original traffic-lane sources and the final main-thread verdict', () => {
+    it.each([90, undefined])(
+        'carries original ORIENT %s through the actual held cell and final audit',
+        async (orientation) => {
+            const blob = scene.blobs.values().next().value as {
+                bbox: number[];
+                layers: Record<string, GeoJSON.FeatureCollection>;
+            };
+            const [w, s, e, n] = blob.bbox;
+            const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
+            blob.layers.RESARE = empty();
+            blob.layers.TSEZNE = empty();
+            blob.layers.TSSLPT = {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: orientation === undefined ? {} : { ORIENT: orientation },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [w, s],
+                                    [e, s],
+                                    [e, n],
+                                    [w, n],
+                                    [w, s],
+                                ],
+                            ],
+                        },
+                    },
+                ],
+            };
+            const pending = ask();
+            await posted(1);
+            const sent = host.jobs[0].job as { layers: { TSSLPT: GeoJSON.FeatureCollection } };
+            expect(sent.layers.TSSLPT.features).toEqual(blob.layers.TSSLPT.features);
+            host.jobs[0].release();
+            const result = await pending;
+            expect(result && 'polyline' in result).toBe(true);
+            if (!result || !('polyline' in result)) return;
+            expect(result.trafficLaneGuidance).toBe(orientation === undefined ? 'orientation-unknown' : 'charted-flow');
+            expect(result.exclusionsUnchecked).not.toBe(true);
+            expect(routingAreasFixture.releases).toBe(1);
+        },
+    );
+
+    it('removes a hosted direction claim when the original chart has no traffic-lane layer', async () => {
+        host.forgedGuidance = true;
+        const pending = ask();
+        await posted(1);
+        host.jobs[0].release();
+        const result = await pending;
+        expect(result && 'polyline' in result).toBe(true);
+        if (!result || !('polyline' in result)) return;
+        expect(result.trafficLaneGuidance).toBeUndefined();
+        expect(result.exclusionsUnchecked).toBe(true);
     });
 });
 

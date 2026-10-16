@@ -4,6 +4,7 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentit
 import { loadUserOverlays, readUserOverlay, userOverlayGeneration } from '../userOverlays/store';
 import { overlayPolygonOverlaps, validOverlayRouteBounds, type OverlayRouteBounds } from '../userOverlays/model';
 import { borrowRetainedMpaDataset, retainedMpaRoutingContextKey } from '../weather/api/mpaDataset';
+import { ROUTING_AREA_CAVEATS } from './routeAreaWords';
 
 /** Source key only: callers separately bind the current route/vessel request. */
 export function routingExclusionContextKey(): string {
@@ -78,14 +79,14 @@ export async function readCurrentRoutingExclusions({
         check();
         marineParks = mpa.data;
         const advisories = Object.freeze([
-            ...(scope.userId ? [] : ['Signed out: no private routing polygons are available.']),
+            ...(scope.userId ? [] : [ROUTING_AREA_CAVEATS[0]]),
             mpa.status === 'available'
-                ? 'Marine park footprints use indicative classifications and add caution only; check current local rules.'
+                ? ROUTING_AREA_CAVEATS[1]
                 : mpa.status === 'expired'
-                  ? 'Retained marine park data has expired; marine park caution is unavailable.'
+                  ? ROUTING_AREA_CAVEATS[2]
                   : mpa.status === 'bounded-out'
-                    ? 'Marine park geometry exceeds this route window’s bounded budget; marine park caution is unavailable.'
-                    : 'No verified marine park dataset is retained; marine park caution is unavailable.',
+                    ? ROUTING_AREA_CAVEATS[3]
+                    : ROUTING_AREA_CAVEATS[4],
         ]);
         return {
             get manual() {
