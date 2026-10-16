@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
+import { countBlockedReplanBackends } from './replan138-race-observation.mjs';
 
 const owner = '10000000-0000-4000-8000-000000000001',
     other = '10000000-0000-4000-8000-000000000002';
@@ -308,12 +309,7 @@ try {
                 const deadline = Date.now() + 2000;
                 let blocked = 0;
                 while (Date.now() < deadline) {
-                    await db.exec('SELECT pg_stat_clear_snapshot()');
-                    blocked = await scalar(
-                        db,
-                        "SELECT count(*)::int FROM pg_stat_activity WHERE pid=ANY($1::int[]) AND state='active' AND wait_event_type='Lock'",
-                        [pids],
-                    );
+                    blocked = await countBlockedReplanBackends(db, pids);
                     if (blocked === 16) break;
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
