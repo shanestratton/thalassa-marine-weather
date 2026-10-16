@@ -48,10 +48,17 @@ export function collectClassNames(root) {
         };
         visit(source);
     }
-    return [...counts]
-        .filter(([value, count]) => count >= 2 && (value.length + 2) * count - (value.length + 30 + 5 * count) >= 24)
-        .map(([value]) => value)
-        .sort();
+    return (
+        [...counts]
+            // The shared word table encodes common CSS tokens once; include shorter
+            // repeated strings when their estimated references still save bytes.
+            .filter(
+                ([value, count]) =>
+                    count >= 2 && (value.length + 2) * count - Math.ceil(value.length / 3) - 5 * count >= 24,
+            )
+            .map(([value]) => value)
+            .sort()
+    );
 }
 
 /** Encode repeated CSS words once, reconstructing exact strings at module
