@@ -130,6 +130,11 @@ beforeEach(() => {
             'CBLOHD',
             'PIPOHD',
             'CONVYR',
+            'SLCONS',
+            'DAMCON',
+            'PILPNT',
+            'PONTON',
+            'MARCUL',
         ].map((name) => [name, { type: 'FeatureCollection', features: [] }]),
     ) as EncConversionResult['layers'];
     layers.DEPARE!.features.push({ type: 'Feature', properties: { DRVAL1: 1, DRVAL2: 2 }, geometry: rectangle(0.01) });

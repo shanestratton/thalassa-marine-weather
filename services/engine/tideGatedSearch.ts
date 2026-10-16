@@ -51,6 +51,26 @@ const MAX_LABELS = 25000,
     MAX_JOURNEY_MS = 86400000;
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 type GatedGrid = NavGrid & { exclusionBlocked?: Uint8Array };
+export function tideGatedBounds(
+    from: { lat: number; lon: number },
+    to: { lat: number; lon: number },
+): HoldingBounds | null {
+    if (
+        ![from.lat, from.lon, to.lat, to.lon].every(finite) ||
+        Math.max(Math.abs(from.lat), Math.abs(to.lat)) > 80 ||
+        Math.max(Math.abs(from.lon), Math.abs(to.lon)) > 180 ||
+        Math.abs(from.lon - to.lon) > 180
+    )
+        return null;
+    const pad = Math.max(Math.max(Math.abs(from.lat - to.lat), Math.abs(from.lon - to.lon)) * 0.5, 0.08);
+    const b = [
+        Math.min(from.lon, to.lon) - pad,
+        Math.min(from.lat, to.lat) - pad,
+        Math.max(from.lon, to.lon) + pad,
+        Math.max(from.lat, to.lat) + pad,
+    ] as const;
+    return b[0] >= -180 && b[2] <= 180 && b[1] >= -85 && b[3] <= 85 ? b : null;
+}
 /** No grid writes, snaps, carves, interpolation of extrema or implicit waits.
  * Baseline is measured first on exactly the same original grid/masks. */
 export function searchTideGatedCandidate(

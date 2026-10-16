@@ -4,6 +4,8 @@ import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 import type { EncCell, EncConversionResult } from '../enc/types';
 import type { InshoreLayers } from '../engine/types';
 import type { TideGateArea, TideGatedCandidateRequest, TideGridPath } from '../engine/tideGatedSearch';
+import { tideGatedBounds } from '../engine/tideGatedSearch';
+export { tideGatedBounds } from '../engine/tideGatedSearch';
 import { cellsForBBox, getVersion } from '../enc/EncCellMetadata';
 import { loadCellGeoJSON } from '../enc/EncCellStore';
 import { loadNoaaPackageCohort } from '../enc/noaaPackageWindow';
@@ -38,6 +40,11 @@ const classes = [
     'CBLOHD',
     'PIPOHD',
     'CONVYR',
+    'SLCONS',
+    'DAMCON',
+    'PILPNT',
+    'PONTON',
+    'MARCUL',
 ] as const;
 const gridClasses = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'M_QUAL'] as const;
 const issued = new WeakMap<object, { check: () => void; finish: (path: TideGridPath) => Promise<boolean> }>();
@@ -56,6 +63,7 @@ export interface TideGatedSourcePermit {
     readonly bounds: HoldingBounds;
     readonly chartContentKey: string;
     readonly aboardOnly: boolean;
+    readonly sourceSummary: string;
 }
 export type TideGatedSourceReview =
     | { kind: 'held'; reason: string; release: () => void }
@@ -67,27 +75,6 @@ function freezeOwned<T>(value: T): T {
         for (const child of Object.values(value)) freezeOwned(child);
     }
     return value;
-}
-
-export function tideGatedBounds(
-    from: { lat: number; lon: number },
-    to: { lat: number; lon: number },
-): HoldingBounds | null {
-    if (
-        ![from.lat, from.lon, to.lat, to.lon].every(finite) ||
-        Math.max(Math.abs(from.lat), Math.abs(to.lat)) > 80 ||
-        Math.max(Math.abs(from.lon), Math.abs(to.lon)) > 180 ||
-        Math.abs(from.lon - to.lon) > 180
-    )
-        return null;
-    const pad = Math.max(Math.max(Math.abs(from.lat - to.lat), Math.abs(from.lon - to.lon)) * 0.5, 0.08);
-    const b = [
-        Math.min(from.lon, to.lon) - pad,
-        Math.min(from.lat, to.lat) - pad,
-        Math.max(from.lon, to.lon) + pad,
-        Math.max(from.lat, to.lat) + pad,
-    ] as const;
-    return b[0] >= -180 && b[2] <= 180 && b[1] >= -85 && b[3] <= 85 ? b : null;
 }
 
 /** Current adapters return no navigationSeries: their extrema, local model or
@@ -267,7 +254,17 @@ export async function prepareTideGatedSources(
         // No sounding-datum tide may open an overhead structure. Its original
         // footprint becomes a hard obstacle for this optional route instead.
         for (const { blob } of blobs)
-            for (const cls of ['BRIDGE', 'CBLOHD', 'PIPOHD', 'CONVYR'] as const)
+            for (const cls of [
+                'BRIDGE',
+                'CBLOHD',
+                'PIPOHD',
+                'CONVYR',
+                'SLCONS',
+                'DAMCON',
+                'PILPNT',
+                'PONTON',
+                'MARCUL',
+            ] as const)
                 for (const feature of blob.layers[cls]!.features)
                     layers.OBSTRN!.features.push({ ...feature, properties: { _class: 'tide-overhead-exclusion' } });
         for (const cls of ['RESARE', 'TSEZNE'] as const)
@@ -391,6 +388,12 @@ export async function prepareTideGatedSources(
             bounds: freezeOwned(bounds),
             chartContentKey,
             aboardOnly: cells.some(isProtectedChart),
+            sourceSummary: source.navigationSeries
+                .map(
+                    (s) =>
+                        `${s.provider} ${s.stationName}; original issue ${s.sourceAtMs === null ? 'unknown' : new Date(s.sourceAtMs).toISOString()}`,
+                )
+                .join(' · '),
         });
         issued.set(permit, {
             check,

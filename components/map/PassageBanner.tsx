@@ -17,6 +17,10 @@ import type { RouteFuelEstimate, RouteSailingStats } from '../../services/isochr
 import type { RouteComfortSummary } from '../../services/isochrone/routeComfort';
 import type { OffshoreComparisonView } from './useOffshoreComparison';
 import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
+import type { TideShortcutControlProps } from '../passage/TideShortcutControl';
+const TideShortcutControl = lazy(() =>
+    import('../passage/TideShortcutControl').then((m) => ({ default: m.TideShortcutControl })),
+);
 
 const OffshoreComparisonSheet = lazy(() => import('../passage/OffshoreComparisonSheet'));
 const RouteReplanReview = lazy(() =>
@@ -55,6 +59,11 @@ interface PassageBannerProps {
         turnWaypointsRef: React.MutableRefObject<any[]>;
         routeConstraintsRef?: React.MutableRefObject<RouteConstraintPoint[]>;
         speed: number;
+        tideShortcutEnabled?: boolean;
+        setTideShortcutEnabled?: (value: boolean) => void;
+        tideArrivalBufferMinutes?: number;
+        setTideArrivalBufferMinutes?: (value: number) => void;
+        tideShortcutReview?: TideShortcutControlProps['review'];
     };
     isoProgress: {
         step: number;
@@ -408,6 +417,15 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 </div>
 
                 <Suspense fallback={null}>
+                    {passage.setTideShortcutEnabled && passage.setTideArrivalBufferMinutes && (
+                        <TideShortcutControl
+                            enabled={passage.tideShortcutEnabled ?? false}
+                            setEnabled={passage.setTideShortcutEnabled}
+                            bufferMinutes={passage.tideArrivalBufferMinutes ?? 15}
+                            setBufferMinutes={passage.setTideArrivalBufferMinutes}
+                            review={passage.tideShortcutReview ?? null}
+                        />
+                    )}
                     <RouteReplanReview
                         onFinished={() => {
                             passage.clearRoute();

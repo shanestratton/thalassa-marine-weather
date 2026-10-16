@@ -17,6 +17,8 @@
 import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { withDeadline, withTimeout } from '../../utils/deadline';
+import type { InshoreRouteResult } from '../../services/routing/routeJob';
+import type { TideShortcutView } from '../../services/routing/tideGatedPlanning';
 
 const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
@@ -239,6 +241,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [viaWaypoints, setViaWaypoints] = useState<Array<RouteConstraintPoint & { name: string }>>([]);
     const [departureTime, setDepartureTime] = useState('');
     const [speed, setSpeed] = useState(6);
+    const [tideShortcutEnabled, setTideShortcutEnabled] = useState(false);
+    const [tideArrivalBufferMinutes, setTideArrivalBufferMinutes] = useState(15);
+    const [tideShortcutReview, setTideShortcutReview] = useState<TideShortcutView | null>(null);
+    const tidePreviewRef = useRef<InshoreRouteResult | null>(null);
     const replanTokenRef = useRef<string | null>(peekPassageRequest()?.replanToken ?? null);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
     const [routeVerification, setRouteVerification] = useState<PassageRouteVerification>({
@@ -268,8 +274,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
     const livePassageInputs = useRef({ key: '', visible: false });
+    const liveTideInputEpoch = useRef(0);
+    const nextInputKey = JSON.stringify([
+        departure,
+        arrival,
+        viaWaypoints,
+        departureTime,
+        speed,
+        showPassage,
+        tideShortcutEnabled,
+        tideArrivalBufferMinutes,
+    ]);
+    if (livePassageInputs.current.key !== nextInputKey) liveTideInputEpoch.current++;
     livePassageInputs.current = {
-        key: JSON.stringify([departure, arrival, viaWaypoints, departureTime, speed, showPassage]),
+        key: nextInputKey,
         visible: showPassage,
     };
     const mounted = useRef(true);
@@ -277,6 +295,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         mounted.current = true;
         return () => {
             mounted.current = false;
+            const previous = tidePreviewRef.current;
+            if (previous)
+                void import('../../services/routing/tideGatedPlanning').then((m) =>
+                    m.retireTideShortcutPreview(previous),
+                );
         };
     }, []);
     const displayedRouteGeometryKeyRef = useRef<string | null>(null);
@@ -329,7 +352,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         modelComparison.reset();
         // A different passage cannot inherit private model candidates or reference lines.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [departure, arrival, viaWaypoints, departureTime, speed, showPassage]);
+    }, [
+        departure,
+        arrival,
+        viaWaypoints,
+        departureTime,
+        speed,
+        showPassage,
+        tideShortcutEnabled,
+        tideArrivalBufferMinutes,
+    ]);
 
     // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
     // Owned here so every compute/clear path tears them down — a chip that
@@ -487,6 +519,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
         // Increment generation — invalidates any previous in-flight computation
         const gen = ++computeGenRef.current;
+        const tideInputEpoch = liveTideInputEpoch.current;
+        const previousTidePreview = tidePreviewRef.current;
+        tidePreviewRef.current = null;
+        if (previousTidePreview)
+            void import('../../services/routing/tideGatedPlanning').then((m) =>
+                m.retireTideShortcutPreview(previousTidePreview),
+            );
+        setTideShortcutReview(
+            tideShortcutEnabled ? { kind: 'held', reason: 'Reading original tide evidence already aboard.' } : null,
+        );
         modelComparison.reset();
 
         // Clear previous results immediately so stale data isn't displayed
@@ -543,6 +585,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             isAutorouteTrialOn() &&
             haversineNm(departure.lat, departure.lon, arrival.lat, arrival.lon) > 50;
         if (viaWaypoints.length || automaticBerth) {
+            if (tideShortcutEnabled)
+                setTideShortcutReview({
+                    kind: 'held',
+                    reason: 'Tide shortcuts are limited to a single inshore leg up to 50 NM. Berth and ordered-waypoint qualification remains unchanged.',
+                });
             const settingsSnapshot = structuredClone(useSettingsStore.getState().settings);
             const selectedBoat = useSettingsStore.getState().activeVesselId;
             const selectedModel = WindStore.getState().model;
@@ -797,7 +844,47 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // route (owner decision 11, 2026-10-01: water no tide
                     // clears is avoided) — the chips' own window, so they
                     // read the same curves from the cache afterwards.
-                    { departureMs: departureTime ? new Date(departureTime).getTime() : Date.now() },
+                    {
+                        departureMs: departureTime ? new Date(departureTime).getTime() : Date.now(),
+                        ...(tideShortcutEnabled
+                            ? {
+                                  tideShortcut: {
+                                      speedKts: speed,
+                                      uncertaintyMs: tideArrivalBufferMinutes * 60000,
+                                      assertCurrent: () => {
+                                          if (
+                                              !mounted.current ||
+                                              gen !== computeGenRef.current ||
+                                              tideInputEpoch !== liveTideInputEpoch.current
+                                          )
+                                              throw new DOMException('Timed route inputs retired.', 'AbortError');
+                                      },
+                                      onReview: (view: TideShortcutView) => {
+                                          if (
+                                              !mounted.current ||
+                                              gen !== computeGenRef.current ||
+                                              tideInputEpoch !== liveTideInputEpoch.current
+                                          )
+                                              return;
+                                          setTideShortcutReview(view);
+                                          if (view.kind === 'held' && tidePreviewRef.current) {
+                                              tidePreviewRef.current = null;
+                                              setRouteVerification({
+                                                  status: 'unverified',
+                                                  geometryKey: displayedRouteGeometryKeyRef.current,
+                                                  reason: view.reason,
+                                              });
+                                              const source = map.getSource('route-line') as
+                                                  | mapboxgl.GeoJSONSource
+                                                  | undefined;
+                                              source?.setData({ type: 'FeatureCollection', features: [] });
+                                              setRouteAnalysis(null);
+                                          }
+                                      },
+                                  },
+                              }
+                            : {}),
+                    },
                 ),
                 {
                     error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
@@ -862,6 +949,87 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             : `${landBackstopFinding(backstop)} Unverified reference packs cannot clear this warning. Falling back to offshore planning.`,
                     });
                 } else {
+                    if (inshoreRes.tideShortcut?.kind === 'preview') {
+                        const { finalizeTideShortcutPreview, retireTideShortcutPreview } =
+                            await import('../../services/routing/tideGatedPlanning');
+                        const valid = await finalizeTideShortcutPreview(inshoreRes);
+                        if (gen !== computeGenRef.current || tideInputEpoch !== liveTideInputEpoch.current) {
+                            retireTideShortcutPreview(inshoreRes);
+                            return;
+                        }
+                        if (!valid) {
+                            setTideShortcutReview({
+                                kind: 'held',
+                                reason: 'The exact timed source review retired during the final land check. Replan to retry.',
+                            });
+                            dispatchPassageNotice({
+                                severity: 'warn',
+                                title: 'Timed preview held',
+                                message: 'Current original tide, chart and no-go evidence could not be reverified.',
+                            });
+                            return;
+                        }
+                        const view = inshoreRes.tideShortcut;
+                        tidePreviewRef.current = inshoreRes;
+                        setTideShortcutReview(view);
+                        setRouteAnalysis({
+                            waypoints: [
+                                { id: 'dep', ...departure },
+                                { id: 'arr', ...arrival },
+                            ],
+                            segments: [],
+                            totalDistance: inshoreRes.distanceNM,
+                            estimatedDuration: (view.arrivalMs - view.departureMs) / 3600000,
+                            departureTime: new Date(view.departureMs).toISOString(),
+                            arrivalTime: new Date(view.arrivalMs).toISOString(),
+                            averageSpeed: view.speedKts,
+                            fuelEstimate: null,
+                            maxWindSpeed: null,
+                            maxWaveHeight: null,
+                            headwindPercentage: 0,
+                            favorablePercentage: 0,
+                            minDepth: null,
+                            shallowSegments: inshoreRes.cautionMask?.filter(Boolean).length ?? 0,
+                            depthSamplesKnown: 0,
+                            depthSampleSpacingNm: null,
+                            routeCoordinates: inshoreRes.polyline,
+                        });
+                        setRouteCaveats([
+                            'Temporary tide-window preview; source authority stays in memory and expires. No departure watch, wait or saved route was changed.',
+                        ]);
+                        commitDisplayedRoute(
+                            map,
+                            [
+                                {
+                                    type: 'Feature',
+                                    properties: {
+                                        safety: 'tide',
+                                        verification: 'unverified',
+                                        source: 'inshore-router',
+                                        dashed: true,
+                                    },
+                                    geometry: { type: 'LineString', coordinates: inshoreRes.polyline },
+                                },
+                            ],
+                            'unverified',
+                            'A temporary timed preview does not authorize save, export or departure.',
+                        );
+                        const bounds = new mapboxgl.LngLatBounds();
+                        for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
+                        map.fitBounds(bounds, {
+                            padding: 80,
+                            duration: 1000,
+                            retainPadding: false,
+                            bearing: chartFitBearing(map),
+                        });
+                        dispatchPassageNotice({
+                            severity: 'warn',
+                            title: 'Tide-window preview',
+                            message:
+                                'Amber geometry uses the exact planned departure and speed with the selected arrival buffer. Its original source review is temporary; departure actions remain held.',
+                        });
+                        return;
+                    }
                     // Build a RouteAnalysis from the polyline so the rest of
                     // the UI (save/export/banner buttons) lights up. Save
                     // and Export are gated on routeAnalysis !== null — without
@@ -3239,7 +3407,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
         }, 100);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [departure, arrival, viaWaypoints, departureTime, speed, showPassage]);
+    }, [
+        departure,
+        arrival,
+        viaWaypoints,
+        departureTime,
+        speed,
+        showPassage,
+        tideShortcutEnabled,
+        tideArrivalBufferMinutes,
+    ]);
 
     // Auto-compute when both points set + map ready
     useEffect(() => {
@@ -3358,6 +3535,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis,
         routeVerification,
         routeActionsAvailable,
+        tideShortcutEnabled,
+        setTideShortcutEnabled,
+        tideArrivalBufferMinutes,
+        setTideArrivalBufferMinutes,
+        tideShortcutReview,
         routeCaveats,
         routeCellsRef,
         modelComparison: modelComparison.view,

@@ -63,6 +63,7 @@
 
 import { engineLog, ENGINE_DEBUG, M_PER_DEG_LAT, UNKNOWN_OPEN, CAUTION, UNCHARTED_MAX_RUN_M } from './engine/constants';
 import { applyTrackPriors } from './engine/trackPriors';
+import { routeTideGatedCandidate } from './engine/tideGatedRoute';
 import {
     applyExclusionField,
     buildExclusionField,
@@ -510,7 +511,10 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
     } catch (error) {
         return unavailable(error);
     }
-    const result = routeInshoreWithExclusions(rawLayers, { ...req, _exclusionField: field });
+    const checkedRequest = { ...req, _exclusionField: field };
+    const result = req._tideCandidate?.enabled
+        ? routeTideGatedCandidate(rawLayers, checkedRequest)
+        : routeInshoreWithExclusions(rawLayers, checkedRequest);
     if ('error' in result) return result;
     try {
         const conflict = routeExclusionConflict(result.polyline, field);

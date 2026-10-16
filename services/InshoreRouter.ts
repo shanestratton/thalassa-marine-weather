@@ -446,6 +446,14 @@ function fetchEndpointWater(
     );
 }
 
+interface TideShortcutOptions {
+    speedKts: number;
+    uncertaintyMs: number;
+    assertCurrent?: () => void;
+    onReview?: (view: import('./routing/tideGatedPlanning').TideShortcutView) => void;
+}
+let tideShortcutSerial = 0;
+
 export async function tryInshoreRoute(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
@@ -476,6 +484,7 @@ export async function tryInshoreRoute(
         tideCeilings?: readonly TideCeiling[];
         signal?: AbortSignal;
         onStage?: (stage: RouteStage) => void;
+        tideShortcut?: TideShortcutOptions;
     } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const priorContext = trackPriorContextKey();
@@ -497,7 +506,9 @@ export async function tryInshoreRoute(
     const tideKey = routeOpts.tideCeilings
         ? `tc${tideCeilingLookup(routeOpts.tideCeilings).key}`
         : `dep${Math.floor((routeOpts.departureMs ?? Date.now()) / 3_600_000)}`;
-    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}_${priorContext}`;
+    const dedupeKey = routeOpts.tideShortcut
+        ? `tide-window-${++tideShortcutSerial}`
+        : `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}_${priorContext}`;
     let entry = inflightRouteRequests.get(dedupeKey);
     if (entry) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
@@ -556,7 +567,7 @@ function startInshoreRun(
     draftM: number,
     airDraftM: number | null,
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect',
-    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] },
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[]; tideShortcut?: TideShortcutOptions },
 ): InshoreRun {
     // Wall-clock watchdog (reply 19 fix 2): bounds every ASYNC await in
     // the pipeline (cell loads, OSM overlay, marker fetch — AbortSignal
@@ -674,7 +685,7 @@ async function tryInshoreRouteInner(
     draftM: number,
     airDraftM: number | null = null,
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
-    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[]; tideShortcut?: TideShortcutOptions } = {},
     overlayUse: { overlay?: OsmOverlayProvenance } = {},
     run: InshoreRunControl,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
@@ -710,6 +721,41 @@ async function tryInshoreRouteInner(
             error: `Trusted inshore ENC coverage is incomplete — gap ~${corridorGap.atNM.toFixed(0)} NM along the route (near ${corridorGap.lat.toFixed(2)}, ${corridorGap.lon.toFixed(2)}). Unverified reference packs cannot clear this safety gate.`,
             code: 'coverage-gap',
         };
+    }
+
+    if (opts.tideShortcut) {
+        const mode = opts.tideShortcut;
+        const { planTideGatedShortcut } = await import('./routing/tideGatedPlanning');
+        const candidate = await planTideGatedShortcut(
+            {
+                from: origin,
+                to: destination,
+                draftM,
+                safetyM: 0.5,
+                requiredM: draftM + 0.5,
+                airDraftM,
+                departureMs: opts.departureMs ?? Date.now(),
+                speedKts: mode.speedKts,
+                uncertaintyMs: mode.uncertaintyMs,
+                lifetimeKey: `tide-request-${++tideShortcutSerial}`,
+            },
+            {
+                signal: run.signal,
+                onStage: run.onStage,
+                assertCurrent: () => {
+                    stillWanted();
+                    mode.assertCurrent?.();
+                },
+                onRetired: (reason) => mode.onReview?.({ kind: 'held', reason }),
+            },
+        );
+        stillWanted();
+        mode.assertCurrent?.();
+        if (candidate.kind === 'preview') {
+            mode.onReview?.(candidate.result.tideShortcut!);
+            return candidate.result;
+        }
+        mode.onReview?.(candidate.view);
     }
 
     // ── The highest tide per place, BEFORE routing (owner decision 11) ──
@@ -2008,6 +2054,10 @@ export function inshoreRouteToGeoJSON(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
 ): GeoJSON.Feature<GeoJSON.LineString> {
+    if (result.tideShortcut || result._tideCandidatePath)
+        throw Error(
+            'A temporary tide-window preview cannot become a saved route. Replan and verify an ordinary route.',
+        );
     return {
         type: 'Feature',
         geometry: {
