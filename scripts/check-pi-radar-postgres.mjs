@@ -163,6 +163,27 @@ try {
         true,
         'current attempt initially allowed',
     );
+    const ackedAt = at + 1;
+    await pool.query(
+        'UPDATE public.pi_radar_events SET acked_at=to_timestamp($2::double precision/1000),acked_by=$3 WHERE alarm_key=$1',
+        [same.key, ackedAt, owner],
+    );
+    const ackPolls = await Promise.all(Array.from({ length: 8 }, () => call(sync(revision, [same], at))));
+    eq(
+        ackPolls.every(
+            (r) =>
+                r.acknowledgements?.length === 1 &&
+                r.acknowledgements[0].key === same.key &&
+                r.acknowledgements[0].ackedAt === ackedAt,
+        ),
+        true,
+        'eight concurrent polls retain the original remote ACK timestamp',
+    );
+    eq(
+        await service('SELECT public.pi_radar_delivery_current($1)', [queue]),
+        false,
+        'current remote ACK blocks an already queued attempt',
+    );
     const alternatives = ['00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012'].map(
         (configurationRevision) => ({ ...context, configurationRevision }),
     );

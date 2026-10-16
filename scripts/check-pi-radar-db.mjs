@@ -267,7 +267,19 @@ try {
             kind: acked.kind,
             ackedAt: Date.now(),
         };
-    eq((await call(sync(revision, [acked], [ack]))).queued, [], 'simultaneous explicit ACK prevents initial queue');
+    const sameBatchAck = await call(sync(revision, [acked], [ack]));
+    eq(sameBatchAck.queued, [], 'simultaneous explicit ACK prevents initial queue');
+    eq(
+        sameBatchAck.acknowledgements,
+        [{ key: acked.key, ackedAt: ack.ackedAt }],
+        'same batch returns original explicit ACK clock',
+    );
+    const laterAck = await call(sync(revision, [{ ...acked, sourceAt: Date.now() + 1, reportAt: Date.now() + 1 }]));
+    eq(
+        laterAck.acknowledgements,
+        [{ key: acked.key, ackedAt: ack.ackedAt }],
+        'fresh polling cannot renew cloud ACK clock',
+    );
     eq(
         await scalar('SELECT acked_at IS NOT NULL FROM public.pi_radar_events WHERE alarm_key=$1', [acked.key]),
         true,

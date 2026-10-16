@@ -140,7 +140,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog,pg_te
 <<radar>>
 DECLARE c public.pi_radar_contexts%ROWTYPE; e public.pi_radar_events%ROWTYPE;
  profile jsonb; a text; item jsonb; k text; now_ms bigint; evaluated_ms bigint; source_ms bigint; report_ms bigint;
- old_revision uuid; next_revision uuid; expected uuid; queue_id uuid; queued jsonb:='[]'; acked jsonb:='[]'; words jsonb;
+ old_revision uuid; next_revision uuid; expected uuid; queue_id uuid; queued jsonb:='[]'; acked jsonb:='[]'; acknowledgements jsonb:='[]'; words jsonb;
  used integer; devices integer; resend boolean; seen text[]; listed text[]:=ARRAY[]::text[];
 BEGIN
  IF p_owner IS NULL OR p_relay IS NULL OR jsonb_typeof(p_request) IS DISTINCT FROM 'object' OR p_request->>'family' IS DISTINCT FROM 'radar' OR pg_column_size(p_request)>16384 THEN RAISE EXCEPTION 'invalid radar request' USING ERRCODE='22023'; END IF;
@@ -179,7 +179,7 @@ BEGIN
   UPDATE public.pi_radar_contexts SET revision=next_revision,retired=true,evaluated_at_ms=NULL,updated_at=now() WHERE relay_id=p_relay;
   UPDATE public.pi_radar_events SET resolved_at=now(),resolved_reason='retired' WHERE relay_id=p_relay AND context_revision=c.revision AND resolved_at IS NULL;
   UPDATE public.push_notification_queue SET sent_at=now(),processing_at=NULL,last_error='radar context retired' WHERE notification_type='radar_alarm' AND data->>'context_revision'=c.revision::text AND sent_at IS NULL;
-  RETURN jsonb_build_object('contextRevision',next_revision,'retired',true,'queued',queued,'acked',acked);
+  RETURN jsonb_build_object('contextRevision',next_revision,'retired',true,'queued',queued,'acked',acked,'acknowledgements',acknowledgements);
  END IF;
  IF a IS DISTINCT FROM 'sync' OR NOT(p_request ?& ARRAY['family','action','context','contextRevision','evaluatedAt','upserts','acks','resolved','more']) OR
   p_request-ARRAY['family','action','context','contextRevision','evaluatedAt','upserts','acks','resolved','more']<>'{}'::jsonb OR
@@ -252,8 +252,9 @@ BEGIN
   UPDATE public.pi_radar_events SET last_pushed_at=clock_timestamp(),last_pushed_source_at_ms=e.source_at_ms,pushed_count=pushed_count+1 WHERE id=e.id;
  END LOOP;
  UPDATE public.pi_radar_contexts SET evaluated_at_ms=evaluated_ms,updated_at=now() WHERE relay_id=p_relay AND revision=c.revision;
- SELECT coalesce(jsonb_agg(alarm_key),'[]'::jsonb) INTO acked FROM public.pi_radar_events WHERE relay_id=p_relay AND owner_id=p_owner AND context_revision=c.revision AND alarm_key=ANY(listed) AND resolved_at IS NULL AND acked_at IS NOT NULL AND (kind='radar-close-quarters' OR acked_at>clock_timestamp()-interval '30 minutes');
- RETURN jsonb_build_object('contextRevision',c.revision,'queued',queued,'acked',acked);
+ SELECT coalesce(jsonb_agg(alarm_key),'[]'::jsonb),coalesce(jsonb_agg(jsonb_build_object('key',alarm_key,'ackedAt',floor(extract(epoch FROM acked_at)*1000)::bigint)),'[]'::jsonb)
+ INTO acked,acknowledgements FROM public.pi_radar_events WHERE relay_id=p_relay AND owner_id=p_owner AND context_revision=c.revision AND alarm_key=ANY(listed) AND resolved_at IS NULL AND acked_at IS NOT NULL AND (kind='radar-close-quarters' OR acked_at>clock_timestamp()-interval '30 minutes');
+ RETURN jsonb_build_object('contextRevision',c.revision,'queued',queued,'acked',acked,'acknowledgements',acknowledgements);
 END; $$;
 REVOKE ALL ON FUNCTION public.pi_radar_apply(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.pi_radar_apply(uuid,text,jsonb) TO service_role;

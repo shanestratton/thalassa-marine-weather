@@ -291,7 +291,12 @@ Deno.test('atomic sync queues only bounded UUIDs and returns acknowledgements on
     const deps: RadarRelayDeps = {
         capability: () => Promise.resolve(true),
         apply: () =>
-            Promise.resolve({ contextRevision: r.contextRevision, queued: [queue, queue], acked: [r.upserts[0].key] }),
+            Promise.resolve({
+                contextRevision: r.contextRevision,
+                queued: [queue, queue],
+                acked: [r.upserts[0].key],
+                acknowledgements: [{ key: r.upserts[0].key, ackedAt: now }],
+            }),
         deliver: (id) => {
             delivered.push(id);
         },
@@ -315,7 +320,14 @@ Deno.test('atomic sync queues only bounded UUIDs and returns acknowledgements on
     ) {
         const answer = await handleRadarRelay(r, identity, {
             ...deps,
-            apply: () => Promise.resolve({ contextRevision: r.contextRevision, queued: [], acked: [], ...extra }),
+            apply: () =>
+                Promise.resolve({
+                    contextRevision: r.contextRevision,
+                    queued: [],
+                    acked: [],
+                    acknowledgements: [],
+                    ...extra,
+                }),
             deliver: () => {
                 throw new Error('malformed reply must not deliver');
             },
@@ -339,7 +351,14 @@ Deno.test('context conflict never rebinds, and a retire must rotate the revision
     equal(
         (await handleRadarRelay(retire, identity, {
             ...deps,
-            apply: () => Promise.resolve({ contextRevision: r.contextRevision, retired: true, queued: [], acked: [] }),
+            apply: () =>
+                Promise.resolve({
+                    contextRevision: r.contextRevision,
+                    retired: true,
+                    queued: [],
+                    acked: [],
+                    acknowledgements: [],
+                }),
         }, now)).status,
         503,
     );
@@ -351,6 +370,7 @@ Deno.test('context conflict never rebinds, and a retire must rotate the revision
                 retired: true,
                 queued: [],
                 acked: [],
+                acknowledgements: [],
             }),
     }, now);
     equal(accepted.status, 200);
@@ -381,6 +401,47 @@ Deno.test('probe verifies owner-bound returned context and never invokes a deliv
             (await handleRadarRelay({ family: 'radar', action: 'probe' }, identity, {
                 ...deps,
                 apply: () => Promise.resolve({ ...result, ...extra }),
+            }, now)).status,
+            503,
+        );
+    }
+});
+Deno.test('a delayed remote ACK preserves its original clock rather than renewing the mute at receipt', async () => {
+    const r = await input();
+    r.upserts[0].raisedAt = now - 29 * 60_000;
+    r.upserts[0].key = await radarRelayAlarmKey(r.context, r.upserts[0]);
+    const acknowledgement = { key: r.upserts[0].key, ackedAt: now - 28 * 60_000 };
+    const result = {
+        contextRevision: r.contextRevision,
+        queued: [],
+        acked: [acknowledgement.key],
+        acknowledgements: [acknowledgement],
+    };
+    const deps: RadarRelayDeps = {
+        capability: () => Promise.resolve(true),
+        apply: () => Promise.resolve(result),
+        deliver: () => {
+            throw new Error('ACK is not a push');
+        },
+    };
+    const response = await handleRadarRelay(r, identity, deps, now);
+    equal(response.status, 200);
+    equal((await response.json()).acknowledgements, [acknowledgement]);
+    for (
+        const acknowledgements of [
+            undefined,
+            [],
+            [{ ...acknowledgement, ackedAt: now + 1001 }],
+            [{ ...acknowledgement, ackedAt: r.upserts[0].raisedAt - 1 }],
+            [{ ...acknowledgement, ackedAt: 'now' }],
+            [acknowledgement, acknowledgement],
+            [{ ...acknowledgement, position: { lat: 1, lon: 2 } }],
+        ]
+    ) {
+        equal(
+            (await handleRadarRelay(r, identity, {
+                ...deps,
+                apply: () => Promise.resolve({ ...result, acknowledgements }),
             }, now)).status,
             503,
         );

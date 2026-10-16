@@ -70,7 +70,8 @@ export async function handleRadarRelay(
                 (result.retired !== true || result.contextRevision === request.contextRevision))
         ) return answer({ error: 'radar_unavailable' }, 503);
         const queued = request.action === 'bind' ? [] : result.queued,
-            acked = request.action === 'bind' ? [] : result.acked;
+            acked = request.action === 'bind' ? [] : result.acked,
+            acknowledgements = request.action === 'bind' ? [] : result.acknowledgements;
         const requestedKeys = request.action === 'sync'
             ? new Set([...request.upserts, ...request.acks].map((e) => e.key))
             : new Set<string>();
@@ -81,6 +82,20 @@ export async function handleRadarRelay(
             ) ||
             (request.action === 'retire' && (queued.length !== 0 || acked.length !== 0))
         ) return answer({ error: 'radar_unavailable' }, 503);
+        // Returning only keys would renew a30-minute mute on every late poll.
+        // Preserve the original acknowledgement clock, with exact cohort equality.
+        const ackedKeys = new Set(acked);
+        if (
+            ackedKeys.size !== acked.length || !Array.isArray(acknowledgements) ||
+            acknowledgements.length !== acked.length ||
+            acknowledgements.some((value) =>
+                !record(value) || Object.keys(value).length !== 2 ||
+                typeof value.key !== 'string' || !ackedKeys.has(value.key) || typeof value.ackedAt !== 'number' ||
+                !Number.isSafeInteger(value.ackedAt) || value.ackedAt < Number(value.key.split(':')[2]) ||
+                value.ackedAt > now + 1000
+            ) ||
+            new Set(acknowledgements.map((value) => value.key)).size !== acked.length
+        ) return answer({ error: 'radar_unavailable' }, 503);
         for (const id of new Set(queued)) deps.deliver(id);
         return answer({
             ok: true,
@@ -88,6 +103,7 @@ export async function handleRadarRelay(
             contextRevision: result.contextRevision,
             queued: queued.length,
             acked,
+            acknowledgements,
             ...(request.action === 'retire' ? { retired: true } : {}),
         });
     } catch {
