@@ -24,6 +24,7 @@ export interface CurrentPlanes {
 }
 export interface CurrentSeriesTile extends CurrentBounds {
     id: string;
+    sourceSha256: string;
     width: number;
     height: number;
     /** North-to-south rows, west-to-east columns, geographic degrees. */
@@ -89,6 +90,7 @@ export function validateCurrentSeries(series: CurrentSeries): number {
     let bytes = 0;
     for (const tile of series.tiles) {
         assert(text(tile?.id) && !ids.has(tile.id), 'duplicate/invalid tile identity');
+        assert(typeof tile.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(tile.sourceSha256), 'tile source hash');
         ids.add(tile.id);
         assert(validCurrentBounds(tile), 'bounds');
         const cells = tile.width * tile.height;

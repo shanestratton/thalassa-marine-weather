@@ -26,6 +26,7 @@ function fixture(): CurrentSeries {
         tiles: [
             {
                 id: 'generated-cell',
+                sourceSha256: 'a'.repeat(64),
                 north: 1,
                 south: 0,
                 west: 0,

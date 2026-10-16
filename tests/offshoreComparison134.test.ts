@@ -28,6 +28,7 @@ function currentSeriesForJob(input: OffshoreJob): CurrentSeries {
         tiles: [
             {
                 id: 'synthetic-ocean',
+                sourceSha256: 'a'.repeat(64),
                 north: 2,
                 south: -2,
                 west: -32,

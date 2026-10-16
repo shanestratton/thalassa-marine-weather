@@ -235,5 +235,21 @@ export async function getCurrentField(
     void timeRange;
     void signal;
     if (!CMEMS_CURRENT_ROUTING_BETA_ENABLED) return null;
-    return null;
+    const { loadRegionalCurrentSeries } = await import('../../weather/api/currentRegionalLoader');
+    const bounds =
+        'north' in area
+            ? area
+            : {
+                  north: Math.min(90, area.lat + 0.05),
+                  south: Math.max(-90, area.lat - 0.05),
+                  west: ((area.lon - 0.05 + 540) % 360) - 180,
+                  east: ((area.lon + 0.05 + 540) % 360) - 180,
+              };
+    const series = await loadRegionalCurrentSeries({
+        bounds,
+        startMs: timeRange.startMs,
+        endMs: timeRange.endMs,
+        signal,
+    });
+    return series ? currentFieldFromSeries(series) : null;
 }

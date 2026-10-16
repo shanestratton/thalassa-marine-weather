@@ -240,7 +240,7 @@ export function prepareOffshoreJob(input: OffshoreJob): OffshoreJob {
                           vectorBasis: e.currentSeries.vectorBasis,
                           depthM: e.currentSeries.depthM,
                           tiles: e.currentSeries.tiles.map(
-                              ({ id, north, south, west, east, width, height, ocean, tide }) => {
+                              ({ id, sourceSha256, north, south, west, east, width, height, ocean, tide }) => {
                                   const planes = (part: typeof ocean) => ({
                                       cadenceHours: part.cadenceHours,
                                       times: [...part.times],
@@ -250,6 +250,7 @@ export function prepareOffshoreJob(input: OffshoreJob): OffshoreJob {
                                   });
                                   return {
                                       id,
+                                      sourceSha256,
                                       north,
                                       south,
                                       west,
