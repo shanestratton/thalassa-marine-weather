@@ -1,5 +1,6 @@
 /** Only our versioned, redistributable terrain. Never OSM/Mapbox or licensed charts. */
 import { RELIEF_DISPLAY_REGIONS, reliefRegionBase } from './reliefDisplayRegions';
+import { reliefAvailableRanges, reliefTileAvailable } from './reliefAvailability';
 export interface ReliefBounds {
     north: number;
     south: number;
@@ -47,6 +48,7 @@ export function reliefTile(url: string): ReliefTile | null {
             z > region.maxzoom ||
             z < region.minzoom ||
             (region.version && version !== region.version) ||
+            !reliefTileAvailable(region.availability, z, x, y) ||
             x >= 2 ** z ||
             y >= 2 ** z ||
             (kind === 'dem' ? ext !== 'webp' : ext !== 'png')
@@ -66,6 +68,7 @@ export function reliefTile(url: string): ReliefTile | null {
     }
 }
 export function planReliefArea(bounds: ReliefBounds, detail: number, base = 'https://tiles.thalassatiles.com/v1') {
+    const maxDetail = Math.max(13, ...RELIEF_DISPLAY_REGIONS.map((region) => region.maxzoom));
     if (
         !bounds ||
         ![bounds.north, bounds.south, bounds.west, bounds.east].every(Number.isFinite) ||
@@ -77,10 +80,10 @@ export function planReliefArea(bounds: ReliefBounds, detail: number, base = 'htt
         bounds.west === bounds.east ||
         !Number.isInteger(detail) ||
         detail < 4 ||
-        detail > 13 ||
+        detail > maxDetail ||
         !/^https:\/\/tiles\.thalassatiles\.com\/v[1-9]\d{0,2}$/.test(base)
     )
-        throw new Error('Choose a valid area and a detail level from 4 to 13.');
+        throw new Error(`Choose a valid area and a detail level from 4 to ${maxDetail}.`);
     const segments =
         bounds.west > bounds.east
             ? [
@@ -117,12 +120,20 @@ export function planReliefArea(bounds: ReliefBounds, detail: number, base = 'htt
                 else ranges.push(range);
             }
         }
+    const available = ranges.flatMap((range) => {
+        const region = RELIEF_DISPLAY_REGIONS.find((candidate) => candidate.id === range.set)!;
+        return region.availability
+            ? reliefAvailableRanges(region.availability, range.z, range.x0, range.x1, range.y0, range.y1).map(
+                  (sparse) => ({ ...range, ...sparse }),
+              )
+            : [range];
+    });
     // Arithmetic first: world-sized requests never allocate millions of entries.
-    const tileCount = ranges.reduce((sum, r) => sum + (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1) * 2, 0);
+    const tileCount = available.reduce((sum, r) => sum + (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1) * 2, 0);
     if (tileCount > RELIEF_OFFLINE_LIMIT_TILES)
         return { tileCount, estimatedBytes: tileCount * 32768, tooLarge: true, tiles: [] as ReliefTile[] };
     const tiles: ReliefTile[] = [];
-    for (const r of ranges)
+    for (const r of available)
         for (let x = r.x0; x <= r.x1; x++)
             for (let y = r.y0; y <= r.y1; y++)
                 for (const kind of ['dem', 'idx']) {
