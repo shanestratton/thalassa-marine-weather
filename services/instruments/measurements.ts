@@ -30,6 +30,8 @@ export interface InstrumentEvidence {
     engine?: import('./engineTelemetry').EngineTelemetry;
     /** One boat/feed generation; never combine values from another boat or account. */
     identity: string;
+    /** Stable configured vessel identity for the voyage meter; session identity still fences live samples. */
+    meterIdentity?: string;
     via: 'gateway' | 'lan' | 'cloud' | 'signalk';
     readings: Partial<Record<Exclude<InstrumentMeasurementKey, 'position'>, InstrumentReading>>;
     position?: { lat: number; lon: number; at: number };

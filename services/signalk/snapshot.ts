@@ -8,6 +8,7 @@ export function directSignalKSnapshot(
     doc: Record<string, unknown>,
     identity: string,
     now = Date.now(),
+    meterIdentity?: string,
 ): RemoteInstrumentSnapshot {
     const clocked: Record<string, number> = {};
     const leaf = (path: string): { value: unknown; at: number; source: string } | null => {
@@ -97,6 +98,7 @@ export function directSignalKSnapshot(
         deviceLabel: 'Direct Signal K · read only',
         reportedAt: now,
         windHistoryIdentity: identity,
+        ...(meterIdentity ? { meterIdentity } : {}),
         lat: positionGood ? (p.latitude as number) : null,
         lon: positionGood ? (p.longitude as number) : null,
         ...(positionGood && pos ? { positionSampleAt: pos.at } : {}),

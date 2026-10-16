@@ -172,6 +172,7 @@ export interface RemoteFeed {
 
 /** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
 export interface RemoteInstrumentSnapshot {
+    meterIdentity?: string;
     systemsReadings?: import('./systemsTelemetry').SystemsReading[];
     /** Direct read lane only: original clocks for legacy gauges as well as derived evidence. */
     gaugeTimes?: Partial<Record<(typeof DIRECT_GAUGE_KEYS)[number], number>>;

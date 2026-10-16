@@ -328,6 +328,7 @@ class DirectSignalKServiceClass {
             const state = new SignalKReadState(self);
             state.ingestSelfDocument(document);
             const identity = `signalk:${scope.key}:${config.origin}:${self}:${generation}`;
+            const meterIdentity = `signalk:${scope.key}:${config.clientId}:${self}`;
             this.audio = new SignalKNotificationAudio(current);
             this.activeConfig = nextIdentity;
             NmeaListenerService.stop();
@@ -345,7 +346,7 @@ class DirectSignalKServiceClass {
                     this.stop('approval');
                     return;
                 }
-                NmeaStore.ingestRemote(directSignalKSnapshot(state.document(), identity));
+                NmeaStore.ingestRemote(directSignalKSnapshot(state.document(), identity, Date.now(), meterIdentity));
                 this.update('reading', state.notifications());
             };
             const transport = openSignalKNative(

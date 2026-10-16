@@ -1,4 +1,5 @@
 /** Voyage engine time from explicit declarations or fresh measured RPM. Never from SOG or polar estimates. */
+import type { InstrumentEvidence } from '../instruments/measurements';
 export const ENGINE_RPM_VALID_MS = 13_000;
 const MAX_RUN_MS = 366 * 86_400_000;
 
@@ -10,6 +11,9 @@ export interface EngineRunCounter {
     declared: boolean | null;
     rpm: { running: boolean; atMs: number } | null;
     rpmEngineId?: string;
+    rpmFeedIdentity?: string;
+    rpmSessionIdentity?: string;
+    rpmLastSourceAt?: number;
     logOnMs: number;
     rpmOnMs: number;
     offMs: number;
@@ -64,6 +68,10 @@ export function validEngineRunCounter(raw: unknown, voyageId: string): raw is En
     )
         return false;
     const totals = [c.logOnMs, c.rpmOnMs, c.offMs, c.unknownMs];
+    for (const key of ['rpmFeedIdentity', 'rpmSessionIdentity'] as const)
+        if (c[key] !== undefined && (typeof c[key] !== 'string' || !c[key].trim() || c[key].length > 4096))
+            return false;
+    if (c.rpmLastSourceAt !== undefined && (!time(c.rpmLastSourceAt) || c.rpmLastSourceAt > c.atMs)) return false;
     return (
         totals.every((n) => Number.isSafeInteger(n) && n >= 0) &&
         totals.reduce((a, b) => a + b, 0) === c.atMs - c.startedAtMs
@@ -158,6 +166,36 @@ export function observeQualifiedEngineRpm(
 
 export function endEngineRunCounter(counter: EngineRunCounter, atMs: number): EngineRunCounter {
     return { ...advanceEngineRunCounter(counter, atMs), ended: true };
+}
+
+/** Retired feeds cannot carry RPM into another session or a different vessel's voyage meter. */
+export function observeEngineEvidence(
+    counter: EngineRunCounter,
+    evidence: InstrumentEvidence | undefined,
+    receivedAtMs: number,
+): EngineRunCounter {
+    let next = advanceEngineRunCounter(counter.rpmFeedIdentity ? counter : { ...counter, rpm: null }, receivedAtMs);
+    if (next.ended) return next;
+    const identity = evidence?.identity;
+    const feed = evidence?.meterIdentity ?? identity;
+    const validId = (value: unknown): value is string =>
+        typeof value === 'string' && value.trim().length > 0 && value.length <= 4096;
+    const reading = evidence?.readings.rpm;
+    if (
+        !validId(identity) ||
+        !validId(feed) ||
+        (next.rpmFeedIdentity !== undefined && next.rpmFeedIdentity !== feed) ||
+        !reading ||
+        reading.value === null
+    )
+        return { ...next, rpm: null };
+    if (next.rpmSessionIdentity !== identity || !next.rpmFeedIdentity) next = { ...next, rpm: null };
+    if (next.rpmLastSourceAt !== undefined && reading.at <= next.rpmLastSourceAt)
+        return observeQualifiedEngineRpm(next, { ...reading, value: null }, receivedAtMs);
+    const observed = observeQualifiedEngineRpm(next, reading, receivedAtMs);
+    return observed.rpm?.atMs === reading.at && observed.rpm !== next.rpm
+        ? { ...observed, rpmFeedIdentity: feed, rpmSessionIdentity: identity, rpmLastSourceAt: reading.at }
+        : observed;
 }
 
 /** Pausing or changing account is not evidence of engine-off. The unobserved interval stays unknown. */

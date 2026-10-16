@@ -6,13 +6,62 @@ import {
     engineRunSummary,
     newEngineRunCounter,
     observeEngineRpm,
+    observeEngineEvidence,
     observeQualifiedEngineRpm,
     suspendEngineRunCounter,
     validEngineRunCounter,
 } from '../services/shiplog/engineRunCounter';
+import type { InstrumentEvidence } from '../services/instruments/measurements';
 
 const T = 1_800_000_000_000;
 describe('voyage engine time evidence', () => {
+    const evidence = (at: number, identity = 'session-one', meterIdentity = 'boat-one'): InstrumentEvidence => ({
+        identity,
+        meterIdentity,
+        via: 'signalk',
+        readings: { rpm: { value: 900, at, unit: 'rpm', source: 'engine', engineId: 'main', engineCount: 1 } },
+    });
+    it('retires missing feeds immediately and never resurrects their repeated source clock', () => {
+        let c = observeEngineEvidence(newEngineRunCounter('retired', T), evidence(T), T);
+        c = observeEngineEvidence(c, undefined, T + 2000);
+        c = observeEngineEvidence(c, evidence(T), T + 4000);
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 2, unknownSeconds: 8 });
+    });
+    it('requires new clocks after a same-vessel reconnect and preserves its unobserved gap', () => {
+        let c = observeEngineEvidence(newEngineRunCounter('reconnect', T), evidence(T), T);
+        c = observeEngineEvidence(c, undefined, T + 2000);
+        c = observeEngineEvidence(c, evidence(T, 'session-two'), T + 3000);
+        c = observeEngineEvidence(c, evidence(T + 6000, 'session-two'), T + 6000);
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 6, unknownSeconds: 4 });
+        expect(c.rpmSessionIdentity).toBe('session-two');
+    });
+    it('does not combine another vessel using the same engine name, including after reload', () => {
+        let c = observeEngineEvidence(newEngineRunCounter('boat-swap', T), evidence(T), T);
+        c = JSON.parse(JSON.stringify(c));
+        c = observeEngineEvidence(c, evidence(T + 2000, 'foreign-session', 'boat-two'), T + 2000);
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 2, unknownSeconds: 8 });
+        expect(c.rpmFeedIdentity).toBe('boat-one');
+    });
+    it('keeps an independent skipper declaration when instrument evidence retires', () => {
+        let c = declareEngineRunning(newEngineRunCounter('declared', T), true, T);
+        c = observeEngineEvidence(c, evidence(T), T);
+        c = observeEngineEvidence(c, undefined, T + 2000);
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 2, loggedSeconds: 8, unknownSeconds: 0 });
+    });
+    it('refuses duplicate-clock engine conflicts and unqualified legacy RPM before binding a feed', () => {
+        let c = observeEngineRpm(newEngineRunCounter('legacy', T), 900, T, T);
+        c = observeEngineEvidence(c, evidence(T + 1000), T + 1000);
+        const conflict = evidence(T + 1000);
+        conflict.readings.rpm!.engineId = 'another';
+        c = observeEngineEvidence(c, conflict, T + 2000);
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 1, unknownSeconds: 9 });
+        expect(validEngineRunCounter({ ...c, rpmLastSourceAt: T + 20_000 }, 'legacy')).toBe(false);
+    });
     it('requires one identified engine and refuses to combine another engine into its maintenance meter', () => {
         const reading = (engineId: string, engineCount = 1) => ({
             value: 900,

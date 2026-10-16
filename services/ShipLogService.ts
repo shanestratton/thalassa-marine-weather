@@ -41,7 +41,7 @@ import {
     declareEngineRunning,
     endEngineRunCounter,
     newEngineRunCounter,
-    observeQualifiedEngineRpm,
+    observeEngineEvidence,
     suspendEngineRunCounter,
     validEngineRunCounter,
 } from './shiplog/engineRunCounter';
@@ -366,11 +366,7 @@ class ShipLogServiceClass {
                     )
                         return;
                     const now = Date.now();
-                    state.engineRun = observeQualifiedEngineRpm(
-                        state.engineRun,
-                        snapshot.instrumentEvidence?.readings?.rpm,
-                        now,
-                    );
+                    state.engineRun = observeEngineEvidence(state.engineRun, snapshot.instrumentEvidence, now);
                     if (now - this.engineCounterPersistedAt >= 30_000) {
                         this.engineCounterPersistedAt = now;
                         void this.saveTrackingState(scope).catch((error) =>

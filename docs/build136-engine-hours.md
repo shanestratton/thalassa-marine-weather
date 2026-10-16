@@ -10,6 +10,8 @@ The existing Maintenance meter is a whole-hour reading per owner. The new authen
 
 Measured time requires an explicit engine identity and exactly one reported engine. The counter pins the first accepted identity; missing metadata, multiple reported engines and another engine's readings cannot add measured time. The review names that identity beside its time. The existing aggregate RPM gauge is not an individual engine-hour meter. The skipper still checks the intended boat and meter explicitly; no manufacturer's meter is invented or overwritten aboard.
 
+The voyage also pins the first qualified instrument feed. Direct Signal K uses the account, configured client and reported vessel identity, while its live session remains separately fenced. Retirement clears measured RPM immediately without clearing an independent skipper declaration. A same-vessel reconnect needs a newer sensor clock; another vessel with an engine also called `main` cannot contribute to that voyage. These local counter identities contain no access token and are not sent to the maintenance RPC. Five focused regressions cover retirement, reconnect gaps, reloads, conflicting engines and declaration preservation; the combined six-suite check passes59 tests.
+
 `20261016102500_confirmed_voyage_engine_hours.sql` is not applied live. New receipt/carry tables permit only owner SELECT; mutations go through the authenticated, search-path-pinned RPC. The RPC contains its own `auth.uid()` boundary and updates that owner's existing meter only. No positions, chart data, voyage timestamps or provider credentials enter these tables.
 
 Validation so far:
