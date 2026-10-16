@@ -1,0 +1,62 @@
+name: Build134 focused Linux browser regressions
+on:
+  push:
+    branches: ['codex/build-134-browser-regression']
+    paths: ['.github/workflows/validate-browser134-regressions.yml']
+permissions:
+  contents: read
+concurrency:
+  group: build134-focused-browser-regressions
+  cancel-in-progress: false
+env:
+  CI: 'true'
+  HUSKY: '0'
+  NODE_OPTIONS: --max-old-space-size=4096
+  PUPPETEER_SKIP_DOWNLOAD: 'true'
+  VITE_APP_BUILD: '134'
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+  VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+  VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+  VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+  VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+jobs:
+  browser:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [keyboard, production]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 'd42668411a5117e443a6bc0b6bc5b8839dbb17f7'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = 'd42668411a5117e443a6bc0b6bc5b8839dbb17f7'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - name: Actual offline restart and complete trip flow in both engines
+        if: matrix.suite == 'keyboard'
+        run: npx playwright test browser-tests/offline-relief.spec.ts browser-tests/plan-page-fit.spec.ts --config playwright.keyboard.config.ts --grep 'saved terrain renders|your trips, a four-leg trip and the next leg at 1024x768' --workers=1 --retries=0 --repeat-each=2
+      - name: Build configured production app
+        if: matrix.suite == 'production'
+        run: GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+      - name: Landscape controls and Ocean map in both engines
+        if: matrix.suite == 'production'
+        run: npx playwright test e2e/chart-warning.spec.ts e2e/ocean-page.spec.ts --grep '568x320|fictional fleet|zero fleet|region fly-tos' --workers=1 --retries=0
+      - name: Retain failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build134-focused-${{ matrix.suite }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
