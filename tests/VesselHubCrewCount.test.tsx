@@ -24,7 +24,10 @@ const hub = vi.hoisted(() => ({
     getMyCrew: vi.fn(),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../context/SettingsContext', () => ({
     useSettings: () => ({ settings: { vessel: hub.vessel }, updateSettings: vi.fn() }),
 }));
