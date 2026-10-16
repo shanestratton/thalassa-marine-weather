@@ -1,0 +1,141 @@
+name: Thalassa 136 integrated native and Pi checkpoint
+
+# Native compile checkpoint only. No Apple credentials, signing, upload or
+# retained app artifact. Full release validation and size gates remain required.
+on:
+    push:
+        branches: ['codex/build-136-final-native-validation']
+        paths: ['.github/workflows/validate-native-136.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-136-final-native-check
+    cancel-in-progress: false
+jobs:
+    native:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: macos-26
+        timeout-minutes: 40
+        env:
+            CANDIDATE_SHA: 572aaa220277e6b252657f59d1cdf2caebe864d6
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+            VITE_APP_BUILD: '136'
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 572aaa220277e6b252657f59d1cdf2caebe864d6
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Exact source, Xcode and four native build numbers
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
+                  git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+                  git merge-base --is-ancestor 81dc2f39808967910a1ef788fd4cde13b4c81aa5 HEAD
+                  git merge-base --is-ancestor 687aaa85b HEAD
+                  git merge-base --is-ancestor 92f95b362 HEAD
+                  test -d "$DEVELOPER_DIR"
+                  xcode_version="$(xcodebuild -version)"
+                  test "${xcode_version%%$'\n'*}" = 'Xcode 26.6'
+                  node --input-type=module <<'NODE'
+                  import {readFileSync} from 'node:fs';
+                  const versions=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(versions.length!==4||versions.some(m=>m[1]!=='136'))throw Error('Four committed native build136 configurations required');
+                  NODE
+            - run: npm ci
+            - name: Portable Signal K protocol with no Node type environment
+              run: |
+                  set -euo pipefail
+                  node pi-cache/scripts/sync-signalk-protocol.mjs --check
+                  node --input-type=module <<'NODE'
+                  import fs from 'node:fs';
+                  import path from 'node:path';
+                  import {execFileSync} from 'node:child_process';
+                  const config=path.join(process.env.RUNNER_TEMP,'signalk-no-node.json');
+                  fs.writeFileSync(config,JSON.stringify({compilerOptions:{target:'ES2022',module:'ESNext',moduleResolution:'bundler',lib:['ES2022','DOM'],types:[],strict:true,skipLibCheck:true,noEmit:true},files:[path.resolve('utils/signalkProtocol.ts')]}));
+                  execFileSync(process.execPath,['node_modules/typescript/bin/tsc','-p',config],{stdio:'inherit'});
+                  NODE
+            - name: Public source guard and complete TypeScript/web build
+              run: |
+                  set -euo pipefail
+                  npm run check:beta:source
+                  GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+            - name: Pinned CocoaPods runtime
+              run: |
+                  set -euo pipefail
+                  pinned=$(awk '/^BUNDLED WITH/{getline; gsub(/ /,""); print}' ios/App/Gemfile.lock)
+                  if ! gem install bundler -v "$pinned" --no-document; then
+                      gem install bundler -v "$pinned" --no-document --user-install
+                      echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+                      export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+                  fi
+                  {
+                      echo "BUNDLER_VERSION=$pinned"
+                      echo "BUNDLE_PATH=$RUNNER_TEMP/gems136"
+                      echo "BUNDLE_APP_CONFIG=$RUNNER_TEMP/bundle-config136"
+                      echo "BUNDLE_FROZEN=true"
+                  } >> "$GITHUB_ENV"
+                  BUNDLER_VERSION="$pinned" BUNDLE_PATH="$RUNNER_TEMP/gems136" BUNDLE_APP_CONFIG="$RUNNER_TEMP/bundle-config136" \
+                      BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
+            - name: Capacitor sync through pinned Bundler
+              run: npm run cap:sync
+            - name: Production UDP cancellation and same-port rebind proof
+              run: |
+                  set -euo pipefail
+                  swiftc ios/App/App/NmeaUdpRebindGate.swift tests/native/NmeaUdpRebindGateProof.swift -o "$RUNNER_TEMP/udp-rebind-proof"
+                  "$RUNNER_TEMP/udp-rebind-proof"
+            - name: Compile actual iPhone native target without signing
+              run: |
+                  set -euo pipefail
+                  xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug \
+                      -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd136-native" \
+                      CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+                  echo 'Combined UDP/GPX/Systems and direct Signal K native source compiled on the iPhone SDK. Native build136; no signing or upload.' >> "$GITHUB_STEP_SUMMARY"
+
+    unix-contracts:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        env:
+            CI: 'true'
+            HUSKY: '0'
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 572aaa220277e6b252657f59d1cdf2caebe864d6
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: pi-cache/package-lock.json
+            - name: Exact source and Pi runtime
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = '572aaa220277e6b252657f59d1cdf2caebe864d6'
+                  npm ci --prefix pi-cache
+                  npm run build --prefix pi-cache
+            - name: Complete Pi suite and frozen update5/update6 shell plans
+              working-directory: pi-cache
+              run: |
+                  set -euo pipefail
+                  node scripts/sync-signalk-protocol.mjs --check
+                  npm test
+                  node --test scripts/update5.test.mjs scripts/update6.test.mjs
+                  echo 'Unix permission, durable ownership, enrolled HTTP, route cancellation and SQLite paging contracts passed on the exact source.' >> "$GITHUB_STEP_SUMMARY"
