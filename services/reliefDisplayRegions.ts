@@ -1,4 +1,5 @@
 /** Public illustrative terrain only. No routing, soundings, clearance or alarm consumer. */
+import { reliefTileAvailable, type ReliefAvailability } from './reliefAvailability';
 export interface ReliefDisplayRegion {
     id: string;
     minzoom: number;
@@ -10,6 +11,8 @@ export interface ReliefDisplayRegion {
     version?: string;
     attribution?: string;
     datum: string;
+    /** Required for a future sparse regional generation; exact finite-source tile runs. */
+    availability?: ReliefAvailability;
 }
 export const RELIEF_AU_BOUNDS: [number, number, number, number] = [142, -29.5, 156.5, -9];
 /**
@@ -47,6 +50,7 @@ export function ownedReliefFile(name: string): boolean {
         z <= region.maxzoom &&
         Number(xs) < 2 ** z &&
         Number(ys) < 2 ** z &&
+        reliefTileAvailable(region.availability, z, Number(xs), Number(ys)) &&
         (kind === 'dem' ? extension === 'webp' : extension === 'png')
     );
 }
