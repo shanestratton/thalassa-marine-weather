@@ -102,6 +102,7 @@ export interface RouteAdvisory {
         | 'no-data'
         | 'gebco-share'
         | 'tide-constrained'
+        | 'tide-unverified'
         | 'draft-clamp'
         // No draft set → depth checks silently assumed a default 2.5 m keel.
         | 'draft-assumed'

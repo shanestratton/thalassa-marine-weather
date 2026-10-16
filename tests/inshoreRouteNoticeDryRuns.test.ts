@@ -161,7 +161,9 @@ describe('125-05 — the route notes and the notice', () => {
         const geo = (properties: Record<string, unknown>) => ({
             properties: { source: 'inshore-router', ...properties },
         });
-        expect(savedInshoreRouteCaveats({ routeGeoJSON: geo({ dryRuns: [run()] }) })).toEqual([dryRunCaveat([run()])]);
+        expect(savedInshoreRouteCaveats({ routeGeoJSON: geo({ dryRuns: [run()] }) })).toEqual([
+            dryRunCaveat([{ ...run(), tide: null }]),
+        ]);
         expect(savedInshoreRouteCaveats({ routeGeoJSON: geo({ dryRuns: 'x' }) })).toEqual([]);
         expect(savedInshoreRouteCaveats({ routeGeoJSON: geo({ dryRuns: [{ place: 'x' }, null] }) })).toEqual([]);
         // A plan refused for water no tide clears by build 124 or earlier
@@ -430,7 +432,7 @@ describe('125-05b — a pin’s red tail, one sentence per end', () => {
         );
     });
 
-    it('a saved plan says it again, its window kept; malformed pin facts give no words', () => {
+    it('a saved plan retains chart facts without treating old tide windows as current clearance', () => {
         const geo = (properties: Record<string, unknown>) => ({
             properties: { source: 'inshore-router', ...properties },
         });
@@ -440,24 +442,16 @@ describe('125-05b — a pin’s red tail, one sentence per end', () => {
             { routeGeoJSON: geo({ pinOffWater: { destination: 'drying' }, dryRuns: [tail] }) },
             NOW,
         );
-        expect(saved).toEqual([
-            `${ON_SAND}; you float over it from about 13:10 to 16:40 on today's tide. It dries at low water.`,
-        ]);
-        // Its later window and when it was worked are kept (review fix-up,
-        // 2026-10-09) — and reopened next Thursday, its day long gone, the
-        // plan says to look the tide up instead of Friday's windows.
+        expect(saved).toEqual([`${ON_SAND}; there is no tide data for it. It dries at low water.`]);
+        // Neither a current nor an older saved window is provider permission.
         const both = pinRun({
             tide: { topM: 3.5, days: 14 },
             floats: { ...floats, later: [{ fromMs: at(10, 1, 30), toMs: at(10, 4, 50) }] },
             floatsWorkedMs: NOW,
         });
         const plan = { routeGeoJSON: geo({ pinOffWater: { destination: 'drying' }, dryRuns: [both] }) };
-        expect(savedInshoreRouteCaveats(plan, NOW)[0]).toMatch(
-            /; you float over it from about 13:10 to 16:40 on today's tide, and again from about 01:30 to 04:50 on tomorrow's tide\./,
-        );
-        expect(savedInshoreRouteCaveats(plan, at(15, 9, 0))[0]).toMatch(
-            /; the highest tide in the next 14 days is 3\.5 m — check the tide times for when you float over it\./,
-        );
+        expect(savedInshoreRouteCaveats(plan, NOW)[0]).toContain('there is no tide data for it');
+        expect(savedInshoreRouteCaveats(plan, at(15, 9, 0))[0]).toMatch(/there is no tide data for it/);
         // Malformed: a pin end that is neither, a window that is not one.
         expect(
             savedInshoreRouteCaveats(
@@ -475,6 +469,6 @@ describe('125-05b — a pin’s red tail, one sentence per end', () => {
                 },
                 NOW,
             )[0],
-        ).toMatch(/the highest tide in the next 14 days is 3\.5 m — check the tide times/);
+        ).toContain('there is no tide data for it');
     });
 });
