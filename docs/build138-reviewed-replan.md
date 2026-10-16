@@ -69,7 +69,14 @@ checks. Four actual Chrome/WebKit comparison checks pass at 300/375 px with
 screen and refusal of a forged ready state; they do not prove a successful
 database acceptance, a native device or the map reference's framebuffer.
 
-- Real multi-session PostgreSQL proof is required before deployment. The
+- The actual PostgreSQL 17.6 proof passed 39 checks on source
+  `e3e8554654d0684bf3c86ce67696d49ff8cdd54f`, run `38952300609`,
+  definition `6d079b992992615f11b8bd5bade17faae3c765e0`, job `117146424207`.
+  Both cohorts recorded 16 distinct backend PIDs and all 16 simultaneously
+  blocked before coordinator release. SQL SHA-256 remains
+  `180c5424a90297cdfdb34d028ff50f30dd469c51fd2279b05f4b9fc83d460e20`.
+  The earlier harness failure is retained; this remains disposable proof,
+  with no deployment. Live schema/role/trigger review remains required. The
   disposable harness supports PGlite for sequential syntax/privacy checks and
   one exact opted-in local fixture URL for PostgreSQL 17.6. It checks the
   server version, empty namespaces/relations and absent product roles before
