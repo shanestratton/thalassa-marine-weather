@@ -11,7 +11,7 @@ concurrency:
   group: thalassa-137-linux-focused
   cancel-in-progress: false
 env:
-  CANDIDATE_SHA: "af2494c7bdcbb4b1fa8b0c4950f0319d4bce30a8"
+  CANDIDATE_SHA: "fd2ea9eef9ee431447cb69956eb1420f6747dc76"
   CI: "true"
   HUSKY: "0"
   NODE_OPTIONS: --max-old-space-size=4096
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "af2494c7bdcbb4b1fa8b0c4950f0319d4bce30a8"
+          ref: "fd2ea9eef9ee431447cb69956eb1420f6747dc76"
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
