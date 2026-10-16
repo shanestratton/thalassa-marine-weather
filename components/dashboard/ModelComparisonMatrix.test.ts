@@ -365,6 +365,22 @@ describe('ModelComparisonMatrix — the ten-day sheet', () => {
         expect(screen.getByRole('dialog', { name: 'Model Convergence' })).toHaveTextContent('10 days · 7 models');
     });
 
+    it('keeps each forecast horizon in its compact legend and preserves the full metric table', async () => {
+        const spread = fixtureSpread();
+        spread.atmos!.models[0].horizonHours = 166;
+        vi.mocked(queryModelSpread).mockResolvedValueOnce(spread);
+        await open();
+        const chip = document.querySelector(`[data-model-chip="${spread.atmos!.models[0].id}"]`)!;
+        expect(chip).toHaveTextContent('Up to 166 h');
+        expect(screen.getAllByText('Up to 166 h')).toHaveLength(1);
+        const metrics = screen.getByLabelText(/^All metrics at /);
+        expect(metrics).toBeVisible();
+        fireEvent.click(metrics);
+        expect(metrics.closest('details')).toHaveAttribute('open');
+        expect(screen.getByRole('table', { name: 'All model metrics' })).toBeVisible();
+        expect(screen.getByTestId('matrix-credit')).toHaveTextContent('Data via Open-Meteo');
+    });
+
     it('emphasises the pinned model and draws it on top', async () => {
         await open('ecmwf_ifs025');
         const lines = [...document.querySelectorAll('path[data-model]')];
