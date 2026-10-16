@@ -1,11 +1,43 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('public-beta release gate contract', () => {
+    it('runs the actual attribution predicate with regional credits and rejects lost credits or controls', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(/check\(\s*'map provider attribution is visible',([\s\S]*?)\n\);/)?.[1];
+        expect(expression).toBeTruthy();
+        const evaluate = (changes: Record<string, string> = {}) =>
+            runInNewContext(`(${expression?.replace(/,\s*$/, '')})`, {
+                mapInit: changes['components/map/useMapInit.ts'] ?? read('components/map/useMapInit.ts'),
+                paneAttribution:
+                    changes['components/map/paneAwareAttribution.ts'] ?? read('components/map/paneAwareAttribution.ts'),
+                read: (file: string) => changes[file] ?? read(file),
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        expect(
+            evaluate({
+                'components/map/reliefBase.ts': read('components/map/reliefBase.ts').replace(
+                    'attribution: region.attribution ?? RELIEF_ATTRIBUTION',
+                    "attribution: ''",
+                ),
+            }),
+        ).toBe(false);
+        expect(
+            evaluate({
+                'components/map/paneAwareAttribution.ts': read('components/map/paneAwareAttribution.ts').replace(
+                    "map.addControl(control, 'bottom-right')",
+                    '',
+                ),
+            }),
+        ).toBe(false);
+        expect(evaluate({ 'index.css': read('index.css') + '\n.mapboxgl-ctrl-attrib{display:none}' })).toBe(false);
+    });
     it('requires pane-aware native map credits, responsive wiring and visible provider chrome', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const attributionGate = gate.slice(

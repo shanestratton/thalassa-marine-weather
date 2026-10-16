@@ -47,7 +47,7 @@ describe('regional terrain publication and navigation boundary', () => {
             const actual = await importOriginal<typeof import('../services/reliefDisplayRegions')>();
             return { ...actual, RELIEF_DISPLAY_REGIONS: [...actual.RELIEF_DISPLAY_REGIONS, region] };
         });
-        const { addReliefBase, reloadReliefSources } = await import('../components/map/reliefBase');
+        const { addReliefBase, reloadReliefSources, RELIEF_ATTRIBUTION } = await import('../components/map/reliefBase');
         const { reliefTile, planReliefArea } = await import('../services/offlineReliefPlan');
         const sources = new Map<string, Record<string, unknown>>();
         const layers = new Map<string, mapboxgl.AnyLayer>();
@@ -67,6 +67,9 @@ describe('regional terrain publication and navigation boundary', () => {
         expect(sources.get('relief-global-idx')?.tiles).toEqual([
             'https://tiles.thalassatiles.com/v1/relief-global/idx/{z}/{x}/{y}.png',
         ]);
+        for (const id of ['global', 'au'])
+            for (const kind of ['idx', 'dem'])
+                expect(sources.get(`relief-${id}-${kind}`)?.attribution).toBe(RELIEF_ATTRIBUTION);
         const setTiles = vi.fn();
         sources.set('relief-pr-idx', { setTiles });
         reloadReliefSources(map);

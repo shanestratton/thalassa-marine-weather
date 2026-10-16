@@ -20,7 +20,7 @@ describe('map provider attribution contract', () => {
         // and the not-for-navigation line (their licence conditions).
         expect(source).toContain('addReliefBase(map)');
         const relief = read('components/map/reliefBase.ts');
-        expect(relief).toMatch(/attribution: RELIEF_ATTRIBUTION/);
+        expect(relief).toMatch(/attribution:\s*region\.attribution\s*\?\?\s*RELIEF_ATTRIBUTION/);
         expect(relief).toMatch(
             /export const RELIEF_ATTRIBUTION =[\s\S]*?GEBCO[\s\S]*?Geoscience Australia[\s\S]*?Not for navigation/,
         );
