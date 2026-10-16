@@ -269,6 +269,29 @@ test('external cancellation settles even a nonconforming fetch and sends no pre-
     assert.equal(calls, 1);
 });
 
+test('fixed AIS collection keeps its separate four MiB byte cap, with no generic read-path input', async () => {
+    let requested: string | undefined;
+    const client = createSignalKClient({
+        origin: 'https://example.test',
+        accessToken: TOKEN,
+        fetchImpl: async (url) => {
+            requested = String(url);
+            return Response.json({ vessels: 'synthetic' });
+        },
+    });
+    assert.equal((await client.getVessels()).status, 200);
+    assert.equal(requested, 'https://example.test/signalk/v1/api/vessels');
+    const capped = createSignalKClient({
+        origin: 'https://example.test',
+        fetchImpl: async () =>
+            new Response(' '.repeat(4 * 1024 * 1024) + '{}', { headers: { 'content-type': 'application/json' } }),
+    });
+    await assert.rejects(
+        capped.getVessels(),
+        (error: unknown) => error instanceof SignalKClientError && error.code === 'response',
+    );
+});
+
 test('hard ten-second deadline settles stalled fetch without leaking provider error details', async (context) => {
     context.mock.timers.enable({ apis: ['setTimeout'] });
     const client = createSignalKClient({
