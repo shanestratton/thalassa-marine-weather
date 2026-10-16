@@ -10,7 +10,7 @@ import { createAppJsonParser } from '../appJson.js';
 import { EncDeviceStore, type BoatLanView } from '../encDevices.js';
 import { PiWakeKeeper } from '../wakeKeeper/runner.js';
 import { WakeKeeperStore } from '../wakeKeeper/store.js';
-import { wakeHash, wakePairingId } from '../wakeKeeper/contract.js';
+import { wakeHash, wakePairingId, WakeKeeperError } from '../wakeKeeper/contract.js';
 import { defaultWakeRules, wakeRulesCanonical } from '../wakeRule/wakeRule.js';
 import { createWakeRuleRoutes } from './wakeRules.js';
 
@@ -273,4 +273,48 @@ test('raw wire limit covers chunked whitespace; malformed/compressed/already-par
         400,
     );
     assert.equal(await incorrectlyMounted.store.load(), null);
+});
+
+test('explicit relay review uses the same physical LAN/enrollment/raw-body gates and returns only accepted, without retry', async (t) => {
+    const f = await fixture(t),
+        calls: unknown[][] = [],
+        body = {
+            schema: 1,
+            expectedRevision: pi,
+            rulesDigest: 'a'.repeat(64),
+            binding: f.binding,
+            expectedContextRevision: owner,
+        };
+    let conflict = false;
+    t.mock.method(f.keeper, 'reviewRelay', async (...args: unknown[]) => {
+        calls.push(args);
+        if (conflict) throw new WakeKeeperError('conflict');
+        return { schema: 1, accepted: true };
+    });
+    const post = (headers = f.headers, value: unknown = body, suffix = '') =>
+        fetch(f.base + '/relay-context' + suffix, {
+            method: 'POST',
+            headers,
+            body: typeof value === 'string' ? value : JSON.stringify(value),
+        });
+    assert.equal((await post({ ...f.headers, 'x-test-app': '' })).status, 403);
+    assert.equal((await post({ ...f.headers, 'x-thalassa-chart-device': '' })).status, 401);
+    f.data.peer = '100.76.1.2';
+    assert.equal((await post()).status, 403);
+    f.data.peer = '192.168.1.22';
+    assert.equal((await post(f.headers, body, '?url=https://invalid.example')).status, 400);
+    assert.equal((await post(f.headers, ' '.repeat(17_000) + JSON.stringify(body))).status, 413);
+    assert.equal(calls.length, 0);
+    const accepted = await post();
+    assert.equal(accepted.status, 202);
+    assert.equal(accepted.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await accepted.json(), { schema: 1, accepted: true });
+    assert.deepEqual(calls[0][0], body);
+    assert.equal((calls[0][1] as { id: string }).id, f.enrolled.deviceId);
+    conflict = true;
+    const stale = await post();
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).code, 'wake-conflict');
+    assert.equal(calls.length, 2);
+    assert.equal(await f.store.load(), null);
 });

@@ -394,7 +394,12 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
                 : {
                       state: v.push.state === 'conflict' ? 'conflict' : 'unavailable',
                       capability: 0,
-                      ...(conflict ? { conflict } : {}),
+                      ...(conflict &&
+                      clock(v.push.checkedAt) &&
+                      now >= v.push.checkedAt &&
+                      now - v.push.checkedAt <= 30_000
+                          ? { conflict, checkedAt: v.push.checkedAt }
+                          : {}),
                   },
         servedAt: v.servedAt as number,
     };

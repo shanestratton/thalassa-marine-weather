@@ -111,6 +111,46 @@ const selectedRules = () => {
     r[0] = { ...r[0], enabled: true, selection: selection(), minimumDurationMs: 0, clearDurationMs: 0 };
     return r;
 };
+const conflictedStatus = (checkedAt = NOW) => {
+    const rules = selectedRules(),
+        configuration = {
+            ...savedConfiguration(),
+            rules,
+            rulesDigest: createHash('sha256').update(wakeRulesCanonical(rules, null)).digest('hex'),
+        };
+    return {
+        ...status(),
+        configured: true,
+        configuration,
+        running: true,
+        reason: 'awaiting-sensors',
+        push: {
+            state: 'conflict',
+            capability: 0,
+            checkedAt,
+            conflict: {
+                revision: '88888888-8888-4888-8888-888888888888',
+                configurationRevision: REV,
+                rulesDigest: 'e'.repeat(64),
+                feedMatches: true,
+                retired: false,
+                rules: rules.map((r) => ({
+                    preset: r.preset,
+                    enabled: r.enabled,
+                    threshold: r.enabled ? r.threshold : null,
+                    sourceMatches: true,
+                    quietHours: r.quietHours,
+                })),
+            },
+        },
+    };
+};
+const serveConflict = (value = conflictedStatus()) => {
+    saveWakeRulePreferences(selectedRules(), getAuthIdentityScope());
+    f.request.mockImplementation(async (o: { url: string }) =>
+        response(o.url.endsWith('/status') ? { ...value, servedAt: Date.now() } : sensors()),
+    );
+};
 beforeEach(() => {
     service.stop('off', true);
     localStorage.clear();
@@ -176,8 +216,19 @@ describe('bounded wake wire', () => {
                 quietHours: null,
             })),
         };
-        const raw = { ...status(), push: { state: 'conflict', capability: 0, conflict } };
-        expect(parseWakePiStatus(JSON.stringify(raw), NOW).push.conflict).toEqual(conflict);
+        const raw = { ...status(), push: { state: 'conflict', capability: 0, checkedAt: NOW, conflict } };
+        expect(parseWakePiStatus(JSON.stringify(raw), NOW).push).toEqual({
+            state: 'conflict',
+            capability: 0,
+            checkedAt: NOW,
+            conflict,
+        });
+        for (const checkedAt of [undefined, null, NOW + 1, NOW - 30_001]) {
+            expect(parseWakePiStatus(JSON.stringify({ ...raw, push: { ...raw.push, checkedAt } }), NOW).push).toEqual({
+                state: 'conflict',
+                capability: 0,
+            });
+        }
         expect(() =>
             parseWakePiStatus(
                 JSON.stringify({
@@ -292,6 +343,79 @@ describe('bounded wake wire', () => {
     });
 });
 describe('enrolled foreground watch', () => {
+    it('reviews exactly the displayed cloud revision with this enrolled phone, without borrowing the arming phone or claiming delivery', async () => {
+        serveConflict();
+        await service.start();
+        expect(f.request.mock.calls.every(([o]) => o.method === 'GET')).toBe(true);
+        expect(service.getSnapshot().pi?.push.checkedAt).toBe(NOW);
+        f.request.mockResolvedValueOnce(response({ schema: 1, accepted: true }, 202));
+        expect(await service.reviewPiRelay()).toBe(true);
+        const sent = f.request.mock.calls.at(-1)![0];
+        expect(sent.url).toBe('https://boat.local:8080/api/wake-rules/relay-context');
+        expect(sent.method).toBe('POST');
+        expect(sent.data).toEqual({
+            schema: 1,
+            expectedRevision: REV,
+            rulesDigest: conflictedStatus().configuration.rulesDigest,
+            binding: binding(),
+            expectedContextRevision: conflictedStatus().push.conflict.revision,
+        });
+        expect(sent.data.binding.deviceId).not.toBe(savedConfiguration().binding.deviceId);
+        expect(service.getSnapshot()).toMatchObject({ keeper: 'phone-only', pi: null, busy: false });
+        expect(await service.reviewPiRelay()).toBe(false);
+        expect(f.request.mock.calls.filter(([o]) => o.method === 'POST')).toHaveLength(1);
+    });
+    it.each([409, 503, 'lost', 'wrong-body'] as const)(
+        'never retries a %s review or treats its outcome as delivery proof',
+        async (result) => {
+            serveConflict();
+            await service.start();
+            if (result === 'lost') f.request.mockRejectedValueOnce(Error('fictional lost response'));
+            else
+                f.request.mockResolvedValueOnce(
+                    response(
+                        result === 'wrong-body' ? { schema: 1, ready: true } : {},
+                        typeof result === 'number' ? result : 202,
+                    ),
+                );
+            expect(await service.reviewPiRelay()).toBe(false);
+            expect(service.getSnapshot().keeper).toBe('phone-only');
+            await vi.advanceTimersByTimeAsync(6000);
+            expect(f.request.mock.calls.filter(([o]) => o.method === 'POST')).toHaveLength(1);
+            expect(service.getSnapshot().pi?.push.capability ?? 0).toBe(0);
+        },
+    );
+    it('refuses stale conflict summaries even when newer LAN envelope clocks keep arriving', async () => {
+        serveConflict();
+        await service.start();
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(await service.reviewPiRelay()).toBe(false);
+        expect(service.getSnapshot().pi?.push.checkedAt).toBe(NOW);
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(service.getSnapshot().pi?.push.conflict).toBeUndefined();
+        expect(f.request.mock.calls.every(([o]) => o.method === 'GET')).toBe(true);
+    });
+    it.each(['account', 'pair', 'background'])('ignores a late accepted review after %s retirement', async (kind) => {
+        serveConflict();
+        await service.start();
+        let finish!: (v: ReturnType<typeof response>) => void;
+        f.request.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        const pending = service.reviewPiRelay();
+        expect(service.getSnapshot().busy).toBe(true);
+        expect(await service.reviewPiRelay()).toBe(false);
+        if (kind === 'account') setAuthIdentityScope('66666666-6666-4666-8666-666666666666');
+        if (kind === 'pair') f.paired = false;
+        if (kind === 'background') f.app?.({ isActive: false });
+        finish(response({ schema: 1, accepted: true }, 202));
+        expect(await pending).toBe(false);
+        expect(service.getSnapshot().keeper).toBe('phone-only');
+        expect(f.request.mock.calls.filter(([o]) => o.method === 'POST')).toHaveLength(1);
+    });
     it('requires deliberate replacement of another phone’s revision and clears with this phone’s current enrollment', async () => {
         f.request.mockImplementation(async (o: { url: string }) =>
             response(

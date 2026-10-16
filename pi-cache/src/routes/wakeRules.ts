@@ -130,6 +130,15 @@ export function createWakeRuleRoutes(options: {
             return failure(res, error);
         }
     });
+    router.post('/relay-context', async (req, res) => {
+        try {
+            if (Object.keys(req.query).length || !rawChecked.has(req)) throw new WakeKeeperError('invalid');
+            const accepted = await options.keeper.reviewRelay(req.body, res.locals.wakeDevice);
+            return res.status(202).json(accepted);
+        } catch (error) {
+            return failure(res, error);
+        }
+    });
     router.delete('/configuration', async (req, res) => {
         try {
             if (Object.keys(req.query).length || !rawChecked.has(req)) throw new WakeKeeperError('invalid');

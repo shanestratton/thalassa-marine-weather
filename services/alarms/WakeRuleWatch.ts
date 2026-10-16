@@ -493,6 +493,69 @@ export class WakeRuleWatchClass {
             if (current()) this.update({ busy: false });
         }
     }
+    /** One deliberate cloud-context CAS; acceptance is never running or delivery proof. */
+    async reviewPiRelay(): Promise<boolean> {
+        const current = this.current,
+            request = this.request,
+            status = this.view.pi,
+            configuration = status?.configuration,
+            binding = this.sensors?.binding,
+            conflict = status?.push.conflict,
+            checkedAt = status?.push.checkedAt,
+            now = Date.now();
+        if (
+            !current?.() ||
+            !request ||
+            !status ||
+            !configuration ||
+            !binding ||
+            !conflict ||
+            !configuration.rules.some((rule) => rule.enabled) ||
+            this.view.busy ||
+            status.push.state !== 'conflict' ||
+            status.push.capability !== 0 ||
+            typeof checkedAt !== 'number' ||
+            now - checkedAt > 30_000 ||
+            checkedAt > now + 1000 ||
+            configuration.binding.feedId !== binding.feedId ||
+            !status.binding ||
+            wakePiBindingKey(status.binding) !== wakePiBindingKey(binding)
+        )
+            return false;
+        this.update({ busy: true, keeper: 'phone-only' });
+        try {
+            const response = await request('relay-context', 'POST', {
+                schema: 1,
+                expectedRevision: configuration.revision,
+                rulesDigest: configuration.rulesDigest,
+                binding,
+                expectedContextRevision: conflict.revision,
+            });
+            if (!current() || !this.sameBinding(binding)) return false;
+            const latest = this.view.pi?.configuration;
+            if (
+                latest &&
+                (latest.revision !== configuration.revision || latest.rulesDigest !== configuration.rulesDigest)
+            )
+                return false;
+            if (response.status === 409) {
+                this.update({ state: 'conflict', pi: null });
+                return false;
+            }
+            if (response.status !== 202 || typeof response.data !== 'string' || response.data.length > 1024)
+                throw Error();
+            const accepted = JSON.parse(response.data);
+            if (Object.keys(accepted).length !== 2 || accepted.schema !== 1 || accepted.accepted !== true)
+                throw Error();
+            if (this.view.pi === status) this.update({ pi: null });
+            return true;
+        } catch {
+            if (current()) this.update({ state: 'error', pi: null });
+            return false;
+        } finally {
+            if (current()) this.update({ busy: false });
+        }
+    }
     async clearPi(): Promise<boolean> {
         const current = this.current,
             request = this.request,

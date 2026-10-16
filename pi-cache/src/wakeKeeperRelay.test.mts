@@ -259,6 +259,9 @@ test('explicit review binds only a fresh displayed cloud revision; changed remot
     await f.relay.settled();
     assert.equal(f.relay.status().conflict?.revision, revision);
     assert.equal(f.relay.status().conflict?.rules.length, 8);
+    assert.equal(f.relay.status().checkedAt, now);
+    f.data.now += 1000;
+    assert.equal(f.relay.status().checkedAt, now, 'reading the conflict does not renew its probe clock');
     assert.equal(f.relay.review('00000000-0000-4000-8000-000000000099', wakeCloudContextKey(p.context)), false);
     assert.equal(f.relay.review(revision, 'wrong-local-context'), false);
     f.data.revision = '00000000-0000-4000-8000-000000000088';
@@ -273,6 +276,25 @@ test('explicit review binds only a fresh displayed cloud revision; changed remot
     await f.relay.settled();
     assert.equal(f.relay.status().state, 'ready');
     assert.equal(f.data.calls.filter((c) => c.action === 'bind').length, 1);
+});
+
+test('stale conflict reads retain the held state but lose their review clock and cannot authorize a bind', async () => {
+    const f = relayFixture(),
+        p = fixture().pass;
+    f.data.remote = { ...p.context, configurationRevision: '00000000-0000-4000-8000-000000000099' };
+    f.data.revision = revision;
+    f.update(p);
+    await f.relay.settled();
+    assert.equal(f.relay.status().checkedAt, now);
+    f.data.now += 30_001;
+    assert.equal(f.relay.status().state, 'conflict');
+    assert.equal(f.relay.status().checkedAt, null);
+    assert.equal(f.relay.status().conflict, undefined);
+    assert.equal(f.relay.review(revision, wakeCloudContextKey(p.context)), false);
+    assert.deepEqual(
+        f.data.calls.map((c) => c.action),
+        ['probe'],
+    );
 });
 test('retirement sends only the exact owned revision and drops readiness synchronously', async () => {
     const f = relayFixture();

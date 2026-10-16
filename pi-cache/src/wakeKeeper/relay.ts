@@ -72,7 +72,7 @@ export class WakeRelay {
                 ...unknownStatus(),
                 state: 'conflict',
                 ...(this.conflict && this.now() >= this.conflictAt && this.now() - this.conflictAt <= 30_000
-                    ? { conflict: structuredClone(this.conflict) }
+                    ? { conflict: structuredClone(this.conflict), checkedAt: this.conflictAt }
                     : {}),
             };
         if (

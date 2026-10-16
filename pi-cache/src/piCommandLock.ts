@@ -174,6 +174,7 @@ const ROWS: Row[] = [
     ['GET /api/wake-rules/status', 'read'],
     ['GET /api/wake-rules/sensors', 'read'],
     ['POST /api/wake-rules/configuration', 'command'],
+    ['POST /api/wake-rules/relay-context', 'command'],
     ['DELETE /api/wake-rules/configuration', 'command'],
     ['POST /api/course/preview', 'read'],
     ['POST /api/course/activate', 'command'],

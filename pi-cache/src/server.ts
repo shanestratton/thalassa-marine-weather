@@ -61,6 +61,7 @@ import { createSignalKReadRoutes } from './routes/signalKRead.js';
 import { createAppJsonParser } from './appJson.js';
 import { PiWakeKeeper } from './wakeKeeper/runner.js';
 import { WakeKeeperStore } from './wakeKeeper/store.js';
+import { WakeRelay } from './wakeKeeper/relay.js';
 import { wakePairingId } from './wakeKeeper/contract.js';
 import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { AisNightWatch } from './aisWatch.js';
@@ -343,10 +344,19 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+const wakeRelay = new WakeRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+});
 const wakeKeeper = new PiWakeKeeper({
     store: new WakeKeeperStore(CACHE_DIR),
     devices: chartDevices,
     selfDocument,
+    relay: wakeRelay,
     identity: () => {
         const config = diaryRelayOutbox.getConfiguration();
         return config.ownerId && config.relayId
