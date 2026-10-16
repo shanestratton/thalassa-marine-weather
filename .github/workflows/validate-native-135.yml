@@ -47,7 +47,8 @@ jobs:
                   git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
                   git merge-base --is-ancestor 24ea6c3a682e74d089bb2db6850d707f6c37faf6 HEAD
                   test -d "$DEVELOPER_DIR"
-                  xcodebuild -version | head -1 | grep -q '^Xcode 26.6'
+                  xcode_version="$(xcodebuild -version)"
+                  test "${xcode_version%%$'\n'*}" = 'Xcode 26.6'
                   node --input-type=module <<'NODE'
                   import {readFileSync} from 'node:fs';
                   const versions=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
