@@ -90,6 +90,13 @@ installed licensed-chart query was made.
   berth planner cases and preserve ordered VIA priority.
 - The later exact shared-coordinate guard and sub-metre gap regression passed
   19 core/adapter cases: `work/validation13901-exact-seam.log`.
+- After normal composition with 139-02 track priors and root 138 checkpoint
+  `63720f496`, 182 cases / 15 suites passed in
+  `work/validation13901-composed-track-repair.log`. The first composed run is
+  retained in `work/validation13901-composed-track-focused.log`: an existing
+  getState-only engine-test store mock lacked the store's `subscribe` method
+  now used by the real prior context fence. The mock now exposes a no-op
+  subscription; all original engine and prior assertions remain unchanged.
 - The first focused run's 136 passes and one harness manifest failure are retained
   in `work/validation13901-release-focused.log`. The TSX harness was removed from
   the data-file manifest because that manifest explicitly excludes source code;
