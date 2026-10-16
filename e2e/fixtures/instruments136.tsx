@@ -2,15 +2,54 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
-import { TheGlassPage } from '../../components/nmea/TheGlassPage';
-import { InstrumentPanelSettings } from '../../components/settings/InstrumentPanelSettings';
-import { NmeaStore } from '../../services/NmeaStore';
-import { snapshotFromWire } from '../../services/telemetryWire';
-import { resolveEffectiveVessel } from '../../utils/defaultVessel';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { setAuthIdentityScope } from '../../services/authIdentityScope';
-import { confirmUnderSail } from '../../services/instruments/underSail';
-import { saveInstrumentPanelPreferences } from '../../services/instruments/panelPreferences';
+if (!import.meta.env.DEV) throw Error('Development fixture only');
+
+// Never read a saved gateway/session/profile or persist fictional receiver data.
+class FixtureStorage implements Storage {
+    private entries = new Map<string, string>();
+    get length() {
+        return this.entries.size;
+    }
+    clear() {
+        this.entries.clear();
+    }
+    getItem(key: string) {
+        return this.entries.get(String(key)) ?? null;
+    }
+    key(index: number) {
+        return [...this.entries.keys()][index] ?? null;
+    }
+    removeItem(key: string) {
+        this.entries.delete(String(key));
+    }
+    setItem(key: string, value: string) {
+        this.entries.set(String(key), String(value));
+    }
+}
+Object.defineProperty(window, 'localStorage', { configurable: true, value: new FixtureStorage() });
+Object.defineProperty(window, 'sessionStorage', { configurable: true, value: new FixtureStorage() });
+
+const [
+    { TheGlassPage },
+    { InstrumentPanelSettings },
+    { NmeaStore },
+    { snapshotFromWire },
+    { resolveEffectiveVessel },
+    { useSettingsStore },
+    { setAuthIdentityScope },
+    { confirmUnderSail },
+    { saveInstrumentPanelPreferences },
+] = await Promise.all([
+    import('../../components/nmea/TheGlassPage'),
+    import('../../components/settings/InstrumentPanelSettings'),
+    import('../../services/NmeaStore'),
+    import('../../services/telemetryWire'),
+    import('../../utils/defaultVessel'),
+    import('../../stores/settingsStore'),
+    import('../../services/authIdentityScope'),
+    import('../../services/instruments/underSail'),
+    import('../../services/instruments/panelPreferences'),
+]);
 let mode: 'qualified' | 'legacy' | 'empty' | 'engine' = 'qualified';
 setAuthIdentityScope('fictional-instrument-a');
 const original = useSettingsStore.getState().settings;
@@ -83,6 +122,13 @@ Object.assign(window, {
 });
 function Fixture() {
     const [settings, setSettings] = React.useState(false);
+    React.useEffect(() => {
+        // Child subscriptions are mounted before test actions change the source.
+        document.body.dataset.ready = 'true';
+        return () => {
+            delete document.body.dataset.ready;
+        };
+    }, []);
     return (
         <div
             className="h-dvh bg-slate-950 text-white"
