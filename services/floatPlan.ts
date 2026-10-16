@@ -8,10 +8,12 @@
  *
  * PURE ON PURPOSE. No fetches, no storage, no share call — this returns a
  * string and nothing else, so the whole document is testable and the caller
- * decides where it goes. It is never persisted server-side and never reaches
+ * decides where it goes. The full document is never persisted server-side and never reaches
  * the public tracking page: that page answers "where is this boat and where
  * has it been", while this answers "what is aboard and who to call", which is
  * an inventory plus a set of credentials. It goes to one chosen person.
+ * The separate optional overdue watch saves only a deliberately reviewed
+ * compact plan; it never serializes this full input, roster or raw route.
  *
  * Plain text rather than PDF, deliberately. This gets read on a phone, in the
  * dark, by someone worried — text lands in SMS, WhatsApp or email and is

@@ -84,6 +84,11 @@ export function shoreBackend(env: Environment, fetcher = fetch) {
                     'shore_delivery_guard',
                     'shore_delivery_finish',
                     'shore_worker_finish',
+                    'overdue_watch_work',
+                    'overdue_contact_claim',
+                    'overdue_contact_guard',
+                    'overdue_contact_finish',
+                    'overdue_worker_finish',
                 ].includes(name)
             ) throw new Error('Fixed procedure required');
             const r = await boundedFetch(fetcher, new URL(`/rest/v1/rpc/${name}`, root).href, {

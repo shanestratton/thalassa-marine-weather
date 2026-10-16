@@ -62,6 +62,7 @@ export function createTelegramWebhook(env: Environment, overrides?: TelegramDepe
                 p_hash: command.kind === 'confirm' || command.kind === 'preview'
                     ? await nonceHash(command.nonce)
                     : null,
+                p_policy_version: 2,
             });
             // A failed progress-spinner acknowledgement must not suppress the consent result reply.
             if (confirmation && deps.answer) await deps.answer(confirmation.callbackId).catch(() => false);
@@ -85,9 +86,13 @@ export function createTelegramWebhook(env: Environment, overrides?: TelegramDepe
             let previewNonce: string | undefined;
             if (
                 command.kind === 'preview' && shoreRecord(result.invitation) &&
-                Object.keys(result.invitation).length === 1 && typeof result.invitation.sharePosition === 'boolean'
+                Object.keys(result.invitation).length === 2 && typeof result.invitation.sharePosition === 'boolean' &&
+                typeof result.invitation.allowOverdue === 'boolean'
             ) {
-                text = 'This invitation requests consent for personal anchor-watch notices. ' +
+                text = 'This invitation requests consent for personal anchor-watch notices' +
+                    (result.invitation.allowOverdue
+                        ? ' and float-plan overdue notices after an owner notification attempt plus ten-minute grace. '
+                        : ' only; overdue notices are not authorized. ') +
                     (result.invitation.sharePosition
                         ? 'Position sharing is ON: /where may show a fresh saved report from the explicitly registered vessel. '
                         : 'Position sharing is OFF. ') +

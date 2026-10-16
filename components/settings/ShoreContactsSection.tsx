@@ -27,6 +27,7 @@ export default function ShoreContactsSection() {
         [address, setAddress] = useState(''),
         [channel, setChannel] = useState<'email' | 'telegram'>('email'),
         [share, setShare] = useState(false),
+        [overdue, setOverdue] = useState(false),
         [link, setLink] = useState(''),
         [session, setSession] = useState('');
     const [now, setNow] = useState(Date.now),
@@ -40,6 +41,7 @@ export default function ShoreContactsSection() {
         setLabel('');
         setAddress('');
         setShare(false);
+        setOverdue(false);
         setChannel('email');
         setLink('');
         setSession('');
@@ -81,6 +83,7 @@ export default function ShoreContactsSection() {
             address: channel === 'email' ? address : null,
             enabled: false,
             sharePosition: share,
+            ...(overdue ? { allowOverdue: true } : {}),
         });
     const act = (row: ShoreContactSummary, enabled: boolean) =>
         perform(() => configureShoreContact(boat, row, { ...row.configuration, enabled }, scope));
@@ -99,6 +102,9 @@ export default function ShoreContactsSection() {
             {value.contacts.map((row) => (
                 <div key={row.id} className="p-3 space-y-2 border border-white/10 rounded-xl">
                     <p>
+                        {row.configuration.allowOverdue
+                            ? 'Anchor and overdue purposes requested. '
+                            : 'Anchor purpose only. '}
                         {row.configuration.label} · {row.configuration.channel} · {row.consent}
                     </p>
                     <p>
@@ -119,6 +125,34 @@ export default function ShoreContactsSection() {
                     >
                         {row.configuration.enabled ? 'Stop this contact' : 'Enable confirmed contact'}
                     </button>
+                    {value.overdueReady && (
+                        <button
+                            type="button"
+                            className="min-h-11 px-3 py-2 rounded-lg bg-white/10 disabled:opacity-40"
+                            disabled={busy || !available(row.configuration.channel)}
+                            onClick={() =>
+                                void perform(() =>
+                                    configureShoreContact(
+                                        boat,
+                                        row,
+                                        {
+                                            ...row.configuration,
+                                            enabled: false,
+                                            allowOverdue: !row.configuration.allowOverdue,
+                                            ...(row.configuration.allowOverdue && row.configuration.channel === 'email'
+                                                ? { sharePosition: false }
+                                                : {}),
+                                        },
+                                        scope,
+                                    ),
+                                )
+                            }
+                        >
+                            {row.configuration.allowOverdue
+                                ? 'Remove overdue permission (pauses this contact)'
+                                : 'Request new overdue consent (pauses this contact)'}
+                        </button>
+                    )}
                     <button
                         className="min-h-11 px-3 py-2 rounded-lg bg-white/10 disabled:opacity-40"
                         type="button"
@@ -130,7 +164,7 @@ export default function ShoreContactsSection() {
                                     setLink(url ?? '');
                                     setMessage(
                                         url
-                                            ? 'Share this private invitation only with the intended person. They must press Start in the private bot chat.'
+                                            ? 'Share this private invitation only with the intended person. They must open the private bot, review permissions and explicitly confirm.'
                                             : 'Email invitation accepted by provider. The recipient must explicitly confirm, then you must enable delivery.',
                                     );
                                 }
@@ -184,14 +218,28 @@ export default function ShoreContactsSection() {
                     />
                 </label>
             )}
+            {value.overdueReady && (
+                <label className="block">
+                    <input
+                        type="checkbox"
+                        checked={formKey === key && overdue}
+                        onChange={(e) => {
+                            setOverdue(e.target.checked);
+                            setShare(false);
+                        }}
+                    />
+                    Request float-plan overdue notices too (fresh recipient consent; owner must separately arm each
+                    plan)
+                </label>
+            )}
             <label className="block">
                 <input
                     type="checkbox"
-                    disabled={channel !== 'telegram'}
+                    disabled={channel !== 'telegram' && !overdue}
                     checked={formKey === key && share}
                     onChange={(e) => setShare(e.target.checked)}
                 />
-                Allow /where for this vessel’s explicitly registered source (Telegram)
+                Allow explicitly registered position sharing (/where on Telegram; last report in overdue notices)
             </label>
             <p>
                 Changing recipient or position permission requires fresh consent. A new position registration also

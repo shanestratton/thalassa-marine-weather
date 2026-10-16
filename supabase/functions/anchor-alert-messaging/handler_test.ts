@@ -34,6 +34,7 @@ function fixture() {
                     channel: 'email',
                     address: 'person@example.invalid',
                     sharePosition: false,
+                    allowOverdue: false,
                     botId: '456',
                 }
                 : name === 'shore_consent'
@@ -68,7 +69,10 @@ Deno.test('anonymous nonce confirmation is explicit and passes only SHA256', asy
     const f = fixture();
     const r = await f.handler(request({ action: 'confirm', nonce, accepted: true }, ''));
     eq(r.status, 200);
-    eq(f.calls, [{ name: 'shore_consent', args: { p_hash: await nonceHash(nonce), p_action: 'confirm' } }]);
+    eq(f.calls, [{
+        name: 'shore_consent',
+        args: { p_hash: await nonceHash(nonce), p_action: 'confirm', p_policy_version: 1 },
+    }]);
     eq(f.sent, []);
 });
 Deno.test('strict shape/byte cap refuses caller URLs, owners and arbitrary messages', async () => {
@@ -99,6 +103,21 @@ Deno.test('owner Auth identity wins; stored recipient only; raw nonce never retu
     eq((f.calls[0].args as Record<string, unknown>).p_owner, id);
     eq(JSON.stringify(f.calls).includes(nonce), false);
 });
+Deno.test('current-purpose invitation and explicit consent carry2; malformed version refuses', async () => {
+    const f = fixture(), rpc = f.deps.rpc;
+    f.deps.rpc = async (name, args) => {
+        const row = await rpc(name, args);
+        return name === 'shore_invite' ? { ...(row as object), allowOverdue: true } : row;
+    };
+    await f.handler(request({ action: 'invite', contactId: id, revision: rev }));
+    eq(f.sent[0].text.includes('float-plan overdue notices'), true);
+    eq((f.calls[0].args as Record<string, unknown>).p_policy_version, 2);
+    await f.handler(request({ action: 'confirm', nonce, accepted: true, policyVersion: 2 }, ''));
+    eq((f.calls.at(-1)!.args as Record<string, unknown>).p_policy_version, 2);
+    const count = f.calls.length;
+    eq((await f.handler(request({ action: 'confirm', nonce, accepted: true, policyVersion: 3 }, ''))).status, 400);
+    eq(f.calls.length, count);
+});
 Deno.test('anonymous owner invite and client work lane refuse before database use', async () => {
     const f = fixture();
     f.deps.owner = async () => null;
@@ -116,7 +135,10 @@ Deno.test('recipient revocation remains available while messaging is held', asyn
     const f = fixture(),
         h = createShoreHandler({ get: (k) => k === 'SHORE_MESSAGING_ENABLED' ? '0' : config[k] }, f.deps);
     eq((await h(request({ action: 'revoke', nonce, accepted: true }, ''))).status, 200);
-    eq(f.calls[0], { name: 'shore_consent', args: { p_hash: await nonceHash(nonce), p_action: 'revoke' } });
+    eq(f.calls[0], {
+        name: 'shore_consent',
+        args: { p_hash: await nonceHash(nonce), p_action: 'revoke', p_policy_version: 1 },
+    });
     eq(f.sent, []);
 });
 Deno.test('HMAC revocation is distinct, reproducible, contact/revision-bound', async () => {

@@ -26,7 +26,9 @@ export default function GlobalShoreConsentGate() {
         setState({ link, busy: true, message: '' });
         try {
             const r = await withTimeout(
-                supabase.functions.invoke('anchor-alert-messaging', { body: { ...link, accepted: true } }),
+                supabase.functions.invoke('anchor-alert-messaging', {
+                    body: { ...link, accepted: true, policyVersion: 2 },
+                }),
                 null,
                 8000,
             );
@@ -78,9 +80,10 @@ export default function GlobalShoreConsentGate() {
         >
             <div className="space-y-4 p-4 text-slate-200">
                 <p>
-                    Review the invitation you received and its position-sharing choice. Confirm only if you want
-                    personal anchor-watch messages for that vessel. Delivery can be delayed or unavailable; this service
-                    does not monitor your safety or contact rescue services.
+                    Review the invitation you received and its position-sharing choice. Confirm only if you want the
+                    personal anchor-watch and, only if explicitly requested in that invitation, float-plan overdue
+                    messages for that vessel. Delivery can be delayed or unavailable; this service does not monitor your
+                    safety or contact rescue services.
                 </p>
                 <button
                     className="min-h-11 px-4 py-2 bg-sky-900 text-white rounded-lg disabled:opacity-40"

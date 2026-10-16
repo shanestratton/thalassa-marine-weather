@@ -22,7 +22,7 @@ for (const width of [300, 375]) {
                     });
                 if (u.pathname.endsWith('/anchor-alert-messaging')) {
                     posts.push(route.request().postDataJSON() as Record<string, unknown>);
-                    return route.fulfill({ json: { accepted: true } });
+                    return route.fulfill({ json: { accepted: true, policyVersion: 2 } });
                 }
             }
             unexpected.push(u.hostname + u.pathname);
@@ -70,7 +70,7 @@ for (const width of [300, 375]) {
         expect(posts).toEqual([]);
         await d.getByRole('button', { name: 'I consent to the invitation' }).click();
         await expect(d.getByRole('status')).toContainText('Consent recorded');
-        expect(posts).toEqual([{ action: 'confirm', nonce: 'a'.repeat(64), accepted: true }]);
+        expect(posts).toEqual([{ action: 'confirm', nonce: 'a'.repeat(64), accepted: true, policyVersion: 2 }]);
         await expect(d.getByRole('button', { name: 'I consent to the invitation' })).toBeDisabled();
         expect(
             await page.evaluate(
@@ -88,7 +88,7 @@ for (const width of [300, 375]) {
         expect(posts).toHaveLength(1);
         await revokeDialog.getByRole('button', { name: 'Revoke my consent' }).click();
         await expect(revokeDialog.getByRole('status')).toContainText('Consent revoked');
-        expect(posts[1]).toEqual({ action: 'revoke', nonce: 'b'.repeat(64), accepted: true });
+        expect(posts[1]).toEqual({ action: 'revoke', nonce: 'b'.repeat(64), accepted: true, policyVersion: 2 });
         expect(
             await page.evaluate(
                 () =>

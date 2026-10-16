@@ -45,6 +45,7 @@ import { sortByCrewRank } from '../../services/crew/crewRank';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 const log = createLogger('FloatPlanSheet');
+const OverdueWatchSection = React.lazy(() => import('./OverdueWatchSection'));
 
 const HOUR_MS = 3_600_000;
 const DEFAULT_OVERDUE_BUFFER_H = 4;
@@ -287,6 +288,11 @@ function FloatPlanPreview({ channel, title, text }: { channel: FloatPlanChannel;
 }
 
 export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, onClose }) => {
+    const overdueDraftBinding = useRef({
+        key: getAuthIdentityScope().key,
+        generation: getAuthIdentityScope().generation,
+        boatId: useSettingsStore.getState().activeVesselId,
+    }).current;
     const vessel = useSettingsStore((state) => state.settings.vessel);
     const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
 
@@ -870,6 +876,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 <label htmlFor="float-who" className="mb-1.5 mt-3 block text-xs font-bold text-amber-100">
                     Rescue contact and phone number <span aria-hidden="true">*</span>
                 </label>
+
                 <input
                     id="float-who"
                     type="text"
@@ -926,6 +933,21 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     000 and ask for Water Police”. This is required before sharing.
                 </p>
             </div>
+
+            <React.Suspense fallback={null}>
+                <OverdueWatchSection
+                    binding={overdueDraftBinding}
+                    plan={{
+                        vesselLabel: vessel?.name?.trim() ?? '',
+                        from: route.from?.trim() ?? '',
+                        to: route.to?.trim() ?? '',
+                        departureAt: departureMs,
+                        etaAt: etaMs,
+                        overdueAt: overdueMs,
+                        persons: personsOnBoard,
+                    }}
+                />
+            </React.Suspense>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                 <div>
