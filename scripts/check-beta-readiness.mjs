@@ -2881,7 +2881,7 @@ check(
         // The seafloor relief credits GEBCO and Geoscience Australia and says
         // not for navigation (its licence conditions); MapTiler is gone.
         mapInit.includes('addReliefBase(map)') &&
-        /attribution: RELIEF_ATTRIBUTION/.test(read('components/map/reliefBase.ts')) &&
+        /attribution:\s*region\.attribution\s*\?\?\s*RELIEF_ATTRIBUTION/.test(read('components/map/reliefBase.ts')) &&
         /export const RELIEF_ATTRIBUTION =[\s\S]*?GEBCO[\s\S]*?Geoscience Australia[\s\S]*?Not for navigation/.test(
             read('components/map/reliefBase.ts'),
         ) &&
