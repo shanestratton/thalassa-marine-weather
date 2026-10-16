@@ -15,7 +15,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    CANDIDATE_SHA: '24ea6c3a682e74d089bb2db6850d707f6c37faf6'
+    CANDIDATE_SHA: '6962d7dd27de44549ebab33cb100fb6affa48aed'
     CI: 'true'
     HUSKY: '0'
     NODE_OPTIONS: --max-old-space-size=4096
@@ -41,7 +41,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '24ea6c3a682e74d089bb2db6850d707f6c37faf6'
+                  ref: '6962d7dd27de44549ebab33cb100fb6affa48aed'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -52,7 +52,7 @@ jobs:
               run: |
                   set -euo pipefail
                   test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-                  git merge-base --is-ancestor 5b3187afc146f618126ca0658e0aa142aff40196 HEAD
+                  git merge-base --is-ancestor c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11 HEAD
                   git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
                   git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
@@ -135,7 +135,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '24ea6c3a682e74d089bb2db6850d707f6c37faf6'
+                  ref: '6962d7dd27de44549ebab33cb100fb6affa48aed'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -146,7 +146,7 @@ jobs:
               run: |
                   set -euo pipefail
                   test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-                  git merge-base --is-ancestor 5b3187afc146f618126ca0658e0aa142aff40196 HEAD
+                  git merge-base --is-ancestor c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11 HEAD
                   git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
                   git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
@@ -253,7 +253,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '24ea6c3a682e74d089bb2db6850d707f6c37faf6'
+                  ref: '6962d7dd27de44549ebab33cb100fb6affa48aed'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -265,7 +265,7 @@ jobs:
               run: |
                   set -euo pipefail
                   test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-                  git merge-base --is-ancestor 5b3187afc146f618126ca0658e0aa142aff40196 HEAD
+                  git merge-base --is-ancestor c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11 HEAD
                   git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
                   git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
