@@ -2,7 +2,9 @@
 import { MapboxWindField, type WindFieldMap } from '../../components/map/MapboxWindField';
 import type { VelocityGribRecord } from '../../components/map/windVelocityFrame';
 if (!import.meta.env.DEV) throw Error('Development fixture only');
-const large = new URLSearchParams(location.search).has('large');
+const params = new URLSearchParams(location.search);
+const large = params.has('large');
+const variant = params.get('variant') ?? 'baseline';
 const width = large ? 1440 : 360;
 const height = large ? 835 : 240;
 Object.assign(document.body.style, {
@@ -17,6 +19,7 @@ const states: Array<{
     field: MapboxWindField;
     frames: Map<number, FrameRequestCallback>;
     records: VelocityGribRecord[];
+    section: HTMLElement;
 }> = [];
 const world = 512 * 2 ** 9;
 const mercator = (lng: number, lat: number) => ({
@@ -64,6 +67,42 @@ for (const [name, light, filtered] of [
     let seed = 1,
         id = 0;
     const frames = new Map<number, FrameRequestCallback>();
+    // Diagnostic wrappers select a native backing/context path, never change any ink values.
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    const diagnosticGetContext = function (this: HTMLCanvasElement, kind: string, ...args: unknown[]) {
+        const context = Reflect.apply(
+            originalGetContext,
+            this,
+            kind === '2d' && variant === 'readback' ? [kind, { willReadFrequently: true }] : [kind, ...args],
+        );
+        if (kind !== '2d' || !context || !['state', 'path'].includes(variant)) return context;
+        const native = context as CanvasRenderingContext2D;
+        let path = new Path2D();
+        return new Proxy(native, {
+            get(target, key) {
+                if (variant === 'path') {
+                    if (key === 'beginPath')
+                        return () => {
+                            path = new Path2D();
+                        };
+                    if (key === 'moveTo' || key === 'lineTo') return (x: number, y: number) => path[key](x, y);
+                    if (key === 'stroke') return () => target.stroke(path);
+                }
+                if (variant === 'state' && (key === 'stroke' || key === 'fillRect'))
+                    return (...values: unknown[]) => {
+                        Reflect.apply(target[key], target, values);
+                        target.restore();
+                    };
+                const value = Reflect.get(target, key, target);
+                return typeof value === 'function' ? value.bind(target) : value;
+            },
+            set(target, key, value) {
+                if (variant === 'state' && (key === 'strokeStyle' || key === 'fillStyle')) target.save();
+                return Reflect.set(target, key, value, target);
+            },
+        });
+    };
+    HTMLCanvasElement.prototype.getContext = diagnosticGetContext as typeof originalGetContext;
     const field = new MapboxWindField(map, {
         palette: light ? 'light' : 'dark',
         filter: filtered
@@ -85,6 +124,7 @@ for (const [name, light, filtered] of [
             frames.delete(next);
         },
     });
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
     field.element.style.transition = 'none';
     field.element.style.opacity = '1';
     const records = [0, 1].map((component) => ({
@@ -106,17 +146,26 @@ for (const [name, light, filtered] of [
             return large ? speed / Math.SQRT2 : component ? 0 : speed;
         }),
     }));
-    states.push({ field, frames, records });
+    states.push({ field, frames, records, section });
 }
 // Let the real ResizeObservers settle before the deterministic production frames.
 await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 for (const state of states) {
     state.field.setData(state.records);
+    const costs: number[] = [];
+    const gaps: number[] = [];
+    let prior = performance.now();
     for (let frame = 1; frame <= (large ? 24 : 120); frame++) {
-        if (large) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        if (large)
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        const at = performance.now();
+        if (frame > 1) gaps.push(at - prior);
+        prior = at;
         const callbacks = [...state.frames.values()];
         state.frames.clear();
         callbacks.forEach((callback) => callback(frame * 40));
+        costs.push(performance.now() - at);
     }
+    state.section.dataset.performance = JSON.stringify({ costs, gaps, count: state.field.particleCount });
 }
 document.body.dataset.ready = 'true';
