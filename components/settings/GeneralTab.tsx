@@ -20,6 +20,7 @@ import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
 import { InstrumentPanelSettings } from './InstrumentPanelSettings';
 import { AisDisplaySettings } from './AisDisplaySettings';
+import { WakeRulesSection } from './WakeRulesSection';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { Button } from '../ui/Button';
 import type { LengthUnit } from '../../types';
@@ -795,6 +796,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </div>
             </Section>
+
+            <WakeRulesSection />
 
             {/* Anchor watch (build 126, 126-07a): moving the mark of a watch the
                 boat's Pi keeps, from Shore Watch on the phone that handed it

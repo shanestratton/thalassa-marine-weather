@@ -8,6 +8,7 @@ export default defineConfig({
     testMatch: [
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
+        'wake-rules137-layout.spec.ts',
         'course136-layout.spec.ts',
         'timezone136.spec.ts',
         'ais-fleet-layout.spec.ts',

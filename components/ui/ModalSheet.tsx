@@ -32,6 +32,8 @@ interface ModalSheetProps {
      * the scroll, below the fold.
      */
     footer?: React.ReactNode;
+    /** Compact editors may use the available viewport; keyboard clearance stays enforced. */
+    fitViewport?: boolean;
 }
 
 export const ModalSheet: React.FC<ModalSheetProps> = ({
@@ -42,6 +44,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     maxWidth = 'max-w-2xl',
     zIndex = 'z-999',
     footer,
+    fitViewport = false,
 }) => {
     const keyboardHeight = useKeyboardOffset(isOpen);
     const titleId = React.useId();
@@ -59,7 +62,9 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
         ? 'calc(var(--pane-height) - 2rem)'
         : kbOpen
           ? `calc(100dvh - ${keyboardHeight}px - 2rem)`
-          : 'calc(100dvh - 12rem)';
+          : fitViewport
+            ? 'calc(100dvh - 2rem)'
+            : 'calc(100dvh - 12rem)';
 
     // Keyboard padding removes the covered region from the flex layout, so
     // short forms centre in the visible screen rather than hugging its top.
