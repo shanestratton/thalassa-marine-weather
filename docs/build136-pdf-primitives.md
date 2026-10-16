@@ -1,0 +1,9 @@
+# Build 136 PDF byte reduction
+
+Production builds use the reviewed jsPDF 4.2.1 browser ESM with its three unused HTML/canvas-emulation registration IIFEs excluded. The transform requires exact package version, complete source SHA256 `5b7f65fa3928b104febbcc37c7174f8e5aa3b8d9d24d0378a3fecad693d86f76`, top-level AST identity/count and individual block hashes. Unknown input stops the build. Source maps retain the original vendor source. Development remains unchanged.
+
+PDF primitives, text/font handling, image decoders including PNG/JPEG/WebP/RGBA, and AcroForm remain present. The app writers use those primitives and addImage. A static AST admission test rejects HTML/context2d dependencies and PDF consumer canvas access; future usage requires reviewing this transform.
+
+The published minified browser entry and the transformed browser entry produced byte-identical float-plan, maintenance-checklist, service-history and hourly-route-weather documents after normalizing only jsPDF's random document ID. Eight PDF artifacts cover eight page pairs. Poppler rendered every pair identically. Generated canvas fixtures use colored image sentinels for non-Latin runs; this is output parity, while the existing PDF text tests separately check run preservation. No hardware/device-font claim is made. All 125 PDF regression tests and the five strengthened source/parity checks pass; full app TypeScript and scoped lint pass.
+
+Actual configured builds use the existing public release variables without logging their values. Baseline `101986db98ab31b52da31ef5c96c5ea1e34a465f` measured 10,725,376 JavaScript bytes. Production-source candidate `173cfeaf5871f1fadfe26b41e5cc5f90420df82b` measured 10,677,905 bytes, a reduction of 47,471 bytes. It remains 34,859 bytes over the unchanged 10,643,046-byte limit. This checkpoint alone does not satisfy the release size gate; later features need additional measured savings. No release threshold is raised.
