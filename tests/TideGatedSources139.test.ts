@@ -23,7 +23,11 @@ const h = vi.hoisted(() => ({
     workerCalls: 0,
     contextRelease: vi.fn(),
 }));
-vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => h.cells, getVersion: () => h.version }));
+vi.mock('../services/enc/EncCellMetadata', () => ({
+    cellsForBBox: () => h.cells,
+    listCells: () => h.cells,
+    getVersion: () => h.version,
+}));
 vi.mock('../services/enc/chartFindMemory', () => ({ chartFindGeneration: () => h.chartLifetime }));
 vi.mock('../services/enc/EncCellStore', () => ({
     loadCellGeoJSON: h.load,
@@ -46,9 +50,11 @@ vi.mock('../services/tides/passageTideSources', () => ({ loadPassageTideSources:
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => ({ ...h.scope }),
     isAuthIdentityScopeCurrent: (s: { generation: number }) => s.generation === h.scope.generation,
+    subscribeAuthIdentityScope: () => () => {},
 }));
 vi.mock('../services/routing/trackRoutingPriors', () => ({ trackPriorContextKey: () => h.prior }));
 vi.mock('../services/routing/routingExclusions', () => ({
+    routingExclusionContextKey: () => 'fictional-current-context',
     readCurrentRoutingExclusions: async () => ({
         manual: undefined,
         marineParks: undefined,
@@ -281,10 +287,15 @@ beforeEach(() => {
 afterEach(() => {
     retireTideShortcutPreview();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 describe('aboard source permit', () => {
     it('joins real source admission to the real strict worker across original shallow/deep seams', async () => {
+        const fetch = vi.fn(async () => {
+            throw Error('No WAN is allowed in this joined source fixture.');
+        });
+        vi.stubGlobal('fetch', fetch);
         const rect = (w: number, s: number, e: number, n: number, depth: number): GeoJSON.Feature<GeoJSON.Polygon> => ({
             type: 'Feature',
             properties: { acronym: 'DEPARE', DRVAL1: depth, DRVAL2: depth + 1 },
@@ -323,6 +334,18 @@ describe('aboard source permit', () => {
         if (result.kind !== 'preview') return;
         expect(h.workerCalls).toBe(1);
         expect(await finalizeTideShortcutPreview(result.result)).toBe(true);
+        // The real public wrapper must preserve this exact private identity;
+        // the ordinary water-pack decorator clones results when it has data.
+        const planning = await import('../services/routing/tideGatedPlanning');
+        vi.spyOn(planning, 'planTideGatedShortcut').mockResolvedValueOnce(result);
+        const { tryInshoreRoute } = await import('../services/InshoreRouter');
+        const exposed = await tryInshoreRoute({ lat: 0, lon: -0.0015 }, { lat: 0, lon: 0.0015 }, 2, null, 'safest', {
+            departureMs: T,
+            tideShortcut: { speedKts: 6, uncertaintyMs: 900000 },
+        });
+        expect(exposed).toBe(result.result);
+        expect(exposed && 'polyline' in exposed && (await finalizeTideShortcutPreview(exposed))).toBe(true);
+        expect(fetch).not.toHaveBeenCalled();
         retireTideShortcutPreview(result.result);
         expect(h.contextRelease).toHaveBeenCalledOnce();
     });
