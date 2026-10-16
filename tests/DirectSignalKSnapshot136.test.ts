@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SignalKReadState } from '../pi-cache/src/signalkProtocol';
+import { SignalKReadState } from '../utils/signalkProtocol';
 import { directSignalKSnapshot } from '../services/signalk/snapshot';
 import { remoteInstrumentEvidence } from '../services/instruments/evidence';
 import { measuredCurrent } from '../services/instruments/measuredCurrent';

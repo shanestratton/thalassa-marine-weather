@@ -1,6 +1,6 @@
 import type { RemoteInstrumentSnapshot } from '../NmeaStore';
 import type { EngineTelemetry } from '../instruments/engineTelemetry';
-import { signalkRecord, signalKExpectedUnit } from '../../pi-cache/src/signalkProtocol';
+import { signalkRecord, signalKExpectedUnit } from '../../utils/signalkProtocol';
 const KTS = 1.9438444924406,
     DEG = 180 / Math.PI;
 /** A source-dated self document becomes gauges; no phone/GPS/receipt-clock fallback. */

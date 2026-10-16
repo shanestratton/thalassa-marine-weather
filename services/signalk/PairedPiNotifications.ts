@@ -4,7 +4,7 @@ import { isPinnedTransportAvailable } from '../piTls';
 import { piCache } from '../PiCacheService';
 import { parsePiSignalKNotifications } from './piNotifications';
 import { SignalKNotificationAudio } from './notificationAudio';
-import type { SignalKNotice, SignalKNoticeEvent } from '../../pi-cache/src/signalkProtocol';
+import type { SignalKNotice, SignalKNoticeEvent } from '../../utils/signalkProtocol';
 
 export interface PairedPiNotificationView {
     status: 'off' | 'connecting' | 'reading' | 'paused' | 'unavailable' | 'enrollment' | 'update' | 'error';

@@ -1,4 +1,4 @@
-import type { SignalKNotice, SignalKNoticeEvent } from '../../pi-cache/src/signalkProtocol';
+import type { SignalKNotice, SignalKNoticeEvent } from '../../utils/signalkProtocol';
 type AlarmAudio = Pick<typeof import('../AlarmAudioService').AlarmAudioService, 'acquire' | 'releaseEventually'>;
 /** Session opt-in only; three-second cues own one lease and never stop another alarm owner. */
 export class SignalKNotificationAudio {

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { SignalKNotice } from '../../pi-cache/src/signalkProtocol';
+import type { SignalKNotice } from '../../utils/signalkProtocol';
 
 export function SignalKNotifications({
     notices,
