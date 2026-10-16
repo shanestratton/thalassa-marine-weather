@@ -20,6 +20,8 @@ type Inspection = {
     oldWholeCellRefused: boolean;
     mounted: boolean;
     rendered: number;
+    leadsMounted: boolean;
+    leadsRendered: number;
 };
 function fixture(actual = false) {
     let packaged: ReturnType<typeof partitionNoaaRecords>, zip: Buffer;
@@ -68,6 +70,33 @@ function fixture(actual = false) {
                     }),
                 },
                 M_SDAT: { type: 'FeatureCollection', features: [] },
+                BOYLAT: {
+                    type: 'FeatureCollection',
+                    features: Array.from({ length: 40 }, (_, i) => ({
+                        type: 'Feature',
+                        properties: { acronym: 'BOYLAT', CATLAM: i % 2 ? 2 : 1, OBJNAM: `SYN${i + 1}`, rcid: 100 + i },
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [-133.9 + Math.floor(i / 2) * 0.01, 55.5 + (i % 2 ? -0.0003 : 0.0003)],
+                        },
+                    })),
+                },
+                RECTRC: {
+                    type: 'FeatureCollection',
+                    features: [
+                        {
+                            type: 'Feature',
+                            properties: { acronym: 'RECTRC', rcid: 9001, CATTRK: 1, TRAFIC: 4 },
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: [
+                                    [-133.765, 55.5],
+                                    [-133.735, 55.5],
+                                ],
+                            },
+                        },
+                    ],
+                },
             },
         };
         zip = Buffer.from([80, 75, 3, 4, 1, 2, 3, 4]);
@@ -225,6 +254,20 @@ test('complete package survives a genuinely new browser context with local data 
     });
     expect(tracer.retained).toBeGreaterThan(tracer.before);
     expect(tracer.after).toBe(tracer.before);
+    // The real Worker retains complete numbered-mark groups even beyond
+    // the spatial window; the overlay/cache/source lease stays independent.
+    expect(await api(page, 'leadDependencies()')).toBe(40);
+    const beforeLeads = (await api<Inspection>(page, 'inspect()')).residentBytes;
+    await api(page, 'leads(true)');
+    await expect.poll(async () => (await api<Inspection>(page, 'inspect()')).leadsRendered).toBeGreaterThan(0);
+    const displayedLeads = await api<Inspection>(page, 'inspect()');
+    expect(displayedLeads.residentBytes).toBeGreaterThan(beforeLeads);
+    await api(page, 'clearLeadCache()');
+    expect((await api<Inspection>(page, 'inspect()')).residentBytes).toBe(displayedLeads.residentBytes);
+    await page.screenshot({ path: info.outputPath('package-leads-rendered.png') });
+    await api(page, 'leads(false)');
+    await expect.poll(async () => (await api<Inspection>(page, 'inspect()')).leadsMounted).toBe(false);
+    expect((await api<Inspection>(page, 'inspect()')).residentBytes).toBe(beforeLeads);
     await expect(api(page, 'view([-134,55,-132,56])')).rejects.toThrow(/resident/);
     await api(page, 'satellite(true)');
     const stored = await context.storageState({ indexedDB: true });
@@ -305,6 +348,7 @@ test('retained actual public NOAA package installs and serves complete local win
     const state = await api<Inspection>(page, 'inspect()');
     expect(state.oldWholeCellRefused).toBe(true);
     expect(state.downloads[0].bytes).toBe(21058716);
+    expect(await api(page, 'leadDependencies()')).toBe(36);
     await info.attach('actual-source-window', {
         body: JSON.stringify({ ...state, view }),
         contentType: 'application/json',

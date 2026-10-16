@@ -93,8 +93,35 @@ invalid context cannot supply a checked verdict, lead/water snap or fix.
 The existing 48 MiB typed-grid LRU budget remains separate and unchanged.
 
 Generic whole-cell reads explicitly refuse package cells, including stale
-cached monoliths. Lead-overlay consumers still require explicit package-window
-ownership before full readiness or acquisition queue restart is claimed.
+cached monoliths.
+
+Leads use the exact view padded by 0.02 degrees as their compile/cache identity.
+The complete chart cohort is read with a further 75 metre halo, because hazard
+review reaches 60 metres beyond a span and clearance structures reach 10 metres.
+A dropped/capped cell or missing member refuses the entire mixed cohort.
+Both peek and compile use the same exact window; no cell-only cache hit can
+reuse another partial view. Invalid, polar or dateline bounds are refused.
+
+Numbered channel inference is transitive and interpolates whole mark groups;
+the 75 metre halo alone cannot preserve its result. The LEADS-only Worker scan
+therefore retains all original BOYLAT/BCNLAT records across all parts of the
+selected cohort. This is a fixed internal dependency list, with no arbitrary
+caller-provided layer expansion. All marks and each decode remain inside the
+same combined 16 MiB view/shared ledger. Original chart values and IDs stay
+unchanged. Only DERIVED lead/channel spans are clipped to the inner verified
+compile window, before depth/land/hazard/structure classification. Outside
+excursions cannot reconnect through the cached graph as checked leads.
+
+The compiler copies span coordinates and scalar review facts, so raw chart
+views detach after compilation. Before compilation the remaining portion of
+the same 16 MiB ceiling is reserved for the derived graph, then resized to its
+measured UTF-8 size; an oversized handoff publishes no cache entry. Existing
+four-span/eight-graph cache limits remain. A displayed source and queued route
+each retain their own reference to the measured graph lease. Cache clearing
+or eviction cannot discharge those borrowers; source replacement, hide/map
+removal and actual routing completion release them. Failed/uncertain source
+detach stays charged until actual map removal. Account/revision authority
+remains checked independently of the finished read request.
 
 The new Worker protocol accepts only explicit US public packages. Licensed
 boat charts remain in their existing RAM-only path and are not sent to this
@@ -153,10 +180,18 @@ lifetime, LRU eviction/reset, stale-context refusal and one-shot/superseded/
 failed grading. Chrome/WebKit builds the real grid, transfers its lease to the
 LRU, verifies retained bytes, then detaches and verifies the old context is
 unchecked and its bytes are returned.
+Leads tests cover exact two-window identities, same-cohort monolith parity
+(including complete channel groups, land and bridge clearance), a crossing
+line reaching a danger outside the window, disconnected outside excursions,
+a hazard just outside the clip edge, late cancellation/auth/revision changes,
+raw-plus-derived cap refusal and cache/source/queued-route ownership. The
+real Chrome/WebKit Worker retains complete synthetic mark groups, renders the
+normal leads overlay, retains displayed bytes after cache clear and returns
+them on actual source detach.
 
 Build a separate server artifact with
 `node scripts/noaa-enc/build-package-converter.mjs <new-outside-checkout.mjs>`.
 It refuses an existing artifact and does not alter the reviewed old CLI. A
-future package-aware staging/publishing plan, inshore/lead consumer decisions,
+future package-aware staging/publishing plan,
 the exact configured production bundle, independent review and normal release
 checks remain required before queue restart or activation.

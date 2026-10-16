@@ -193,6 +193,9 @@ export interface LeadClassifyOptions {
 }
 
 export interface LeadCompileOptions {
+    /** Derived spans only: chart records stay whole and unchanged. No lead
+     * outside this completely verified window is classified as checked. */
+    window?: [number, number, number, number];
     /** OSM seamark navigation lines (Pi / cloud overlay). Compiled only when
      * given; only category=leading lines are kept, as trust 'osm'. */
     osmNavLines?: readonly ClipFeatureLike[];
@@ -278,7 +281,7 @@ export interface LeadNetwork {
 /** A source line that produced no span, and why — never a silent drop. */
 export interface LeadDrop {
     sourceId: string;
-    reason: 'on-land' | 'duplicate' | 'coincides-with-recommended-track' | 'too-short';
+    reason: 'on-land' | 'duplicate' | 'coincides-with-recommended-track' | 'too-short' | 'outside-window';
 }
 
 /** Draft-independent compile output (cached per cell set). */
@@ -558,7 +561,67 @@ function spanDirection(src: SourceLine, coords: Position[]): Pick<LeadSpan, 'dir
  * The draft-independent part: every lead line cut to water, de-duplicated,
  * with its charted-depth profile. Deterministic for the same input.
  */
+/** Exact segment/rectangle clipping of DERIVED source lines, before depth,
+ * land and hazard classification. Never edits a feature from the chart. */
+function windowedLeadRuns(coords: Position[], box: [number, number, number, number]): Position[][] {
+    const runs: Position[][] = [];
+    let run: Position[] = [];
+    for (let i = 1; i < coords.length; i++) {
+        const a = coords[i - 1],
+            b = coords[i];
+        let lo = 0,
+            hi = 1;
+        for (let axis = 0; axis < 2; axis++) {
+            const d = b[axis] - a[axis];
+            if (d === 0) {
+                if (a[axis] < box[axis] || a[axis] > box[axis + 2]) hi = -1;
+            } else {
+                const p = (box[axis] - a[axis]) / d,
+                    q = (box[axis + 2] - a[axis]) / d;
+                lo = Math.max(lo, Math.min(p, q));
+                hi = Math.min(hi, Math.max(p, q));
+            }
+        }
+        if (lo > hi) {
+            if (run.length) runs.push(run);
+            run = [];
+            continue;
+        }
+        const point = (t: number): Position => [
+            Math.max(box[0], Math.min(box[2], a[0] + (b[0] - a[0]) * t)),
+            Math.max(box[1], Math.min(box[3], a[1] + (b[1] - a[1]) * t)),
+        ];
+        const start = point(lo),
+            end = point(hi),
+            last = run[run.length - 1];
+        if (!last || last[0] !== start[0] || last[1] !== start[1]) {
+            if (run.length) runs.push(run);
+            run = [start];
+        }
+        run.push(end);
+        if (hi < 1) {
+            runs.push(run);
+            run = [];
+        }
+    }
+    if (run.length) runs.push(run);
+    return runs;
+}
+
 export function compileLeadSpans(layers: LeadCompilerLayers, options: LeadCompileOptions = {}): LeadSpanSet {
+    const box = options.window;
+    if (
+        box &&
+        (box.length !== 4 ||
+            !box.every(Number.isFinite) ||
+            box[0] < -180 ||
+            box[2] > 180 ||
+            box[1] < -90 ||
+            box[3] > 90 ||
+            box[0] > box[2] ||
+            box[1] > box[3])
+    )
+        throw Error('Invalid verified lead window.');
     const t0 = Date.now();
     const index: ChartAreaIndex = chartAreaIndexFor(layers);
     const reviewIndex = buildLeadReviewIndex(layers);
@@ -580,7 +643,14 @@ export function compileLeadSpans(layers: LeadCompilerLayers, options: LeadCompil
     const accept = (
         src: SourceLine,
         against: readonly { lines: readonly Position[][]; reason: LeadDrop['reason'] }[],
+        scoped = false,
     ): void => {
+        if (options.window && !scoped) {
+            const runs = windowedLeadRuns(src.coords, options.window);
+            if (!runs.length) dropped.push({ sourceId: src.sourceId, reason: 'outside-window' });
+            for (const coords of runs) accept({ ...src, coords }, against, true);
+            return;
+        }
         const key = `${src.kind}|${geometryKey(src.coords)}`;
         const twin = seen.get(key);
         if (twin) {
@@ -1068,17 +1138,59 @@ const SPAN_CACHE_MAX = 4;
 const GRAPH_CACHE_MAX = 8;
 const spanCache = new Map<string, LeadSpanSet>();
 const graphCache = new Map<string, LeadGraph>();
+interface LeadGeometryOwner {
+    current: () => boolean;
+    retain: () => () => void;
+    release: () => void;
+}
+const geometryOwners = new WeakMap<LeadSpan[], LeadGeometryOwner>();
+const cacheGeometryOwners = new Map<LeadSpan[], LeadGeometryOwner>();
+function sweepGeometryOwners(): void {
+    const held = new Set([...spanCache.values()].map((s) => s.spans));
+    for (const graph of graphCache.values()) held.add(graph.spans);
+    for (const [spans, owner] of cacheGeometryOwners) {
+        if (!held.has(spans)) {
+            cacheGeometryOwners.delete(spans);
+            owner.release();
+        }
+    }
+}
+function discardOwnedSpans(spans: LeadSpan[]): void {
+    for (const [key, set] of spanCache) if (set.spans === spans) spanCache.delete(key);
+    for (const [key, graph] of graphCache) if (graph.spans === spans) graphCache.delete(key);
+    sweepGeometryOwners();
+}
+export function leadGraphCurrent(graph: LeadGraph | null | undefined): boolean {
+    return !graph || (geometryOwners.get(graph.spans)?.current() ?? true);
+}
+export function leadGraphHasGeometryOwner(graph: LeadGraph | null | undefined): boolean {
+    return !!graph && geometryOwners.has(graph.spans);
+}
+/** Caller/source ownership, independent of the existing 4-span/8-graph cache. */
+export function retainLeadGraph(graph: LeadGraph | null | undefined): () => void {
+    return (graph && geometryOwners.get(graph.spans)?.retain()) || (() => {});
+}
+export function setLeadGraphGeometryOwner(graph: LeadGraph, owner: LeadGeometryOwner): void {
+    if (geometryOwners.get(graph.spans)?.current()) {
+        owner.release();
+        return;
+    }
+    geometryOwners.set(graph.spans, owner);
+    cacheGeometryOwners.set(graph.spans, owner);
+    sweepGeometryOwners();
+}
 
 const touch = <V>(m: Map<string, V>, k: string, v: V, max: number): void => {
     m.delete(k);
     m.set(k, v);
     while (m.size > max) m.delete(m.keys().next().value as string);
+    sweepGeometryOwners();
 };
 
 /** Cache key for a cell set (order-independent). `cellKeys` are the cells'
  * content identities (encCellContentIdentity) — bare ids only in tests. */
 export function leadCellSetKey(cellKeys: readonly string[], options: LeadCompileOptions = {}): string {
-    return `${[...cellKeys].sort().join('|')}#${options.channels === false ? 'nochan' : 'chan'}#${options.osmNavLines?.length ?? 0}`;
+    return `${[...cellKeys].sort().join('|')}#${options.channels === false ? 'nochan' : 'chan'}#${options.osmNavLines?.length ?? 0}${options.window ? `#window:${JSON.stringify(options.window)}` : ''}`;
 }
 
 const graphKey = (setKey: string, draftM: number, ukcM: number, classify: LeadClassifyOptions): string =>
@@ -1094,6 +1206,10 @@ export function peekLeadGraph(
 ): LeadGraph | null {
     const key = graphKey(leadCellSetKey(cellKeys, options), draftM, ukcM, classify);
     const hit = graphCache.get(key);
+    if (hit && !leadGraphCurrent(hit)) {
+        discardOwnedSpans(hit.spans);
+        return null;
+    }
     if (hit) touch(graphCache, key, hit, GRAPH_CACHE_MAX);
     return hit ?? null;
 }
@@ -1110,19 +1226,31 @@ export function cachedLeadGraph(
     options: LeadCompileOptions = {},
     ukcM = LEAD_UKC_M,
     classify: LeadClassifyOptions = {},
+    prepareGeometry?: (graph: LeadGraph) => LeadGeometryOwner,
 ): LeadGraph {
     const setKey = leadCellSetKey(cellKeys, options);
     const key = graphKey(setKey, draftM, ukcM, classify);
-    const hit = graphCache.get(key);
+    const hit = peekLeadGraph(cellKeys, draftM, options, ukcM, classify);
     if (hit) {
         touch(graphCache, key, hit, GRAPH_CACHE_MAX);
         return hit;
     }
-    let spans = spanCache.get(setKey);
+    // Each independently classified package graph gets its own measured
+    // lease; concurrent drafts must not create uncharged edges via a shared
+    // span entry. Exact graph hits still reuse the same measured object.
+    let spans = prepareGeometry ? undefined : spanCache.get(setKey);
+    if (spans && geometryOwners.get(spans.spans)?.current() === false) {
+        discardOwnedSpans(spans.spans);
+        spans = undefined;
+    }
     if (!spans) spans = compileLeadSpans(layers(), options);
-    touch(spanCache, setKey, spans, SPAN_CACHE_MAX);
     const graph = classifyLeadGraph(spans, draftM, ukcM, classify);
+    // A package must reserve/measure its DERIVED graph before either cache
+    // can expose it. A refused handoff leaves no unowned cached geometry.
+    const owner = prepareGeometry?.(graph);
+    touch(spanCache, setKey, spans, SPAN_CACHE_MAX);
     touch(graphCache, key, graph, GRAPH_CACHE_MAX);
+    if (owner) setLeadGraphGeometryOwner(graph, owner);
     return graph;
 }
 
@@ -1130,6 +1258,7 @@ export function cachedLeadGraph(
 export function clearLeadGraphCache(): void {
     spanCache.clear();
     graphCache.clear();
+    sweepGeometryOwners();
 }
 
 // ── Chart overlay GeoJSON ──────────────────────────────────────────
@@ -1211,7 +1340,7 @@ export function leadGraphOverlayGeoJSON(graph: LeadGraph | null | undefined): {
 } {
     const features = [];
     const drawn = new Set<string>();
-    for (const e of graph?.edges ?? []) {
+    for (const e of (leadGraphCurrent(graph) ? graph?.edges : []) ?? []) {
         if (drawn.has(e.spanId)) continue;
         drawn.add(e.spanId);
         const ink = e.kind === 'channel' ? 'channel' : 'lead';

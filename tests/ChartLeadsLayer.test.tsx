@@ -12,10 +12,15 @@ import type { Feature } from 'geojson';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     compileLeadGraph,
+    cachedLeadGraph,
+    clearLeadGraphCache,
+    setLeadGraphGeometryOwner,
     LEAD_UKC_M,
     type LeadCompilerLayers,
     type LeadGraph,
 } from '../services/routing/leadCompiler';
+import { noaaGeometryOwner } from '../services/enc/noaaGeometryOwner';
+import { noaaResidentBytes, reserveNoaaResident } from '../services/enc/EncCellStore';
 
 const data = vi.hoisted(() => ({ leadGraphForView: vi.fn() }));
 vi.mock('../services/routing/leadOverlayData', () => ({ leadGraphForView: data.leadGraphForView }));
@@ -126,16 +131,77 @@ function makeMap(zoom = 13) {
 }
 
 beforeEach(() => {
+    clearLeadGraphCache();
     data.leadGraphForView.mockReset().mockResolvedValue(graph);
     cells.unsubscribe.mockReset();
     cells.subscribe.mockReset().mockReturnValue(cells.unsubscribe);
 });
 afterEach(() => {
     cleanup();
+    clearLeadGraphCache();
+    expect(noaaResidentBytes()).toBe(0);
     vi.unstubAllGlobals();
 });
 
 describe('useChartLeadsLayer — the lead graph on the chart', () => {
+    it('cache clearing keeps the displayed package charged until actual source detach', async () => {
+        const m = makeMap();
+        const lease = reserveNoaaResident(100_000);
+        const owned = cachedLeadGraph(['synthetic-package'], 2, () => chart);
+        const dispose = vi.fn(() => {
+            expect(m.sources.has(CHART_LEADS_SOURCE_ID)).toBe(false);
+            lease.release();
+        });
+        setLeadGraphGeometryOwner(
+            owned,
+            noaaGeometryOwner(() => {}, dispose),
+        );
+        data.leadGraphForView.mockResolvedValue(owned);
+        const hook = renderHook(() => useChartLeadsLayer(m.ref, true, true, 2));
+        await waitFor(() => expect(m.sources.get(CHART_LEADS_SOURCE_ID)?.data.features.length).toBe(2));
+        clearLeadGraphCache();
+        expect(noaaResidentBytes()).toBe(100_000);
+        expect(dispose).not.toHaveBeenCalled();
+        hook.unmount();
+        expect(noaaResidentBytes()).toBe(0);
+        expect(dispose).toHaveBeenCalledOnce();
+    });
+
+    it('an uncertain detach stays charged until the actual map is removed', async () => {
+        const m = makeMap();
+        const lease = reserveNoaaResident(100_000);
+        const owned = cachedLeadGraph(['synthetic-package'], 2, () => chart);
+        setLeadGraphGeometryOwner(
+            owned,
+            noaaGeometryOwner(() => {}, lease.release),
+        );
+        data.leadGraphForView.mockResolvedValue(owned);
+        const hook = renderHook(() => useChartLeadsLayer(m.ref, true, true, 2));
+        await waitFor(() => expect(m.sources.get(CHART_LEADS_SOURCE_ID)?.data.features.length).toBe(2));
+        vi.spyOn(m.map, 'removeSource').mockImplementation(() => {
+            throw Error('Style changing');
+        });
+        hook.unmount();
+        clearLeadGraphCache();
+        expect(noaaResidentBytes()).toBe(100_000);
+        m.sources.clear();
+        for (const notify of m.handlers.get('remove') ?? []) notify();
+        expect(noaaResidentBytes()).toBe(0);
+    });
+
+    it('revokes the async read fence on supersession and unmount', async () => {
+        let finish!: (graph: LeadGraph) => void;
+        data.leadGraphForView.mockImplementation(() => new Promise<LeadGraph>((r) => (finish = r)));
+        const m = makeMap();
+        const hook = renderHook(() => useChartLeadsLayer(m.ref, true, true, 2));
+        await waitFor(() => expect(data.leadGraphForView).toHaveBeenCalledOnce());
+        const check = data.leadGraphForView.mock.calls[0][4] as () => void;
+        expect(check).not.toThrow();
+        hook.unmount();
+        expect(check).toThrow('Lead view changed');
+        await act(async () => finish(graph));
+        expect(m.sources.has(CHART_LEADS_SOURCE_ID)).toBe(false);
+    });
     it('off (the default) mounts nothing and compiles nothing', () => {
         const m = makeMap();
         renderHook(() => useChartLeadsLayer(m.ref, true, false, 2));
@@ -149,7 +215,13 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         const m = makeMap();
         renderHook(() => useChartLeadsLayer(m.ref, true, true, 2.4, false, 18));
         await waitFor(() => expect(data.leadGraphForView).toHaveBeenCalled());
-        expect(data.leadGraphForView).toHaveBeenCalledWith([W - 0.02, S - 0.02, W + 0.04, S + 0.02], 2.4, false, 18);
+        expect(data.leadGraphForView).toHaveBeenCalledWith(
+            [W - 0.02, S - 0.02, W + 0.04, S + 0.02],
+            2.4,
+            false,
+            18,
+            expect.any(Function),
+        );
     });
 
     it('on draws the compiled leads: one source, four layers, one line per span', async () => {
@@ -158,7 +230,13 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         expect(m.sources.has(CHART_LEADS_SOURCE_ID)).toBe(true);
         expect([...m.layers.keys()].sort()).toEqual(Object.values(CHART_LEADS_LAYER_IDS).sort());
         await waitFor(() => expect(m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features).toHaveLength(2));
-        expect(data.leadGraphForView).toHaveBeenCalledWith([W - 0.02, S - 0.02, W + 0.04, S + 0.02], 2, false, null);
+        expect(data.leadGraphForView).toHaveBeenCalledWith(
+            [W - 0.02, S - 0.02, W + 0.04, S + 0.02],
+            2,
+            false,
+            null,
+            expect.any(Function),
+        );
         const props = m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features.map((f) => f.properties);
         expect(props).toEqual(
             expect.arrayContaining([
@@ -196,7 +274,13 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         await waitFor(() => expect(data.leadGraphForView).toHaveBeenCalledTimes(1));
         hook.rerender({ draft: 3.5 });
         await waitFor(() =>
-            expect(data.leadGraphForView).toHaveBeenLastCalledWith(expect.any(Array), 3.5, false, null),
+            expect(data.leadGraphForView).toHaveBeenLastCalledWith(
+                expect.any(Array),
+                3.5,
+                false,
+                null,
+                expect.any(Function),
+            ),
         );
     });
 
@@ -212,7 +296,7 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         const m = makeMap();
         renderHook(() => useChartLeadsLayer(m.ref, true, true, 2.5, true));
         await waitFor(() => expect(m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features).toHaveLength(2));
-        expect(data.leadGraphForView).toHaveBeenCalledWith(expect.any(Array), 2.5, true, null);
+        expect(data.leadGraphForView).toHaveBeenCalledWith(expect.any(Array), 2.5, true, null, expect.any(Function));
         const props = m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features.map((f) => f.properties);
         expect(props.some((p) => p?.depthClass === 'clear')).toBe(false);
         expect(props.map((p) => p?.label).sort()).toEqual([

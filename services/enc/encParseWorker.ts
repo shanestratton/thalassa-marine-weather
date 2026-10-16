@@ -2,6 +2,7 @@ import {
     parseNoaaPart,
     noaaFeatureBounds,
     noaaPartIntersects,
+    noaaLeadDependency,
     type NoaaPackage,
     type NoaaPartObject,
 } from './noaaPackageContract';
@@ -23,6 +24,7 @@ const ctx = self as unknown as {
                   descriptor?: NoaaPartObject;
                   bounds?: [number, number, number, number];
                   select?: boolean;
+                  completeLateralMarks?: boolean;
               }>,
           ) => void)
         | null;
@@ -40,7 +42,10 @@ ctx.onmessage = (ev) => {
             if (ev.data.select)
                 for (const r of part.records) {
                     const features = r.features.filter(
-                        (f) => !ev.data.bounds || noaaPartIntersects(noaaFeatureBounds(f), ev.data.bounds),
+                        (f) =>
+                            (ev.data.completeLateralMarks && noaaLeadDependency(r.layer)) ||
+                            !ev.data.bounds ||
+                            noaaPartIntersects(noaaFeatureBounds(f), ev.data.bounds),
                     );
                     blob.selectedBytes += new TextEncoder().encode(JSON.stringify(features)).length;
                     blob.layers[r.layer] = { ...manifest.layers.find((l) => l.name === r.layer)!.collection, features };

@@ -5,12 +5,8 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 import { parseNoaaPackage, NOAA_PART_BYTES, type NoaaPackage, type NoaaPartObject } from './noaaPackageContract';
 import type { NoaaObject } from './noaaCatalogueContract';
-import type { EncCell, EncConversionResult } from './types';
-export interface NoaaPackageReference {
-    owner: string;
-    manifestSha256: string;
-    path: string;
-}
+import type { EncCell, EncConversionResult, NoaaPackageReference } from './types';
+export type { NoaaPackageReference } from './types';
 const staged = new WeakMap<NoaaPackageReference, { manifest: NoaaPackage; scope: AuthIdentityScope }>();
 export function assertStagedNoaaPackage(manifest: NoaaPackage, ref: NoaaPackageReference): void {
     const held = staged.get(ref);
@@ -178,6 +174,7 @@ export async function readNoaaPackagePart(
     manifest: NoaaPackage,
     part: NoaaPartObject,
     bounds?: [number, number, number, number],
+    completeLateralMarks = false,
 ): Promise<EncConversionResult & { selectedBytes: number }> {
     const scope = getAuthIdentityScope();
     if (cell.noaaPackage?.owner !== scope.key || !manifest.parts.includes(part))
@@ -186,7 +183,7 @@ export async function readNoaaPackagePart(
     current(scope);
     if (encoded(text).length > NOAA_PART_BYTES) throw Error('NOAA part exceeds decode limit.');
     const { parseNoaaPartOffThread } = await import('./EncCellStore');
-    const blob = await parseNoaaPartOffThread(text, manifest, part, bounds, true);
+    const blob = await parseNoaaPartOffThread(text, manifest, part, bounds, true, completeLateralMarks);
     current(scope);
     return blob;
 }

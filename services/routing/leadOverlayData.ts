@@ -19,16 +19,20 @@
  */
 import { encCellContentIdentity } from '../enc/cellContentIdentity';
 import { cellsForBBox } from '../enc/EncCellMetadata';
-import { loadCellGeoJSON } from '../enc/EncCellStore';
+import { loadCellGeoJSON, reserveNoaaResident } from '../enc/EncCellStore';
+import { utf8ByteLength } from '../enc/types';
 import { capCellsForMerge } from '../enc/mergeCap';
 import {
     cachedLeadGraph,
+    clearLeadGraphCache,
     LEAD_UKC_M,
     mergeLeadCells,
     peekLeadGraph,
+    type LeadCompileOptions,
     type LeadCellInput,
     type LeadGraph,
 } from './leadCompiler';
+import { noaaGeometryOwner } from '../enc/noaaGeometryOwner';
 
 /** ~2 km around the view, so a lead that starts just off-screen is drawn. */
 const PAD_DEG = 0.02;
@@ -46,11 +50,32 @@ function viewLookup(
         bbox[2] + PAD_DEG,
         bbox[3] + PAD_DEG,
     ];
-    const cells = capCellsForMerge(cellsForBBox(window), window);
+    // Hazard review reaches 60m beyond a span (structures 10m). Retain
+    // complete local evidence around every inner edge, including endpoints.
+    const dy = 75 / 110_000;
+    const dx = dy / Math.max(0.000001, Math.cos((Math.max(Math.abs(window[1]), Math.abs(window[3])) * Math.PI) / 180));
+    const readWindow: [number, number, number, number] = [
+        window[0] - dx,
+        window[1] - dy,
+        window[2] + dx,
+        window[3] + dy,
+    ];
+    const haloCells = cellsForBBox(readWindow);
+    const hasPackages = haloCells.some((c) => c.noaaPackage);
+    const all = hasPackages ? haloCells : cellsForBBox(window);
+    const cells = capCellsForMerge(all, hasPackages ? readWindow : window);
+    const bounded =
+        readWindow.every(Number.isFinite) &&
+        readWindow[0] >= -180 &&
+        readWindow[2] <= 180 &&
+        readWindow[1] >= -90 &&
+        readWindow[3] <= 90;
+    const complete = !hasPackages || (bounded && cells.length === all.length);
     const keys = cells.map(encCellContentIdentity);
     const classify = { draftAssumed, airDraftM };
-    const hit = cells.length === 0 ? null : peekLeadGraph(keys, draftM, {}, LEAD_UKC_M, classify);
-    return { cells, keys, classify, hit };
+    const options: LeadCompileOptions = hasPackages ? { window } : {};
+    const hit = !complete || cells.length === 0 ? null : peekLeadGraph(keys, draftM, options, LEAD_UKC_M, classify);
+    return { cells, keys, classify, hit, options, window, readWindow, complete };
 }
 
 /**
@@ -82,25 +107,75 @@ export async function leadGraphForView(
     draftM: number,
     draftAssumed = false,
     airDraftM: number | null = null,
+    assertCurrent: () => void = () => {},
 ): Promise<LeadGraph | null> {
-    const { cells, keys, classify, hit } = viewLookup(bbox, draftM, draftAssumed, airDraftM);
-    if (cells.length === 0) return null;
+    assertCurrent();
+    const { cells, keys, classify, hit, options, readWindow, complete } = viewLookup(
+        bbox,
+        draftM,
+        draftAssumed,
+        airDraftM,
+    );
+    if (!complete || cells.length === 0) return null;
     if (hit) return hit;
 
-    const inputs: LeadCellInput[] = [];
-    for (const cell of cells) {
-        // Installed only: no Pi / cloud fetch from a chart overlay.
-        const blob = await loadCellGeoJSON(cell.id, false);
-        if (!blob?.layers) continue;
-        inputs.push({
-            id: cell.id,
-            bbox: cell.bbox,
-            layers: blob.layers as LeadCellInput['layers'],
-            // The cell's own scale, the router's rank (round 2, 2026-09-30).
-            nativeScale: blob.nativeScale,
-            sourceCellId: cell.sourceCellId ?? blob.sourceCellId,
-        });
+    let chartView: Awaited<ReturnType<typeof import('../enc/noaaPackageWindow').loadNoaaPackageCohort>> | undefined;
+    let derivedLease: ReturnType<typeof reserveNoaaResident> | undefined;
+    try {
+        const packages = cells.filter((c) => c.noaaPackage);
+        if (packages.length) {
+            // Admit one new bounded window after discarding cache ownership of
+            // old windows. Mounted sources retain their independent references.
+            clearLeadGraphCache();
+            const { loadNoaaPackageCohort } = await import('../enc/noaaPackageWindow');
+            chartView = await loadNoaaPackageCohort(packages, readWindow, assertCurrent, 'leads');
+        }
+        const inputs: LeadCellInput[] = [];
+        for (const cell of cells) {
+            // Installed only: no Pi / cloud fetch from a chart overlay.
+            const blob = cell.noaaPackage ? chartView?.blobs.get(cell.id) : await loadCellGeoJSON(cell.id, false);
+            assertCurrent();
+            chartView?.check();
+            if (!blob?.layers) {
+                if (chartView) throw Error('The complete chart cohort is unavailable for these leads.');
+                continue;
+            }
+            inputs.push({
+                id: cell.id,
+                bbox: cell.bbox,
+                layers: blob.layers as LeadCellInput['layers'],
+                // The cell's own scale, the router's rank (round 2, 2026-09-30).
+                nativeScale: blob.nativeScale,
+                sourceCellId: cell.sourceCellId ?? blob.sourceCellId,
+            });
+        }
+        if (inputs.length === 0) return null;
+        const raw = chartView;
+        const remaining = 16 * 1024 * 1024 - (raw?.bytes ?? 0);
+        if (raw) derivedLease = reserveNoaaResident(remaining);
+        const graph = cachedLeadGraph(
+            keys,
+            draftM,
+            () => mergeLeadCells(inputs),
+            options,
+            LEAD_UKC_M,
+            classify,
+            raw
+                ? (graph) => {
+                      raw.check();
+                      const bytes = utf8ByteLength(JSON.stringify(graph), remaining);
+                      if (bytes > remaining) throw Error('NOAA derived leads exceed the resident view limit.');
+                      derivedLease!.resize(bytes);
+                      const owner = noaaGeometryOwner(raw.authority, derivedLease!.release);
+                      derivedLease = undefined;
+                      return owner;
+                  }
+                : undefined,
+        );
+        chartView?.check();
+        return graph;
+    } finally {
+        chartView?.release();
+        derivedLease?.release();
     }
-    if (inputs.length === 0) return null;
-    return cachedLeadGraph(keys, draftM, () => mergeLeadCells(inputs), {}, LEAD_UKC_M, classify);
 }

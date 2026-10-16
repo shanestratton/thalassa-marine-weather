@@ -594,6 +594,7 @@ export async function parseNoaaPartOffThread(
     descriptor: import('./noaaPackageContract').NoaaPartObject,
     bounds?: [number, number, number, number],
     select = false,
+    completeLateralMarks = false,
 ): Promise<EncConversionResult & { selectedBytes: number }> {
     if (utf8ByteLength(text, 4 * 1024 * 1024) > 4 * 1024 * 1024 || manifest.metadata.sourceHO !== 'US')
         throw Error('Invalid public NOAA part.');
@@ -618,6 +619,7 @@ export async function parseNoaaPartOffThread(
                 descriptor,
                 bounds,
                 select,
+                completeLateralMarks,
             });
         } catch (error) {
             clearTimeout(timer);
