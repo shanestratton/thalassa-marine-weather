@@ -10,12 +10,13 @@
  * route's padded bbox; writer (route check) and checker (Cast Off) derive
  * the scope from the same points with the same pad.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { clearAllCellMetadata, getRegistryFingerprint, putCell } from '../services/enc/EncCellMetadata';
 import { traceCastOffBlockReason, traceRegistryScope } from '../services/traceVerification';
 import type { EncCell } from '../services/enc/types';
+import * as navigationUse from '../services/tides/navigationUse';
 
 const cell = (over: Partial<EncCell> = {}): EncCell => ({
     id: 'AU5MB01P',
@@ -40,6 +41,7 @@ beforeEach(() => {
     localStorage.clear();
     clearAllCellMetadata();
 });
+afterEach(() => vi.restoreAllMocks());
 
 describe('traceRegistryScope', () => {
     it('is the route extent plus the corridor pad, clamped to the poles', () => {
@@ -217,13 +219,17 @@ describe('the departure gate bites only tide-gated checks', () => {
         expect(traceCastOffBlockReason(checked(), undefined, { ...base, voyageDepartureMs: null })).toBeNull();
     });
 
-    it('a TIDE-gated check still demands the plan it verified — 3h drift blocks, 10min passes', () => {
+    it('a synthetic approved-source TIDE check still demands its plan — 3h drift blocks, 10min passes', () => {
         const tideGated = (departure: string) =>
             traceCastOffBlockReason(checked({ tideWindowLabel: 'HW 09:12 · window 07:40–10:45' }), undefined, {
                 ...base,
                 nowMs: Date.parse('2026-08-26T07:50:00Z'),
                 voyageDepartureMs: Date.parse(departure),
             });
+        // A matching departure cannot restore rights to an old informational
+        // window. Isolate the original departure arithmetic only after proving it.
+        expect(tideGated('2026-08-26T08:10:00Z')).toContain('unverified tidal clearance');
+        vi.spyOn(navigationUse, 'navigationTideSourceAvailable').mockReturnValue(true);
         expect(tideGated('2026-08-26T11:00:00Z')).toContain('planned departure changed');
         expect(tideGated('2026-08-26T08:10:00Z')).toBeNull();
     });

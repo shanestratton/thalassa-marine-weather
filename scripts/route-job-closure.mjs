@@ -168,6 +168,14 @@ export function routeEngineLoggerSource(source, sentryImport) {
  */
 export const APP_SHELL_ENTRY = 'ApplicationShell.tsx';
 
+/** Also used by lazy passage screens. Each must have no runtime imports so
+ * opening Today or Crew never loads the routing engine for these calculations. */
+export const ROUTE_ENGINE_SHARED_LEAVES = [
+    'services/isochrone/polar.ts',
+    'services/isochrone/geodesy.ts',
+    'services/isochrone/routeSailingStats.ts',
+];
+
 const clean = (id) => id.replaceAll('\\', '/');
 const chunkMemo = new WeakMap();
 
@@ -223,7 +231,13 @@ export function routeEngineChunkOf(id, meta) {
                 const c = clean(m);
                 if (c.endsWith(`/${ROUTE_JOB_LOGGER}`) || c.includes('/node_modules/') || c.startsWith('\0'))
                     throw new Error(`the route job's closure reaches ${c}, which the route worker cannot load`);
-                chunks.set(m, shared.has(m) ? 'engine-leaf' : 'router-engine');
+                const pureLeaf = ROUTE_ENGINE_SHARED_LEAVES.some((leaf) => c.endsWith(`/${leaf}`));
+                if (pureLeaf) {
+                    const info = meta.getModuleInfo(m);
+                    if (!info || info.importedIds.length || info.dynamicallyImportedIds.length)
+                        throw new Error(`the shared routing leaf ${c} must have no runtime imports`);
+                }
+                chunks.set(m, pureLeaf || shared.has(m) ? 'engine-leaf' : 'router-engine');
             }
             if (startUp.has(root))
                 throw new Error(

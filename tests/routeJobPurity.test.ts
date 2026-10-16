@@ -55,7 +55,7 @@ const JOB_OWN = new Set([
     'services/isochrone/polar.ts',
     'services/isochrone/pruning.ts',
     'services/isochrone/smoothing.ts',
-    'services/isochrone/routeStats.ts',
+    'services/isochrone/routeSailingStats.ts',
     'services/isochrone/routeComfort.ts',
     'services/isochrone/routeSampling.ts',
     'services/weather/WindFieldAdapter.ts',
@@ -63,7 +63,6 @@ const JOB_OWN = new Set([
     'services/weather/WaveFieldAdapter.ts',
     'services/weather/windLongitude.ts',
     'utils/seaComfort.ts',
-    'utils/marineFormatters.ts',
     ROUTE_JOB_LOGGER,
 ]);
 
