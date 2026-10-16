@@ -208,3 +208,24 @@ setting the absolute DPR matrix, testing a stale native state-cache path while
 retaining DPR3 and draw frequency. The isolated recorder counts that native
 reset call as well. No unconditional repaint, pixel-threshold relaxation or
 layout change is introduced. Full exact-source validation is still required.
+
+Explicit-reset source `5ad163598` passed all 40 local Chrome/WebKit cases,
+but full-order Linux run `38981976379` failed 16 cases, with 38 passing.
+The original compact case and the separate probe retain grid-only pixels at
+the same effective 9x scale despite the expected reported 3x transform and
+three recorded explicit resets in the probe. Artifact `12081622491` is
+6348723 bytes, SHA256
+`3e67f74b9d12340497ab682b3595ce30ead01dd631d947d171162806a18b8800`.
+The explicit reset therefore does not repair the full-order rendering defect.
+
+The following controlled candidate requests `willReadFrequently: true` only
+when acquiring the tide chart's 2D context. At the WebKit revision pinned by
+Playwright 1.58.2, CanvasBase selects an unaccelerated image buffer for that
+option; this tests a backend-specific surface-lifetime hypothesis. Backing
+dimensions, DPR, paint count, geometry, all original pixel/layout guards and
+the other application's canvas contexts stay unchanged. No readback or repaint
+loop is added. Local proof and the complete exact-source Linux layout/graphics
+suite remain required before acceptance.
+
+Pinned upstream source:
+https://raw.githubusercontent.com/WebKit/WebKit/486de399887bc8fa8a69e2f194ebc9476589a08a/Source/WebCore/html/CanvasBase.cpp

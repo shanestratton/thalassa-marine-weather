@@ -55,7 +55,7 @@ export const TideCanvas = React.memo(
             const w = rect.width;
             const h = rect.height;
             if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             if (!ctx) return;
 
             // A backing-size assignment destroys the bitmap even when its
