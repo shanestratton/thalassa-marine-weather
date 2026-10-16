@@ -4,6 +4,8 @@ import { readSignalKDeviceConfig, saveSignalKDeviceConfig, signalKDeviceOrigin }
 import { nativeSignalKAvailable } from '../../services/signalk/native';
 import { getPairing } from '../../services/PiPairingService';
 import { Button } from '../ui/Button';
+import { SignalKNotifications } from './SignalKNotifications';
+import PairedPiSignalKCard from './PairedPiSignalKCard';
 const words = {
     off: 'Reader stopped',
     approval: 'Device approval needed',
@@ -47,6 +49,7 @@ export default function SignalKReaderCard() {
         }
     };
     const field = 'w-full rounded-xl border border-white/10 bg-slate-950 p-3 text-base text-white';
+    if (paired) return <PairedPiSignalKCard />;
     return (
         <section
             className="mb-3 space-y-3 rounded-2xl border border-white/10 bg-slate-900/70 p-4"
@@ -153,20 +156,7 @@ export default function SignalKReaderCard() {
                     Check approval. Access is never requested automatically.
                 </p>
             )}
-            {view.notices.length > 0 && (
-                <div className="space-y-2 border-t border-white/10 pt-3" aria-label="Signal K notifications">
-                    <p className="text-xs text-gray-300">Server notifications · source-dated</p>
-                    {view.notices.map((n) => (
-                        <div key={`${n.source}|${n.path}`} className="rounded-lg bg-white/5 p-3 text-xs text-gray-200">
-                            <strong>{n.state.toUpperCase()}</strong> · {n.message}
-                            <div className="mt-1 text-gray-400">
-                                {n.source} · {new Date(n.at).toISOString().slice(11, 19)} UTC ·{' '}
-                                {Math.max(0, Math.floor((Date.now() - n.at) / 1000))} s old
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
+            <SignalKNotifications source="Direct Signal K" notices={view.notices} />
         </section>
     );
 }
