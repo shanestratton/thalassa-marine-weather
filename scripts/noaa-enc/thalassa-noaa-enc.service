@@ -1,0 +1,22 @@
+[Unit]
+Description=Thalassa official NOAA ENC edition check and bounded publisher
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/thalassa/noaa-enc.env
+# Environment names contain only reviewed local paths, pinned hashes and the
+# existing R2 server credential mapping. Never copy them into client bundles.
+ExecStart=/usr/bin/python3 /opt/thalassa-noaa/scripts/noaa-enc/refresh.py --root /srv/weather/thalassa-noaa/catalogue --image ${NOAA_IMAGE_ID} --converter-sha256 ${NOAA_CONVERTER_SHA256} --agreement /opt/thalassa-noaa/public/data/noaa-enc-user-agreement.txt --run --publish
+TimeoutStartSec=4h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/weather/thalassa-noaa/catalogue
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=1536M
+Nice=15
+IOSchedulingClass=idle

@@ -25,3 +25,7 @@ public/ocean-data/
 # readers parse them from raw text, so reformatting would stop them being the
 # responses the providers actually sent.
 tests/fixtures/buoys/
+
+# Exact shared-GDAL public NOAA conversion evidence. Its SHA256 is asserted
+# against the publisher receipt, so formatting it would change captured bytes.
+browser-tests/fixtures/noaa/US5CA1LK.json
