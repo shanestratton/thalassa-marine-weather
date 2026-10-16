@@ -74,7 +74,9 @@ HTTP outside loopback needs the explicit private-LAN opt-in and remains insecure
 This read session grants no course, chart, autopilot or owner-away alarm authority.
 
 The composed server now mounts that exact enrolled read route, injects the
-cache-only reader and stops the session during shutdown. Both the reader and
+cache-only reader and stops the session during shutdown. Session setup precedes
+starting the track, history, telemetry publisher and anchor readers; their self
+reads and the server's current-fix paths use the same cache-only callback. Both the reader and
 separately enabled course client use the same explicit private-HTTP choice;
 loopback remains supported. A rejected operator configuration leaves instrument
 documents unknown and emits a generic message while the watch service continues.
