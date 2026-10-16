@@ -28,6 +28,14 @@ it('packs long unique literal classes through shared words without changing deco
     expect(selected).toEqual([repeated, unique].sort());
     expect(unpack(selected)).toEqual(selected);
 });
+it('leaves oversized optional word tables as ordinary literals while preserving selected values exactly', () => {
+    const values = Array.from({ length: 180 }, (_, i) => `static-class-${i}-${'x'.repeat(3900)}`);
+    const selected = selectClassNames(new Map(values.map((value) => [value, 1])));
+    expect(selected.length).toBeGreaterThan(0);
+    expect(selected.length).toBeLessThan(50);
+    expect(packClassNames(selected).bytes).toBeLessThanOrEqual(128000);
+    expect(unpack(selected)).toEqual(selected);
+});
 it('selects an exact deterministic bounded subset when future source literals exceed the pool', () => {
     const values = Array.from(
         { length: 1800 },
