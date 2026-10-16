@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { partitionNoaaRecords } from '../scripts/noaa-enc/partition-records';
-import { noaaFeatureBounds, noaaPartIntersects } from '../services/enc/noaaPackageContract';
+import { noaaFeatureBounds, noaaPartIntersects, noaaLeadDependency } from '../services/enc/noaaPackageContract';
 import type { EncCell, EncConversionResult } from '../services/enc/types';
 const state = vi.hoisted(() => ({
     parts: [] as string[],
@@ -25,6 +25,7 @@ vi.mock('../services/enc/noaaPackageStore', () => ({
         _manifest: unknown,
         descriptor: { sequence: number },
         bounds: number[],
+        completeLateralMarks = false,
     ) => {
         state.read.push(descriptor.sequence);
         if (state.partHold) await state.partHold;
@@ -36,7 +37,11 @@ vi.mock('../services/enc/noaaPackageStore', () => ({
                 r.layer,
                 {
                     type: 'FeatureCollection',
-                    features: r.features.filter((f) => noaaPartIntersects(noaaFeatureBounds(f), bounds)),
+                    features: r.features.filter(
+                        (f) =>
+                            (completeLateralMarks && noaaLeadDependency(r.layer)) ||
+                            noaaPartIntersects(noaaFeatureBounds(f), bounds),
+                    ),
                 },
             ]),
         );
@@ -173,5 +178,47 @@ describe('one complete multi-cell package cohort', () => {
         await refused;
         expect(state.manifestCells).toEqual(['US3AK1EX']);
         expect(noaaResidentBytes()).toBe(0);
+    });
+
+    it('only the fixed leads dependency retains lateral marks in nonintersecting parts', async () => {
+        const mark = (id: number, layer: string): GeoJSON.Feature => ({
+            type: 'Feature',
+            id,
+            properties: { acronym: layer, synthetic: 'x'.repeat(500) },
+            geometry: { type: 'Point', coordinates: [-132.1, 55.8] },
+        });
+        const source: EncConversionResult = {
+            cellId: cell.id,
+            sourceHO: 'US',
+            edition: 1,
+            updateNumber: 0,
+            issued: '2026-03-16',
+            bbox: [-134, 55, -132, 56],
+            layers: {
+                BOYLAT: { type: 'FeatureCollection', features: [mark(1, 'BOYLAT'), mark(2, 'BOYLAT')] },
+                BCNLAT: { type: 'FeatureCollection', features: [mark(3, 'BCNLAT')] },
+                OBSTRN: { type: 'FeatureCollection', features: [mark(4, 'OBSTRN')] },
+                NAVLNE: { type: 'FeatureCollection', features: [mark(5, 'NAVLNE')] },
+            },
+        };
+        const packed = partitionNoaaRecords(source, 'a'.repeat(64), 1024);
+        state.parts = packed.parts;
+        state.manifest = packed.manifest;
+        const bounds: [number, number, number, number] = [-134, 55, -133.9, 55.1];
+        const ordinary = await loadNoaaPackageWindow(cell, bounds);
+        expect(ordinary.blob.layers.BOYLAT?.features).toEqual([]);
+        ordinary.release();
+        state.read = [];
+        const leads = await loadNoaaPackageCohort(packages().slice(0, 1), bounds, () => {}, 'leads');
+        try {
+            const layers = leads.blobs.get(cell.id)!.layers;
+            expect(layers.BOYLAT?.features).toEqual(source.layers.BOYLAT!.features);
+            expect(layers.BCNLAT?.features).toEqual(source.layers.BCNLAT!.features);
+            expect(layers.OBSTRN?.features).toEqual([]);
+            expect(layers.NAVLNE?.features).toEqual([]);
+            expect(state.read).toEqual([0, 1, 2]);
+        } finally {
+            leads.release();
+        }
     });
 });

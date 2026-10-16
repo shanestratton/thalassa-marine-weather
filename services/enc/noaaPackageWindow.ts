@@ -1,6 +1,6 @@
 /** Bounded local view, never a whole-cell read. Caller owns the lease until
  * every index/merge borrowing this geometry is detached. No cache or WAN. */
-import { noaaPartIntersects, noaaPartBounds, NOAA_PART_BYTES } from './noaaPackageContract';
+import { noaaPartIntersects, noaaPartBounds, noaaLeadDependency, NOAA_PART_BYTES } from './noaaPackageContract';
 import { readNoaaPackage, readNoaaPackagePart } from './noaaPackageStore';
 import { reserveNoaaResident } from './EncCellStore';
 import type { EncCell, EncConversionResult } from './types';
@@ -15,6 +15,7 @@ export async function loadNoaaPackageWindow(
     bounds: [number, number, number, number],
     assertCurrent: () => void = () => {},
     maximumBytes = VIEW_BYTES,
+    purpose?: 'leads',
 ): Promise<{ blob: EncConversionResult; bytes: number; release: () => void }> {
     if (!noaaPartBounds(bounds)) throw Error('Invalid NOAA chart view.');
     if (!Number.isSafeInteger(maximumBytes) || maximumBytes < NOAA_PART_BYTES || maximumBytes > VIEW_BYTES)
@@ -44,9 +45,13 @@ export async function loadNoaaPackageWindow(
         resize(bytes + NOAA_PART_BYTES);
         for (const part of manifest.parts) {
             check();
-            if (!noaaPartIntersects(part.bbox, bounds)) continue;
+            if (
+                !noaaPartIntersects(part.bbox, bounds) &&
+                !(purpose === 'leads' && part.spans.some((s) => noaaLeadDependency(s.layer)))
+            )
+                continue;
             // Sequential: at most one <=4MiB part is read/decoded at a time.
-            const selected = await readNoaaPackagePart(cell, manifest, part, bounds);
+            const selected = await readNoaaPackagePart(cell, manifest, part, bounds, purpose === 'leads');
             check();
             bytes += selected.selectedBytes;
             // Reserve BEFORE retaining a part. Over budget discards this entire
@@ -74,6 +79,7 @@ export async function loadNoaaPackageCohort(
     cells: readonly EncCell[],
     bounds: [number, number, number, number],
     assertCurrent: () => void = () => {},
+    purpose?: 'leads',
 ) {
     if (!noaaPartBounds(bounds) || cells.length > MAX_MERGE_CELLS)
         throw Error('Invalid or oversized NOAA chart cohort.');
@@ -83,10 +89,14 @@ export async function loadNoaaPackageCohort(
         releases: Array<() => void> = [];
     let bytes = 0,
         released = false;
+    const authority = (): void => {
+        if (version !== getVersion() || !isAuthIdentityScopeCurrent(scope))
+            throw Error('NOAA chart cohort changed during use.');
+    };
     const check = (): void => {
         assertCurrent();
-        if (released || version !== getVersion() || !isAuthIdentityScopeCurrent(scope))
-            throw Error('NOAA chart cohort changed during use.');
+        authority();
+        if (released) throw Error('NOAA chart cohort changed during use.');
     };
     const release = (): void => {
         released = true;
@@ -97,13 +107,13 @@ export async function loadNoaaPackageCohort(
         check();
         for (const cell of cells) {
             if (!cell.noaaPackage || blobs.has(cell.id)) throw Error('Invalid NOAA chart cohort.');
-            const view = await loadNoaaPackageWindow(cell, bounds, check, VIEW_BYTES - bytes);
+            const view = await loadNoaaPackageWindow(cell, bounds, check, VIEW_BYTES - bytes, purpose);
             releases.push(view.release);
             check();
             bytes += view.bytes;
             blobs.set(cell.id, view.blob);
         }
-        return { blobs, check, release };
+        return { blobs, bytes, check, authority, release };
     } catch (error) {
         release();
         throw error;

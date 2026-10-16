@@ -673,6 +673,13 @@ export interface EncHazard {
  * Australian cell). Edition + source HO let us de-duplicate when a
  * user re-imports an updated cell.
  */
+/** Stored identity only; this pure type leaf must not import storage/plugins. */
+export interface NoaaPackageReference {
+    owner: string;
+    manifestSha256: string;
+    path: string;
+}
+
 export interface EncCell {
     /** S-57 dataset name (DSID/DSNM). */
     id: string;
@@ -685,6 +692,8 @@ export interface EncCell {
     updateNumber?: number;
     /** SHA-256 of the signed Pi response that supplied this revision. */
     contentSha256?: string;
+    /** Explicit, fully verified public NOAA record package; never a Pi/vault file. */
+    noaaPackage?: NoaaPackageReference;
     /** S-57 issue date (ISO 8601). */
     issued: string;
     /** When the user imported this cell into the device. */
@@ -945,6 +954,8 @@ export interface EncConversionResult {
         PIPARE?: GeoJSON.FeatureCollection;
         /** Seabed nature (NATSUR: sand/mud/rock). Anchoring-aid polygon. */
         SBDARE?: GeoJSON.FeatureCollection;
+        /** Weed/kelp (CATWED), an anchoring aid; never a crossing caution. */
+        WEDKLP?: GeoJSON.FeatureCollection;
         /** Traffic Separation Scheme lane part (ORIENT). Info polygon. */
         TSSLPT?: GeoJSON.FeatureCollection;
         /** Caution area — "see the chart note". Info polygon. */
@@ -970,6 +981,7 @@ export const CAUTION_AREA_CLASSES = [
     'CBLARE',
     'PIPARE',
     'SBDARE',
+    'WEDKLP',
     'TSSLPT',
     'CTNARE',
     'TSEZNE',

@@ -58,6 +58,7 @@ import {
 import { capCellsForMerge, MAX_MERGE_CELLS } from './enc/mergeCap';
 import { crumb } from '../utils/flightRecorder';
 import { peekLeadGraphForView } from './routing/leadOverlayData';
+import { retainLeadGraph } from './routing/leadCompiler';
 import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
 import { getOsmRouteOverlay, type OsmOverlayProvenance, type OsmRouteOverlay } from './OsmRouteOverlayService';
@@ -339,6 +340,7 @@ interface InshoreRunControl {
     onStage: (stage: RouteStage) => void;
     timing: InshoreRunTiming;
     chartView?: Awaited<ReturnType<typeof import('./enc/noaaPackageWindow').loadNoaaPackageCohort>>;
+    leadRelease?: () => void;
 }
 
 const exitDurations = (t: InshoreRunTiming): string =>
@@ -601,6 +603,8 @@ function startInshoreRun(
                 // and the hosted job still borrow the geometry until HERE.
                 control.chartView?.release();
                 control.chartView = undefined;
+                control.leadRelease?.();
+                control.leadRelease = undefined;
             }),
             entry.stop.signal,
         ),
@@ -1936,6 +1940,8 @@ async function tryInshoreRouteInner(
     // is looked up here first (its cache lives on this thread), for the route's
     // corridor box rather than the finished line's (telemetry only). The tide
     // curves stay here too; a pin's dry tail gets its tide windows after.
+    const leadGraph = peekLeadGraphForView(inshoreOverlayBbox(origin, destination), routeOpts.draftM, false, airDraftM);
+    run.leadRelease = retainLeadGraph(leadGraph);
     const job: RouteJob = {
         layers: merged,
         routeOpts,
@@ -1946,7 +1952,7 @@ async function tryInshoreRouteInner(
         structuresUnknownCells,
         structuresUnknownBboxes: [...structuresUnknownBbox],
         regionalPairs: regionalPairsForShadow,
-        leadGraph: peekLeadGraphForView(inshoreOverlayBbox(origin, destination), routeOpts.draftM, false, airDraftM),
+        leadGraph,
         tideCeilings,
         ...(result && routedOnCloud && 'polyline' in result
             ? { cloud: { polyline: result.polyline, distanceNM: result.distanceNM, elapsedMs: Date.now() - t0 } }
