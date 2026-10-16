@@ -81,7 +81,7 @@ const denied = async (fn, label) => {
 try {
     await db.exec(await read('tests/sql/pi-wake-base.sql'));
     await db.exec(await read('supabase/migrations/20261016154726_pi_wake_keeper_relay.sql'));
-    await db.exec(await read('supabase/held-migrations/20261017165000_pi_radar_relay.sql'));
+    await db.exec(await read('supabase/held-migrations/20261016162758_pi_radar_relay.sql'));
     eq(
         await as('service_role', null, 'SELECT public.pi_alarm_radar_capability()'),
         1,
@@ -273,6 +273,88 @@ try {
         true,
         'same-batch ACK preserved',
     );
+    const expired = alarm('radar-collision', 20, Date.now() - 32 * 60_000);
+    await call(sync(revision, [expired]));
+    await db.query(
+        "UPDATE public.pi_radar_events SET acked_at=now()-interval '31 minutes',last_pushed_at=now()-interval '31 minutes',last_pushed_source_at_ms=$2 WHERE alarm_key=$1",
+        [expired.key, Date.now() - 31 * 60_000],
+    );
+    const refresh = { ...expired, sourceAt: Date.now() + 1, reportAt: Date.now() + 1 };
+    const reopened = await call(
+        sync(
+            revision,
+            [refresh],
+            [
+                {
+                    key: expired.key,
+                    contactKey: expired.contactKey,
+                    episodeId: expired.episodeId,
+                    kind: expired.kind,
+                    ackedAt: Date.now() - 31 * 60_000,
+                },
+            ],
+        ),
+    );
+    eq(reopened.acked, [], 'stale ordinary ACK does not renew an expired mute');
+    eq(reopened.queued.length, 1, 'fresh evidence reopens ordinary alarm after its30-minute mute');
+    eq(
+        await as('service_role', null, 'SELECT public.pi_radar_delivery_current($1)', [reopened.queued[0]]),
+        true,
+        'reopened fresh attempt is current',
+    );
+    eq(
+        await as('authenticated', owner, 'SELECT public.acknowledge_pi_radar_alarm($1,$2)', [expired.key, revision]),
+        1,
+        'new explicit owner ACK starts a new mute',
+    );
+    eq(
+        await as('service_role', null, 'SELECT public.pi_radar_delivery_current($1)', [reopened.queued[0]]),
+        false,
+        'new ACK stops reopened queue',
+    );
+    const oldClose = alarm('radar-close-quarters', 21, Date.now() - 32 * 60_000);
+    await call(sync(revision, [oldClose]));
+    await db.query(
+        "UPDATE public.pi_radar_events SET acked_at=now()-interval '31 minutes',last_pushed_at=now()-interval '31 minutes' WHERE alarm_key=$1",
+        [oldClose.key],
+    );
+    const stillClose = await call(
+        sync(revision, [{ ...oldClose, sourceAt: Date.now() + 1, reportAt: Date.now() + 1 }]),
+    );
+    eq(stillClose.acked, [oldClose.key], 'close-quarters ACK remains bound to its episode');
+    eq(stillClose.queued, [], 'close ACK never expires as ordinary danger');
+    await denied(
+        () =>
+            call(
+                sync(
+                    revision,
+                    [],
+                    [],
+                    [
+                        {
+                            key: oldClose.key,
+                            contactKey: oldClose.contactKey,
+                            episodeId: oldClose.episodeId,
+                            kind: oldClose.kind,
+                            how: null,
+                            endedAt: Date.now(),
+                        },
+                    ],
+                ),
+            ),
+        'null resolution cannot clear a held encounter',
+    );
+    await denied(
+        () => call(sync(revision, [{ ...alarm('radar-collision', 22), sourceAt: Date.now() - 0.5 }])),
+        'fractional source timestamp is not an original millisecond clock',
+    );
+    const tamper = await call(sync(revision, [alarm('radar-collision', 23)]));
+    await db.query("UPDATE public.push_notification_queue SET body='Changed facts' WHERE id=$1", [tamper.queued[0]]);
+    eq(
+        await as('service_role', null, 'SELECT public.pi_radar_delivery_current($1)', [tamper.queued[0]]),
+        false,
+        'delivery refuses facts changed after canonical formatting',
+    );
     await db.exec('DELETE FROM public.push_notification_queue');
     for (let i = 0; i < 30; i++)
         await as(
@@ -346,7 +428,7 @@ try {
             passed: true,
             concurrencyProven: false,
             notificationsSent: 0,
-            sourceSha256: hash(await read('supabase/held-migrations/20261017165000_pi_radar_relay.sql')),
+            sourceSha256: hash(await read('supabase/held-migrations/20261016162758_pi_radar_relay.sql')),
         }),
     );
 } finally {
