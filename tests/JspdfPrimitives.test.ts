@@ -13,6 +13,7 @@ import { installFakeCanvas } from './helpers/jspdfPages';
 
 const root = process.cwd();
 const source = fs.readFileSync(path.join(root, 'node_modules/jspdf/dist/jspdf.es.js'), 'utf8');
+const published = fs.readFileSync(path.join(root, 'node_modules/jspdf/dist/jspdf.es.min.js'), 'utf8');
 const trimmed = pruneJspdfPlugins(source, parseAst);
 type PdfConstructor = typeof jsPDF;
 let original: PdfConstructor, pruned: PdfConstructor;
@@ -45,7 +46,7 @@ async function compile(code: string): Promise<PdfConstructor> {
 }
 
 beforeAll(async () => {
-    [original, pruned] = await Promise.all([compile(source), compile(trimmed.code)]);
+    [original, pruned] = await Promise.all([compile(published), compile(trimmed.code)]);
 });
 afterEach(() => {
     vi.useRealTimers();
