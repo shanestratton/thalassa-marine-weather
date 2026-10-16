@@ -198,7 +198,21 @@ describe('one complete multi-cell package cohort', () => {
                 BOYLAT: { type: 'FeatureCollection', features: [mark(1, 'BOYLAT'), mark(2, 'BOYLAT')] },
                 BCNLAT: { type: 'FeatureCollection', features: [mark(3, 'BCNLAT')] },
                 OBSTRN: { type: 'FeatureCollection', features: [mark(4, 'OBSTRN')] },
-                NAVLNE: { type: 'FeatureCollection', features: [mark(5, 'NAVLNE')] },
+                RECTRC: {
+                    type: 'FeatureCollection',
+                    features: [
+                        {
+                            ...mark(5, 'RECTRC'),
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: [
+                                    [-132.1, 55.8],
+                                    [-132, 55.8],
+                                ],
+                            },
+                        },
+                    ],
+                },
             },
         };
         const packed = partitionNoaaRecords(source, 'a'.repeat(64), 1024);
@@ -215,7 +229,7 @@ describe('one complete multi-cell package cohort', () => {
             expect(layers.BOYLAT?.features).toEqual(source.layers.BOYLAT!.features);
             expect(layers.BCNLAT?.features).toEqual(source.layers.BCNLAT!.features);
             expect(layers.OBSTRN?.features).toEqual([]);
-            expect(layers.NAVLNE?.features).toEqual([]);
+            expect(layers.RECTRC?.features).toEqual([]);
             expect(state.read).toEqual([0, 1, 2]);
         } finally {
             leads.release();
