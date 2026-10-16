@@ -34,13 +34,15 @@ export function currentHoldingGroundAt(lat: number, lon: number) {
         for (const cell of selected.values()) {
             const blob = peekCellGeoJSON(cell.id);
             if (!blob || blob.edition !== cell.edition || blob.sourceHO !== cell.sourceHO) return unknown();
-            const rows = blob.layers.SBDARE?.features ?? [];
-            if (features.length + rows.length > 8192) return unknown();
-            for (const f of rows)
-                features.push({
-                    ...f,
-                    properties: { ...f.properties, _caution: 'SBDARE', _reference: cell.usage === 'reference' },
-                });
+            for (const cls of ['SBDARE', 'WEDKLP'] as const) {
+                const rows = blob.layers[cls]?.features ?? [];
+                if (features.length + rows.length > 8192) return unknown();
+                for (const f of rows)
+                    features.push({
+                        ...f,
+                        properties: { ...f.properties, _caution: cls, _reference: cell.usage === 'reference' },
+                    });
+            }
         }
         return holdingGroundAt(lat, lon, features);
     } catch {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Feature, Geometry } from 'geojson';
-import { holdingGroundAt, seabedNature } from '../../services/enc/seabed';
+import { chartBottomNature, holdingGroundAt, seabedNature } from '../../services/enc/seabed';
 const point = (x: number, y: number, NATSUR: unknown, extra = {}): Feature<Geometry> => ({
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [x, y] },
@@ -12,6 +12,26 @@ const area = (coordinates: number[][][], NATSUR: unknown): Feature<Geometry> => 
     properties: { _caution: 'SBDARE', NATSUR },
 });
 describe('IHO seabed semantics and advice', () => {
+    it('keeps WEDKLP/CATWED separate from bottom material and treats vegetation conservatively', () => {
+        for (const [code, label] of [
+            [1, 'Kelp'],
+            [2, 'Sea weed'],
+            [3, 'Sea grass'],
+            [4, 'Sargassum'],
+        ] as const) {
+            const properties = { _caution: 'WEDKLP', CATWED: code, NATSUR: 4 };
+            expect(chartBottomNature(properties)).toMatchObject({ label, poor: true });
+            expect(holdingGroundAt(0, 0, [{ ...point(0, 0, 4), properties }])).toMatchObject({
+                kind: 'poor',
+                pointSample: true,
+            });
+        }
+        expect(chartBottomNature({ _caution: 'WEDKLP', CATWED: 255 })).toMatchObject({
+            unknown: true,
+            label: 'Unknown',
+        });
+        expect(chartBottomNature({ NATSUR: 4 })).toMatchObject({ label: 'Sand', poor: false });
+    });
     it('keeps lava, coral, shells and boulders in their actual S-57 slots', () => {
         expect(seabedNature('11,14,17,18')).toMatchObject({
             label: 'Lava / Coral / Shells / Boulders',

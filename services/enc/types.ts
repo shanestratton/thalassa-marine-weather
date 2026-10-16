@@ -943,6 +943,8 @@ export interface EncConversionResult {
         PIPARE?: GeoJSON.FeatureCollection;
         /** Seabed nature (NATSUR: sand/mud/rock). Anchoring-aid polygon. */
         SBDARE?: GeoJSON.FeatureCollection;
+        /** Weed/kelp (CATWED), an anchoring aid; never a crossing caution. */
+        WEDKLP?: GeoJSON.FeatureCollection;
         /** Traffic Separation Scheme lane part (ORIENT). Info polygon. */
         TSSLPT?: GeoJSON.FeatureCollection;
         /** Caution area — "see the chart note". Info polygon. */
@@ -968,6 +970,7 @@ export const CAUTION_AREA_CLASSES = [
     'CBLARE',
     'PIPARE',
     'SBDARE',
+    'WEDKLP',
     'TSSLPT',
     'CTNARE',
     'TSEZNE',

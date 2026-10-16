@@ -41,7 +41,7 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
                 // it stole the flagship depth/keel popup (audit). It gets its
                 // own subtle, NON-clickable fill below; its NATSUR decode is
                 // folded into the DEPARE popup instead (extras.seabed).
-                filter: ['!=', ['get', '_caution'], 'SBDARE'],
+                filter: ['!', ['in', ['get', '_caution'], ['literal', ['SBDARE', 'WEDKLP']]]],
                 paint: {
                     'fill-color': colourExpr as mapboxgl.ExpressionSpecification,
                     // The separation ZONE is a keep-out, not a lane — it reads
@@ -62,7 +62,7 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
                 // Anchoring-decision zoom — at z11 the olive wash over every
                 // seabed polygon was pure clutter (audit).
                 minzoom: 13,
-                filter: ['==', ['get', '_caution'], 'SBDARE'],
+                filter: ['in', ['get', '_caution'], ['literal', ['SBDARE', 'WEDKLP']]],
                 paint: {
                     'fill-color': ['coalesce', ['get', '_seabedTint'], '#8a8a5a'],
                     'fill-opacity': 0.06,
@@ -78,7 +78,11 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
                 type: 'symbol',
                 source: ENC_VEC_SRC.CAUTION_AREAS,
                 minzoom: 13,
-                filter: ['all', ['==', ['get', '_caution'], 'SBDARE'], ['==', ['geometry-type'], 'Point']],
+                filter: [
+                    'all',
+                    ['in', ['get', '_caution'], ['literal', ['SBDARE', 'WEDKLP']]],
+                    ['==', ['geometry-type'], 'Point'],
+                ],
                 layout: {
                     'text-field': ['get', '_seabedAbbr'],
                     'text-size': 12,
@@ -101,7 +105,7 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
                 // every seabed polygon at z11 = clutter, and taps on them fell
                 // through to a depth-not-seabed answer). Its subtle fill above
                 // is the visual; the DEPARE popup carries the seabed read.
-                filter: ['!=', ['get', '_caution'], 'SBDARE'],
+                filter: ['!', ['in', ['get', '_caution'], ['literal', ['SBDARE', 'WEDKLP']]]],
                 layout: { 'line-join': 'round' },
                 paint: {
                     'line-color': colourExpr as mapboxgl.ExpressionSpecification,

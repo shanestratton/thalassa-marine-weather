@@ -269,7 +269,8 @@ export function ChartKeyPanel({
                 <p className="mt-1.5">
                     Seabed at close zoom (13+): S sand, M mud, Cy clay, Si silt, St stone, G gravel, P pebbles, Cb
                     cobbles, R rock/lava/boulders, Co coral, Sh shells; S/R means sand over rock. Faint tints show
-                    charted bottom type. Holding advice is a prompt to check, never a reason to rule out an anchorage.
+                    charted bottom type. Kelp, Weed, Grass and Sargassum label charted vegetation separately. Holding
+                    advice is a prompt to check, never a reason to rule out an anchorage.
                 </p>
             </div>
         </div>

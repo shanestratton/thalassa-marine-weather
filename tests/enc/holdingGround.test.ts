@@ -68,6 +68,28 @@ describe('local loaded-chart holding advice', () => {
         expect(currentHoldingGroundAt(0, 180).kind).toBe('unknown');
         expect(fetch).not.toHaveBeenCalled();
     });
+    it('reads loaded vegetation as a separate chart layer without inventing NATSUR', () => {
+        const vegetation = {
+            ...blob,
+            layers: {
+                WEDKLP: {
+                    type: 'FeatureCollection',
+                    features: [
+                        {
+                            type: 'Feature',
+                            geometry: { type: 'Point', coordinates: [180, 0] },
+                            properties: { CATWED: 1 },
+                        },
+                    ],
+                },
+            },
+        } as EncConversionResult;
+        cache.blobs.set(cell.id, vegetation);
+        expect(currentHoldingGroundAt(0, 180)).toMatchObject({ kind: 'poor', pointSample: true });
+        expect(currentHoldingGroundAt(0, 180).text).toContain('kelp');
+        expect(vegetation.layers.WEDKLP!.features[0].properties).toEqual({ CATWED: 1 });
+        expect(fetch).not.toHaveBeenCalled();
+    });
     it('refuses reference charts and oversized work sets before geometry reads', () => {
         cache.cells = [{ ...cell, usage: 'reference' }];
         expect(currentHoldingGroundAt(0, 180).kind).toBe('unknown');

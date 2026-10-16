@@ -37,7 +37,7 @@ import {
 import { buildCellGlaze } from './glazeBuild';
 import { reduceNamedAreas } from './seaareLabels';
 import { explodeSoundings } from './encHazardParse';
-import { seabedNature } from './seabed';
+import { chartBottomNature } from './seabed';
 import { buildSectorFeatures, readSectorBearings } from './lightSectors';
 import type { GlazeUpgradeItem } from './geometryUpgrades';
 import {
@@ -529,7 +529,8 @@ export async function accumulateCellLayers(
             // tagAndPush yield and the next cell. Counter spans all classes.
             if ((++cautionSeen & 63) === 0) await yieldIfNeeded();
             if (!feat || !feat.geometry) continue;
-            if (cullDeg > 0 && !(cls === 'SBDARE' && feat.geometry.type === 'Point') && featureDiagDeg(feat) < cullDeg)
+            const isBottom = cls === 'SBDARE' || cls === 'WEDKLP';
+            if (cullDeg > 0 && !(isBottom && feat.geometry.type === 'Point') && featureDiagDeg(feat) < cullDeg)
                 continue;
             merged.CAUTION_AREAS.features.push({
                 type: 'Feature',
@@ -539,9 +540,9 @@ export async function accumulateCellLayers(
                     _caution: cls,
                     _cellId: cell.id,
                     _sourceHO: cell.sourceHO,
-                    ...(cls === 'SBDARE'
+                    ...(isBottom
                         ? (() => {
-                              const bottom = seabedNature(feat.properties?.NATSUR ?? feat.properties?.natsur);
+                              const bottom = chartBottomNature({ ...feat.properties, _caution: cls });
                               return { _seabedAbbr: bottom.abbreviation, _seabedTint: bottom.tint };
                           })()
                         : {}),

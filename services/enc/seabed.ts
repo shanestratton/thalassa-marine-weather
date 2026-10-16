@@ -19,7 +19,13 @@ const NATURE: Record<number, readonly [string, string, string]> = {
     17: ['Shells', 'Sh', '#b6ad99'],
     18: ['Boulders', 'R', '#9c8b8b'],
 };
-export function seabedNature(value: unknown) {
+const VEGETATION: typeof NATURE = {
+    1: ['Kelp', 'Kelp', '#80966b'],
+    2: ['Sea weed', 'Weed', '#80966b'],
+    3: ['Sea grass', 'Grass', '#80966b'],
+    4: ['Sargassum', 'Sargassum', '#80966b'],
+};
+function decodeNature(value: unknown, dictionary: typeof NATURE, vegetation = false) {
     const truncated = (Array.isArray(value) && value.length > 16) || (typeof value === 'string' && value.length > 128);
     const raw = Array.isArray(value)
         ? value
@@ -45,7 +51,7 @@ export function seabedNature(value: unknown) {
         }
         if (!token.trim()) continue;
         const code = /^\d{1,3}$/.test(token.trim()) ? Number(token) : NaN;
-        const material = NATURE[code];
+        const material = dictionary[code];
         unknown ||= !material;
         if (Number.isInteger(code)) codes.push(code);
         if (label) {
@@ -60,9 +66,19 @@ export function seabedNature(value: unknown) {
         label,
         abbreviation,
         unknown: unknown || !label,
-        tint: NATURE[codes[0]]?.[2] ?? '#8a8a5a',
-        poor: codes.some((code) => [5, 8, 9, 11, 14, 18].includes(code)),
+        tint: dictionary[codes[0]]?.[2] ?? '#8a8a5a',
+        poor: vegetation || codes.some((code) => [5, 8, 9, 11, 14, 18].includes(code)),
     };
+}
+export function seabedNature(value: unknown) {
+    return decodeNature(value, NATURE);
+}
+/** CATWED belongs to WEDKLP, never to the NATSUR code list. These are
+ * plain-language vegetation labels, separate from S-52 bottom abbreviations. */
+export function chartBottomNature(properties: Record<string, unknown>) {
+    return properties._caution === 'WEDKLP' || properties.acronym === 'WEDKLP'
+        ? decodeNature(properties.CATWED ?? properties.catwed, VEGETATION, true)
+        : seabedNature(properties.NATSUR ?? properties.natsur);
 }
 
 /** Bounded, in-memory advisory only. Never fetches, stores, logs, grades or
@@ -78,7 +94,7 @@ export function holdingGroundAt(lat: number, lon: number, features: readonly Fea
         rings = 0;
     for (const feature of features) {
         const p = feature?.properties;
-        if (!p || p._reference || (p._caution !== 'SBDARE' && p.acronym !== 'SBDARE')) continue;
+        if (!p || p._reference || !['SBDARE', 'WEDKLP'].includes(String(p._caution ?? p.acronym))) continue;
         const g = feature.geometry;
         if (!g) continue;
         let contains = false;
@@ -109,7 +125,7 @@ export function holdingGroundAt(lat: number, lon: number, features: readonly Fea
                     : { ...g, coordinates: g.coordinates.map((poly) => poly.map(ring)) };
             if (!ambiguous) contains = pointInGeometry(lon, lat, shifted);
         }
-        if (contains) matches.push(seabedNature(p.NATSUR ?? p.natsur));
+        if (contains) matches.push(chartBottomNature(p));
     }
     if (!matches.length) return none;
     const labels = [...new Set(matches.map((m) => m.label || 'Unknown'))];

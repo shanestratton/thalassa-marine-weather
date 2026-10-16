@@ -95,6 +95,7 @@ const coarseBlob: EncConversionResult = {
         // Caution area → CAUTION_AREAS tagged _caution.
         RESARE: fc([feat(square(3.2, 0.2, 3.7, 0.7), { RESTRN: '7' })]),
         SBDARE: fc([feat({ type: 'Point', coordinates: [3, 1] }, { NATSUR: '4,17', LNAM: 'US-synthetic-bottom' })]),
+        WEDKLP: fc([feat({ type: 'Point', coordinates: [3, 1.1] }, { CATWED: 1, LNAM: 'US-synthetic-weed' })]),
     },
 };
 
@@ -197,7 +198,7 @@ describe('buildMergedVectorData e2e (real fold over a coarse+fine library)', () 
     });
 
     it('CAUTION AREAS: RESARE folds in tagged with its class + provenance', () => {
-        expect(merged.CAUTION_AREAS.features).toHaveLength(2);
+        expect(merged.CAUTION_AREAS.features).toHaveLength(3);
         expect(merged.CAUTION_AREAS.features[0].properties).toMatchObject({
             _caution: 'RESARE',
             RESTRN: '7',
@@ -216,6 +217,11 @@ describe('buildMergedVectorData e2e (real fold over a coarse+fine library)', () 
             NATSUR: '4,17',
             LNAM: 'US-synthetic-bottom',
         });
+        expect(wide.CAUTION_AREAS.features.find((f) => f.properties?._caution === 'WEDKLP')).toMatchObject({
+            geometry: { type: 'Point', coordinates: [3, 1.1] },
+            properties: { CATWED: 1, LNAM: 'US-synthetic-weed', _seabedAbbr: 'Kelp', _cellId: 'COARSE' },
+        });
+        expect(coarseBlob.layers.WEDKLP!.features[0].properties).toEqual({ CATWED: 1, LNAM: 'US-synthetic-weed' });
     });
 
     it('SEAARE: named water reduces to ONE label point', () => {

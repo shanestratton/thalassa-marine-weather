@@ -14,7 +14,7 @@ import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
 import { ENC_VEC_LAYERS, encBaseLayerId } from './encLayerIds';
 import { daylightUiColor } from '../../utils/daylightUiColor';
-import { seabedNature } from '../../services/enc/seabed';
+import { chartBottomNature, seabedNature } from '../../services/enc/seabed';
 
 /**
  * Escape HTML special chars so feature properties (e.g. `OBJNAM`
@@ -396,7 +396,7 @@ export function buildFeaturePopupHtml(
         // Seabed nature under the tap (co-located SBDARE) — the anchoring
         // read, in the popup a punter actually opens ("Seabed: Sand / Mud").
         if (extras.seabed) {
-            const sb = natsurNames(readS57(extras.seabed, 'NATSUR'));
+            const sb = chartBottomNature(extras.seabed).label;
             if (sb) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(sb)}</b></div>`;
         }
         // Caution areas under the tap — the depth/keel read stays the star,
