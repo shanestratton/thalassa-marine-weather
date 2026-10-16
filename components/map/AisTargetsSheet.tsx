@@ -1,5 +1,7 @@
 /** Loaded only when the skipper opens Targets. Both sensors keep their full picture. */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { RadarStore } from '../../services/radar/radarStore';
+import { radarDisplayRows } from '../../services/radar/radarPresentation';
 import { AisStore } from '../../services/AisStore';
 import { gradeCollisionTargets, readCollisionInputs } from '../../services/AisGuardWatch';
 import { readAisTargetPicture, subscribeAisTargetPicture } from '../../services/ais/aisTargetCache';
@@ -32,6 +34,7 @@ export function AisTargetsSheet({
             window.clearInterval(timer);
         };
     }, []);
+    const radarPicture = useSyncExternalStore(RadarStore.subscribe, RadarStore.getSnapshot);
     const features = readAisTargetPicture();
     const inputs = readCollisionInputs(now);
     const graded = inputs.own
@@ -46,11 +49,25 @@ export function AisTargetsSheet({
           )
         : [];
     const assessments = new Map(graded.map((candidate) => [candidate.mmsi, candidate.assessment]));
+    const radarRows = radarDisplayRows(
+        radarPicture,
+        features.filter((f) => !inputs.ownMmsis.has(Number(f.properties?.mmsi))),
+        now,
+        inputs.prefs,
+        inputs.atAnchor,
+        assessments,
+    ).sort((a, b) => (a.rangeNm ?? Infinity) - (b.rangeNm ?? Infinity));
+    const radarMerged = new Set(radarRows.flatMap((r) => (r.ais ? [Number(r.ais.properties?.mmsi)] : [])));
     const rows = features
         .flatMap((feature) => {
             const p = feature.properties ?? {};
             const mmsi = Number(p.mmsi);
-            if (inputs.ownMmsis.has(mmsi) || !aisDisplayPasses(p, filters, assessments.get(mmsi)?.risk)) return [];
+            if (
+                radarMerged.has(mmsi) ||
+                inputs.ownMmsis.has(mmsi) ||
+                !aisDisplayPasses(p, filters, assessments.get(mmsi)?.risk)
+            )
+                return [];
             const [lon, lat] = feature.geometry.coordinates;
             const distance = inputs.own ? calculateDistance(inputs.own.lat, inputs.own.lon, lat, lon) : null;
             const bearing = inputs.own ? calculateBearing(inputs.own.lat, inputs.own.lon, lat, lon) : null;
@@ -77,20 +94,58 @@ export function AisTargetsSheet({
             style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}
         >
             <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-bold">Targets · {rows.length}</h2>
+                <h2 className="text-lg font-bold">Targets · {rows.length + radarRows.length}</h2>
                 <button type="button" className="min-h-[44px] px-4" onClick={onClose} aria-label="Close targets">
                     Close
                 </button>
             </div>
             <p className="mb-3 text-xs text-slate-400">
                 Display filters from Preferences apply. DANGER, CAUTION and distress always show. Tap a vessel for its
-                details.
+                details. Radar requires a connected physical feed; ambiguous motion stays range only.
             </p>
             <div className="min-h-0 flex-1 overflow-y-auto space-y-2">
                 <AisCoverageNotice />
-                {rows.length === 0 && (
+                {rows.length === 0 && radarRows.length === 0 && (
                     <p className="p-4 text-sm text-slate-300">No targets match the display filters.</p>
                 )}
+                {radarRows.map((row) => (
+                    <button
+                        type="button"
+                        key={row.contact.contactKey}
+                        className="min-h-[64px] w-full rounded-xl border border-cyan-400/30 bg-slate-900 p-3 text-left"
+                        onClick={() =>
+                            onSelect({
+                                type: 'Feature',
+                                geometry: {
+                                    type: 'Point',
+                                    coordinates: [row.contact.position!.lon, row.contact.position!.lat],
+                                },
+                                properties: { source: 'radar', radarContactKey: row.contact.contactKey },
+                            })
+                        }
+                    >
+                        <span className="block font-bold">
+                            {row.ais ? 'AIS + radar' : 'Radar'} · {row.name}
+                            {row.assessment?.risk === 'DANGER' || row.assessment?.risk === 'CAUTION'
+                                ? ` · ${row.assessment.risk}`
+                                : ''}
+                        </span>
+                        <span className="block text-xs text-slate-300">
+                            {row.rangeNm === null ? 'Range —' : `${row.rangeNm.toFixed(2)} NM`} ·
+                            {row.bearingDeg === null
+                                ? ' Bearing —'
+                                : ` ${Math.round(row.bearingDeg).toString().padStart(3, '0')}°T`}{' '}
+                            · CPA {row.assessment?.cpaNm == null ? 'unknown' : `${row.assessment.cpaNm.toFixed(2)} NM`}
+                        </span>
+                        <span className="block text-xs text-slate-400">
+                            Radar target {row.contact.targetNumber} · {row.contact.talker} ·{' '}
+                            {Math.max(0, Math.round((now - row.contact.at) / 1000))} s old
+                            {row.contact.fresh ? '' : ' · stale'}
+                            {!row.contact.motion ? ' · ground motion unknown' : ''}
+                            {row.ais ? ` · MMSI ${Number(row.ais.properties?.mmsi)}` : ''}
+                        </span>
+                    </button>
+                ))}
                 {rows.map(({ feature, p, mmsi, distance, bearing, assessment, age }) => (
                     <button
                         type="button"

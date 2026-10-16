@@ -832,7 +832,12 @@ function decodeShipType(code: number): { icon: string; label: string } {
     return { icon: '🚢', label: 'Unknown Type' };
 }
 
-export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): void {
+const NO_RADAR_MERGES: ReadonlySet<number> = new Set();
+export function useAisStreamLayer(
+    map: mapboxgl.Map | null,
+    enabled: boolean,
+    radarMergedMmsis: ReadonlySet<number> = NO_RADAR_MERGES,
+): void {
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const requestGeneration = useRef(0);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
@@ -1024,11 +1029,16 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                       inputs.atAnchor,
                   )
                 : [];
-            const mask = aisDisplayMmsiFilter(
+            const aisMask = aisDisplayMmsiFilter(
                 merged.features,
                 useSettingsStore.getState().settings.aisDisplayFilters,
                 new Map(grades.map((target) => [target.mmsi, target.assessment.risk])),
             );
+            // A proven association is drawn once by the radar layer with both sensors' worst risk.
+            // The full AIS source and its alarm/ack identity remain untouched.
+            const mask: mapboxgl.FilterSpecification = radarMergedMmsis.size
+                ? ['all', aisMask, ['!', ['in', ['to-number', ['get', 'mmsi']], ['literal', [...radarMergedMmsis]]]]]
+                : aisMask;
             for (const id of [
                 'ais-targets-glow',
                 'ais-targets-circle',
@@ -1064,7 +1074,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 writeAisMapData(map, 'ais-guard-zone', { type: 'FeatureCollection', features: [] });
             }
         }
-    }, [map, enabled]);
+    }, [map, enabled, radarMergedMmsis]);
 
     // Age and selected trails must advance even when a receiver/network is quiet.
     useEffect(() => {

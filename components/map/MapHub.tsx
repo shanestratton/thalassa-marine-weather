@@ -94,6 +94,7 @@ import { usePinViewMode, readCurrentPinView, type PinViewHandoff } from './usePi
 // Manual route editing happens through the route planner instead.
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
+import { useRadarLayer } from './useRadarLayer';
 import { useCycloneLayer } from './useCycloneLayer';
 import { useSquallMap } from './useSquallMap';
 import { useVesselTracker } from './useVesselTracker';
@@ -3476,7 +3477,8 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── AIS Vessel Target Layer ──
     useAisLayer(mapRef, mapReady, browseAisVisible);
-    useAisStreamLayer(mapReady ? mapRef.current : null, browseAisVisible);
+    const radarMergedMmsis = useRadarLayer(mapReady ? mapRef.current : null, browseAisVisible);
+    useAisStreamLayer(mapReady ? mapRef.current : null, browseAisVisible, radarMergedMmsis);
 
     // ── Signal K Nautical Charts ──
     const skCharts = useAvNavCharts(mapRef, mapReady, planningSurface ? noChartIds : skChartIds, skChartOpacity);
@@ -5794,9 +5796,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     retainPadding: false,
                                 });
                                 window.dispatchEvent(
-                                    new CustomEvent('thalassa:select-ais-target', {
-                                        detail: { mmsi: Number(feature.properties?.mmsi) },
-                                    }),
+                                    new CustomEvent(
+                                        feature.properties?.radarContactKey
+                                            ? 'thalassa:select-radar-target'
+                                            : 'thalassa:select-ais-target',
+                                        {
+                                            detail: feature.properties?.radarContactKey
+                                                ? { contactKey: String(feature.properties.radarContactKey) }
+                                                : { mmsi: Number(feature.properties?.mmsi) },
+                                        },
+                                    ),
                                 );
                             }}
                         />
