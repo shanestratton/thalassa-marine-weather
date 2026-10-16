@@ -3,12 +3,24 @@ import { createRoot } from 'react-dom/client';
 import '../../index.css';
 if (!import.meta.env.DEV) throw new Error('Development fixture only');
 const { setAuthIdentityScope } = await import('../../services/authIdentityScope');
+const [{ useSettingsStore, awaitSettingsLoaded }, { AisStore }, { AisTargetsSheet }, { useAuthStore }] =
+    await Promise.all([
+        import('../../stores/settingsStore'),
+        import('../../services/AisStore'),
+        import('../../components/map/AisTargetsSheet'),
+        import('../../stores/authStore'),
+    ]);
+if (!useAuthStore.getState().authChecked)
+    await new Promise<void>((resolve) => {
+        const stop = useAuthStore.subscribe((state) => {
+            if (state.authChecked) {
+                stop();
+                resolve();
+            }
+        });
+    });
 setAuthIdentityScope('10000000-0000-4000-8000-000000000001');
-const [{ useSettingsStore }, { AisStore }, { AisTargetsSheet }] = await Promise.all([
-    import('../../stores/settingsStore'),
-    import('../../services/AisStore'),
-    import('../../components/map/AisTargetsSheet'),
-]);
+await awaitSettingsLoaded();
 useSettingsStore.setState({
     activeVesselId: '20000000-0000-4000-8000-000000000001',
     settings: { ...useSettingsStore.getState().settings, satelliteMode: false },

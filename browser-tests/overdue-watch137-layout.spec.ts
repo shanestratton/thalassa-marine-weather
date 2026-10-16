@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { fixtureBackendOrigin } from './helpers/fixtureBackendOrigin';
+const backendOrigin = fixtureBackendOrigin('https://shore-contact.fixture.invalid');
 const owner = '10000000-0000-4000-8000-000000000001',
     boat = '20000000-0000-4000-8000-000000000001',
     contact = '30000000-0000-4000-8000-000000000001',
@@ -12,7 +14,7 @@ for (const width of [300, 375])
         await page.route('**/*', (route) => {
             const url = new URL(route.request().url());
             if (['localhost', '127.0.0.1'].includes(url.hostname)) return route.continue();
-            if (url.hostname === 'shore-contact.fixture.invalid') {
+            if (url.origin === backendOrigin) {
                 if (url.pathname.endsWith('/overdue_watch_status'))
                     return route.fulfill({
                         json: {

@@ -263,6 +263,11 @@ export default defineConfig({
         // phone). Only SignInScreen and googleSignIn read these, and no other
         // fixture opens the sheet. Google also needs VITE_GOOGLE_OAUTH_CLIENT_ID,
         // which .env.local and the CI job both carry.
-        env: { VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true', VITE_GOOGLE_SIGN_IN_ENABLED: 'true' },
+        env: {
+            VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true',
+            VITE_GOOGLE_SIGN_IN_ENABLED: 'true',
+            // Fictional layout fixtures must never emit production telemetry.
+            VITE_SENTRY_DSN: '',
+        },
     },
 });

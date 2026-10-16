@@ -4,12 +4,30 @@ import { createRoot } from 'react-dom/client';
 import '../../index.css';
 if (!import.meta.env.DEV) throw new Error('Development fixture only');
 const { setAuthIdentityScope } = await import('../../services/authIdentityScope');
-setAuthIdentityScope('10000000-0000-4000-8000-000000000001');
-const [{ useSettingsStore }, { useFollowRouteStore }, { default: WeatherWatchSection }] = await Promise.all([
+const [
+    { useSettingsStore, awaitSettingsLoaded },
+    { useFollowRouteStore },
+    { default: WeatherWatchSection },
+    { useAuthStore },
+] = await Promise.all([
     import('../../stores/settingsStore'),
     import('../../stores/followRouteStore'),
     import('../../components/settings/WeatherWatchSection'),
+    import('../../stores/authStore'),
 ]);
+// Finish the real empty-session bootstrap before installing the fictional
+// owner; a late anonymous completion must not retire the fixture's scope.
+if (!useAuthStore.getState().authChecked)
+    await new Promise<void>((resolve) => {
+        const stop = useAuthStore.subscribe((state) => {
+            if (state.authChecked) {
+                stop();
+                resolve();
+            }
+        });
+    });
+setAuthIdentityScope('10000000-0000-4000-8000-000000000001');
+await awaitSettingsLoaded();
 useSettingsStore.setState({
     activeVesselId: '20000000-0000-4000-8000-000000000001',
     settings: {

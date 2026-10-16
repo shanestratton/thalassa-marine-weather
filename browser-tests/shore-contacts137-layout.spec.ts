@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { fixtureBackendOrigin } from './helpers/fixtureBackendOrigin';
+const backendOrigin = fixtureBackendOrigin('https://shore-contact.fixture.invalid');
 for (const width of [300, 375]) {
     test(`email fragment requires deliberate consent and fits ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 640 });
@@ -7,7 +9,7 @@ for (const width of [300, 375]) {
         await page.route('**/*', (route) => {
             const u = new URL(route.request().url());
             if (['localhost', '127.0.0.1'].includes(u.hostname)) return route.continue();
-            if (u.hostname === 'shore-contact.fixture.invalid') {
+            if (u.origin === backendOrigin) {
                 if (u.pathname.endsWith('/shore_contacts_list'))
                     return route.fulfill({
                         json: {
@@ -132,7 +134,7 @@ for (const width of [300, 375]) {
         await page.route('**/*', (route) => {
             const u = new URL(route.request().url());
             if (['localhost', '127.0.0.1'].includes(u.hostname)) return route.continue();
-            if (u.hostname === 'shore-contact.fixture.invalid') {
+            if (u.origin === backendOrigin) {
                 if (u.pathname.endsWith('/shore_contacts_list'))
                     return route.fulfill({
                         json: {
