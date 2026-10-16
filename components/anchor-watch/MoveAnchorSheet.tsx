@@ -483,6 +483,18 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const bearingText = typedBearing ?? (heading ? String(Math.round(heading.deg) % 360).padStart(3, '0') : '');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [zoneToken, setZoneToken] = useState<string | null>(null);
+    const [zoneCleared, setZoneCleared] = useState(false);
+    useEffect(() => {
+        if (!snapshot?.safeZone) return;
+        let live = true;
+        void AnchorWatchService.getSafeZoneEditToken().then((token) => {
+            if (live) setZoneToken(token);
+        });
+        return () => {
+            live = false;
+        };
+    }, [snapshot?.safeZone]);
     // 126-07d: the last chart-area answer, and the point it was about.
     const [area, setArea] = useState<{ at: { lat: number; lon: number }; check: AnchorAreaCheck } | null>(null);
     const areaAskedRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -995,6 +1007,37 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                         <p role="alert" className="text-sm text-red-300">
                             {error}
                         </p>
+                    )}
+                    {snapshot?.safeZone && !zoneCleared && (
+                        <div className="space-y-1 rounded-lg border border-cyan-500/40 p-2 text-sm">
+                            <p>
+                                The custom safe area will not move with the mark. Clear it explicitly to return to the
+                                circle before moving. {fromAlarm ? 'This does not silence the alarm.' : ''}
+                            </p>
+                            <button
+                                type="button"
+                                disabled={busy || !zoneToken}
+                                className="min-h-11 w-full rounded-lg border border-cyan-300 px-2 font-bold"
+                                onClick={async () => {
+                                    if (!zoneToken) return;
+                                    setBusy(true);
+                                    setError(null);
+                                    try {
+                                        const result = await AnchorWatchService.clearSafeZoneForMove(zoneToken);
+                                        if (result.ok) setZoneCleared(true);
+                                        else setError(result.error);
+                                    } catch (caught) {
+                                        setError(
+                                            caught instanceof Error ? caught.message : 'The custom area was kept.',
+                                        );
+                                    } finally {
+                                        setBusy(false);
+                                    }
+                                }}
+                            >
+                                Clear area; keep circle watch
+                            </button>
+                        </div>
                     )}
                     {!fromAlarm && plan && <HoldingGroundText advice={holding} className={KEYBOARD_ASIDE} />}
                     {/* Side by side at every size, so the pair is one row even at

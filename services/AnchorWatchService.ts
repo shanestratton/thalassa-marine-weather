@@ -52,6 +52,8 @@ import {
     writeAnchorWatchRecovery,
 } from './anchorWatchRecoveryStorage';
 import { piFix } from './boatPositionChain';
+import { anchorSafeZoneContains, parseAnchorSafeZone, type AnchorSafeZone } from '../utils/anchorSafeZone';
+import { anchorSafeZoneDisplay } from '../utils/anchorSafeZoneDisplay';
 import {
     AFTER_MOVE_WATCH_MS,
     FURTHER_AFTER_MOVE,
@@ -153,6 +155,8 @@ export type AnchorWatchState = 'idle' | 'setting' | 'watching' | 'alarm' | 'paus
 export type GuardianAutoStatus = 'idle' | 'arming' | 'armed' | 'failed' | 'already_armed';
 
 export interface AnchorWatchSnapshot {
+    /** Explicit manual boundary; the native circle remains the independent backstop. */
+    safeZone?: AnchorSafeZone | null;
     state: AnchorWatchState;
     anchorPosition: AnchorPosition | null;
     vesselPosition: VesselPosition | null;
@@ -252,6 +256,7 @@ const DEFAULT_ANCHOR_CONFIG: AnchorWatchConfig = {
 
 /** Minimal state persisted for crash recovery */
 interface PersistedWatchState {
+    safeZone?: AnchorSafeZone | null;
     anchorPosition: AnchorPosition;
     config: AnchorWatchConfig;
     state: AnchorWatchState;
@@ -547,6 +552,9 @@ class AnchorWatchServiceClass {
      * into the new account's persistence namespace.
      */
     private watchPersistenceScope: AuthIdentityScope | null = null;
+    private safeZone: AnchorSafeZone | null = null;
+    private safeZoneLastFixAt: number | null = null;
+    private safeZoneEditRevision = 0;
 
     // Guardian bridge state
     private guardianArmedByUs = false;
@@ -631,6 +639,7 @@ class AnchorWatchServiceClass {
         // remains visible and stoppable after logout/session expiry; hiding a
         // foreign paused cleanup would strand native GPS/geofence effects.
         return {
+            safeZone: this.safeZone,
             state: this.state,
             anchorPosition: this.anchorPosition,
             vesselPosition: this.vesselPosition,
@@ -786,10 +795,12 @@ class AnchorWatchServiceClass {
         }
         // The allowance is this drop's own, from where its fix came (below).
         this.config = withAntennaAllowance(validatedConfig.config, 0);
+        this.safeZone = null;
 
         this.setupError = null;
         this.alarmNotificationError = null;
         this.state = 'setting';
+        this.safeZone = null;
         this.notify();
 
         try {
@@ -965,6 +976,112 @@ class AnchorWatchServiceClass {
     }
 
     /** Update rode/depth config while watching */
+    /** The editor captures this before drawing; delayed edits cannot cross watches, boats or accounts. */
+    async getSafeZoneEditToken(): Promise<string> {
+        const { anchorSafeZoneContextKey } = await import('./anchorSafeZoneContext');
+        return JSON.stringify([
+            anchorSafeZoneContextKey(),
+            this.watchStartedAt,
+            this.safeZoneEditRevision,
+            this.anchorPosition,
+            this.swingRadius,
+            this.safeZone,
+        ]);
+    }
+
+    /** Explicit manual-area edit on the serialized safety queue. No native fence is removed. */
+    async updateSafeZone(value: unknown, expectedToken: string): Promise<AnchorRelocateResult> {
+        return this.runExclusive(async () => {
+            const { anchorSafeZoneContextKey } = await import('./anchorSafeZoneContext');
+            const context = anchorSafeZoneContextKey();
+            if (expectedToken !== (await this.getSafeZoneEditToken()))
+                return { ok: false, error: 'The watch, account or vessel changed. Open the safe-area editor again.' };
+            if (this.state !== 'watching' || !this.anchorPosition)
+                return {
+                    ok: false,
+                    error: 'Edit the safe area only while this phone is watching. Silence an alarm first.',
+                };
+            if (this.watchPersistenceScope && this.watchPersistenceScope.key !== getAuthIdentityScope().key)
+                return {
+                    ok: false,
+                    error: 'This watch belongs to the account that set it. Use that account to edit its area.',
+                };
+            const frame = { ...this.anchorPosition, radiusM: this.swingRadius };
+            const parsed = value == null ? null : parseAnchorSafeZone(value, frame);
+            if (parsed && !parsed.ok) return { ok: false, error: parsed.error };
+            const next = parsed?.ok ? parsed.zone : null;
+            if (next) {
+                const fix = this.vesselPosition;
+                if (
+                    !fix ||
+                    Date.now() - fix.timestamp > ANCHOR_RELOCATE_FIX_MAX_AGE_MS ||
+                    fix.timestamp > Date.now() + 5_000
+                )
+                    return { ok: false, error: 'Wait for a recent boat position before confirming the safe area.' };
+                if (anchorSafeZoneContains(next, frame, fix) !== true)
+                    return { ok: false, error: 'The boat must be inside the proposed safe area. Review the outline.' };
+            }
+            const previous = this.safeZone;
+            try {
+                await this.boundedEditStep('Saving the safe area', () => this.persistWatchStateRequired(next));
+                if (anchorSafeZoneContextKey() !== context) throw Error('The account or vessel changed while saving.');
+                this.safeZone = next;
+                this.outsideCircleCount = 0;
+                this.safeZoneLastFixAt = this.vesselPosition?.timestamp ?? null;
+                this.safeZoneEditRevision++;
+                this.notify();
+                return { ok: true };
+            } catch (error) {
+                this.safeZone = previous;
+                const restored = await this.persistWatchStateBounded();
+                if (!restored) {
+                    this.state = 'paused';
+                    this.setupError =
+                        'The prior safe area could not be saved again. Verified monitoring is blocked; retry or Weigh Anchor.';
+                }
+                this.notify();
+                return {
+                    ok: false,
+                    error: `${this.asError(error).message} The prior area and native circle were kept.`,
+                };
+            }
+        });
+    }
+
+    /** Clear during an explicit move review, including its alarm mode; never acknowledges the alarm. */
+    async clearSafeZoneForMove(expectedToken: string): Promise<AnchorRelocateResult> {
+        return this.runExclusive(async () => {
+            const { anchorSafeZoneContextKey } = await import('./anchorSafeZoneContext');
+            const context = anchorSafeZoneContextKey();
+            if (expectedToken !== (await this.getSafeZoneEditToken()))
+                return { ok: false, error: 'The watch changed. Review the move again.' };
+            if (!this.anchorPosition || !['watching', 'paused', 'alarm'].includes(this.state))
+                return { ok: false, error: 'There is no anchor watch to review.' };
+            if (this.watchPersistenceScope && this.watchPersistenceScope.key !== getAuthIdentityScope().key)
+                return { ok: false, error: 'Use the account that set this watch to review its area.' };
+            const previous = this.safeZone;
+            try {
+                await this.boundedEditStep('Saving circle-only watch', () => this.persistWatchStateRequired(null));
+                if (anchorSafeZoneContextKey() !== context) throw Error('The account or vessel changed while saving.');
+                this.safeZone = null;
+                this.outsideCircleCount = 0;
+                this.safeZoneEditRevision++;
+                this.notify();
+                return { ok: true };
+            } catch (error) {
+                this.safeZone = previous;
+                const restored = await this.persistWatchStateBounded();
+                if (!restored) {
+                    if (this.state !== 'alarm') this.state = 'paused';
+                    this.setupError =
+                        'The prior safe area could not be saved again. Verified monitoring is blocked; retry or Weigh Anchor.';
+                }
+                this.notify();
+                return { ok: false, error: `${this.asError(error).message} The custom area was kept.` };
+            }
+        });
+    }
+
     async updateConfig(config: Partial<AnchorWatchConfig>): Promise<boolean> {
         return this.runExclusive(() => this.updateConfigLocked(config));
     }
@@ -980,6 +1097,16 @@ class AnchorWatchServiceClass {
         }
         const nextConfig = validatedConfig.config;
         const nextRadius = calculateValidatedSwingRadius(nextConfig);
+        if (
+            this.safeZone &&
+            this.anchorPosition &&
+            !parseAnchorSafeZone(this.safeZone, { ...this.anchorPosition, radiusM: nextRadius }).ok
+        ) {
+            this.setupError =
+                'The smaller circle would cut off the custom safe area. Clear or review the area before changing the radius.';
+            this.notify();
+            return false;
+        }
 
         if (this.state === 'idle') {
             this.config = nextConfig;
@@ -998,6 +1125,7 @@ class AnchorWatchServiceClass {
                 await this.refenceBounded('Moving the swing circle');
             }
             await this.boundedEditStep('Saving the swing circle', () => this.persistWatchStateRequired());
+            this.safeZoneEditRevision++;
             this.setupError = null;
             this.notify();
             return true;
@@ -1064,6 +1192,10 @@ class AnchorWatchServiceClass {
 
     private async relocateAnchorLocked(lat: number, lon: number): Promise<AnchorRelocateResult> {
         const refuse = (error: string): AnchorRelocateResult => ({ ok: false, error });
+        if (this.safeZone)
+            return refuse(
+                'Clear the custom safe area in this move sheet before moving the anchor. It will not move with the mark.',
+            );
         if (this.state === 'alarm') return refuse('Silence the alarm before moving the anchor.');
         if (this.state === 'setting') return refuse('The anchor watch is still starting. Try again in a moment.');
         const previous = this.anchorPosition;
@@ -1102,6 +1234,7 @@ class AnchorWatchServiceClass {
         try {
             if (this.state === 'watching') await this.refenceBounded('Moving the swing circle');
             await this.boundedEditStep('Saving the move', () => this.persistWatchStateRequired());
+            this.safeZoneEditRevision++;
             // A paused watch keeps the reason it is blocked on screen.
             if (this.state === 'watching') this.setupError = null;
             // A drift watch from an earlier move from the alarm measured from
@@ -1182,6 +1315,11 @@ class AnchorWatchServiceClass {
     }
 
     private async relocateAnchorFromAlarmLocked(lat: number, lon: number): Promise<AnchorRelocateResult> {
+        if (this.safeZone)
+            return {
+                ok: false,
+                error: 'Clear the custom safe area in this move sheet before moving the anchor. The alarm remains active.',
+            };
         const refuse = (error: string): AnchorRelocateResult => ({ ok: false, error });
         const previous = this.anchorPosition;
         if (this.state !== 'alarm' || !previous) {
@@ -1226,6 +1364,7 @@ class AnchorWatchServiceClass {
             this.alarmDetail = null;
             this.outsideCircleCount = 0;
             await this.boundedEditStep('Saving the move', () => this.persistWatchStateRequired());
+            this.safeZoneEditRevision++;
         } catch (error) {
             failures.push(this.asError(error));
             this.state = 'alarm';
@@ -1441,6 +1580,7 @@ class AnchorWatchServiceClass {
         this.setupError = null;
         this.alarmNotificationError = null;
         this.anchorPosition = null;
+        this.safeZone = null;
         this.positionHistory = [];
         this.swingTrack.clear();
         this.alarmTriggeredAt = null;
@@ -1674,6 +1814,7 @@ class AnchorWatchServiceClass {
                 persisted.markedAtGps === true,
             );
             this.config = persisted.config;
+            this.safeZone = persisted.safeZone ?? null;
             this.swingRadius = calculateSwingRadius(this.config);
             this.watchStartedAt = persisted.watchStartedAt;
             this.state = 'setting';
@@ -1750,7 +1891,7 @@ class AnchorWatchServiceClass {
     }
 
     /** Safety transitions that must survive a crash use the strict variant. */
-    private async persistWatchStateRequired(): Promise<void> {
+    private async persistWatchStateRequired(safeZone = this.safeZone): Promise<void> {
         if (!this.anchorPosition || this.state === 'idle') {
             throw new Error('Anchor Watch recovery state is unavailable.');
         }
@@ -1769,8 +1910,17 @@ class AnchorWatchServiceClass {
             throw new Error('Anchor Watch recovery position is invalid.');
         }
         this.config = validatedConfig.config;
+        if (
+            safeZone &&
+            !parseAnchorSafeZone(safeZone, {
+                ...this.anchorPosition,
+                radiusM: calculateValidatedSwingRadius(validatedConfig.config),
+            }).ok
+        )
+            throw Error('The safe area is incompatible with the anchor and circle.');
         const persistenceScope = this.watchPersistenceScope ?? getAuthIdentityScope();
         const data: PersistedWatchState = {
+            safeZone,
             anchorPosition: this.anchorPosition,
             config: { ...validatedConfig.config },
             state: this.state,
@@ -1848,6 +1998,14 @@ class AnchorWatchServiceClass {
         if (!configValidation.ok) {
             return invalid(`The saved anchor configuration is invalid. ${configValidation.error}`);
         }
+        const zone =
+            value.safeZone == null
+                ? null
+                : parseAnchorSafeZone(value.safeZone, {
+                      ...safeAnchor,
+                      radiusM: calculateValidatedSwingRadius(configValidation.config),
+                  });
+        if (zone && !zone.ok) return invalid(`The saved safe area is invalid. ${zone.error}`);
         if (value.state !== 'watching' && value.state !== 'alarm' && value.state !== 'paused') {
             return invalid('The saved Anchor Watch state is invalid.');
         }
@@ -1870,6 +2028,7 @@ class AnchorWatchServiceClass {
         return {
             ok: true,
             watch: {
+                safeZone: zone?.ok ? zone.zone : null,
                 anchorPosition: safeAnchor,
                 config: configValidation.config,
                 state: value.state,
@@ -1899,6 +2058,7 @@ class AnchorWatchServiceClass {
         this.stopGpsWatchdog();
         this.state = 'paused';
         this.anchorPosition = anchorPosition ? { ...anchorPosition } : null;
+        this.safeZone = null;
         this.vesselPosition = null;
         this.config = { ...DEFAULT_ANCHOR_CONFIG };
         this.swingRadius = 0;
@@ -1948,6 +2108,7 @@ class AnchorWatchServiceClass {
             persisted.markedAtGps === true,
         );
         this.config = { ...persisted.config };
+        this.safeZone = persisted.safeZone ?? null;
         this.swingRadius = calculateSwingRadius(this.config);
         this.watchStartedAt = persisted.watchStartedAt;
         this.watchPersistenceScope = scope;
@@ -2021,6 +2182,7 @@ class AnchorWatchServiceClass {
 
         this.state = 'idle';
         this.anchorPosition = null;
+        this.safeZone = null;
         this.vesselPosition = null;
         this.config = { ...DEFAULT_ANCHOR_CONFIG };
         this.swingRadius = 0;
@@ -2285,6 +2447,7 @@ class AnchorWatchServiceClass {
 
         this.state = 'idle';
         this.anchorPosition = null;
+        this.safeZone = null;
         this.vesselPosition = null;
         this.positionHistory = [];
         this.swingTrack.clear();
@@ -2541,9 +2704,30 @@ class AnchorWatchServiceClass {
     private checkForDrag(): void {
         if (this.state !== 'watching') return;
 
+        if (this.safeZone) {
+            const at = this.vesselPosition?.timestamp;
+            if (
+                typeof at !== 'number' ||
+                !Number.isFinite(at) ||
+                at <= 0 ||
+                at > Date.now() + 5_000 ||
+                at <= (this.safeZoneLastFixAt ?? -Infinity)
+            )
+                return;
+            this.safeZoneLastFixAt = at;
+        }
+
         const { outsideCount, fire } = nextDragState(
             this.outsideCircleCount,
-            this.distanceFromAnchor,
+            this.safeZone && this.anchorPosition && this.vesselPosition
+                ? anchorSafeZoneContains(
+                      this.safeZone,
+                      { ...this.anchorPosition, radiusM: this.swingRadius },
+                      this.vesselPosition,
+                  ) === true
+                    ? 0
+                    : this.swingRadius + 1
+                : this.distanceFromAnchor,
             this.swingRadius,
         );
         this.outsideCircleCount = outsideCount;
@@ -2656,10 +2840,14 @@ class AnchorWatchServiceClass {
         const radius = Math.round(this.swingRadius ?? 0);
         const isGpsLost = this.alarmCause === 'gps-lost';
         const title = isGpsLost ? '⚠️ Anchor Watch Blind — GPS Lost' : '⚠️ Anchor Dragging';
-        const body = isGpsLost
+        const circleBody = isGpsLost
             ? `No GPS fix for over ${Math.round(GPS_LOST_THRESHOLD_MS / 1000)}s — the anchor watch can't detect dragging. Check your position.`
             : `${distance}m from anchor (swing radius ${radius}m). Check vessel position.`;
 
+        const body =
+            !isGpsLost && this.safeZone
+                ? `Outside the custom safe area; ${distance}m from anchor. Check vessel position.`
+                : circleBody;
         if (Capacitor.getPlatform() === 'ios') {
             const scheduled = await AnchorSafetyNotificationService.scheduleAlarm(title, body);
             if (!scheduled) throw new Error('The native iOS Time Sensitive notification bridge did not run.');
@@ -2830,6 +3018,12 @@ class AnchorWatchServiceClass {
             .then(({ pushAnchorState }) =>
                 pushAnchorState({
                     generatedAt: Date.now(),
+                    ...(snapshot.safeZone && snapshot.anchorPosition
+                        ? anchorSafeZoneDisplay(snapshot.safeZone, {
+                              ...snapshot.anchorPosition,
+                              radiusM: snapshot.swingRadius,
+                          })
+                        : {}),
                     state: snapshot.state,
                     anchor: snapshot.anchorPosition
                         ? {

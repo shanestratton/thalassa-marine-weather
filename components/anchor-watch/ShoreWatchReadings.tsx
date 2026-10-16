@@ -7,6 +7,7 @@ import { MuteIcon } from '../Icons';
 import { anchorLengthParts, formatAnchorLength } from './anchorUtils';
 import { shoreSwingModel, type ShoreTrailPoint } from './shoreSwingModel';
 import { SwingCircleCanvas } from './SwingCircleCanvas';
+import { anchorSafeZoneContains } from '../../utils/anchorSafeZone';
 
 interface ShoreWatchReadingsProps {
     data: PositionBroadcast;
@@ -64,7 +65,16 @@ export function ShoreWatchReadings({
     // The Pi confirms successive breaches before raising its alarm. During
     // that interval, an outside-radius fix is not evidence of "Holding".
     // This is presentation only; do not bypass the watchkeeper's confirmation.
-    const outsideRadius = fresh && !isAlarm && data.swingRadius > 0 && data.distance > data.swingRadius;
+    const outsideRadius =
+        fresh &&
+        !isAlarm &&
+        data.swingRadius > 0 &&
+        (data.distance > data.swingRadius ||
+            Boolean(
+                data.safeZone &&
+                anchorSafeZoneContains(data.safeZone, { ...data.anchor, radiusM: data.swingRadius }, data.vessel) !==
+                    true,
+            ));
     const tone = isAlarm ? 'text-red-400' : fresh && !outsideRadius ? 'text-emerald-400' : 'text-amber-300';
     const accent = isAlarm ? '239,68,68' : fresh && !outsideRadius ? '16,185,129' : '245,158,11';
     const length = (metres: number, decimals = 0) =>
@@ -186,7 +196,11 @@ export function ShoreWatchReadings({
                             style={{ borderColor: `rgba(${accent},0.25)`, background: `rgba(${accent},0.08)` }}
                         >
                             <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-current" />
-                            {outsideRadius ? 'Outside radius · checking' : statusLabel}
+                            {outsideRadius
+                                ? data.safeZone
+                                    ? 'Outside safe area · checking'
+                                    : 'Outside radius · checking'
+                                : statusLabel}
                         </div>
                         {trailSince && (
                             <p className="text-[0.6875rem] font-medium leading-tight text-slate-400">
@@ -201,6 +215,17 @@ export function ShoreWatchReadings({
                         </p>
                     )}
                 </div>
+                {data.safeZone && (
+                    <p className="text-center text-xs text-cyan-200">
+                        Custom area reported by{' '}
+                        {data.safeZoneWatch === 'pi'
+                            ? 'the Pi'
+                            : data.safeZoneWatch === 'phone'
+                              ? 'the boat’s phone'
+                              : 'an unverified publisher'}
+                        {fresh ? '' : ' · last known'}.
+                    </p>
+                )}
                 {showMute && (
                     <button
                         type="button"

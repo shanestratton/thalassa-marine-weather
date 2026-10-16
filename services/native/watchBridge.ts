@@ -24,6 +24,9 @@ const log = createLogger('watchBridge');
  *  WatchConnectivity has tight payload limits and re-serialising the
  *  entire 500-point positionHistory on every update would be wasteful. */
 export interface WatchAnchorSnapshot {
+    /** Phone-validated, circle-normalized drawing only; local Watch GPS still checks the circle. */
+    safeAreaOutline?: readonly (readonly [number, number])[];
+    safeAreaWedges?: readonly (readonly [number, number])[];
     /** Generated-at timestamp (epoch ms). The Watch must age-gate durable context. */
     generatedAt: number;
     /** 'idle' | 'setting' | 'watching' | 'alarm' | 'paused' */

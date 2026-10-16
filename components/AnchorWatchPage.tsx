@@ -60,6 +60,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { gpsToBowMetres } from '../utils/gpsAntenna';
 import { ShoreSwingTrail } from '../services/shoreSwingTrail';
+import { anchorSafeZoneContains } from '../utils/anchorSafeZone';
 import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
@@ -69,6 +70,7 @@ import { piFixIsFresh } from '../services/anchorPiMove';
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
+const AnchorSafeZoneSheet = React.lazy(() => import('./anchor-watch/AnchorSafeZoneSheet'));
 
 /**
  * The chart-area note is read for this long (126-07d), then a warning folds
@@ -183,6 +185,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [weighRefused, setWeighRefused] = useState<string | null>(null);
     /** The Move anchor sheet (build 123, must-do #3). */
     const [showMoveAnchor, setShowMoveAnchor] = useState(false);
+    const [showSafeArea, setShowSafeArea] = useState(false);
     /** The same sheet for the watch this phone handed to the Pi (126-07a). */
     const [showPiMove, setShowPiMove] = useState(false);
     /**
@@ -858,6 +861,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const anchor = snap.anchorPosition;
         if (!anchor || snap.swingRadius <= 0) {
             toast.error('The anchor position is not settled yet — try again in a moment.');
+            return;
+        }
+        if (snap.safeZone) {
+            toast.error(
+                'This Pi handoff watches the circle. Keep this phone watching the custom area, or explicitly choose circle only in Safe area before handing over.',
+            );
             return;
         }
         setPiHandoffBusy(true);
@@ -1862,7 +1871,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const corruptConfigRecovery = Boolean(
         monitoringBlocked && snapshot?.setupError?.startsWith('Saved Anchor Watch is blocked'),
     );
-    const isHolding = Boolean(snapshot && !monitoringBlocked && snapshot.distanceFromAnchor <= snapshot.swingRadius);
+    const isHolding = Boolean(
+        snapshot &&
+        !monitoringBlocked &&
+        snapshot.distanceFromAnchor <= snapshot.swingRadius &&
+        (!snapshot.safeZone ||
+            (snapshot.anchorPosition &&
+                snapshot.vesselPosition &&
+                anchorSafeZoneContains(
+                    snapshot.safeZone,
+                    { ...snapshot.anchorPosition, radiusM: snapshot.swingRadius },
+                    snapshot.vesselPosition,
+                ) === true)),
+    );
     const liveStatusLabel = monitoringBlocked ? 'Not Monitoring' : isHolding ? 'Holding' : 'Drifting';
     // 126-07d: the area note, only while the anchor is still the one it was about.
     const anchorNow = snapshot?.anchorPosition;
@@ -2129,6 +2150,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         onClick={() => setShowMoveAnchor(true)}
                                     />
                                 )}
+                                {snapshot?.state === 'watching' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSafeArea(true)}
+                                        aria-label="Edit anchor safe area"
+                                        className="pointer-events-auto min-h-11 min-w-11 shrink-0 rounded-full border border-cyan-400/50 bg-slate-950/90 px-2 text-sm font-bold text-cyan-100"
+                                    >
+                                        Area
+                                    </button>
+                                )}
                                 {areaNoteShown?.folded && (
                                     <button
                                         type="button"
@@ -2347,6 +2378,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             </div>
 
             {/* Move anchor: the watch THIS phone keeps (canMoveAnchor). */}
+            {showSafeArea && snapshot?.state === 'watching' && (
+                <React.Suspense fallback={null}>
+                    <AnchorSafeZoneSheet
+                        snapshot={snapshot}
+                        onClose={() => setShowSafeArea(false)}
+                        readToken={() => AnchorWatchService.getSafeZoneEditToken()}
+                        onSave={(value, token) => AnchorWatchService.updateSafeZone(value, token)}
+                    />
+                </React.Suspense>
+            )}
             {showMoveAnchor && canMoveAnchor && snapshot && (
                 <MoveAnchorSheet
                     snapshot={snapshot}
