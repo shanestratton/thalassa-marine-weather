@@ -4,7 +4,9 @@ import {
     parseWeatherPositionRequest,
     weatherPositionFix,
     weatherPositionRelay,
+    weatherPositionUuid,
     type WeatherPositionSource,
+    type WeatherPositionIdentity,
     type WeatherPositionRequest,
     type WeatherPositionProof,
     WEATHER_TELEMETRY_BYTES,
@@ -13,17 +15,15 @@ const record = (v: unknown): Record<string, unknown> | null =>
     !!v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 /** Direct selected position leaf only; parent/report/receipt clocks and phone supplements cannot qualify. */
-export function readWeatherPositionSource(
+export function readWeatherPositionLeaf(
     document: unknown,
-    relayId: string,
     now: number,
-): WeatherPositionSource | null {
+): Pick<WeatherPositionSource, 'selfKey' | 'sourceKey' | 'position'> | null {
     const doc = record(document),
         navigation = record(doc?.navigation),
         leaf = record(navigation?.position),
         value = record(leaf?.value);
     if (
-        !weatherPositionRelay(relayId) ||
         !validSignalKSelf(doc?.uuid) ||
         typeof leaf?.$source !== 'string' ||
         !/^[A-Za-z\d:._/-]{1,120}$/.test(leaf.$source) ||
@@ -36,13 +36,34 @@ export function readWeatherPositionSource(
     );
     if (!fix) return null;
     return {
-        schema: 1,
-        relayId,
         selfKey: hash([1, 'self', doc.uuid]),
         sourceKey: hash([1, 'navigation.position', doc.uuid, leaf.$source]),
         position: fix,
-        servedAt: now,
     };
+}
+/** Owner/Pi envelope comes only from the server's current registered outbox binding. */
+export function readWeatherPositionSource(
+    document: unknown,
+    identity: WeatherPositionIdentity,
+    now: number,
+): WeatherPositionSource | null {
+    if (
+        !weatherPositionUuid(identity.ownerId) ||
+        !weatherPositionUuid(identity.piDeviceId) ||
+        !weatherPositionRelay(identity.relayId)
+    )
+        return null;
+    const source = readWeatherPositionLeaf(document, now);
+    return source
+        ? {
+              schema: 1,
+              ownerId: identity.ownerId,
+              piDeviceId: identity.piDeviceId,
+              relayId: identity.relayId,
+              ...source,
+              servedAt: now,
+          }
+        : null;
 }
 export function weatherPositionProof(
     document: unknown,
@@ -51,7 +72,7 @@ export function weatherPositionProof(
     now: number,
 ): WeatherPositionProof | null {
     const valid = parseWeatherPositionRequest(request, now),
-        source = readWeatherPositionSource(document, relayId, now);
+        source = weatherPositionRelay(relayId) ? readWeatherPositionLeaf(document, now) : null;
     return valid && source && valid.selfKey === source.selfKey && valid.sourceKey === source.sourceKey
         ? {
               schema: 1,

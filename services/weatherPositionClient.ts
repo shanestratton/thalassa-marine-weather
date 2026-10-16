@@ -10,6 +10,7 @@ import {
     type WeatherPositionSource,
     type WeatherPositionRegistration,
 } from '../utils/weatherPosition';
+const reviewed = new WeakMap<WeatherPositionSource, { current: () => boolean; deviceId: string }>();
 /** Explicit, fixed read from enrolled pinned boat LAN. No GPS substitution or WAN fallback. */
 export async function reviewWeatherPositionSource(
     scope = getAuthIdentityScope(),
@@ -60,14 +61,16 @@ export async function reviewWeatherPositionSource(
         new TextEncoder().encode(response.data).length > 2048
     )
         return null;
-    if (
-        !(await App.getState()).isActive ||
-        !current() ||
-        (await getChartDevice())?.chartDeviceId !== device.chartDeviceId
-    )
-        return null;
+    const [afterForeground, afterDevice] = await Promise.all([App.getState(), getChartDevice()]);
+    if (!afterForeground.isActive || afterDevice?.chartDeviceId !== device.chartDeviceId || !current()) return null;
     try {
-        return parseWeatherPositionSource(JSON.parse(response.data), Date.now());
+        const source = parseWeatherPositionSource(JSON.parse(response.data), Date.now());
+        if (!source || source.ownerId !== scope.userId || source.piDeviceId !== pairing.deviceId || !current())
+            return null;
+        Object.freeze(source.position);
+        Object.freeze(source);
+        reviewed.set(source, { current, deviceId: device.chartDeviceId });
+        return source;
     } catch {
         return null;
     }
@@ -94,6 +97,20 @@ export async function saveWeatherPositionSource(
         (enabled && !parseWeatherPositionSource(source, Date.now()))
     )
         throw new Error('Read a fresh paired Pi source before allowing position sharing.');
+    if (enabled) {
+        const evidence = reviewed.get(source as WeatherPositionSource);
+        if (!evidence || !evidence.current() || (source as WeatherPositionSource).ownerId !== scope.userId)
+            throw new Error('Read a fresh paired Pi source before allowing position sharing.');
+        const { getChartDevice } = await import('./PiPairingService');
+        const device = await getChartDevice();
+        if (
+            !evidence.current() ||
+            device?.chartDeviceId !== evidence.deviceId ||
+            !parseWeatherPositionSource(source, Date.now()) ||
+            satelliteModeActive()
+        )
+            throw new Error('Read a fresh paired Pi source before allowing position sharing.');
+    }
     const result = await withTimeout(
         Promise.resolve(
             supabase.rpc('configure_weather_position', {

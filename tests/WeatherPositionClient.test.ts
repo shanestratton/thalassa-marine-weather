@@ -4,15 +4,20 @@ const mock = vi.hoisted(() => ({
     request: vi.fn(),
     satellite: false,
     base: 'https://boat.synthetic.invalid',
-    pairing: { deviceId: 'fictional-pi', publicKeySpki: 'synthetic-key', pairedAt: '2026-10-16T00:00:00Z' },
+    pairing: {
+        deviceId: '10000000-0000-4000-8000-000000000002',
+        publicKeySpki: 'synthetic-key',
+        pairedAt: '2026-10-16T00:00:00Z',
+    },
     device: { chartDeviceId: 'fictional-phone' },
+    chartDevice: vi.fn(),
     foreground: true,
 }));
 vi.mock('../services/supabase', () => ({ supabase: { rpc: mock.rpc } }));
 vi.mock('../services/networkPolicy', () => ({ satelliteModeActive: () => mock.satellite }));
 vi.mock('../services/PiPairingService', () => ({
     getPairing: () => mock.pairing,
-    getChartDevice: async () => mock.device,
+    getChartDevice: mock.chartDevice,
     pinnedPiRequest: mock.request,
 }));
 vi.mock('../services/piTls', () => ({ isPinnedTransportAvailable: () => true }));
@@ -29,6 +34,8 @@ const boat = '20000000-0000-4000-8000-000000000001',
     revision = '30000000-0000-4000-8000-000000000001';
 const source = () => ({
     schema: 1 as const,
+    ownerId: '10000000-0000-4000-8000-000000000001',
+    piDeviceId: '10000000-0000-4000-8000-000000000002',
     relayId: 'fictional_relay_0001',
     selfKey: 'a'.repeat(64),
     sourceKey: 'b'.repeat(64),
@@ -36,13 +43,18 @@ const source = () => ({
     servedAt: Date.now(),
 });
 beforeEach(() => {
-    setAuthIdentityScope('fictional-owner');
+    setAuthIdentityScope('10000000-0000-4000-8000-000000000001');
     mock.rpc.mockReset();
     mock.request.mockReset();
+    mock.chartDevice.mockReset().mockImplementation(async () => mock.device);
     mock.satellite = false;
     mock.foreground = true;
     mock.base = 'https://boat.synthetic.invalid';
-    mock.pairing = { deviceId: 'fictional-pi', publicKeySpki: 'synthetic-key', pairedAt: '2026-10-16T00:00:00Z' };
+    mock.pairing = {
+        deviceId: '10000000-0000-4000-8000-000000000002',
+        publicKeySpki: 'synthetic-key',
+        pairedAt: '2026-10-16T00:00:00Z',
+    };
 });
 describe('explicit account/pair/source-fenced weather position', () => {
     it('accepts measured Null Island and rejects unknown fields, parent/future/stale clocks, incomplete binding', () => {
@@ -57,6 +69,10 @@ describe('explicit account/pair/source-fenced weather position', () => {
         ])
             expect(parseWeatherPositionSource({ ...s, position }, now)).toBeNull();
         expect(parseWeatherPositionSource({ ...s, url: 'https://invalid' }, now)).toBeNull();
+        for (const ownerId of [undefined, '', 'fictional-owner'])
+            expect(parseWeatherPositionSource({ ...s, ownerId }, now)).toBeNull();
+        for (const piDeviceId of [undefined, '', 'fictional-pi'])
+            expect(parseWeatherPositionSource({ ...s, piDeviceId }, now)).toBeNull();
         expect(
             parseWeatherPositionProof(
                 {
@@ -105,8 +121,49 @@ describe('explicit account/pair/source-fenced weather position', () => {
         done({ status: 200, data: JSON.stringify(source()) });
         expect(await second).toBeNull();
     });
+    it('never offers an old account or another Pi source under the current enrolled phone', async () => {
+        for (const changed of [
+            { ownerId: '10000000-0000-4000-8000-000000000099' },
+            { piDeviceId: '10000000-0000-4000-8000-000000000099' },
+            { ownerId: undefined },
+            { piDeviceId: undefined },
+        ]) {
+            mock.request.mockResolvedValue({ status: 200, data: JSON.stringify({ ...source(), ...changed }) });
+            expect(await reviewWeatherPositionSource()).toBeNull();
+        }
+        expect(mock.rpc).not.toHaveBeenCalled();
+    });
+    it('rechecks the account after the final asynchronous enrollment lookup', async () => {
+        mock.request.mockResolvedValue({ status: 200, data: JSON.stringify(source()) });
+        let finish!: () => void;
+        mock.chartDevice.mockResolvedValueOnce(mock.device).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finish = () => resolve(mock.device);
+                }),
+        );
+        const pending = reviewWeatherPositionSource();
+        await vi.waitFor(() => expect(mock.chartDevice).toHaveBeenCalledTimes(2));
+        setAuthIdentityScope('10000000-0000-4000-8000-000000000099');
+        finish();
+        expect(await pending).toBeNull();
+    });
+    it('an explicit source registration requires this live review and rejects a later pin/enrollment replacement', async () => {
+        const scope = getAuthIdentityScope();
+        await expect(saveWeatherPositionSource(boat, null, source(), true, scope)).rejects.toThrow('Read a fresh');
+        mock.request.mockResolvedValue({ status: 200, data: JSON.stringify(source()) });
+        const read = (await reviewWeatherPositionSource())!;
+        mock.pairing = { ...mock.pairing, publicKeySpki: 'replacement-pin' };
+        await expect(saveWeatherPositionSource(boat, null, read, true, scope)).rejects.toThrow('Read a fresh');
+        mock.request.mockResolvedValue({ status: 200, data: JSON.stringify(source()) });
+        const reread = (await reviewWeatherPositionSource())!;
+        mock.chartDevice.mockResolvedValueOnce({ chartDeviceId: 'replacement-phone' });
+        await expect(saveWeatherPositionSource(boat, null, reread, true, scope)).rejects.toThrow('Read a fresh');
+        expect(mock.rpc).not.toHaveBeenCalled();
+    });
     it('cloud source CAS sends only fixed reviewed hashes, is off until explicit action, and never auto-retries conflicts', async () => {
-        const s = source(),
+        mock.request.mockResolvedValue({ status: 200, data: JSON.stringify(source()) });
+        const s = (await reviewWeatherPositionSource())!,
             scope = getAuthIdentityScope();
         expect(mock.rpc).not.toHaveBeenCalled();
         mock.rpc.mockResolvedValue({ data: { revision }, error: null });

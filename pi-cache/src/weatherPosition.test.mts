@@ -13,7 +13,12 @@ import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
 import type { BoatLanView, ChartDevicePublic } from './encDevices.js';
 const now = Date.parse('2026-10-17T07:00:00Z'),
     relay = 'fictional_relay_0001',
-    revision = '30000000-0000-4000-8000-000000000001';
+    revision = '30000000-0000-4000-8000-000000000001',
+    identity = {
+        ownerId: '10000000-0000-4000-8000-000000000001',
+        piDeviceId: '10000000-0000-4000-8000-000000000002',
+        relayId: relay,
+    };
 const doc = () => ({
     uuid: 'urn:mrn:imo:mmsi:000000001',
     navigation: {
@@ -26,12 +31,14 @@ const doc = () => ({
     },
 });
 const request = () => {
-    const s = readWeatherPositionSource(doc(), relay, now)!;
+    const s = readWeatherPositionSource(doc(), identity, now)!;
     return { schema: 1 as const, revision, selfKey: s.selfKey, sourceKey: s.sourceKey, expiresAt: now + 600000 };
 };
 test('fixed cache leaf retains original clock and global coordinates; parent/report clocks never qualify', () => {
-    const s = readWeatherPositionSource(doc(), relay, now)!;
+    const s = readWeatherPositionSource(doc(), identity, now)!;
     assert.deepEqual(s.position, { lat: 0, lon: 0, at: now - 1000 });
+    assert.equal(s.ownerId, identity.ownerId);
+    assert.equal(s.piDeviceId, identity.piDeviceId);
     assert.match(s.selfKey, /^[a-f\d]{64}$/);
     assert.match(s.sourceKey, /^[a-f\d]{64}$/);
     const text = JSON.stringify(s);
@@ -41,13 +48,13 @@ test('fixed cache leaf retains original clock and global coordinates; parent/rep
         const d = doc();
         (d as { timestamp?: string }).timestamp = new Date(now).toISOString();
         (d.navigation.position as { timestamp?: string }).timestamp = at;
-        assert.equal(readWeatherPositionSource(d, relay, now), null);
+        assert.equal(readWeatherPositionSource(d, identity, now), null);
     }
     const d = doc();
     d.navigation.position.$source = '';
-    assert.equal(readWeatherPositionSource(d, relay, now), null);
+    assert.equal(readWeatherPositionSource(d, identity, now), null);
     d.navigation.position.$source = 'fictional.gps.2';
-    assert.notEqual(readWeatherPositionSource(d, relay, now)?.sourceKey, s.sourceKey);
+    assert.notEqual(readWeatherPositionSource(d, identity, now)?.sourceKey, s.sourceKey);
 });
 test('proof requires current explicit source consent; changed self/source and expiry cannot adopt it', () => {
     assert.equal(weatherPositionProof(doc(), relay, null, now), null);
@@ -208,7 +215,7 @@ test('actual mounted fixed source read requires app gate + current enrollment + 
                 state.reads++;
                 return doc();
             },
-            relayId: () => relay,
+            identity: () => identity,
             now: () => now,
             peerOf: () => state.peer,
             lanView: () => lan,
@@ -233,6 +240,103 @@ test('actual mounted fixed source read requires app gate + current enrollment + 
     const result = await fetch(url, { headers });
     assert.equal(result.status, 200);
     assert.equal(result.headers.get('cache-control'), 'no-store');
-    assert.deepEqual((await result.json()).position, { lat: 0, lon: 0, at: now - 1000 });
+    const body = await result.json();
+    assert.deepEqual(body.position, { lat: 0, lon: 0, at: now - 1000 });
+    assert.equal(body.ownerId, identity.ownerId);
+    assert.equal(body.piDeviceId, identity.piDeviceId);
     assert.equal(state.reads, 1);
+});
+
+test('mounted source read retires an owner/Pi/relay change across every asynchronous boundary', async (t) => {
+    for (const phase of ['first-enrollment', 'cache', 'last-enrollment']) {
+        for (const field of ['ownerId', 'piDeviceId', 'relayId'] as const) {
+            await t.test(`${phase}: ${field}`, async () => {
+                const binding = { ...identity };
+                let verifies = 0,
+                    reads = 0,
+                    release!: () => void;
+                const waiting = new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+                const change = () => {
+                    binding[field] =
+                        field === 'relayId' ? 'fictional_relay_0002' : '10000000-0000-4000-8000-000000000099';
+                };
+                const device = {
+                    id: revision,
+                    label: 'Fictional',
+                    enrolledAt: new Date(now - 1000).toISOString(),
+                    lastSeenAt: new Date(now).toISOString(),
+                };
+                const app = express();
+                app.use(
+                    '/api/weather-watch',
+                    createWeatherPositionRoutes({
+                        devices: {
+                            verify: async () => {
+                                verifies++;
+                                if (
+                                    (phase === 'first-enrollment' && verifies === 1) ||
+                                    (phase === 'last-enrollment' && verifies === 2)
+                                )
+                                    await waiting;
+                                return { state: 'enrolled', device };
+                            },
+                        },
+                        identity: () => binding,
+                        selfDocument: async () => {
+                            reads++;
+                            if (phase === 'cache') await waiting;
+                            return doc();
+                        },
+                        now: () => now,
+                        peerOf: () => '192.168.1.22',
+                        lanView: () => ({
+                            interfaces: {
+                                eth0: [
+                                    {
+                                        address: '192.168.1.180',
+                                        netmask: '255.255.255.0',
+                                        family: 'IPv4',
+                                        internal: false,
+                                        mac: '',
+                                        cidr: '192.168.1.180/24',
+                                    },
+                                ],
+                            },
+                            gateways: ['192.168.1.1'],
+                        }),
+                    }),
+                );
+                const server = app.listen(0, '127.0.0.1');
+                await new Promise<void>((resolve) => server.once('listening', resolve));
+                try {
+                    const pending = fetch(
+                        `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/weather-watch/position-source`,
+                    );
+                    const deadline = Date.now() + 2000;
+                    while (
+                        !(phase === 'first-enrollment'
+                            ? verifies === 1
+                            : phase === 'cache'
+                              ? reads === 1
+                              : verifies === 2)
+                    ) {
+                        assert.ok(Date.now() < deadline, 'mounted handler reached intended await');
+                        await new Promise((resolve) => setTimeout(resolve, 5));
+                    }
+                    change();
+                    release();
+                    const response = await pending;
+                    assert.equal(response.status, 401);
+                    assert.equal('position' in (await response.json()), false);
+                    if (phase === 'first-enrollment')
+                        assert.equal(reads, 0, 'old binding cannot initiate a cache read');
+                } finally {
+                    release();
+                    await new Promise<void>((resolve) => server.close(() => resolve()));
+                }
+            });
+        }
+    }
 });
