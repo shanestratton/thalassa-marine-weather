@@ -18,6 +18,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Feature, FeatureCollection } from 'geojson';
 
+// Generated, approved-source fixtures exercise route/window arithmetic only.
+// This test-local capability never enables WorldTides; its real saved-route
+// boundary is covered without this mock in SavedTidePermission.
+vi.mock('../services/tides/navigationUse', () => ({ navigationTideSourceAvailable: () => true }));
+
 const mocks = vi.hoisted(() => ({ cells: [] as unknown[], blob: vi.fn(), curve: vi.fn() }));
 vi.mock('../services/enc/EncCellMetadata', async (original) => ({
     ...(await original<typeof import('../services/enc/EncCellMetadata')>()),
