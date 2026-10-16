@@ -15,6 +15,7 @@ import type { TraceCheckOutcomeRecord } from './traceCheckOutcomes';
 import { boatChartsLine } from './enc/boatChartsWords';
 import { isProtectedChart } from './enc/chartLicence';
 import { navigationTideSourceAvailable } from './tides/navigationUse';
+import { routeConstraintsForTrace } from './routing/traceConstraints';
 
 export type TraceCheckStatus = 'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart';
 
@@ -87,6 +88,7 @@ function isTraceGrade(value: unknown): value is TraceGrade {
 
 /** Return a defensive copy only when the envelope proves the supplied line. */
 export function normaliseTraceVerification(value: unknown, points?: readonly TracePoint[]): TraceVerification | null {
+    if (points?.some((p) => p.constraint !== undefined) && !routeConstraintsForTrace(points)) return null;
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const candidate = value as Partial<TraceVerification>;
     if (
@@ -162,6 +164,12 @@ export function evaluateTraceRelease(
     context: TraceVerificationContext,
     checkedAt: string = new Date().toISOString(),
 ): TraceReleaseGate {
+    if (points.some((p) => p.constraint !== undefined) && !routeConstraintsForTrace(points))
+        return {
+            allowed: false,
+            reason: 'The line no longer retains its leave-side choices. Move the pins or review those marks; a side crossing cannot be acknowledged.',
+            verification: null,
+        };
     if (!traceGeometryKey(points)) {
         return { allowed: false, reason: 'Add at least two valid waypoints first.', verification: null };
     }

@@ -1,6 +1,11 @@
-import { haversineNm, initialBearing, projectPosition, R_NM } from '../isochrone/geodesy';
+import {
+    calculateDistance as haversineNm,
+    calculateBearing as initialBearing,
+    destinationPoint as projectPosition,
+} from '../../utils/navigationCalculations';
 import { normaliseRouteConstraints, MAX_ROUTE_VIAS, type RouteConstraintPoint } from './routeConstraintTypes';
 export { normaliseRouteConstraints, MAX_ROUTE_VIAS, type RouteConstraintPoint } from './routeConstraintTypes';
+const R_NM = 3440.065;
 export interface RouteHalfLine {
     lat: number;
     lon: number;

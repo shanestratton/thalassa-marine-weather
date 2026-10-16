@@ -3,7 +3,8 @@
 The planner now sends an explicit via request through a shared ordered-leg
 executor before any direct-route shortcut. The actual inshore and offshore
 engines retain their existing chart and land verification. This checkpoint
-does not yet complete Tracer editing or per-leg Auto.
+also retains Tracer editing and saved point intent. Per-leg Auto remains parked
+until its cold final check and cancellation boundary are complete.
 
 Each ordinary via is an exact required vertex. A leave-side mark instead has
 an explicit 5–2000 m passing-point offset, shown to the user, and a forbidden
@@ -44,6 +45,25 @@ Accepted constraints are saved through the existing held atomic CAS contract.
 Its SQL bytes and actual PostgreSQL proof are unchanged; no live migration or
 successful-device acceptance is claimed.
 
-GPX via handoff uses the shared cohort. Remaining wiring is Tracer save/restore
-and per-leg Auto. Generated shape points must not silently become new user
-constraints. Save/Export/Follow require the complete final verdict.
+GPX via handoff uses the shared cohort. Tracer distinguishes the actual line
+from its original mark and generated shape/depth vertices. Local recovery,
+account sync, trip aggregation and reversal retain those roles; reversing flips
+port/starboard and the fixed bearing while preserving the physical passing
+point. Dragging a passing point explicitly clears its side choice. A changed
+side or stand-off cannot reuse a geometry-only clearance or acknowledge a side
+crossing. Original-mark overlays clear synchronously on account changes.
+
+Saved point pairs remain `[lat, lon]` for legacy ordinary points. A strictly
+validated third value retains a generated role or version-1 private mark/name
+metadata. Unknown versions or malformed metadata refuse the complete record.
+The existing JSONB point storage and geometry clock use the first two numbers;
+no schema change is needed. Older clients do not understand the new semantic
+metadata and cannot provide leave-side preservation guarantees. No licensed
+chart properties are saved in it. Save/Export/Follow still require the complete
+final verdict.
+
+Focused codec, account-sync, draft, editor, reference-marker and stale-planner
+tests cover these boundaries. Four actual Chrome/WebKit cases at 300/375 px
+and 130% text exercise the real editor, local save/reload, reverse/restore and
+account switch with zero WAN. They do not prove native devices, actual chart
+clearance or deployment of the held replan migration.

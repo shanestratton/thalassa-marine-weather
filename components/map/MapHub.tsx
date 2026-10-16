@@ -232,6 +232,7 @@ import { useTracerGhostLanes } from './useTracerGhostLanes';
 import { useTracerSessionEffects } from './useTracerSessionEffects';
 import { useTracerFrameMarkers } from './useTracerFrameMarkers';
 import { useTracerPinMarkers } from './useTracerPinMarkers';
+import { useTracerConstraintMarks } from './useTracerConstraintMarks';
 import { useTracerTraceLayer } from './useTracerTraceLayer';
 import { usePassageRouterEvents } from './usePassageRouterEvents';
 import { usePiTileAutoCache } from './usePiTileAutoCache';
@@ -1195,6 +1196,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         legAnchor,
         flashTraceFeedback,
     });
+    useTracerConstraintMarks(mapRef, coordCaptureMode, capturedCoords);
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
@@ -3004,7 +3006,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
                 // 40 m tolerance keeps every bend the engine chose while a
                 // 60-vertex line becomes ~15-25 editable pins, not pin soup.
-                const sparse = rdpTracePoints(pts, 40);
+                const sparse = rdpTracePoints(pts, 40).map((p, i, all) =>
+                    i > 0 && i < all.length - 1 ? { ...p, shape: true as const } : p,
+                );
                 // With pins down, sparse[0] duplicates the last pin — drop
                 // it. Frame-only (zero pins) keeps the origin as pin #1.
                 const add = capturedCoords.length > 0 ? sparse.slice(1) : sparse;
@@ -4916,6 +4920,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 selectedPin={selectedPin}
                                                 setSelectedPin={setSelectedPin}
                                                 pinCount={capturedCoords.length}
+                                                point={capturedCoords[selectedPin]}
+                                                previous={capturedCoords[selectedPin - 1]}
+                                                next={capturedCoords[selectedPin + 1]}
                                                 setCapturedCoords={setCapturedCoords}
                                                 legAnchor={legAnchor}
                                                 insertAfter={insertAfter}

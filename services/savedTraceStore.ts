@@ -32,6 +32,7 @@ import {
 } from './autoroutingProposalEvidence';
 import { chartFreeEvidence } from './chartFacts';
 import type { TracePoint } from './routeTracer';
+import { copyTraceRoutePoints } from './routing/traceRoutePoint';
 
 const log = createLogger('savedTraceStore');
 
@@ -633,7 +634,7 @@ export function buildTripPassageRollups(traces: readonly SavedTrace[]): TripPass
                     // Legs chain by position (healTripChain) — drop the
                     // duplicated joint pin where leg N+1 starts on leg N's end.
                     if (prev && Math.abs(prev.lat - p.lat) < 1e-7 && Math.abs(prev.lon - p.lon) < 1e-7) continue;
-                    points.push({ lat: p.lat, lon: p.lon });
+                    points.push({ ...p, ...(p.constraint ? { constraint: { ...p.constraint } } : {}) });
                 }
             }
             const first = group.legs[0];
@@ -780,6 +781,9 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
                     t.points.length >= 2,
             )
             .map((trace) => {
+                const points = copyTraceRoutePoints(trace.points);
+                if (!points) return null;
+                trace = { ...trace, points };
                 const verification = normaliseTraceVerification(trace.verification, trace.points);
                 const proposalEvidence = normaliseAutoroutingProposalEvidence(trace.proposalEvidence, trace.points);
                 // Never present a corrupted/mismatched provider proposal as an
@@ -1004,6 +1008,8 @@ export function saveTrace(
     } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
     const identity = getAuthIdentityScope();
+    const cleanPoints = copyTraceRoutePoints(points);
+    if (!cleanPoints) throw Error('The route points or user constraints are unreadable. Nothing was saved.');
     // Overwrite KEEPS the id: the local replace and the cloud upsert (also
     // keyed on id) then update the SAME route instead of minting a twin
     // (Shane 2026-07-15: "if I save it as the same name, it overwrites").
@@ -1034,7 +1040,7 @@ export function saveTrace(
         name: name.trim() || `Trace ${new Date().toLocaleDateString('en-AU')}`,
         createdAt: existing?.createdAt ?? new Date().toISOString(),
         ...(existing ? { updatedAt: new Date().toISOString() } : {}),
-        points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
+        points: cleanPoints,
         ...(tripId ? { tripId } : {}),
         ...(legOrdinal ? { legOrdinal } : {}),
         ...(destName ? { destName } : {}),
@@ -1099,7 +1105,8 @@ export function saveTraceTrip(
     const traces: SavedTrace[] = inputs.map((input, index) => {
         const name = input.name.trim();
         if (!name || name.length > 120) throw new Error('Enter route names between 1 and 120 characters.');
-        const points = input.points.map(({ lat, lon }) => ({ lat, lon }));
+        const points = copyTraceRoutePoints(input.points);
+        if (!points) throw Error('The route points or user constraints are unreadable. Nothing was saved.');
         const normalised = normaliseAutoroutingProposalEvidence(input.proposalEvidence, points);
         if (!normalised)
             throw new Error('Proposal evidence is incomplete or does not match these waypoints. Nothing was saved.');

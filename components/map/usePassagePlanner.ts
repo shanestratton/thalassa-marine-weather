@@ -266,6 +266,18 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const routeConstraintsRef = useRef<RouteConstraintPoint[]>([]);
     const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
+    const livePassageInputs = useRef({ key: '', visible: false });
+    livePassageInputs.current = {
+        key: JSON.stringify([departure, arrival, viaWaypoints, departureTime, speed, showPassage]),
+        visible: showPassage,
+    };
+    const mounted = useRef(true);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
     const displayedRouteGeometryKeyRef = useRef<string | null>(null);
     const commitDisplayedRoute = useCallback(
         (
@@ -525,10 +537,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         if (viaWaypoints.length) {
             const settingsSnapshot = structuredClone(useSettingsStore.getState().settings);
             const selectedBoat = useSettingsStore.getState().activeVesselId;
+            const selectedModel = WindStore.getState().model;
+            const inputKey = livePassageInputs.current.key;
             const depIso = departureTime || new Date().toISOString();
             const policyKey = isochroneRoutingContext(depIso, settingsSnapshot);
             const current = () =>
                 computeGenRef.current === gen &&
+                mounted.current &&
+                livePassageInputs.current.key === inputKey &&
+                WindStore.getState().model === selectedModel &&
                 mapRef.current === map &&
                 getAuthIdentityScope().key === operationScope.key &&
                 getAuthIdentityScope().generation === operationScope.generation &&
@@ -562,7 +579,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     departureTime: depIso,
                     speed,
                     settings: settingsSnapshot,
-                    model: WindStore.getState().model,
+                    model: selectedModel,
                     privateWind: replanBase?.wind,
                     deadlineMs: replanBase?.deadlineMs ?? Date.now() + 60000,
                     stillCurrent: current,
@@ -650,6 +667,29 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     title: 'Waypoint route not verified',
                     message: reason + ' Every required point stays in the request; no direct shortcut was substituted.',
                 });
+            } finally {
+                if (
+                    !current() &&
+                    mounted.current &&
+                    computeGenRef.current === gen &&
+                    mapRef.current === map &&
+                    livePassageInputs.current.visible &&
+                    getAuthIdentityScope().key === operationScope.key &&
+                    getAuthIdentityScope().generation === operationScope.generation
+                ) {
+                    commitDisplayedRoute(
+                        map,
+                        [preview],
+                        'unverified',
+                        'The waypoint request changed. Compute it again before using the line.',
+                    );
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Waypoint request changed',
+                        message:
+                            'The previous job cannot apply to the changed points, clock, boat, model or policy. Compute the complete route again.',
+                    });
+                }
             }
             return;
         }

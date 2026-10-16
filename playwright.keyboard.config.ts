@@ -36,6 +36,7 @@ export default defineConfig({
         'sail-plan-layout.spec.ts',
         'sail-inventory138.spec.ts',
         'route-replan138.spec.ts',
+        'tracer-constraints138.spec.ts',
         'boat-network-layout.spec.ts',
         // The NMEA Gateway page and the System status box say where this phone
         // is and how the boat reaches it, on one line each (e2e/fixtures/gateway-state.tsx).

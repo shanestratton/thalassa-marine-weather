@@ -105,7 +105,8 @@ function mount() {
         removeLayer: vi.fn(),
         removeSource: vi.fn(),
     };
-    const hook = renderHook(() => usePassagePlanner({ current: map } as never, false));
+    const mapRef = { current: map };
+    const hook = renderHook(() => usePassagePlanner(mapRef as never, false));
     return { ...hook, routeSource };
 }
 beforeEach(() => {
@@ -161,5 +162,28 @@ describe('the actual planner retains its explicit via request', () => {
         expect(mocks.stored).not.toHaveBeenCalled();
         expect(hook.result.current.isoResultRef.current).toBeNull();
         expect(hook.result.current.routeVerification.status).not.toBe('verified');
+    });
+    it('invalidates a pending cohort when the user edits its departure clock', async () => {
+        let finish!: (value: ReturnType<typeof candidate>) => void;
+        mocks.calculate.mockReturnValueOnce(
+            new Promise<ReturnType<typeof candidate>>((resolve) => {
+                finish = resolve;
+            }),
+        );
+        const hook = mount();
+        let job!: Promise<void>;
+        act(() => {
+            job = hook.result.current.computePassage();
+        });
+        await vi.waitFor(() => expect(mocks.calculate).toHaveBeenCalledOnce());
+        act(() => hook.result.current.setDepartureTime('2026-10-17T15:00:00Z'));
+        expect(mocks.calculate.mock.calls[0][0].stillCurrent()).toBe(false);
+        await act(async () => {
+            finish(candidate());
+            await job;
+        });
+        expect(mocks.stored).not.toHaveBeenCalled();
+        expect(hook.result.current.routeVerification.status).toBe('unverified');
+        expect(hook.result.current.isoResultRef.current).toBeNull();
     });
 });
