@@ -73,6 +73,7 @@
  * until the ghost joins; actual map weather retains its own spatial coverage.
  */
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { AlongRouteNextUp } from './AlongRouteNextUp';
 import {
     askPassageOverview,
     LOOK_AHEAD_MAX_MS,
@@ -1752,6 +1753,12 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                         </>
                     ) : (
                         <>
+                            <AlongRouteNextUp
+                                points={routeCoords}
+                                alongNm={
+                                    previewing ? 0 : fix && fix.source !== 'phone-old' ? fix.progress.alongNm : null
+                                }
+                            />
                             {previewing ? (
                                 // The previewed route: its whole length from its first
                                 // point, and its name. No ETA until a departure is chosen.

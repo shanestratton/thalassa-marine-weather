@@ -52,4 +52,58 @@ The Python builder's actual temporary generation is consumed by the app's
 manifest/shard parser in the fixture tests. All test positions and records are
 synthetic. Initial builder/protocol/projector proof is separate from the
 remaining complete local ENC reader, report/HUD wiring and actual browser
-proof. This document will record those steps once they are implemented.
+proof.
+
+The complete reader now uses only installed chart cohorts and releases each
+NOAA shared resident lease after copying bounded primitive bridge summaries.
+It never downloads or reconverts a chart. Missing BRIDGE layers, oversized
+cohorts, read errors and geometry limits make the complete bridge portion
+unavailable. Uninstalled route windows are labelled partial. Protected source
+licence, rather than a country prefix, determines the aboard-only status and
+removes its external source link. Bridge span/route intersections use spherical
+geometry; disconnected MultiPoint objects do not invent a span between them.
+
+The lazy Route report action defaults to public references already aboard and
+the complete installed bridge reader. A separate explicit public download reads
+only the two public catalogue namespaces, at most 16 cells each. Satellite Mode
+refuses that action before work begins. The complete operation has one
+30-second lifetime, including local weather sampling. Weather uses the existing
+aboard GRIB/grid sampler at each reference's actual constant-speed ETA; there is
+no online weather fallback. An unstated speed/departure or ambiguous repeated
+visit has no ETA/weather. Missing gust/pressure stay unknown, never zero.
+
+Reports exist only in RAM, with exact account generation, boat, vessel/policy,
+route/timing, chart inventory, catalogue deletion and weather-source fences.
+Changing a boat A to B and back cannot revive a pending result. The HUD reads
+only the explicitly loaded report for its exact displayed line and a qualified
+progress, with access/transit unverified. This reference line does not turn on
+following or change a route, watch, tide calculation, clearance or bridge gate.
+Private chart summaries never enter PDF or GPX input/bytes, storage or workers.
+No real catalogue acquisition, publication, provider activation, database
+mutation or Pi installation has been performed.
+
+Proof checkpoints (local synthetic data only):
+
+- Foundation: 32 cases in four app suites; 39 Python source/build/publication
+  cases. Source-clock admission was tightened so a builder cannot produce a
+  cohort newer than builtAt, which the actual app parser correctly refuses.
+- Integrated service/privacy: 87 cases in ten suites, including real PDF/GPX
+  argument/byte separation, caller cancellation, hung-dependency deadline,
+  same-tick A/B/A fencing, unavailable coverage and unknown weather.
+  `work/validation138-along-final-focused-corrected.log`.
+- Chrome/WebKit: four actual cases at 300/375 px and 130% text, using the real
+  public cache, protected-chart RAM reader, weather sampler, report and next-up
+  components. Zero outbound attempts, chart-version retirement and no private
+  chart text in localStorage. `work/validation138-along-browser-second.log` and
+  `work/along-route138-final-browser-proof/`.
+- First browser evidence remains in `work/along-route138-browser-proof/`:
+  the original Route report header crowded its title and export controls.
+  The header now wraps inside the unchanged 85dvh modal cap. Its first harness
+  used the wrong close-button name; that test-only name was corrected to the
+  existing real Close label, without removing the assertions.
+- First export boundary test hit jsdom's missing Blob.text method; the harness
+  now reads the actual produced Blob using FileReader. The original failed log
+  remains `work/validation138-along-final-focused.log`.
+
+Whole-app type and configured production-size proof for this child remain a
+separate step. The frozen parent's results are not reused as proof here.
