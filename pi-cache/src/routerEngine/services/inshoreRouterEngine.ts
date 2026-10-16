@@ -71,6 +71,7 @@ import {
     CAUTION,
     UNCHARTED_MAX_RUN_M,
 } from './engine/constants.js';
+import { applyTrackPriors } from './engine/trackPriors.js';
 import type {
     DepthBend,
     DryPinTail,
@@ -1853,6 +1854,7 @@ function routeInshoreOnceEnds(
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
     // grid has a path-cost edge case I haven't anticipated.
+    applyTrackPriors(grid, req.trackPriors, req.draftM + (req.safetyM ?? 1));
     const aStarCells = aStar(grid, startCell, endCell);
     tPhase = mark('aStar', tPhase);
     if (!aStarCells) {

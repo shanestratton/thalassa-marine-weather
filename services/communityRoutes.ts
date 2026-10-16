@@ -35,14 +35,23 @@ export interface PendingRoute {
     submittedAt: string;
 }
 
-/** points arrive as [[lat, lon], ...] jsonb — tolerate junk rows. */
+/** Reject a malformed line whole: dropping one vertex could invent a shortcut. */
 function parsePoints(raw: unknown): TracePoint[] {
-    if (!Array.isArray(raw)) return [];
+    if (!Array.isArray(raw) || raw.length < 2 || raw.length > 20_000) return [];
     const out: TracePoint[] = [];
     for (const p of raw) {
-        if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+        if (
+            Array.isArray(p) &&
+            p.length === 2 &&
+            typeof p[0] === 'number' &&
+            typeof p[1] === 'number' &&
+            Number.isFinite(p[0]) &&
+            Number.isFinite(p[1]) &&
+            Math.abs(p[0]) <= 85 &&
+            Math.abs(p[1]) <= 180
+        ) {
             out.push({ lat: Number(p[0]), lon: Number(p[1]) });
-        }
+        } else return [];
     }
     return out;
 }
@@ -87,11 +96,14 @@ const laneCache = new Map<string, { at: number; lanes: CommunityLane[] }>();
 const LANE_CACHE_MS = 10 * 60_000;
 
 /** Approved community lanes near a bbox — merged into the tracer's ghosts. */
-export async function communityLanesNear(bbox: [number, number, number, number]): Promise<CommunityLane[]> {
+export async function communityLanesNear(
+    bbox: [number, number, number, number],
+    options: { fresh?: boolean } = {},
+): Promise<CommunityLane[]> {
     if (!isSupabaseConfigured() || !supabase) return [];
     const key = bbox.map((v) => v.toFixed(2)).join(',');
     const hit = laneCache.get(key);
-    if (hit && Date.now() - hit.at < LANE_CACHE_MS) return hit.lanes;
+    if (!options.fresh && hit && Date.now() - hit.at < LANE_CACHE_MS) return hit.lanes;
     try {
         const { data, error } = await supabase.rpc('traced_routes_near', {
             w: bbox[0],

@@ -38,6 +38,7 @@ export const LogPageHeader: React.FC<{
      */
     historyUnavailable?: boolean;
     loggedEntries: ShipLogEntry[];
+    onMakeTrackRoute?: () => void;
 }> = ({
     isTracking,
     gpsStatus,
@@ -56,6 +57,7 @@ export const LogPageHeader: React.FC<{
     hasLifetimeVoyages = false,
     historyUnavailable = false,
     loggedEntries,
+    onMakeTrackRoute,
 }) => {
     // The overflow menu is portalled to the pane/body so it centres on the screen.
     const portalTarget = usePanePortalTarget();
@@ -232,6 +234,18 @@ export const LogPageHeader: React.FC<{
                                         disabled={noLoggedData}
                                         describedBy={waitingReason}
                                     />
+                                    {onMakeTrackRoute && (
+                                        <MenuBtn
+                                            icon={<MapIcon className="w-4 h-4" />}
+                                            label="Make route from track"
+                                            onClick={() => {
+                                                setShowMenu(false);
+                                                onMakeTrackRoute();
+                                            }}
+                                            disabled={statsDisabled}
+                                            describedBy={statsDisabled ? waitingReason : undefined}
+                                        />
+                                    )}
                                     {FEATURE_VISIBILITY.communityTrackSharing && (
                                         <MenuBtn
                                             icon={<DownloadIcon className="w-4 h-4" />}

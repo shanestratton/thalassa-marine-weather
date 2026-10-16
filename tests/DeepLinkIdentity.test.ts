@@ -6,6 +6,8 @@ import {
     peekTracerOpenRequest,
     requestSavedRoutesLibraryOpen,
     requestTracerOpen,
+    requestTrackRouteLibraryOpen,
+    consumeTrackRouteLibraryOpen,
     type TracerOpenEventDetail,
 } from '../services/deepLink';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
@@ -35,6 +37,19 @@ describe('tracer deep-link identity fence', () => {
         // A real transition synchronously clears either half of a request that
         // a failing assertion may have left pending.
         setAuthIdentityScope(null);
+    });
+
+    it('opens the existing past-track picker once and retires its intent on A/B/A', () => {
+        const a = getAuthIdentityScope();
+        requestTrackRouteLibraryOpen(a);
+        expect(consumeTrackRouteLibraryOpen()).toBe(true);
+        expect(consumeTrackRouteLibraryOpen()).toBe(false);
+        requestTrackRouteLibraryOpen(a);
+        setAuthIdentityScope('account-b');
+        setAuthIdentityScope('account-a');
+        expect(consumeTrackRouteLibraryOpen()).toBe(false);
+        requestTrackRouteLibraryOpen(a);
+        expect(consumeTrackRouteLibraryOpen()).toBe(false);
     });
 
     it('clears a private pending action synchronously when identity changes', () => {

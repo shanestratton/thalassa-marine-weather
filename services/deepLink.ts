@@ -192,6 +192,7 @@ const dispatchingTracerRequestIds: number[] = [];
 // window event. It contains no route geometry, but even the fact that an
 // account has private routes belongs to the same auth-generation fence.
 let pendingSavedRoutesLibraryIdentity: AuthIdentityScope | null = null;
+let pendingTrackRouteLibraryIdentity: AuthIdentityScope | null = null;
 
 function sameIdentity(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
     return left.key === right.key && left.generation === right.generation;
@@ -300,6 +301,16 @@ export function consumeSavedRoutesLibraryOpen(): boolean {
     return isAuthIdentityScopeCurrent(identity);
 }
 
+/** Log's overflow action opens Plan's existing past-voyage picker; no geometry crosses this handoff. */
+export function requestTrackRouteLibraryOpen(expectedScope: AuthIdentityScope = getAuthIdentityScope()): void {
+    if (isAuthIdentityScopeCurrent(expectedScope)) pendingTrackRouteLibraryIdentity = expectedScope;
+}
+export function consumeTrackRouteLibraryOpen(): boolean {
+    const scope = pendingTrackRouteLibraryIdentity;
+    pendingTrackRouteLibraryIdentity = null;
+    return !!scope && isAuthIdentityScopeCurrent(scope);
+}
+
 // These handoffs can contain private saved-route ids and voyage labels. The
 // auth store flips this fence before publishing the next user, so remove every
 // reference synchronously rather than waiting for a React consumer to remount.
@@ -307,4 +318,5 @@ subscribeAuthIdentityScope(() => {
     pendingTracerRequest = null;
     approvedTracerRequest = null;
     pendingSavedRoutesLibraryIdentity = null;
+    pendingTrackRouteLibraryIdentity = null;
 });

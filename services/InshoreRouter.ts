@@ -44,6 +44,7 @@ import type { EncCell } from './enc/types';
 import { readS57 } from './enc/types';
 import { hasCellGeoJSON, loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
+import { collectTrackRoutingPriors, trackPriorContextKey } from './routing/trackRoutingPriors';
 import type { SurveyUncheckedCell, TideCeiling } from './engine/types';
 import { tideCeilingLookup } from './engine/tideCeiling';
 import { pinTailTideWindows, routeAreaTideCeilings } from './routing/tideCeilings';
@@ -477,6 +478,7 @@ export async function tryInshoreRoute(
         onStage?: (stage: RouteStage) => void;
     } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    const priorContext = trackPriorContextKey();
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
     // production builds — use warn() so it actually emits on iOS.
@@ -495,7 +497,7 @@ export async function tryInshoreRoute(
     const tideKey = routeOpts.tideCeilings
         ? `tc${tideCeilingLookup(routeOpts.tideCeilings).key}`
         : `dep${Math.floor((routeOpts.departureMs ?? Date.now()) / 3_600_000)}`;
-    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}`;
+    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}_${priorContext}`;
     let entry = inflightRouteRequests.get(dedupeKey);
     if (entry) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
@@ -503,7 +505,10 @@ export async function tryInshoreRoute(
         entry = startInshoreRun(dedupeKey, origin, destination, draftM, airDraftM, routeProfile, routeOpts);
         inflightRouteRequests.set(dedupeKey, entry);
     }
-    return joinInshoreRun(dedupeKey, entry, signal, onStage);
+    const result = await joinInshoreRun(dedupeKey, entry, signal, onStage);
+    if (trackPriorContextKey() !== priorContext)
+        throw new Error('Route request retired because the account or vessel changed.');
+    return result;
 }
 
 /** One caller's wait on a run: it detaches alone when it stops; the last one stops the run. */
@@ -673,11 +678,14 @@ async function tryInshoreRouteInner(
     overlayUse: { overlay?: OsmOverlayProvenance } = {},
     run: InshoreRunControl,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    const priorContext = trackPriorContextKey();
     // A run every caller has stopped drops out at its next wait (review
     // 2026-10-11): it starts no more fetches, cell reads or satellite reads
     // beside a re-tap's fresh run. The waits themselves can't be cancelled.
     const stillWanted = (): void => {
         run.signal.throwIfAborted();
+        if (trackPriorContextKey() !== priorContext)
+            throw new Error('Route request retired because the account or vessel changed.');
         run.chartView?.check();
     };
     const distNM = straightLineNM(origin, destination);
@@ -1801,7 +1809,12 @@ async function tryInshoreRouteInner(
     // 60 m is the empirical sweet spot — overlaps into
     // contiguous no-go strips along hazard chains, but doesn't
     // over-block the deep-water side.
+    const trackPriors = await collectTrackRoutingPriors(origin, destination, run.asks, priorContext);
+    stillWanted();
+    if (trackPriorContextKey() !== priorContext)
+        throw new Error('Route request retired because the account or vessel changed.');
     const routeOpts = {
+        ...(trackPriors.length ? { trackPriors } : {}),
         fromLat: origin.lat,
         fromLon: origin.lon,
         toLat: destination.lat,
