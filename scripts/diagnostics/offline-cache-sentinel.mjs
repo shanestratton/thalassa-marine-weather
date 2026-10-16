@@ -392,6 +392,72 @@ try {
           payload: sentinels[0].expectedText,
         },
       );
+      result.urlMatrix = await warm.evaluate(
+        async ({ cacheName, origin, payload }) => {
+          const cache = await caches.open(cacheName),
+            results = [];
+          const paths = [
+            "/__thalassa-offline-relief-manifest-v1",
+            "/__offline-relief-manifest-v1",
+            "/__thalassa-offline-relief-index-v1",
+            "/__thalassa-offline-relief-manifest-v1.json",
+            "/__thalassa/offline-relief/v1/index.json",
+            "/__manifest",
+            "/manifest.json",
+            "/offline.json",
+            "/__sentinel_manifest",
+            "/__sentinel-manifest",
+            "/__sentinel_manifest_v1",
+            "/__sentinel_manifest-v1",
+            "/__sentinel_string_no-length_1",
+            "/__thalassa-offline-relief-manifest-v2",
+            "/__thalassa-offline-relief-manifest-v1?v=1",
+            "/offline-relief/index.json",
+            "/offline-relief-index.json",
+            "/relief-index",
+            "/relief-index?v=1",
+          ];
+          for (const host of [origin, "https://tiles.thalassatiles.com"])
+            for (const path of paths)
+              for (const requestObject of [false, true]) {
+                const key = host + path,
+                  url = new URL(key),
+                  request = new Request(key);
+                await cache.put(
+                  requestObject ? request : key,
+                  new Response(payload, {
+                    headers: { "content-type": "application/json" },
+                  }),
+                );
+                const hit = await cache.match(key),
+                  ignored = await cache.match(key, { ignoreVary: true }),
+                  requestHit = await cache.match(new Request(key));
+                const text = hit ? await hit.text() : null,
+                  allKeys = (await cache.keys()).map((r) => r.url);
+                results.push({
+                  key,
+                  requestObject,
+                  components: {
+                    origin: url.origin,
+                    pathname: url.pathname,
+                    search: url.search,
+                    hash: url.hash,
+                  },
+                  codepoints: Array.from(key, (c) => c.codePointAt(0)),
+                  nativeRequestURL: request.url,
+                  method: request.method,
+                  mode: request.mode,
+                  matched: Boolean(hit),
+                  exactBody: text === payload,
+                  ignoreVary: Boolean(ignored),
+                  requestMatched: Boolean(requestHit),
+                  actualKeys: allKeys,
+                });
+              }
+          return results;
+        },
+        { cacheName, origin, payload: sentinels[0].expectedText },
+      );
       await warm.evaluate(
         async ({ core, html, script }) => {
           const c = await caches.open(core);
