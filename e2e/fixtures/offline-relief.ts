@@ -3,7 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import { downloadReliefArea, hydrateRelief, reliefStorage } from '../../services/OfflineReliefService';
 import { offlineReliefUrl, subscribeOfflineRelief } from '../../services/offlineReliefRuntime';
 import { initialReliefMapStyle } from '../../services/initialReliefMapStyle';
-import { RELIEF_WEB_CACHE } from '../../services/offlineReliefPlan';
+import { RELIEF_WEB_CACHE, RELIEF_WEB_MANIFEST_PATH } from '../../services/offlineReliefPlan';
 import {
     addReliefBase,
     offlineReliefStyle,
@@ -16,7 +16,7 @@ const errors: string[] = [];
 let cacheBeforeHydrate: unknown;
 const ready = (async () => {
     const cache = await caches.open(RELIEF_WEB_CACHE);
-    const index = await cache.match('https://tiles.thalassatiles.com/__offline-relief-manifest-v1');
+    const index = await cache.match(new URL(RELIEF_WEB_MANIFEST_PATH, location.href).href);
     const manifest = index ? await index.json() : null;
     const keys = await cache.keys();
     cacheBeforeHydrate = { keys: keys.length, manifestRows: manifest?.tiles?.length ?? null };

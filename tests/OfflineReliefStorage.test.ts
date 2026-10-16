@@ -52,7 +52,7 @@ vi.mock('../services/networkPolicy', () => ({ satelliteModeBlocks: () => state.s
 const area = { north: 1, south: 0.9, west: 1, east: 1.1 },
     base = 'https://tiles.thalassatiles.com/v1';
 const manifest = `${RELIEF_OFFLINE_DIRECTORY}/index.json`,
-    webManifest = 'https://tiles.thalassatiles.com/__offline-relief-manifest-v1';
+    webManifest = new URL('/__thalassa-offline-relief-manifest-v1', globalThis.location.href).href;
 function image(mime: string): Uint8Array<ArrayBuffer> {
     const b = new Uint8Array(44),
         d = new DataView(b.buffer);
@@ -343,6 +343,27 @@ describe('native public relief persistence', () => {
 });
 
 describe('browser terrain cache matching the service worker', () => {
+    it('moves a validated legacy manifest onto the app origin without fetching terrain again', async () => {
+        state.native = false;
+        const cache = memoryCache();
+        vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+        const service = await import('../services/OfflineReliefService');
+        await service.downloadReliefArea(area, 4, base, new AbortController().signal, vi.fn());
+        const count = service.reliefStorage().tiles;
+        const legacy = 'https://tiles.thalassatiles.com/__offline-relief-manifest-v1';
+        cache.entries.set(legacy, cache.entries.get(webManifest)!.clone());
+        cache.entries.delete(webManifest);
+        vi.mocked(fetch).mockClear();
+        vi.resetModules();
+        const fresh = await import('../services/OfflineReliefService');
+        await fresh.hydrateRelief();
+        expect(fresh.reliefStorage().tiles).toBe(count);
+        expect(count).toBeGreaterThan(0);
+        expect(cache.entries.has(webManifest)).toBe(true);
+        expect(new URL(webManifest).origin).toBe(location.origin);
+        expect(cache.entries.has(legacy)).toBe(false);
+        expect(fetch).not.toHaveBeenCalled();
+    });
     it('refetches a browser-evicted saved file instead of trusting an old in-memory index', async () => {
         state.native = false;
         const cache = memoryCache();
