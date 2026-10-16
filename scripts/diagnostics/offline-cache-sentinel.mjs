@@ -148,12 +148,15 @@ async function snapshot(page, origin) {
   );
 }
 try {
-  for (const mode of option("mode", null)
+  const modes = option("mode", null)
     ? [option("mode", null)]
-    : ["none", "origin", "retained"]) {
+    : ["none", "origin", "retained"];
+  for (const { mode, initialReady } of modes.flatMap((mode) =>
+    [false, true].map((initialReady) => ({ mode, initialReady })),
+  )) {
     if (!["none", "origin", "retained"].includes(mode))
       throw Error("Unknown keeper mode");
-    const result = { mode };
+    const result = { mode, initialReady };
     report.cases.push(result);
     let context, server;
     try {
@@ -297,6 +300,10 @@ try {
           ),
         });
       });
+      if (initialReady)
+        result.initialReadyResult = await warm.evaluate(
+          async () => await window.__offlineRelief.ready(),
+        );
       await warm.reload();
       result.save = await warm.evaluate(
         async () => await window.__offlineRelief.save(),
@@ -522,6 +529,40 @@ try {
             ),
         )
         .map(({ expectedText, ...rest }) => rest);
+      result.exactKeyRecovery = await cold.evaluate(
+        async ({ cacheName, manifestPath, legacy, origin, payload }) => {
+          const cache = await caches.open(cacheName),
+            key = manifestPath ? origin + manifestPath : legacy;
+          const before = await cache.match(key),
+            keysBefore = (await cache.keys()).map((request) => request.url);
+          const deleted = await cache.delete(key);
+          await cache.put(
+            key,
+            new Response(payload, {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+          const after = await cache.match(key),
+            text = after ? await after.text() : null;
+          return {
+            key,
+            matchedBefore: Boolean(before),
+            listedBefore: keysBefore.includes(key),
+            deleted,
+            matchedAfter: Boolean(after),
+            exactBody: text === payload,
+            keysAfter: (await cache.keys()).map((request) => request.url),
+          };
+        },
+        {
+          cacheName,
+          manifestPath,
+          legacy,
+          origin,
+          payload: sentinels[0].expectedText,
+        },
+      );
+      result.coldAfterRecovery = await snapshot(cold, origin);
       await cold.evaluate(() => window.__continueReliefHydration());
       let renderDeadline;
       try {
@@ -543,6 +584,7 @@ try {
       console.log(
         JSON.stringify({
           mode,
+          initialReady,
           engine: engineName,
           save: result.save,
           manifestAfterSave: Boolean(result.afterSave.manifestText),
@@ -550,6 +592,13 @@ try {
           manifestBeforeClose: Boolean(result.beforeClose.manifestText),
           manifestCold: Boolean(result.coldBeforeHydrate.manifestText),
           missingSentinels: result.missingSentinels,
+          exactKeyRecovery: {
+            matchedBefore: result.exactKeyRecovery.matchedBefore,
+            listedBefore: result.exactKeyRecovery.listedBefore,
+            deleted: result.exactKeyRecovery.deleted,
+            matchedAfter: result.exactKeyRecovery.matchedAfter,
+            exactBody: result.exactKeyRecovery.exactBody,
+          },
           pixel: result.render?.pixel,
         }),
       );

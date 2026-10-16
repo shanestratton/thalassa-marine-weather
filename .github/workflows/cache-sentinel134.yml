@@ -40,7 +40,7 @@ jobs:
       - name: Install Linux WebKit and its runtime dependencies
         working-directory: source
         run: npx --no-install playwright install --with-deps webkit
-      - name: Compare cold CacheStorage with three keeper modes
+      - name: Compare initial-ready controls and exact-key recovery in three keeper modes
         working-directory: source
         run: node ../controls/scripts/diagnostics/offline-cache-sentinel.mjs --source="$PWD" --engine=webkit --output="$RUNNER_TEMP/cache-sentinel134.json"
       - name: Validate diagnostic completeness without certifying product behavior
@@ -49,8 +49,8 @@ jobs:
           node --input-type=module - <<'JS'
           import fs from 'node:fs';
           const report=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/cache-sentinel134.json`,'utf8'));
-          if(report.sourceSha!=='aa200d597abfe6453b0cd89442a2171adbd922d3'||report.cases.length!==3||report.cases.some(c=>c.error||!c.coldBeforeHydrate))throw Error('Diagnostic did not reach all cold snapshots');
-          console.log('All three diagnostic cases captured. Missing metadata remains a product failure, not a passing release gate.');
+          if(report.sourceSha!=='aa200d597abfe6453b0cd89442a2171adbd922d3'||report.cases.length!==6||report.cases.some(c=>c.error||!c.coldBeforeHydrate||!c.exactKeyRecovery))throw Error('Diagnostic did not reach all matched-control cold snapshots');
+          console.log('All six matched diagnostic cases captured. Missing metadata remains a product failure, not a passing release gate.');
           JS
           git diff --exit-code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
