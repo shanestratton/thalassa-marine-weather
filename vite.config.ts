@@ -29,6 +29,7 @@ import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
 import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
 import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
 import { shareSvgProps } from './scripts/share-svg-props.mjs';
+import { shareSvgPaths } from './scripts/share-svg-paths.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 import { handler as handleNoaaChart } from './api/noaa-chart';
@@ -624,6 +625,7 @@ export default defineConfig(({ mode }) => {
             jspdfPrimitives(__dirname),
             packTimezoneData(__dirname),
             shareSvgProps(__dirname),
+            shareSvgPaths(__dirname),
             shareClassNames(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
