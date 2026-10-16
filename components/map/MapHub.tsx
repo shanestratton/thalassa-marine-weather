@@ -1957,7 +1957,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setFixBusyLeg,
         setAutoRouteDiag,
         flashTraceFeedback,
-        vessel: settings.vessel,
+        departureMs,
+        legEtaOffsetsMs,
+        enabled: coordCaptureMode,
     });
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
@@ -5074,9 +5076,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {/* ⚡ routes the leg INTO the highlighted pin (tap a
                                                     pin first) via the real inshore engine — follows
                                                     deep water, never crosses land, breaks long runs
-                                                    into depth-checkable, tide-aware pins. No pin
-                                                    selected → the last leg. PARKED for now
-                                                    (AUTO_ROUTE_BUTTON_VISIBLE) — engine stays wired. */}
+                                                    into depth-checkable curve vertices. No pin
+                                                    selected → the last leg. The final edited line
+                                                    must pass the strict cold sweep before applying. */}
                                                 {AUTO_ROUTE_BUTTON_VISIBLE && (
                                                     <button
                                                         onClick={autoRouteLeg}

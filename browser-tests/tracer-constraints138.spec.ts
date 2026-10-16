@@ -33,6 +33,10 @@ for (const width of [300, 375])
         await expect(page.getByRole('button', { name: 'Leave port' })).toHaveAttribute('aria-pressed', 'true');
         points = JSON.parse((await page.getByTestId('point-intent').textContent())!);
         expect(points[1].constraint.standOffM).toBe(100);
+        const beforeAuto = await page.getByTestId('point-intent').textContent();
+        await page.getByRole('button', { name: 'Auto selected leg' }).click();
+        await expect(page.getByTestId('auto-diag')).toContainText('Satellite Mode');
+        await expect(page.getByTestId('point-intent')).toHaveText(beforeAuto!);
         await page.evaluate(
             () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
         );

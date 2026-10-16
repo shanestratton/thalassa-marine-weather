@@ -1,22 +1,57 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
+import { DEFAULT_VESSEL } from '../../utils/defaultVessel';
+import { AUTO_ROUTE_BUTTON_VISIBLE } from '../../components/map/mapHubHelpers';
 if (!import.meta.env.DEV) throw Error('Development fixture only');
 document.documentElement.style.fontSize = '20.8px';
-const [{ TracerPinEditor }, { useTraceDraft }, { setAuthIdentityScope }, { saveTrace, loadSavedTraces }] =
-    await Promise.all([
-        import('../../components/map/tracer/TracerPinEditor'),
-        import('../../components/map/useTraceDraft'),
-        import('../../services/authIdentityScope'),
-        import('../../services/savedTraceStore'),
-    ]);
+const [
+    { TracerPinEditor },
+    { useTraceDraft },
+    { setAuthIdentityScope },
+    { saveTrace, loadSavedTraces },
+    { useAutoRouteLeg },
+    { useSettingsStore, awaitSettingsLoaded },
+] = await Promise.all([
+    import('../../components/map/tracer/TracerPinEditor'),
+    import('../../components/map/useTraceDraft'),
+    import('../../services/authIdentityScope'),
+    import('../../services/savedTraceStore'),
+    import('../../components/map/useAutoRouteLeg'),
+    import('../../stores/settingsStore'),
+]);
 setAuthIdentityScope(null);
+await awaitSettingsLoaded();
+useSettingsStore.setState({
+    settings: {
+        ...useSettingsStore.getState().settings,
+        satelliteMode: true,
+        vessel: { ...DEFAULT_VESSEL, draftConfirmedFt: DEFAULT_VESSEL.draft },
+    },
+});
 function Fixture() {
     const draft = useTraceDraft();
     const [selected, setSelected] = React.useState<number | null>(1),
         [insert, setInsert] = React.useState<number | null>(null),
-        [feedback, setFeedback] = React.useState('');
+        [feedback, setFeedback] = React.useState(''),
+        [busy, setBusy] = React.useState<number | null>(null),
+        [diag, setDiag] = React.useState<string | null>(null);
     const insertRef = React.useRef<number | null>(null);
+    const auto = useAutoRouteLeg({
+        capturedCoords: draft.capturedCoords,
+        setCapturedCoords: draft.setCapturedCoords,
+        selectedPin: selected,
+        setSelectedPin: setSelected,
+        setInsertAfter: setInsert,
+        insertAfterRef: insertRef,
+        fixBusyLeg: busy,
+        setFixBusyLeg: setBusy,
+        setAutoRouteDiag: setDiag,
+        flashTraceFeedback: setFeedback,
+        departureMs: 1792216800000,
+        legEtaOffsetsMs: [0, 600000],
+        enabled: true,
+    });
     React.useEffect(() => {
         if (!draft.capturedCoords.length)
             draft.setCapturedCoords([
@@ -51,6 +86,11 @@ function Fixture() {
                 {feedback}
             </p>
             <div className="flex flex-wrap gap-2">
+                {AUTO_ROUTE_BUTTON_VISIBLE && (
+                    <button className="min-h-[44px] rounded bg-violet-900 px-3" onClick={auto} disabled={busy !== null}>
+                        Auto selected leg
+                    </button>
+                )}
                 <button
                     className="min-h-[44px] rounded bg-sky-900 px-3"
                     onClick={() => {
@@ -88,6 +128,9 @@ function Fixture() {
                     Change fixture account
                 </button>
             </div>
+            <p data-testid="auto-diag" className="my-2 text-sm">
+                {diag}
+            </p>
             <output data-testid="point-intent" className="mt-2 block whitespace-pre-wrap break-all text-xs">
                 {JSON.stringify(draft.capturedCoords)}
             </output>

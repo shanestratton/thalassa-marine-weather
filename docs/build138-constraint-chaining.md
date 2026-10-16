@@ -3,8 +3,8 @@
 The planner now sends an explicit via request through a shared ordered-leg
 executor before any direct-route shortcut. The actual inshore and offshore
 engines retain their existing chart and land verification. This checkpoint
-also retains Tracer editing and saved point intent. Per-leg Auto remains parked
-until its cold final check and cancellation boundary are complete.
+also retains Tracer editing and saved point intent. Per-leg Auto is visible
+with a cold final-geometry check and a bounded cancellation lifetime.
 
 Each ordinary via is an exact required vertex. A leave-side mark instead has
 an explicit 5–2000 m passing-point offset, shown to the user, and a forbidden
@@ -67,3 +67,34 @@ tests cover these boundaries. Four actual Chrome/WebKit cases at 300/375 px
 and 130% text exercise the real editor, local save/reload, reverse/restore and
 account switch with zero WAN. They do not prove native devices, actual chart
 clearance or deployment of the held replan migration.
+
+Per-leg Auto routes into the selected pin, or the last leg when none is
+selected. It reads the confirmed vessel draft and that leg's actual
+departure-plus-transit clock. The charted-depth `safest` engine runs once with
+no tide ceilings. Missing installed coverage refuses with the Pi-chart
+instruction; Auto does not fetch replacement charts, use tide credit or
+substitute a straight route. Satellite Mode refuses before any engine/provider
+request. The existing 50 NM regional request limit remains; polar/dateline
+legs and worker curves extending beyond a 150 NM regional envelope refuse
+before the flat Tracer simplifier can create a global chord. This is independent
+of the still-parked course-frame entry.
+
+The result needs complete masks and no charted-land finding. After RDP and
+segment capping, the final proposed trace must retain all original points and
+side choices. Its edited leg then needs the existing complete land backstop
+and a fresh `recheckTrace` pass with every final segment graded clear. Caution,
+missing data or any refused check leaves the original pins untouched. No prior
+acknowledgement is carried into this strict sweep. All stages share a single
+60-second service lifetime; cancellation also unblocks an uncancellable native
+wait. Generated interior vertices retain `shape`, while both user terminals
+are unchanged. No chart resident/cache limit increases.
+
+The hook prevents duplicate same-tick runs and retires work on owner, boat,
+draft, Satellite Mode, pin/selection, departure or view changes, including a
+boat switched away and back between awaits. Focused service/hook and existing
+draft, privacy, lazy-boundary and clearance suites pass 138 cases. Four actual
+Chrome/WebKit cases also exercise the real Auto control's zero-WAN Satellite
+Mode refusal without changing the saved points. Success and refusal paths
+use deterministic service/hook tests with injected engine and grading results;
+these browser cases do not claim actual on-device chart clearance or a
+performance measurement.
