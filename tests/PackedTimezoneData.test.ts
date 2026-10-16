@@ -33,8 +33,15 @@ describe('embedded timezone data representation', () => {
         expect(decoded[1]).toHaveLength(438);
     });
     it('changes only the two private data initializers inside the original function', () => {
-        const original = parseAst(source).body.find((node) => node.type === 'FunctionDeclaration')!;
-        const transformed = parseAst(packed.code).body.find((node) => node.type === 'FunctionDeclaration')!;
+        // Rollup supplies offsets at runtime; ESTree's base declaration type
+        // omits these parser-specific fields.
+        const original = parseAst(source).body.find((node) => node.type === 'FunctionDeclaration')! as unknown as {
+            start: number;
+            end: number;
+        };
+        const transformed = parseAst(packed.code).body.find(
+            (node) => node.type === 'FunctionDeclaration',
+        )! as unknown as { start: number; end: number };
         const restored = packed.code
             .slice(transformed.start, transformed.end)
             .replace('__tzTable[0]', () => JSON.stringify(packed.grid))
