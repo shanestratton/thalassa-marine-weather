@@ -1,5 +1,13 @@
 /** Pure phone/Pi wire contract. No server implementation or runtime dependencies. */
-import type { WakeRule, WakeSelection, WakePreset, WakeReading, WakeEvaluation, WakeKeeperProof } from './wakeRule';
+import type {
+    WakeRule,
+    WakeSelection,
+    WakePreset,
+    WakeReading,
+    WakeEvaluation,
+    WakeKeeperProof,
+    WakeQuietHours,
+} from './wakeRule';
 
 export const WAKE_CONFIG_BYTES = 16_384;
 export const WAKE_SENSOR_CAP = 32;
@@ -80,8 +88,30 @@ export interface WakeKeeperStatus {
         capability: 0 | 1;
         checkedAt?: number | null;
         contextRevision?: string | null;
+        conflict?: WakeRelayConflict;
     };
     servedAt: number;
+}
+export interface WakeRelayConflict {
+    revision: string;
+    configurationRevision: string;
+    rulesDigest: string;
+    feedMatches: boolean;
+    retired: boolean;
+    rules: {
+        preset: WakePreset;
+        enabled: boolean;
+        threshold: number | null;
+        sourceMatches: boolean;
+        quietHours: WakeQuietHours | null;
+    }[];
+}
+export interface WakeRelayReviewRequest {
+    schema: 1;
+    expectedRevision: string;
+    rulesDigest: string;
+    binding: WakeBinding;
+    expectedContextRevision: string;
 }
 export interface WakeClearRequest {
     schema: 1;
