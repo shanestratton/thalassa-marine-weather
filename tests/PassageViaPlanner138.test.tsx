@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
     direct: vi.fn(),
     stored: vi.fn(),
     clear: vi.fn(),
+    berth: vi.fn(),
+    trial: false,
     boat: 'fixture-boat',
 }));
 vi.mock('../utils/createLogger', () => ({
@@ -33,6 +35,8 @@ vi.mock('../utils/system', () => ({
     }),
 }));
 vi.mock('../services/routing/constrainedPassage', () => ({ computeConstrainedPassage: mocks.calculate }));
+vi.mock('../services/routing/berthProposal', () => ({ computeBerthPassage: mocks.berth }));
+vi.mock('../services/autorouteTrialSwitch', () => ({ isAutorouteTrialOn: () => mocks.trial }));
 vi.mock('../services/WeatherRoutingService', () => ({
     computeRoute: mocks.direct,
     computeRouteFromPolyline: () => ({
@@ -94,8 +98,13 @@ function candidate() {
         constraints: [via],
     };
 }
-function mount() {
-    stagePassageRequest({ departure: origin, via: [via], arrival: destination, departureTime: start });
+function mount(automaticBerth = false) {
+    stagePassageRequest({
+        departure: origin,
+        via: automaticBerth ? [] : [via],
+        arrival: automaticBerth ? { lat: 0, lon: 5, name: 'Far berth' } : destination,
+        departureTime: start,
+    });
     const routeSource = { setData: vi.fn() },
         waypointSource = { setData: vi.fn() };
     const map = {
@@ -113,11 +122,18 @@ beforeEach(() => {
     vi.clearAllMocks();
     clearPassageRequest();
     mocks.boat = 'fixture-boat';
+    mocks.trial = false;
     mocks.calculate.mockResolvedValue(candidate());
+    mocks.berth.mockReset().mockResolvedValue({
+        ...candidate(),
+        constraints: [],
+        disclosure: { stateMask: ['green', 'offshore'], cellsUsed: [], distanceNM: 12, elapsedMs: 1 },
+    });
 });
 afterEach(() => clearPassageRequest());
 describe('the actual planner retains its explicit via request', () => {
     it('uses the ordered calculator before either direct shortcut and commits only its final checked line', async () => {
+        mocks.trial = true;
         const hook = mount();
         await act(async () => hook.result.current.computePassage());
         expect(mocks.calculate).toHaveBeenCalledWith(
@@ -185,5 +201,41 @@ describe('the actual planner retains its explicit via request', () => {
         expect(mocks.stored).not.toHaveBeenCalled();
         expect(hook.result.current.routeVerification.status).toBe('unverified');
         expect(hook.result.current.isoResultRef.current).toBeNull();
+    });
+    it('uses checked berth approaches beyond 50 NM only through the enabled Auto branch', async () => {
+        mocks.trial = true;
+        const hook = mount(true);
+        await act(async () => hook.result.current.computePassage());
+        expect(mocks.berth).toHaveBeenCalledWith(
+            expect.objectContaining({
+                origin,
+                destination: { lat: 0, lon: 5, name: 'Far berth' },
+                departureTime: start,
+                model: 'ecmwf',
+                stillCurrent: expect.any(Function),
+            }),
+        );
+        expect(mocks.calculate).not.toHaveBeenCalled();
+        expect(mocks.direct).not.toHaveBeenCalled();
+        expect(hook.result.current.routeVerification.status).toBe('verified');
+        expect(mocks.stored).toHaveBeenCalledOnce();
+        expect(
+            hook.routeSource.setData.mock.calls.at(-1)?.[0].features.map((f: GeoJSON.Feature) => f.properties?.safety),
+        ).toEqual(['green', 'offshore']);
+    });
+    it('keeps an unverified whole request when an enabled automatic berth stage is unavailable', async () => {
+        mocks.trial = true;
+        mocks.berth.mockRejectedValueOnce(Error('The arrival chart portal is unavailable'));
+        const hook = mount(true);
+        await act(async () => hook.result.current.computePassage());
+        expect(hook.result.current.routeVerification.status).toBe('unverified');
+        expect(hook.result.current.routeAnalysis).toBeNull();
+        expect(hook.routeSource.setData.mock.calls.at(-1)?.[0].features[0].geometry.coordinates).toEqual([
+            [0, 0],
+            [5, 0],
+        ]);
+        expect(mocks.stored).not.toHaveBeenCalled();
+        expect(mocks.calculate).not.toHaveBeenCalled();
+        expect(mocks.direct).not.toHaveBeenCalled();
     });
 });

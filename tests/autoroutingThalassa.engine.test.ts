@@ -63,7 +63,10 @@ vi.mock('../services/routing/landBackstop', () => ({
 // The skipper has switched Settings → Preferences → "Auto route (trial)" on
 // (off by default since 2026-10-01; tests/AutorouteTrialSwitch.test.tsx).
 vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: true } }) },
+    useSettingsStore: {
+        getState: () => ({ settings: { autorouteTrialEnabled: true } }),
+        subscribe: vi.fn(() => () => undefined),
+    },
 }));
 
 import { calculateThalassaProposal, THALASSA_PLANNED_ONLY_WARNING } from '../services/autoroutingThalassa';

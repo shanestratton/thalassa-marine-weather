@@ -15,6 +15,8 @@ import {
 } from '../services/weather/api/cmemsGridTrust';
 import {
     clearMpaDatasetCache,
+    borrowRetainedMpaDataset,
+    retainedMpaRoutingContextKey,
     fetchVerifiedMpaGeoJson,
     getVerifiedMpaDatasetStatus,
     MPA_CACHE_TTL_MS,
@@ -372,6 +374,83 @@ function mpaCollection() {
 }
 
 describe('MPA schema-v2 client trust boundary', () => {
+    it('borrows only retained verified references without fetching, copying the footprint or renewing TTL', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        const absent = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(absent.status).toBe('absent');
+        expect(fetchMock).not.toHaveBeenCalled();
+        const bundle = await mpaNetworkBundle();
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+            .mockResolvedValueOnce(geoJsonResponse(bundle.asset));
+        const loaded = await fetchVerifiedMpaGeoJson();
+        expect(absent.isCurrent()).toBe(false);
+        absent.release();
+        const sourceKey = retainedMpaRoutingContextKey();
+        expect(retainedMpaRoutingContextKey()).toBe(sourceKey);
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.status).toBe('available');
+        expect(lease.data?.features[0]).toBe(loaded?.features[0]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        vi.setSystemTime(NOW + MPA_CACHE_TTL_MS);
+        expect(retainedMpaRoutingContextKey()).not.toBe(sourceKey);
+        expect(lease.isCurrent()).toBe(false);
+        const expired = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(expired.status).toBe('expired');
+        expect(expired.data).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        lease.release();
+        expect(lease.data).toBeUndefined();
+        expired.release();
+    });
+    it('retained borrows retire on release, replacement and cancellation; empty windows stay honestly available', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const bundle = await mpaNetworkBundle();
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+                .mockResolvedValueOnce(geoJsonResponse(bundle.asset)),
+        );
+        await fetchVerifiedMpaGeoJson();
+        const controller = new AbortController(),
+            lease = borrowRetainedMpaDataset({ bbox: [-10, 20, -9, 21], signal: controller.signal });
+        expect(lease.status).toBe('available');
+        expect(lease.data?.features).toHaveLength(0);
+        expect(lease.isCurrent()).toBe(true);
+        controller.abort();
+        expect(lease.isCurrent()).toBe(false);
+        expect(lease.data).toBeUndefined();
+        const next = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        releaseMpaDataset();
+        expect(next.isCurrent()).toBe(false);
+        next.release();
+    });
+    it('refuses an oversized retained route slice rather than handing over a partial park footprint', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const collection = mpaCollection();
+        collection.features = Array.from({ length: 2001 }, () => structuredClone(collection.features[0]));
+        const bundle = await mpaNetworkBundle(collection);
+        bundle.manifest.dimensions.feature_count = 2001;
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+                .mockResolvedValueOnce(geoJsonResponse(bundle.asset)),
+        );
+        expect(await fetchVerifiedMpaGeoJson()).not.toBeNull();
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.status).toBe('bounded-out');
+        expect(lease.data).toBeUndefined();
+        lease.release();
+    });
     afterEach(() => {
         clearMpaDatasetCache();
         vi.useRealTimers();

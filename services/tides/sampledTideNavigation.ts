@@ -1,6 +1,8 @@
 /** Reviewed source authority is independent of the provider payload. Current
  * production registry is empty; no UI/env/payload field can add a review. */
 import { calculateDistance } from '../../utils/navigationCalculations';
+import { adapterSampleReadEvidence } from './sampledTideAcquisition';
+import { reviewedSourceUrlMatches } from './reviewedSourceUrl';
 import {
     parseSampledTideSeries,
     sampleStationPrediction,
@@ -68,6 +70,7 @@ export interface TideNavigationContext {
     protectedChart: boolean;
 }
 const reviewMark: unique symbol = Symbol('reviewed-station-tide-estimate');
+const issued = new WeakSet<object>();
 export interface ReviewedStationTideEstimate {
     readonly [reviewMark]: true;
     readonly kind: 'reviewed-station-estimate';
@@ -139,13 +142,15 @@ export function assessSampledTideNavigation(
     authority: SampledTideAuthority = REVIEWED_SAMPLED_TIDE_AUTHORITY,
 ): TideNavigationAssessment {
     const no = (reason: string): TideNavigationAssessment => ({ kind: 'unavailable', reason });
-    const value = parseSampledTideSeries(series, c.nowMs);
+    const value = parseSampledTideSeries(series, c.nowMs),
+        acquired = adapterSampleReadEvidence(series);
     if (
         !value ||
         !finite(c.lat) ||
         Math.abs(c.lat) > 85 ||
         !finite(c.lon) ||
         Math.abs(c.lon) > 180 ||
+        typeof c.protectedChart !== 'boolean' ||
         !id(c.lifetimeKey) ||
         !id(c.chartContentKey) ||
         !id(c.targetDatumId) ||
@@ -153,6 +158,8 @@ export function assessSampledTideNavigation(
         !['sounding', 'overhead', 'holding'].includes(c.use)
     )
         return no('Sample, point or current chart context unavailable.');
+    if (!acquired || acquired.provider !== value.provider || acquired.productId !== value.productId)
+        return no('Independent acquisition provenance unavailable.');
     if (
         !authority ||
         !Array.isArray(authority.sources) ||
@@ -162,7 +169,7 @@ export function assessSampledTideNavigation(
     )
         return no('Reviewed authority inventory unavailable.');
     const sources = authority.sources.filter(
-        (r) => r && r.provider === value.provider && r.productId === value.productId,
+        (r) => r && r.provider === acquired.provider && r.productId === acquired.productId,
     );
     if (sources.length !== 1)
         return no(
@@ -182,8 +189,8 @@ export function assessSampledTideNavigation(
         !validTime(source.validFromMs, source.validUntilMs, c) ||
         !Array.isArray(source.uses) ||
         !source.uses.includes(c.use) ||
-        !evidence(source.sourceUrlPrefix) ||
-        !value.sourceUrl.startsWith(source.sourceUrlPrefix) ||
+        !reviewedSourceUrlMatches(acquired.requestUrl, source.sourceUrlPrefix) ||
+        !reviewedSourceUrlMatches(acquired.responseUrl, source.sourceUrlPrefix) ||
         !finite(source.maxIssueAgeMs) ||
         source.maxIssueAgeMs <= 0 ||
         source.maxIssueAgeMs > 366 * 86400000 ||
@@ -240,7 +247,7 @@ export function assessSampledTideNavigation(
         return no('Reviewed datum transfer does not cover this location/time.');
     const heightM = sample.heightM + tie.offsetM,
         uncertainty = tie.uncertaintyM + source.predictionUncertaintyM;
-    return Object.freeze({
+    const result = Object.freeze({
         [reviewMark]: true as const,
         kind: 'reviewed-station-estimate' as const,
         stationId: value.stationId,
@@ -265,6 +272,8 @@ export function assessSampledTideNavigation(
         sourceReviewId: source.reviewId,
         datumReviewId: tie.reviewId,
     });
+    issued.add(result);
+    return result;
 }
 
 /** Only genuine in-process assessments can become inputs to a future blend.
@@ -276,6 +285,7 @@ export function isReviewedStationTideEstimate(
     if (!value || typeof value !== 'object') return false;
     const v = value as ReviewedStationTideEstimate;
     return (
+        issued.has(v) &&
         v[reviewMark] === true &&
         v.lifetimeKey === c.lifetimeKey &&
         v.atMs === c.atMs &&

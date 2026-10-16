@@ -67,7 +67,6 @@ import {
     PLATFORM_OWNER_EMAIL,
     CHANNELS_CACHE_KEY,
     OFFLINE_QUEUE_KEY,
-    PIN_DROP_PREFIX,
     QUEUED_DM_SENT_EVENT,
 } from './chat/constants';
 import { normalizeChatMessage } from './chat/messagePolicy';
@@ -1021,38 +1020,6 @@ class ChatServiceClass {
         return data as DirectMessage;
     }
 
-    // ─── PIN DROPS ────────────────────────────
-
-    /**
-     * Send a pin-drop location as a DM. Formats coordinates into
-     * a parseable `PIN_DROP:lat,lon,name` message.
-     * @param recipientId - Target user UUID
-     * @param lat - Latitude
-     * @param lon - Longitude
-     * @param name - Human-readable location name
-     */
-    async sendPinDrop(
-        recipientId: string,
-        lat: number,
-        lon: number,
-        label: string = 'Dropped Pin',
-    ): Promise<DirectMessageSendResult> {
-        const encoded = `${PIN_DROP_PREFIX}${lat.toFixed(6)}|${lon.toFixed(6)}|${label}`;
-        return this.sendDM(recipientId, encoded);
-    }
-
-    // ─── RECIPE SHARING ─────────────────────────
-
-    /**
-     * Share a recipe as a DM.
-     * Encodes the recipe into a parseable message string.
-     * @param recipientId - Target user UUID
-     * @param recipePayload - Pre-encoded recipe share string from encodeRecipeShare()
-     */
-    async sendRecipeShareDM(recipientId: string, recipePayload: string): Promise<DirectMessageSendResult> {
-        return this.sendDM(recipientId, recipePayload);
-    }
-
     /**
      * Share a recipe in a channel.
      * @param channelId - Target channel UUID
@@ -1377,17 +1344,6 @@ class ChatServiceClass {
         if (!this.operationIsCurrent(operation)) return false;
         if (!error) void this.logAuditForOperation(operation, 'unblock_user', userId, { action: 'unblocked' });
         return !error;
-    }
-
-    // --- AUDIT TRAIL ---
-    // Logs all admin actions for accountability — catches rogue admins
-
-    /** Log an admin action to the audit trail */
-    async logAudit(action: string, targetId: string | null, details?: Record<string, unknown>): Promise<void> {
-        const immutableDetails = details ? { ...details } : undefined;
-        const operation = this.captureOperation();
-        if (!operation || !(await this.verifyRemoteOperation(operation, 'admin'))) return;
-        await this.logAuditForOperation(operation, action, targetId, immutableDetails);
     }
 
     private async logAuditForOperation(
@@ -1796,18 +1752,6 @@ class ChatServiceClass {
         return this.operationIsCurrent(operation) ? ((data || []) as ChatChannel[]) : [];
     }
 
-    async editChannel(
-        channelId: string,
-        updates: { name?: string; description?: string; icon?: string },
-    ): Promise<boolean> {
-        if (!supabase) return false;
-        const immutableUpdates = { ...updates };
-        const operation = this.captureOperation();
-        if (!operation || !(await this.verifyRemoteOperation(operation, 'admin'))) return false;
-        const { error } = await supabase.from(CHANNELS_TABLE).update(immutableUpdates).eq('id', channelId);
-        return this.operationIsCurrent(operation) && !error;
-    }
-
     async deleteChannel(channelId: string): Promise<boolean> {
         if (!supabase) return false;
         const operation = this.captureOperation();
@@ -1872,24 +1816,6 @@ class ChatServiceClass {
         });
 
         return this.operationIsCurrent(operation) && !error;
-    }
-
-    /** Get current user's join request status for a channel */
-    async getMyJoinRequestStatus(channelId: string): Promise<'none' | 'pending' | 'approved' | 'rejected'> {
-        if (!supabase) return 'none';
-        const operation = this.captureOperation();
-        if (!operation) return 'none';
-        const { data } = await supabase
-            .from('channel_join_requests')
-            .select('status')
-            .eq('channel_id', channelId)
-            .eq('user_id', operation.userId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-        return this.operationIsCurrent(operation)
-            ? (data?.status as 'pending' | 'approved' | 'rejected') || 'none'
-            : 'none';
     }
 
     /** Admin/owner: get pending join requests (optionally for a specific channel) */

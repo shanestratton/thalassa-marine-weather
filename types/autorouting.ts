@@ -40,6 +40,13 @@ export interface AutoroutingTrialStatus {
  * unverified and cannot be saved.
  */
 export interface ThalassaRouteDisclosure {
+    /** Mixed-route facts stay in memory with this exact proposal. A forecast
+     * middle is never described as one charted inshore grid. */
+    berth?: {
+        portals: [{ lat: number; lon: number }, { lat: number; lon: number }];
+        sourceKeys: [string, string];
+        offshoreSegments: number;
+    };
     stateMask: InshoreSegmentState[] | null;
     cautionMask?: boolean[];
     canalMask?: boolean[];

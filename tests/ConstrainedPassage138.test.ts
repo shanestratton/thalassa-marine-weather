@@ -93,6 +93,43 @@ beforeEach(() => {
     });
 });
 describe('actual constrained passage orchestration', () => {
+    it('runs the existing offshore solver for a berth middle below 100 NM instead of taking a coastal straight-line shortcut', async () => {
+        mocks.ocean.mockImplementation(async (from, to, departure) => {
+            const clock = cumulativeLegs([from, to], 6);
+            const route = [from, to].map((p, i) => ({
+                ...p,
+                timeHours: clock[i].hours,
+                distance: clock[i].nm,
+                bearing: 90,
+                speed: 6,
+                tws: 10,
+                twa: 90,
+                parentIndex: null,
+            }));
+            return {
+                route,
+                routeCoordinates: route.map((p) => [p.lon, p.lat]),
+                shallowFlags: [false, false],
+                isochrones: [],
+                totalDistanceNM: clock[1].nm,
+                totalDurationHours: clock[1].hours,
+                arrivalTime: new Date(Date.parse(departure) + clock[1].hours * 3600000).toISOString(),
+            };
+        });
+        const result = await computeConstrainedPassage({
+            ...input(),
+            vias: [],
+            destination: { lat: 0, lon: 1 },
+            offshoreOnly: true,
+        });
+        expect(mocks.inshore).not.toHaveBeenCalled();
+        expect(mocks.ocean).toHaveBeenCalledOnce();
+        expect(mocks.validate).toHaveBeenCalled();
+        expect(result.result.routeCoordinates).toEqual([
+            [0, 0],
+            [1, 0],
+        ]);
+    });
     it('keeps short required hops in the charted engine and rebases their actual departure clocks', async () => {
         const request = input(),
             result = await computeConstrainedPassage(request);

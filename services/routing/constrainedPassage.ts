@@ -60,6 +60,9 @@ export async function computeConstrainedPassage(input: {
     speed: number;
     settings: UserSettings;
     model: string;
+    /** Berth orchestration has already routed both approaches; this span is
+     * always the weather-routed offshore middle, even below 100 NM. */
+    offshoreOnly?: boolean;
     privateWind?: WindGrid;
     deadlineMs: number;
     stillCurrent: () => boolean;
@@ -162,7 +165,7 @@ export async function computeConstrainedPassage(input: {
                 request.destination.lat,
                 request.destination.lon,
             );
-            if (distance < 100) {
+            if (distance < 100 && !input.offshoreOnly) {
                 const { tryInshoreRoute } = await import('../InshoreRouter');
                 const inshore = await tryInshoreRoute(
                     request.origin,
