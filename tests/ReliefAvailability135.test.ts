@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseReliefAvailability, reliefAvailableRanges } from '../services/reliefAvailability';
 import nz61 from './fixtures/relief/nz61-availability.json';
+import au250 from './fixtures/relief/au250-availability.json';
 
 const expected = { region: 'nz', version: 'v2', minzoom: 8, maxzoom: 14 };
 const manifest = {
@@ -18,6 +19,54 @@ afterEach(() => {
     vi.resetModules();
 });
 describe('exact regional relief availability', () => {
+    it('accepts all50,308 actual AU pairs but rejects the reviewed58,194-pair ceiling plus one', () => {
+        const auExpected = { region: 'au250', version: 'v2', minzoom: 8, maxzoom: 10 };
+        const actual = parseReliefAvailability(au250, auExpected)!;
+        expect(actual.tilePairs).toBe(50308);
+        expect(actual.rows).toHaveLength(626);
+        const generate = (count: number) => {
+            const rows: number[][] = [];
+            for (let y = 0, remaining = count; remaining > 0; y++) {
+                const n = Math.min(1024, remaining);
+                rows.push([10, y, 0, n - 1]);
+                remaining -= n;
+            }
+            return { schema: 1, ...auExpected, tilePairs: count, rows };
+        };
+        expect(parseReliefAvailability(generate(58194), auExpected)?.tilePairs).toBe(58194);
+        expect(parseReliefAvailability(generate(58195), auExpected)).toBeNull();
+    });
+    it('the complete AU generation remains too large for a phone saved area', async () => {
+        const availability = parseReliefAvailability(au250, {
+            region: 'au250',
+            version: 'v2',
+            minzoom: 8,
+            maxzoom: 10,
+        })!;
+        vi.resetModules();
+        vi.doMock('../services/reliefDisplayRegions', async (original) => ({
+            ...(await original<typeof import('../services/reliefDisplayRegions')>()),
+            RELIEF_DISPLAY_REGIONS: [
+                {
+                    id: 'au250',
+                    version: 'v2',
+                    minzoom: 8,
+                    maxzoom: 10,
+                    bounds: [92, -60, 172, -8],
+                    tintFade: [10.5, 11.5],
+                    shadeFade: [10.5, 11.5],
+                    datum: 'Approximately MSL; GEBCO fallback',
+                    availability,
+                },
+            ],
+        }));
+        const { planReliefArea } = await import('../services/offlineReliefPlan');
+        const whole = planReliefArea({ west: 92, east: 172, south: -60, north: -8 }, 10);
+        expect(whole.tooLarge).toBe(true);
+        expect(whole.tileCount).toBeGreaterThan(4096);
+        expect(whole.tiles).toEqual([]);
+    });
+
     it('accepts actual completed LINZ availability and uses it in the bounded offline consumer', async () => {
         // Public provider fixture:2,197 finite-source pairs verified against all
         // 6,425 original checkpoints and6,591 decoded/hash-checked images.

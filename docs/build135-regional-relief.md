@@ -220,3 +220,28 @@ python3 tools/relief/regional_plan.py --region au250 --region eu --region pr --r
 python3 tools/relief/build_au250.py
 python3 -m unittest discover -s tools/relief -p 'test_regional_*.py' -v
 ```
+
+## Completed AU local generation (16 October2026)
+
+The unchanged reviewed250m GA source and recipe produced50,308 actual tile pairs
+at z8–10:100,616 DEM/index objects plus50,308 local QA masks. All14,747 block
+checkpoints and150,924 referenced files (1,192,681,089bytes) were independently
+SHA-256 checked; no uncheckpointed files remain. The original manifest SHA is
+`510af68becf823b90fe1770ba32dfa05d04dcb9f36665ff288111abebb05c373`.
+Exact sparse availability has626 canonical row runs (10,671bytes raw), SHA
+`dd66f32ef5981ac8297a3a90627820c3f2ddb1cd5394a8f9afab28309e903727`.
+Its fixture preserves the actual tile coordinates and holes. The parser admits
+at most58,194 pairs, the preapproved116,388-object generation ceiling; all integer,
+zoom, coordinate, canonical-run and50,000-row validations remain. Phone saved-area
+limits remain4096 tiles/512MiB, and the complete AU generation is refused there.
+
+The first invocation was manually stopped at its wall deadline after the remote
+container outlived the client wrapper (original exec exit1, roughly50seconds
+beyond the intended cap). That failure and all originals/checkpoints are retained.
+One separately approved server-owned `RuntimeMaxSec=3600` continuation verified
+the ZIP, raster, recipe, tools and every prior checkpoint before resuming. It
+completed with exit0 in360seconds; `ExecStopPost` retained stopped-container state
+and logs. There is no recurring timer, publication, R2 write or regional registry
+activation. This proves a local finite display generation, not phone memory or
+physical-device acceptance. Source datum remains approximately MSL as stated by
+GA; no vertical conversion or navigation/depth-sampling use is introduced.

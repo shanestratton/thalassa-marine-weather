@@ -33,6 +33,8 @@ export interface NoaaDownload {
     chartSha256: string;
     zipSha256: string;
     bytes: number;
+    zipBytes?: number;
+    packages?: Array<{ sha256: string; bytes: number }>;
     path: string;
     savedAt: number;
     installed: boolean;
@@ -175,10 +177,11 @@ async function saveCache(value: Cache, scope: AuthIdentityScope): Promise<void> 
 export async function savedNoaaDownloads(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<NoaaDownload[]> {
     const { value } = await Preferences.get({ key: key(DOWNLOAD_KEY, scope) });
     current(scope);
-    if (!value || value.length > 32 * 1024) return [];
+    if (!value) return [];
+    if (value.length > 32 * 1024) throw Error('Saved NOAA storage index exceeds its bound.');
     try {
         const rows: unknown = JSON.parse(value);
-        if (!Array.isArray(rows) || rows.length > 32) return [];
+        if (!Array.isArray(rows) || rows.length > 32) throw Error('Invalid saved NOAA storage index.');
         const prefix = await archivePrefix(scope);
         if (
             rows.some(
@@ -196,7 +199,21 @@ export async function savedNoaaDownloads(scope: AuthIdentityScope = getAuthIdent
                     !/^[a-f0-9]{64}$/.test(r.zipSha256) ||
                     !Number.isInteger(r.bytes) ||
                     r.bytes < 1 ||
-                    r.bytes > 32 * 1024 * 1024 ||
+                    r.bytes > ARCHIVE_CAP ||
+                    (r.packages === undefined && r.bytes > 32 * 1024 * 1024) ||
+                    (r.packages !== undefined &&
+                        (!Array.isArray(r.packages) ||
+                            r.packages.length > 32 ||
+                            r.packages.some(
+                                (p: { sha256: string; bytes: number }) =>
+                                    !/^[a-f0-9]{64}$/.test(p.sha256) || !Number.isSafeInteger(p.bytes) || p.bytes < 1,
+                            ) ||
+                            new Set(r.packages.map((p: { sha256: string }) => p.sha256)).size !== r.packages.length ||
+                            !Number.isSafeInteger(r.zipBytes) ||
+                            r.zipBytes < 1 ||
+                            r.zipBytes > 32 * 1024 * 1024 ||
+                            r.bytes !==
+                                r.zipBytes + r.packages.reduce((n: number, p: { bytes: number }) => n + p.bytes, 0))) ||
                     r.path !== `${prefix}/${r.zipSha256}.zip` ||
                     typeof r.savedAt !== 'number' ||
                     !Number.isFinite(r.savedAt) ||
@@ -208,11 +225,12 @@ export async function savedNoaaDownloads(scope: AuthIdentityScope = getAuthIdent
             rows.reduce((n, row) => n + row.bytes, 0) > ARCHIVE_CAP ||
             new Set(rows.map((r) => r.zipSha256)).size !== rows.length
         )
-            return [];
+            throw Error('Invalid saved NOAA storage reservation.');
         current(scope);
         return rows as NoaaDownload[];
     } catch {
-        return [];
+        current(scope);
+        throw Error('Saved NOAA storage reservations could not be verified.');
     }
 }
 async function saveDownloads(rows: NoaaDownload[], scope: AuthIdentityScope): Promise<void> {
@@ -243,21 +261,28 @@ async function withdrawals(index: NoaaCatalogueIndex, scope: AuthIdentityScope):
         current(scope);
         const rows = await savedNoaaDownloads(scope);
         if (!rows.some((row) => index.withdrawn.includes(row.id) && !row.withdrawn)) return;
-        const { removeNoaaCatalogueRevision } = await import('./EncHazardService');
         for (const row of rows) {
             if (!index.withdrawn.includes(row.id) || row.withdrawn) continue;
             current(scope);
-            if (row.installed)
-                await removeNoaaCatalogueRevision(
-                    row.id,
-                    { edition: row.edition, updateNumber: row.update, contentSha256: row.chartSha256 },
-                    () => current(scope),
-                );
+            await detachTrackedDownload(row, scope);
             row.withdrawn = true;
             row.installed = false;
         }
         await saveDownloads(rows, scope);
     });
+}
+/** The reservation precedes activation, so it remains the recovery journal if
+ * metadata commits before installed/current identity can be saved. */
+async function detachTrackedDownload(row: NoaaDownload, scope: AuthIdentityScope): Promise<void> {
+    const { removeNoaaCatalogueRevision } = await import('./EncHazardService');
+    const expected = { edition: row.edition, updateNumber: row.update, contentSha256: row.chartSha256 };
+    if (row.packages?.length)
+        await removeNoaaCatalogueRevision(row.id, expected, () => current(scope), {
+            owner: scope.key,
+            zipSha256: row.zipSha256,
+            manifests: row.packages.map((p) => p.sha256),
+        });
+    else await removeNoaaCatalogueRevision(row.id, expected, () => current(scope));
 }
 async function refreshIndex(saved: Cache, scope: AuthIdentityScope, signal?: AbortSignal): Promise<Cache> {
     const bytes = await fetchBytes('index.json', 256 * 1024, scope, signal);
@@ -349,77 +374,124 @@ export function installNoaaCell(cell: NoaaCatalogueCell, signal?: AbortSignal): 
         const trusted = saved.shards
             .flatMap((s) => parseNoaaShard(JSON.parse(s.body), saved.index!))
             .find((row) => row.id === cell.id);
-        if (!trusted || JSON.stringify(trusted) !== JSON.stringify(cell) || !cell.chart || !cell.zip)
+        const zipObject = cell.zip ?? cell.package?.zip,
+            chartObject = cell.chart ?? cell.package?.manifest;
+        if (!trusted || JSON.stringify(trusted) !== JSON.stringify(cell) || !chartObject || !zipObject)
             throw Error('This chart conversion is not available in the current catalogue.');
-        const rows = await savedNoaaDownloads(scope);
-        const held = rows.find((row) => row.zipSha256 === cell.zip!.sha256);
-        if (!held && (rows.length >= 32 || rows.reduce((n, row) => n + row.bytes, 0) + cell.zip.bytes > ARCHIVE_CAP))
-            throw Error('Saved NOAA originals are full (32 archives /128MiB). Remove an old download first.');
-        const chartBytes = await verifiedObject(cell.chart, scope, signal);
-        const chart = JSON.parse(decode(chartBytes));
+        const assertAuthority = (): void => {
+            current(scope);
+            if (signal?.aborted) throw Error('NOAA chart download cancelled. Reserved files remain removable.');
+        };
+        const chartBytes = await verifiedObject(chartObject, scope, signal),
+            chartText = decode(chartBytes);
+        let chart: unknown, manifest: import('./noaaPackageContract').NoaaPackage | undefined;
+        if (cell.package) {
+            const { parseNoaaPackage } = await import('./noaaPackageContract');
+            manifest = parseNoaaPackage(JSON.parse(chartText));
+            chart = manifest.metadata;
+            if (manifest.bytes + chartObject.bytes !== cell.package.bytes || manifest.zipSha256 !== zipObject.sha256)
+                throw Error('NOAA package size/source differs from the catalogue.');
+        } else chart = JSON.parse(chartText);
+        const identity = chart as {
+            cellId: string;
+            sourceHO: string;
+            edition: number;
+            updateNumber: number;
+            issued: string;
+        };
         if (
-            chart.cellId !== cell.id ||
-            chart.sourceHO !== 'US' ||
-            chart.edition !== cell.edition ||
-            chart.updateNumber !== cell.update ||
-            chart.issued !== cell.issued
+            identity.cellId !== cell.id ||
+            identity.sourceHO !== 'US' ||
+            identity.edition !== cell.edition ||
+            identity.updateNumber !== cell.update ||
+            identity.issued !== cell.issued
         )
             throw Error('NOAA chart identity/revision does not match its catalogue.');
+        const rows = await savedNoaaDownloads(scope);
+        let record = rows.find((row) => row.zipSha256 === zipObject.sha256);
+        const added =
+            cell.package && !record?.packages?.some((p) => p.sha256 === chartObject.sha256) ? cell.package.bytes : 0;
+        if (
+            (!record && rows.length >= 32) ||
+            rows.reduce((n, r) => n + r.bytes, 0) + (record ? 0 : zipObject.bytes) + added > ARCHIVE_CAP ||
+            (added && (record?.packages?.length ?? 0) >= 32)
+        )
+            throw Error('Saved NOAA originals and parts are full (32 archives /128MiB). Remove an old download first.');
+        const path = `${await archivePrefix(scope)}/${zipObject.sha256}.zip`;
+        if (!record) {
+            record = {
+                id: cell.id,
+                edition: cell.edition,
+                update: cell.update,
+                chartSha256: chartObject.sha256,
+                zipSha256: zipObject.sha256,
+                bytes: zipObject.bytes,
+                path,
+                savedAt: Date.now(),
+                installed: false,
+                withdrawn: false,
+            };
+            rows.push(record);
+        }
+        if (added) {
+            record.zipBytes ??= record.bytes;
+            record.packages ??= [];
+            record.packages.push({ sha256: chartObject.sha256, bytes: added });
+            record.bytes += added;
+        }
+        // Durable reservation precedes every write. A crash/cancel retains all
+        // planned bytes until exact owned cleanup is verified.
+        await saveDownloads(rows, scope);
+        assertAuthority();
         let archiveVerified = false;
-        if (held) {
-            try {
-                const previous = await Filesystem.readFile({ path: held.path, directory: directory() });
-                archiveVerified =
-                    typeof previous.data === 'string' &&
-                    (await sha(Uint8Array.from(atob(previous.data), (c) => c.charCodeAt(0)))) === cell.zip.sha256;
-                current(scope);
-            } catch {
-                current(scope);
-            }
+        try {
+            const previous = await Filesystem.readFile({ path, directory: directory() });
+            archiveVerified =
+                typeof previous.data === 'string' &&
+                (await sha(Uint8Array.from(atob(previous.data), (c) => c.charCodeAt(0)))) === zipObject.sha256;
+            assertAuthority();
+        } catch {
+            assertAuthority();
         }
         if (!archiveVerified) {
-            const zip = await verifiedObject(cell.zip, scope, signal);
+            const zip = await verifiedObject(zipObject, scope, signal);
             if (zip[0] !== 0x50 || zip[1] !== 0x4b || zip[2] !== 3 || zip[3] !== 4)
                 throw Error('NOAA original is not a ZIP archive.');
-            const path = `${await archivePrefix(scope)}/${cell.zip.sha256}.zip`;
-            current(scope);
-            if (!held) {
-                // Reserve bounded storage before writing. A failed native write
-                // remains a removable original-only record and cannot bypass quota.
-                rows.push({
-                    id: cell.id,
-                    edition: cell.edition,
-                    update: cell.update,
-                    chartSha256: cell.chart.sha256,
-                    zipSha256: cell.zip.sha256,
-                    bytes: cell.zip.bytes,
-                    path,
-                    savedAt: Date.now(),
-                    installed: false,
-                    withdrawn: false,
-                });
-                await saveDownloads(rows, scope);
-            }
             await Filesystem.writeFile({ path, directory: directory(), data: base64(zip), recursive: true });
-            current(scope);
+            assertAuthority();
             const reread = await Filesystem.readFile({ path, directory: directory() });
             if (
                 typeof reread.data !== 'string' ||
-                (await sha(Uint8Array.from(atob(reread.data), (c) => c.charCodeAt(0)))) !== cell.zip.sha256
+                (await sha(Uint8Array.from(atob(reread.data), (c) => c.charCodeAt(0)))) !== zipObject.sha256
             )
                 throw Error('NOAA original could not be verified on this device.');
         }
         await authority(scope);
-        if (signal?.aborted) throw Error('NOAA chart download cancelled. Original archive remains saved.');
-        const { importCell } = await import('./EncHazardService');
-        await importCell(chart, {
-            usage: 'navigation',
-            contentSha256: cell.chart.sha256,
-            assertAuthority: () => current(scope),
-        });
-        current(scope);
-        const record = rows.find((row) => row.zipSha256 === cell.zip!.sha256)!;
+        assertAuthority();
+        const service = await import('./EncHazardService');
+        if (manifest) {
+            const { stageNoaaPackage } = await import('./noaaPackageStore');
+            const ref = await stageNoaaPackage(
+                manifest,
+                chartText,
+                chartObject,
+                scope,
+                (object) => verifiedObject(object, scope, signal),
+                assertAuthority,
+            );
+            await service.importNoaaPackage(manifest, ref, assertAuthority);
+        } else
+            await service.importCell(chart as import('./types').EncConversionResult, {
+                usage: 'navigation',
+                contentSha256: chartObject.sha256,
+                assertAuthority,
+            });
+        assertAuthority();
+        record.chartSha256 = chartObject.sha256;
+        record.edition = cell.edition;
+        record.update = cell.update;
         record.installed = true;
+        record.withdrawn = false;
         await saveDownloads(rows, scope);
     });
 }
@@ -430,23 +502,27 @@ export function removeNoaaDownload(record: NoaaDownload): Promise<void> {
         const rows = await savedNoaaDownloads(scope),
             held = rows.find((row) => row.zipSha256 === record.zipSha256);
         if (!held) return;
-        const { removeNoaaCatalogueRevision } = await import('./EncHazardService');
-        await removeNoaaCatalogueRevision(
-            held.id,
-            { edition: held.edition, updateNumber: held.update, contentSha256: held.chartSha256 },
-            () => current(scope),
-        );
+        await detachTrackedDownload(held, scope);
         current(scope);
+        if (held.packages?.length) {
+            const { deleteNoaaPackage } = await import('./noaaPackageStore');
+            for (const pack of held.packages) await deleteNoaaPackage(pack.sha256, scope);
+        }
         try {
             await Filesystem.deleteFile({ path: held.path, directory: directory() });
         } catch (error) {
-            // A reserved original-only record may correspond to a write that
-            // never completed. Confirm absence; other I/O failures keep quota.
-            const exists = await Filesystem.stat({ path: held.path, directory: directory() }).then(
-                () => true,
-                () => false,
-            );
-            if (exists) throw error;
+            // Unknown I/O is not proof of absence: keep the reservation.
+            try {
+                await Filesystem.stat({ path: held.path, directory: directory() });
+            } catch (statError) {
+                if (!/not exist|ENOENT|File does not exist/i.test(String(statError))) throw statError;
+                await saveDownloads(
+                    rows.filter((row) => row !== held),
+                    scope,
+                );
+                return;
+            }
+            throw error;
         }
         await saveDownloads(
             rows.filter((row) => row !== held),

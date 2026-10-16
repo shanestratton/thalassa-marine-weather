@@ -21,16 +21,24 @@ export async function readChartDatumForBounds(bounds: ChartBounds, display = fal
     // Serial reads avoid cloning an entire licensed corpus at once.
     let datum: SoundingDatum | null = null;
     for (const record of records) {
-        let cell;
+        let release: (() => void) | undefined;
         try {
-            cell = await loadCellGeoJSON(record.id, false);
+            let cell;
+            if (record.noaaPackage) {
+                const { loadNoaaPackageWindow } = await import('./noaaPackageWindow');
+                const view = await loadNoaaPackageWindow(record, bounds);
+                release = view.release;
+                cell = view.blob;
+            } else cell = await loadCellGeoJSON(record.id, false);
+            if (!cell) return null;
+            const next = matchingSoundingDatum([cell]);
+            if (!next || (datum !== null && datum !== next)) return null;
+            datum = next;
         } catch {
             return null;
+        } finally {
+            release?.();
         }
-        if (!cell) return null;
-        const next = matchingSoundingDatum([cell]);
-        if (!next || (datum !== null && datum !== next)) return null;
-        datum = next;
     }
     return getVersion() === version ? datum : null;
 }

@@ -45,12 +45,14 @@ import {
 import {
     GLAZE_MIN_ZOOM,
     getMergedVectorData,
+    getDisplayCoverage,
     hasAnyDisplayCells,
     setMergeInteractionProbe,
     subscribe as subscribeToEnc,
     subscribeGeometryUpgrades,
     type EncMergedVectorData,
 } from '../../services/enc/EncHazardService';
+import { clearMergedData, retainMergedData } from '../../services/enc/mergedDataCache';
 import { encDisplayScale, ENC_MERGE_MIN_ZOOM } from './encDisplayScale';
 import { setEncDisplayState } from './encDisplayState';
 import { chartTurning } from './chartOrientation';
@@ -108,6 +110,8 @@ export function windowFor(map: mapboxgl.Map, plotting = false): Bbox {
  * load) is one wasted time-sliced merge.
  */
 export function prewarmEncMerge(map: mapboxgl.Map): void {
+    // Public packages require the displayed cohort to detach before admission.
+    if (getDisplayCoverage().some((cell) => cell.noaaPackage)) return;
     try {
         if (map.getZoom() < ENC_MERGE_MIN_ZOOM || !hasAnyDisplayCells()) return;
         const now = Date.now();
@@ -171,12 +175,44 @@ export function useEncVectorLayer(
      *  re-merges once the view actually escapes them. */
     const mergedWindowRef = useRef<Bbox | null>(null);
     const mergedZoomRef = useRef(0);
+    const packageAppliedRef = useRef(false);
+    const packageDisplayRelease = useRef<(() => void) | null>(null);
     /** The exact merged-data object last pushed to Mapbox. The merge
      *  cache is selection-keyed, so window escapes and zoom crossings
      *  over the SAME cell set return the identical object — re-running
      *  14 wholesale setData uploads for it was pure waste (2026-07-12
      *  audit; visible as a hitch on every FAB toggle too). */
     const lastAppliedRef = useRef<unknown>(null);
+
+    useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        if (!map) return;
+        const detach = () => {
+            if (!packageAppliedRef.current) return;
+            detachEncFeatureClickHandlers(map);
+            unmountEncVectorLayer(map);
+            mountedRef.current = false;
+            lastAppliedRef.current = null;
+            packageDisplayRelease.current?.();
+            packageDisplayRelease.current = null;
+            packageAppliedRef.current = false;
+        };
+        // Mapbox removes its source graph before emitting remove. Avoid reading
+        // a destroyed style, but release the displayed owner at that point.
+        const removed = () => {
+            mountedRef.current = false;
+            lastAppliedRef.current = null;
+            packageDisplayRelease.current?.();
+            packageDisplayRelease.current = null;
+            packageAppliedRef.current = false;
+        };
+        map.on('remove', removed);
+        return () => {
+            map.off('remove', removed);
+            detach();
+        };
+    }, [mapRef, mapReady]);
 
     // Latest safety depth, read inside the async apply() so the FIRST mount
     // always uses the live value — WITHOUT putting safetyDepthM in the mount
@@ -376,11 +412,14 @@ export function useEncVectorLayer(
                 if (!visible && !plotting) setEncVectorVisibility(map, false);
             }
             if (!hasAnyDisplayCells()) {
-                if (mountedRef.current) {
+                if (mountedRef.current || packageAppliedRef.current) {
                     detachEncFeatureClickHandlers(map);
                     unmountEncVectorLayer(map);
                     mountedRef.current = false;
                     lastAppliedRef.current = null;
+                    packageDisplayRelease.current?.();
+                    packageDisplayRelease.current = null;
+                    packageAppliedRef.current = false;
                 }
                 report('unavailable');
                 return;
@@ -429,6 +468,28 @@ export function useEncVectorLayer(
 
             try {
                 const win = windowFor(map, plotting);
+                const packageView = getDisplayCoverage().some(
+                    (cell) =>
+                        cell.noaaPackage &&
+                        cell.bbox[0] <= win[2] &&
+                        cell.bbox[2] >= win[0] &&
+                        cell.bbox[1] <= win[3] &&
+                        cell.bbox[3] >= win[1],
+                );
+                if (packageView || packageAppliedRef.current) {
+                    // Clear the Mapbox source and our borrowed reference before
+                    // the service releases the old package lease/adopts new parts.
+                    if (mountedRef.current || packageAppliedRef.current) {
+                        detachEncFeatureClickHandlers(map);
+                        unmountEncVectorLayer(map);
+                        mountedRef.current = false;
+                    }
+                    lastAppliedRef.current = null;
+                    packageDisplayRelease.current?.();
+                    packageDisplayRelease.current = null;
+                    clearMergedData();
+                    packageAppliedRef.current = false;
+                }
                 report('loading');
                 log.info(
                     `[apply] merge start z=${map.getZoom().toFixed(1)} win=${win.map((v) => v.toFixed(2)).join(',')}`,
@@ -455,6 +516,10 @@ export function useEncVectorLayer(
                 }
                 mergedWindowRef.current = win;
                 mergedZoomRef.current = zoom;
+                if (packageView) {
+                    packageDisplayRelease.current = retainMergedData(data);
+                    packageAppliedRef.current = true;
+                }
                 if (mountedRef.current) {
                     // refreshEncVectorData re-applies the depth style from
                     // the per-map state it seeded at mount, so the safety
@@ -477,6 +542,7 @@ export function useEncVectorLayer(
                     mountedRef.current = true;
                 }
                 lastAppliedRef.current = data;
+                packageAppliedRef.current = packageView;
                 setEncOverviewMode(map, scale.overview);
                 // Always-on by default — explicit toggle from the FAB flips it.
                 setEncVectorVisibility(map, visible);

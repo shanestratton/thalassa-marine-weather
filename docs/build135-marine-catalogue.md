@@ -109,3 +109,21 @@ This opt-in mode records each actual publication plan before uploading, keeps ac
 ## Checks
 
 `tests/MarineCatalogue.test.ts`, `tests/MarinePlacesSheet.test.tsx`, the added service-worker regression, Python generated fixtures and `browser-tests/marine-places-layout.spec.ts` exercise real schema/cache/UI paths. Browser tests are in the standard keyboard config (Chromium/WebKit), use fictional source records only, prove real IndexedDB cold restart/Satellite no-WAN/deletion, and check300/375px layout and attribution. No provider request contains a real boat position. No release budget is raised.
+
+## Retained OSM duplicate normalization proof
+
+The three reviewed 15 October 2026 extracts remain separate, unpublished cohorts. Revalidation found 2,364 unique original IDs and 308 equivalent duplicate exports: Oceania 2,107 IDs, Central America 229 and Antarctica 28. No new source was acquired, no cumulative manifest was built, and no R2 object, timer or production pointer was changed.
+
+Four Central America closed ways (`179084944`, `830303041`, `830303042`, `1445268880`) were exported by osmium as both LineString and MultiPolygon. Their tags and full coordinate sets were identical, but rotated ring starts produced about 1e-14-degree longitude roundoff in the old calculation. The retained public fixture pins the original source URL/SHA and normalized-input SHA. Its eight features are ODbL source data, kept separate from other catalogue sources.
+
+OSM representative points now use canonical validated vertices and one order-independent longitude base. This remains an approximate bounding-box midpoint, with no interior, water, clearance, access or anchor-drop claim. Repeated original IDs must have both an identical normalized record and an identical canonical vertex fingerprint. Changed vertices fail even if their midpoint is unchanged; changed names or positions fail as well. The build aborts atomically and preserves previous generations. It never picks the last OSM row. NOAA's separately reviewed highest-detail-cell ordering and GeoNames behavior are unchanged.
+
+The OSM-only build-policy suffix `osm-vertex-order-independent-conflict-check1` generates new immutable generations rather than modifying earlier receipts. Retained-only offline revalidation used the same reviewed image `sha256:954d06674cb6b8307fb5596744250c88f5042180064e1626935d953f93ae6762`, no network, read-only inputs/code, one CPU, 2 GiB with no swap, 32 PIDs, 128 MiB temporary space and a 300-second deadline. It completed in 1.16 seconds with sampled cgroup peak 60,616,704 bytes and zero conflicts. The three outputs preserve every original ID:
+
+| Cohort          | Generation                |   IDs | Objects |   Bytes | Manifest SHA256                                                    |
+| --------------- | ------------------------- | ----: | ------: | ------: | ------------------------------------------------------------------ |
+| Oceania         | `202610-1a58c58b0a514e05` | 2,107 |      77 | 480,394 | `d3066d1eae5ac8fa86d7715ce5841faf810abd8148da03b1c388c5d34febbffd` |
+| Central America | `202610-e3605ec5ceb74d1c` |   229 |      26 |  54,363 | `a247e38eb9de9fa56e49f76b06ebbde80fed0cd4ae0412d4f522628d40035663` |
+| Antarctica      | `202610-56ef11b130d5e292` |    28 |      13 |   8,674 | `fa3c2c22f09db76624512e0c4f3ccfb1f06721cd265de222ab20969a8e80d93e` |
+
+All 33 local pipeline tests passed; all 14 build tests passed in that actual offline runtime. Revalidation receipt SHA256 is `daae02073a87510a60105ec4ea3daac2e0551ae915b4eea024af3e1bf6562f29`. Old source snapshots, generations and failure receipts remain intact. No global coverage is claimed; any later union must retain every reviewed cohort and refuse actual original-ID conflicts.

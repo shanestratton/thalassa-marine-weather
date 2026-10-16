@@ -18,6 +18,8 @@ export interface NoaaCatalogueCell {
     sourceUrl: string;
     zip: NoaaObject | null;
     chart: NoaaObject | null;
+    /** Old clients keep chart/zip null and honestly show unavailable. */
+    package?: { manifest: NoaaObject; zip: NoaaObject; bytes: number };
 }
 export interface NoaaCatalogueIndex {
     schema: 1;
@@ -85,13 +87,13 @@ function segments(b: NoaaBounds): NoaaBounds[] {
 export function noaaIntersects(a: NoaaBounds, b: NoaaBounds): boolean {
     return segments(a).some((x) => segments(b).some((y) => x[0] < y[2] && x[2] > y[0] && x[1] < y[3] && x[3] > y[1]));
 }
-function resource(v: unknown, extension: 'zip' | 'json'): NoaaObject {
+function resource(v: unknown, extension: 'zip' | 'json', maximum?: number): NoaaObject {
     const r = object(v);
     if (
         typeof r.sha256 !== 'string' ||
         !SHA.test(r.sha256) ||
         r.key !== `objects/${r.sha256}.${extension}` ||
-        !integer(r.bytes, 1, (extension === 'zip' ? 32 : 16) * 1024 * 1024)
+        !integer(r.bytes, 1, maximum ?? (extension === 'zip' ? 32 : 16) * 1024 * 1024)
     )
         throw Error('Invalid NOAA chart object.');
     return { key: r.key as string, bytes: r.bytes, sha256: r.sha256 };
@@ -179,6 +181,13 @@ export function parseNoaaShard(value: unknown, index: NoaaCatalogueIndex): NoaaC
         )
             throw Error('Invalid NOAA cell identity/revision.');
         seen.add(c.id);
+        let pack: NoaaCatalogueCell['package'];
+        if (c.package !== undefined) {
+            const p = object(c.package);
+            if (c.chart !== null || c.zip !== null || !integer(p.bytes, 1, 128 * 1024 * 1024))
+                throw Error('Invalid NOAA package resource.');
+            pack = { manifest: resource(p.manifest, 'json', 128 * 1024), zip: resource(p.zip, 'zip'), bytes: p.bytes };
+        }
         return {
             id: c.id,
             title: c.title,
@@ -191,6 +200,7 @@ export function parseNoaaShard(value: unknown, index: NoaaCatalogueIndex): NoaaC
             sourceUrl: c.sourceUrl as string,
             zip: c.zip === null ? null : resource(c.zip, 'zip'),
             chart: c.chart === null ? null : resource(c.chart, 'json'),
+            ...(pack ? { package: pack } : {}),
         };
     });
 }

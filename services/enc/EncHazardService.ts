@@ -40,6 +40,7 @@ import {
     getMergedData,
     putMergedData,
     clearMergedData,
+    setMergedCleanup,
     getInflightMerge,
     setInflightMerge,
     deleteInflightMerge,
@@ -191,58 +192,74 @@ function macroYield(): Promise<void> {
  * the cell metadata is missing, the blob is missing/corrupt, or
  * the cell has no hazards.
  */
-async function getOrBuildIndex(cellId: string, mutationRetries = 2): Promise<EncSpatialIndex | null> {
+const packageIndexes = new WeakMap<EncSpatialIndex, () => void>();
+/** Release a borrowed package index after the query has discarded its geometry. */
+export function releaseIndexForCell(index: EncSpatialIndex): void {
+    packageIndexes.get(index)?.();
+    packageIndexes.delete(index);
+}
+async function getOrBuildIndex(
+    cellId: string,
+    mutationRetries = 2,
+    packageBounds?: [number, number, number, number],
+): Promise<EncSpatialIndex | null> {
     await waitForCellMutations(cellId);
-    const generation = cellMutationGeneration(cellId);
-    const cached = touchIndex(cellId);
-    if (cached) return cached;
-    if (isIndexFailed(cellId)) return null;
-
-    const meta = cellMeta.getCell(cellId);
+    const generation = cellMutationGeneration(cellId),
+        meta = cellMeta.getCell(cellId);
     if (!meta) {
-        log.warn(`getOrBuildIndex ${cellId}: no metadata record`);
         markIndexFailed(cellId);
         return null;
     }
-
-    const blob = await cellStore.loadCellGeoJSON(cellId);
-    if (!blob) {
-        if (
-            mutationRetries > 0 &&
-            (cellMutationGeneration(cellId) !== generation || cellImportTails.has(encCellStorageIdentity(cellId)))
-        ) {
+    const cached = meta.noaaPackage ? undefined : touchIndex(cellId);
+    if (cached) return cached;
+    if (!meta.noaaPackage && isIndexFailed(cellId)) return null;
+    let release: (() => void) | undefined;
+    try {
+        let blob: EncConversionResult | null;
+        if (meta.noaaPackage) {
+            if (!packageBounds) return null; // never disguise a window as a whole cell
+            const { loadNoaaPackageWindow } = await import('./noaaPackageWindow');
+            const view = await loadNoaaPackageWindow(meta, packageBounds);
+            blob = view.blob;
+            release = view.release;
+        } else blob = await cellStore.loadCellGeoJSON(cellId);
+        if (!blob) {
+            if (
+                mutationRetries > 0 &&
+                (cellMutationGeneration(cellId) !== generation || cellImportTails.has(encCellStorageIdentity(cellId)))
+            ) {
+                await waitForCellMutations(cellId);
+                dropIndex(cellId);
+                return getOrBuildIndex(cellId, mutationRetries - 1, packageBounds);
+            }
+            markIndexFailed(cellId);
+            return null;
+        }
+        const hazards = buildHazardsForCell(blob);
+        await macroYield();
+        const catzocZones = buildCatzocZones(blob),
+            coastlines = buildCoastlines(blob);
+        await macroYield();
+        const cautionAreas = buildCautionAreas(blob);
+        const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines, cautionAreas);
+        if (cellMutationGeneration(cellId) !== generation || cellImportTails.has(encCellStorageIdentity(cellId))) {
+            release?.();
             await waitForCellMutations(cellId);
             dropIndex(cellId);
-            return getOrBuildIndex(cellId, mutationRetries - 1);
+            return mutationRetries > 0 ? getOrBuildIndex(cellId, mutationRetries - 1, packageBounds) : null;
         }
-        log.warn(`getOrBuildIndex ${cellId}: GeoJSON missing or corrupt — user will need to re-import`);
+        if (release) {
+            dropIndex(cellId);
+            packageIndexes.set(index, release);
+        } else cacheIndex(cellId, index);
+        return index;
+    } catch (error) {
+        release?.();
+        if (!meta.noaaPackage) throw error;
         markIndexFailed(cellId);
+        log.warn(`ENC index unavailable ${cellId}`, error);
         return null;
     }
-
-    // COARSE-SLICED (closing audit: the four builds + RBush construction
-    // ran as ONE synchronous gulp per cell on the routing path — a dense
-    // harbour cell froze a frame mid-validation). A macrotask between
-    // stages keeps frames flowing; total CPU unchanged.
-    const hazards = buildHazardsForCell(blob);
-    await macroYield();
-    const catzocZones = buildCatzocZones(blob);
-    const coastlines = buildCoastlines(blob);
-    await macroYield();
-    const cautionAreas = buildCautionAreas(blob);
-    const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines, cautionAreas);
-    if (cellMutationGeneration(cellId) !== generation || cellImportTails.has(encCellStorageIdentity(cellId))) {
-        await waitForCellMutations(cellId);
-        dropIndex(cellId);
-        return mutationRetries > 0 ? getOrBuildIndex(cellId, mutationRetries - 1) : null;
-    }
-    cacheIndex(cellId, index);
-    log.info(
-        `built spatial index for cell ${cellId}: ${hazards.length} hazards, ` +
-            `${catzocZones.length} CATZOC zones, ${coastlines.length} coastlines, ` +
-            `${cautionAreas.length} caution areas`,
-    );
-    return index;
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -298,7 +315,11 @@ export async function preloadForBBox(bbox: [number, number, number, number]): Pr
     // multi-MB downloads + main-thread parses (2026-07-12 audit —
     // marina-wifi route planning stalled for minutes).
     const cells = cellMeta.cellsForBBox(bbox);
-    await mapWithConcurrency(cells, 4, (c) => getOrBuildIndex(c.id));
+    await mapWithConcurrency(
+        cells.filter((c) => !c.noaaPackage),
+        4,
+        (c) => getOrBuildIndex(c.id),
+    );
 }
 
 /**
@@ -323,12 +344,20 @@ export async function preloadForBBox(bbox: [number, number, number, number]): Pr
  * caution lists and any diagnostic output reproducible. (Burn-down: this
  * block was triplicated across the three query APIs.)
  */
+function packageQueryBounds(b: [number, number, number, number]): [number, number, number, number] {
+    // Include the existing worst-ZOC graze/point guards and polar convergence.
+    const dy = 600 / 111000,
+        lat = Math.max(Math.abs(b[1]), Math.abs(b[3]));
+    const dx = lat > 89 ? 360 : dy / Math.cos((lat * Math.PI) / 180);
+    return [Math.max(-180, b[0] - dx), Math.max(-90, b[1] - dy), Math.min(180, b[2] + dx), Math.min(90, b[3] + dy)];
+}
+
 async function resolveCandidateIndexes(bbox: [number, number, number, number]): Promise<EncSpatialIndex[]> {
     const candidateCells = cellMeta.cellsForBBox(bbox);
     if (candidateCells.length === 0) return [];
     const out: EncSpatialIndex[] = [];
     await mapWithConcurrency(candidateCells, 4, async (cell) => {
-        const idx = await getOrBuildIndex(cell.id);
+        const idx = await getOrBuildIndex(cell.id, 2, packageQueryBounds(bbox));
         if (idx) out.push(idx);
     });
     out.sort((a, b) => a.getCellId().localeCompare(b.getCellId()));
@@ -358,30 +387,34 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
         if (p.lat > qMaxLat) qMaxLat = p.lat;
     }
     const candidateIndexes = await resolveCandidateIndexes([qMinLon, qMinLat, qMaxLon, qMaxLat]);
-    if (candidateIndexes.length === 0) {
+    try {
+        if (candidateIndexes.length === 0) {
+            for (let i = 0; i < points.length; i++) {
+                results[i] = { covered: false, hazard: false, minDepthM: null };
+            }
+            return results;
+        }
+
+        // Per-point query against the resolved indexes. Fold every covering
+        // cell's result through mergeHazardResults, which keeps the MOST SEVERE
+        // (most conservative for grounding). It's a total-order max, so the
+        // nondeterministic candidate-resolution order can't change the answer,
+        // and a shallower/worse hazard from a second overlapping cell can't be
+        // masked by the first cell's milder one (mission-audit fix).
         for (let i = 0; i < points.length; i++) {
-            results[i] = { covered: false, hazard: false, minDepthM: null };
+            const p = points[i];
+            let merged: EncHazardResult = { covered: false, hazard: false, minDepthM: null };
+            for (const idx of candidateIndexes) {
+                const r = idx.queryPoint(p.lat, p.lon);
+                if (!r.covered) continue;
+                merged = mergeHazardResults(merged, r);
+            }
+            results[i] = merged;
         }
         return results;
+    } finally {
+        for (const index of candidateIndexes) releaseIndexForCell(index);
     }
-
-    // Per-point query against the resolved indexes. Fold every covering
-    // cell's result through mergeHazardResults, which keeps the MOST SEVERE
-    // (most conservative for grounding). It's a total-order max, so the
-    // nondeterministic candidate-resolution order can't change the answer,
-    // and a shallower/worse hazard from a second overlapping cell can't be
-    // masked by the first cell's milder one (mission-audit fix).
-    for (let i = 0; i < points.length; i++) {
-        const p = points[i];
-        let merged: EncHazardResult = { covered: false, hazard: false, minDepthM: null };
-        for (const idx of candidateIndexes) {
-            const r = idx.queryPoint(p.lat, p.lon);
-            if (!r.covered) continue;
-            merged = mergeHazardResults(merged, r);
-        }
-        results[i] = merged;
-    }
-    return results;
 }
 
 /**
@@ -426,28 +459,32 @@ export async function querySegmentHazards(
         qMaxLat = Math.max(qMaxLat, s.lat1, s.lat2);
     }
     const candidateIndexes = await resolveCandidateIndexes([qMinLon, qMinLat, qMaxLon, qMaxLat]);
-    if (candidateIndexes.length === 0) {
-        for (let i = 0; i < segments.length; i++) results[i] = miss();
-        return results;
-    }
-
-    for (let i = 0; i < segments.length; i++) {
-        const s = segments[i];
-        let merged: EncHazardResult = miss();
-        // Lateral-graze near-miss (burn-down 2026-07-18 #1) rides its OWN fold
-        // channel: mergeHazardResults returns one winning result wholesale, so
-        // a graze from a NON-winning cell would be dropped. Accumulate it
-        // independently of the severity merge and attach it after.
-        let graze: EncAreaGraze | null = null;
-        for (const idx of candidateIndexes) {
-            const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2, s.exemptStart, s.exemptEnd);
-            if (r.covered) merged = mergeHazardResults(merged, r);
-            const g = idx.segmentAreaGraze(s.lat1, s.lon1, s.lat2, s.lon2, grazeShoalDepthM);
-            if (g) graze = foldGraze(graze, g);
+    try {
+        if (candidateIndexes.length === 0) {
+            for (let i = 0; i < segments.length; i++) results[i] = miss();
+            return results;
         }
-        results[i] = graze ? { ...merged, graze } : merged;
+
+        for (let i = 0; i < segments.length; i++) {
+            const s = segments[i];
+            let merged: EncHazardResult = miss();
+            // Lateral-graze near-miss (burn-down 2026-07-18 #1) rides its OWN fold
+            // channel: mergeHazardResults returns one winning result wholesale, so
+            // a graze from a NON-winning cell would be dropped. Accumulate it
+            // independently of the severity merge and attach it after.
+            let graze: EncAreaGraze | null = null;
+            for (const idx of candidateIndexes) {
+                const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2, s.exemptStart, s.exemptEnd);
+                if (r.covered) merged = mergeHazardResults(merged, r);
+                const g = idx.segmentAreaGraze(s.lat1, s.lon1, s.lat2, s.lon2, grazeShoalDepthM);
+                if (g) graze = foldGraze(graze, g);
+            }
+            results[i] = graze ? { ...merged, graze } : merged;
+        }
+        return results;
+    } finally {
+        for (const index of candidateIndexes) releaseIndexForCell(index);
     }
-    return results;
 }
 
 /** Fold two per-cell lateral grazes into the more significant one for the same
@@ -482,21 +519,25 @@ export async function querySegmentCautions(
         qMaxLat = Math.max(qMaxLat, s.lat1, s.lat2);
     }
     const candidateIndexes = await resolveCandidateIndexes([qMinLon, qMinLat, qMaxLon, qMaxLat]);
-    if (candidateIndexes.length === 0) return results;
+    try {
+        if (candidateIndexes.length === 0) return results;
 
-    for (let i = 0; i < segments.length; i++) {
-        const s = segments[i];
-        const seen = new Set<string>();
-        for (const idx of candidateIndexes) {
-            for (const area of idx.segmentCautions(s.lat1, s.lon1, s.lat2, s.lon2)) {
-                const key = `${area.cls}|${area.name ?? ''}|${area.restrn ?? ''}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                results[i].push(area);
+        for (let i = 0; i < segments.length; i++) {
+            const s = segments[i];
+            const seen = new Set<string>();
+            for (const idx of candidateIndexes) {
+                for (const area of idx.segmentCautions(s.lat1, s.lon1, s.lat2, s.lon2)) {
+                    const key = `${area.cls}|${area.name ?? ''}|${area.restrn ?? ''}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    results[i].push(area);
+                }
             }
         }
+        return results;
+    } finally {
+        for (const index of candidateIndexes) releaseIndexForCell(index);
     }
-    return results;
 }
 
 // ── Import / mutation ─────────────────────────────────────────────
@@ -796,6 +837,54 @@ export function importCell(
     );
 }
 
+/** A public package becomes one logical chart only after every local part
+ * passed the staged worker/hash/readback gate. No empty monolith is written. */
+export function importNoaaPackage(
+    manifest: import('./noaaPackageContract').NoaaPackage,
+    ref: import('./noaaPackageStore').NoaaPackageReference,
+    assertAuthority: () => void,
+): Promise<EncCell> {
+    return serializeCellMutation(manifest.metadata.cellId, async () => {
+        assertAuthority();
+        const { assertStagedNoaaPackage } = await import('./noaaPackageStore');
+        assertAuthority();
+        assertStagedNoaaPackage(manifest, ref);
+        const m = manifest.metadata,
+            held = cellMeta.getRegisteredCell(m.cellId);
+        if (
+            m.sourceHO !== 'US' ||
+            !/^US[1-6][A-Z0-9]{5}$/.test(m.cellId) ||
+            held?.licence === 'protected' ||
+            (held &&
+                (held.edition > m.edition ||
+                    (held.edition === m.edition &&
+                        ((held.updateNumber ?? -1) > (m.updateNumber ?? -1) || held.issued > m.issued))))
+        )
+            throw Error('Existing chart authority/revision is newer; package was not activated.');
+        const cell: EncCell = {
+            id: m.cellId,
+            sourceHO: 'US',
+            edition: m.edition,
+            updateNumber: m.updateNumber,
+            issued: m.issued,
+            importedAt: new Date().toISOString(),
+            bbox: m.bbox,
+            geojsonPath: ref.path + '/manifest.json',
+            contentSha256: ref.manifestSha256,
+            noaaPackage: ref,
+            sizeBytes: manifest.bytes,
+            hazardCount: manifest.layers.filter((l) => l.name !== 'M_QUAL').reduce((n, l) => n + l.count, 0),
+            usage: 'navigation',
+            licence: 'open',
+        };
+        assertAuthority();
+        cellMeta.putCell(cell, { allowAuthorityUpgrade: true });
+        dropIndex(cell.id);
+        clearMergedData();
+        return cell;
+    });
+}
+
 /**
  * Forget a cell: remove metadata, delete blob, drop any cached
  * spatial index. Idempotent.
@@ -818,6 +907,7 @@ export async function removeNoaaCatalogueRevision(
     cellId: string,
     expected: { edition: number; updateNumber: number; contentSha256: string },
     assertAuthority: () => void,
+    packageReceipt?: { owner: string; zipSha256: string; manifests: readonly string[] },
 ): Promise<boolean> {
     return serializeCellMutation(cellId, async () => {
         assertAuthority();
@@ -827,10 +917,30 @@ export async function removeNoaaCatalogueRevision(
             !/^US[1-6][A-Z0-9]{5}$/.test(canonicalEncCellId(stored.id)) ||
             stored.sourceHO !== 'US' ||
             stored.licence === 'protected' ||
+            !/^[a-f0-9]{64}$/.test(expected.contentSha256)
+        )
+            return false;
+        if (stored.noaaPackage) {
+            // Metadata activation may have survived a crash before the ZIP row's
+            // final identity write. Reconcile only a durably reserved manifest,
+            // under this same cell lock, against its verified original source.
+            if (
+                !packageReceipt ||
+                packageReceipt.owner !== stored.noaaPackage.owner ||
+                !packageReceipt.manifests.includes(stored.noaaPackage.manifestSha256)
+            )
+                return false;
+            const { readNoaaPackage } = await import('./noaaPackageStore');
+            const manifest = await readNoaaPackage(stored);
+            assertAuthority();
+            if (JSON.stringify(cellMeta.getRegisteredCell(cellId)) !== JSON.stringify(stored))
+                throw Error('NOAA chart authority changed during removal.');
+            if (manifest.zipSha256 !== packageReceipt.zipSha256)
+                throw Error('NOAA package reservation source changed.');
+        } else if (
             stored.edition !== expected.edition ||
             stored.updateNumber !== expected.updateNumber ||
-            stored.contentSha256 !== expected.contentSha256 ||
-            !/^[a-f0-9]{64}$/.test(expected.contentSha256)
+            stored.contentSha256 !== expected.contentSha256
         )
             return false;
         cellMeta.removeCell(stored.id);
@@ -912,8 +1022,11 @@ export function dropIndexCache(): void {
  * 60 s cooldown (encIndexCache.INDEX_FAIL_RETRY_MS) — a transient read
  * failure recovers on a later query; re-import clears immediately.
  */
-export async function getIndexForCell(cellId: string): Promise<EncSpatialIndex | null> {
-    return getOrBuildIndex(cellId);
+export async function getIndexForCell(
+    cellId: string,
+    packageBounds?: [number, number, number, number],
+): Promise<EncSpatialIndex | null> {
+    return getOrBuildIndex(cellId, 2, packageBounds ? packageQueryBounds(packageBounds) : undefined);
 }
 
 // ── Merged-vector access (for the map vector layer) ───────────────
@@ -1199,7 +1312,7 @@ export async function getMergedVectorData(
     if (pendingCells.length > 0 && !hydrationPaused) {
         void hydrateMissingCells(pendingCells.map((cell) => cell.id));
     }
-    if (cells.length === 0) return null;
+    if (cells.length === 0 || (!window && cells.some((c) => c.noaaPackage))) return null;
     const densify = zoom != null && zoom >= DERIVED_CONTOUR_MIN_ZOOM;
     // Build the heavy satellite glaze (2nd depth-geometry copy) only when
     // zoomed in enough to navigate by it. zoom==null (seaway/full merge)
@@ -1219,7 +1332,8 @@ export async function getMergedVectorData(
     // contours were computed + whether the glaze was built (so a wide
     // no-glaze merge and a zoomed-in with-glaze merge over the same cell
     // set don't collide).
-    const cacheKey = `v${cellMeta.getVersion()}:${includeReferences ? 'r1' : 'r0'}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:s${soundBucket}:${cells
+    const packageKey = cells.some((c) => c.noaaPackage) ? `:w${JSON.stringify(window ?? null)}` : '';
+    const cacheKey = `v${cellMeta.getVersion()}${packageKey}:${includeReferences ? 'r1' : 'r0'}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:s${soundBucket}:${cells
         .map((c) => c.id)
         .sort()
         .join(',')}`;
@@ -1303,7 +1417,28 @@ export async function getMergedVectorData(
             'enc:merge-start',
             `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB${heapTag()},${cellTag}${cells.length > 3 ? '+' : ''}`,
         );
-        return buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom, enqueueGen);
+        const releases: Array<() => void> = [];
+        if (cells.some((c) => c.noaaPackage)) clearMergedData();
+        try {
+            const result = await buildMergedVectorData(
+                cells,
+                cacheKey,
+                densify,
+                buildGlaze,
+                zoom,
+                enqueueGen,
+                window,
+                releases,
+            );
+            if (releases.length)
+                setMergedCleanup(cacheKey, () => {
+                    for (const release of releases) release();
+                });
+            return result;
+        } catch (error) {
+            for (const release of releases) release();
+            throw error;
+        }
     });
     setInflightMerge(cacheKey, build);
     try {
@@ -1434,6 +1569,8 @@ async function loadCellBlobsAndExtents(
      *  Unlike yieldIfNeeded this is NOT time-gated — it is an integer compare,
      *  so it can be called every iteration and aborts promptly. */
     throwIfSuperseded: () => void = () => {},
+    packageBounds?: [number, number, number, number],
+    packageReleases: Array<() => void> = [],
 ): Promise<void> {
     // READ-AHEAD PIPELINE (z10-boot audit #11): the Capacitor bridge read is
     // true async IO, so up to 3 cell reads run ahead of the SERIAL parse +
@@ -1470,7 +1607,14 @@ async function loadCellBlobsAndExtents(
             reads.delete(cell.id);
             pump();
             let blob: EncConversionResult | null;
-            if (raw0.kind === 'cached') {
+            const packageCell = cellMeta.getDisplayCell(cell.id);
+            if (packageCell?.noaaPackage) {
+                if (!packageBounds) throw Error('NOAA package requires a bounded chart view.');
+                const { loadNoaaPackageWindow } = await import('./noaaPackageWindow');
+                const view = await loadNoaaPackageWindow(packageCell, packageBounds, throwIfSuperseded);
+                packageReleases.push(view.release);
+                blob = view.blob;
+            } else if (raw0.kind === 'cached') {
                 blob = raw0.blob;
             } else if (raw0.kind === 'text') {
                 blob = await cellStore.parseAndCacheCellTextAsync(cell.id, raw0.text);
@@ -1552,6 +1696,7 @@ async function loadCellBlobsAndExtents(
             // "failed to load cell" warning into the device log that is
             // currently the only reliable window into this bug.
             if (err instanceof MergeSupersededError) throw err;
+            if (cellMeta.getDisplayCell(cell.id)?.noaaPackage) markIndexFailed(cell.id);
             log.warn(`getMergedVectorData: failed to load cell ${cell.id}`, err);
         }
     }
@@ -1626,6 +1771,8 @@ async function buildMergedVectorData(
     buildGlaze: boolean,
     zoom?: number,
     enqueueGen?: number | null,
+    packageBounds?: [number, number, number, number],
+    packageReleases: Array<() => void> = [],
 ): Promise<EncMergedVectorData | null> {
     // TIME-SLICED (2026-07-12 audit, MAJOR): the merge — parse, clone,
     // extent-walk, glaze clip, sounding explode — used to run as ONE
@@ -1738,6 +1885,8 @@ async function buildMergedVectorData(
         missingBlobs,
         yieldIfNeeded,
         throwIfSuperseded,
+        packageBounds,
+        packageReleases,
     );
     const perfLoadMs = performance.now() - perfT0;
 

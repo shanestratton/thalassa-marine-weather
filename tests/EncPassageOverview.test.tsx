@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../services/enc/EncHazardService', () => ({
     GLAZE_MIN_ZOOM: 10,
     getMergedVectorData: mocks.merge,
+    getDisplayCoverage: () => [],
     hasAnyDisplayCells: () => true,
     setMergeInteractionProbe: vi.fn(),
     subscribe: () => () => {},

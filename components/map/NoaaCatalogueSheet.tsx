@@ -146,17 +146,20 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                 {area?.cells.map((cell) => {
                                     const held = getRegisteredCell(cell.id),
                                         newer = held && noaaRevisionNewer(cell, held);
+                                    const chartObject = cell.chart ?? cell.package?.manifest,
+                                        zipObject = cell.zip ?? cell.package?.zip;
                                     const same =
                                         held?.sourceHO === 'US' &&
+                                        (!held.noaaPackage || held.noaaPackage.owner === scope.key) &&
                                         held.edition === cell.edition &&
                                         held.updateNumber === cell.update &&
-                                        held.contentSha256 === cell.chart?.sha256 &&
+                                        held.contentSha256 === chartObject?.sha256 &&
                                         downloads.some(
                                             (row) =>
                                                 row.id === cell.id &&
                                                 row.installed &&
                                                 !row.withdrawn &&
-                                                row.zipSha256 === cell.zip?.sha256,
+                                                row.zipSha256 === zipObject?.sha256,
                                         );
                                     return (
                                         <li key={cell.id} className="rounded border border-slate-700 p-3">
@@ -172,7 +175,7 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                                 Edition{cell.edition} · update{cell.update} · issued{cell.issued} · 1:
                                                 {cell.scale.toLocaleString()}
                                             </p>
-                                            {cell.chart && cell.zip ? (
+                                            {chartObject && zipObject ? (
                                                 <button
                                                     type="button"
                                                     disabled={!!busy || same}
@@ -190,7 +193,7 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                                         ? 'Saving original and chart…'
                                                         : same
                                                           ? 'Current copy saved'
-                                                          : `${newer ? 'Update' : 'Download'} · ${((cell.chart.bytes + cell.zip.bytes) / 1048576).toFixed(1)}MiB`}
+                                                          : `${newer ? 'Update' : 'Download'} · ${(((cell.package?.bytes ?? chartObject.bytes) + zipObject.bytes) / 1048576).toFixed(1)}MiB`}
                                                 </button>
                                             ) : (
                                                 <p className="mt-2 text-xs text-amber-200">
@@ -219,7 +222,7 @@ export default function NoaaCatalogueSheet({ onClose, bounds }: { onClose: () =>
                                                         ? 'Withdrawn by NOAA. This catalogue-installed conversion was detached; original ZIP retained for reference.'
                                                         : row.installed
                                                           ? 'Unaltered original ZIP retained on this device.'
-                                                          : 'Original ZIP saved; conversion not installed.'}
+                                                          : 'Download incomplete; reserved storage remains until removed.'}
                                                 </p>
                                                 <button
                                                     type="button"
