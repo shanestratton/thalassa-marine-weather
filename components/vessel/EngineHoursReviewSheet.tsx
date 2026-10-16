@@ -23,7 +23,7 @@ export default function EngineHoursReviewSheet({ offer, onClose }: { offer: Engi
     const currentOffer = React.useRef(offer);
     currentOffer.current = offer;
     const summary = engineRunSummary(offer.counter);
-    const boatName = useSettingsStore((s) => s.vesselFleet.find((boat) => boat.id === offer.boatId)?.name);
+    const boatName = useSettingsStore((s) => s.vesselFleet.find((boat) => boat.id === offer.boatId)?.profile.name);
     useEffect(() => {
         let live = true;
         const abort = new AbortController();

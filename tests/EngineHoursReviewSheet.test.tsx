@@ -12,7 +12,7 @@ vi.mock('../services/shiplog/engineHoursReview', () => ({
 }));
 vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: (select: (s: unknown) => unknown) =>
-        select({ vesselFleet: [{ id: 'boat-a', name: 'Example Boat' }] }),
+        select({ vesselFleet: [{ id: 'boat-a', profile: { name: 'Example Boat' } }] }),
 }));
 import EngineHoursReviewSheet from '../components/vessel/EngineHoursReviewSheet';
 import { GlobalEngineHoursReviewGate } from '../components/vessel/GlobalEngineHoursReviewGate';
