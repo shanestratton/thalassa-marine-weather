@@ -22,7 +22,7 @@ beforeAll(async () => {
         path.join(root, 'App.tsx'),
         `<div>${Array(8)
             .fill(
-                `<span className=${JSON.stringify(className)}>Label</span><span className={selected ? ${JSON.stringify(selectedClass)} : ${JSON.stringify(idleClass)}}>Choice</span>`,
+                `<span className=${JSON.stringify(className)}>Label</span><span className={selected ? ${JSON.stringify(selectedClass)} : ${JSON.stringify(idleClass)}}>Choice</span><span className={${dynamicTemplate}}>Template</span>`,
             )
             .join('')}</div>`,
     );
@@ -37,7 +37,7 @@ it('collects exact literal classes and branches without evaluating conditions or
         path.join(root, 'components', 'only.test.tsx'),
         Array(8).fill('<span className="test-only class must not enter the production pool"/>').join('\n'),
     );
-    expect(collectClassNames(root)).toEqual([className, selectedClass, idleClass].sort());
+    expect(collectClassNames(root)).toEqual([className, selectedClass, idleClass, 'prefix ', ' suffix'].sort());
 });
 
 it('reconstructs every real pooled class and unusual whitespace losslessly with an immutable table', async () => {

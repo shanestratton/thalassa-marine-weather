@@ -40,7 +40,11 @@ function expressionStrings(node, add) {
         expressionStrings(node.left, add);
         expressionStrings(node.right, add);
     } else if (ts.isTemplateExpression(node)) {
-        for (const span of node.templateSpans) expressionStrings(span.expression, add);
+        add(node.head.text);
+        for (const span of node.templateSpans) {
+            expressionStrings(span.expression, add);
+            add(span.literal.text);
+        }
     }
 }
 
@@ -191,6 +195,15 @@ export function shareLiteralClassNames(code, id, { root, values, parse }) {
             shareValue(value.left);
             shareValue(value.right);
         } else if (value.type === 'TemplateLiteral') {
+            for (const quasi of value.quasis) {
+                const index = indexes.get(quasi.value.cooked);
+                if (index === undefined || replaced.has(quasi.start)) continue;
+                // Retain template coercion and expression order. The inserted
+                // value is an immutable primitive string, never source text.
+                output.overwrite(quasi.start, quasi.end, '${' + prefix + '[' + index + ']}');
+                replaced.add(quasi.start);
+                replacements++;
+            }
             for (const expression of value.expressions) shareValue(expression);
         }
     };
