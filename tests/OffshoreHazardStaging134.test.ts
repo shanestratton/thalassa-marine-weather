@@ -1,3 +1,4 @@
+import './helpers/noPrivateRoutingAreas';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IsochroneNode } from '../services/isochrone/types';
 const mocks = vi.hoisted(() => ({ queries: vi.fn(), setReport: vi.fn(), findReport: vi.fn() }));
@@ -73,11 +74,13 @@ describe('comparison hazard reports stay private until accepted', () => {
             current = false;
             return { cellsConsulted: 1, bufferNm: 1, entries: [] };
         });
-        await validateRouteSegments(route, {
-            publishReport: false,
-            onHazardReport: staged,
-            stillCurrent: () => current,
-        });
+        await expect(
+            validateRouteSegments(route, {
+                publishReport: false,
+                onHazardReport: staged,
+                stillCurrent: () => current,
+            }),
+        ).rejects.toMatchObject({ code: 'exclusion-unavailable' });
         expect(staged).not.toHaveBeenCalled();
         expect(mocks.setReport).not.toHaveBeenCalled();
     });

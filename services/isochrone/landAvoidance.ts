@@ -20,6 +20,13 @@ import { RESTRN_ROUTE_CAUTION_CODES, restrnCodes, restrnMeaning } from '../enc/s
 import { grazeOutranks } from '../enc/hazardSeverity';
 import { createLogger } from '../../utils/createLogger';
 import { navigationTideSourceAvailable } from '../tides/navigationUse';
+import { readCurrentRoutingExclusions, type CurrentRoutingExclusions } from '../routing/routingExclusions';
+import {
+    passageRoutingWindow,
+    auditPassageRoutingAreas,
+    RoutingExclusionFailure,
+    isRoutingExclusionFailure,
+} from '../routing/passageExclusions';
 
 const landLog = createLogger('LandAvoidance');
 
@@ -125,6 +132,10 @@ function findHazardInResults(results: HazardResult[], startIdx: number, count: n
  * Optional caller knobs for `validateRouteSegments`.
  */
 export interface ValidateRouteOptions {
+    /** Cancels private reads and all awaited validation work; no late adoption. */
+    signal?: AbortSignal;
+    /** Current private/retained-source caveats, emitted only after final policy proof. */
+    onRouteAreaCaveats?: (notes: readonly string[]) => void;
     /**
      * Vessel draft in metres. Drives the depth threshold used to
      * decide whether a sample point is too shallow. When omitted,
@@ -461,9 +472,135 @@ export function describeAreaGraze(graze: EncAreaGraze | null): RouteAdvisory | n
     };
 }
 
+type ValidationAwait = <T>(promise: Promise<T>) => Promise<T>;
+/** All exits share this policy transaction. Success/report callbacks remain
+ * private until every async phase and the final exact geometry are checked. */
 export async function validateRouteSegments(
     route: IsochroneNode[],
     options: ValidateRouteOptions = {},
+): Promise<IsochroneNode[]> {
+    if (route.length < 2) {
+        options.onVerificationOutcome?.({ status: 'unverified', reason: 'route has fewer than two points' });
+        return route;
+    }
+    const abort = new AbortController();
+    const cancel = () => abort.abort(options.signal?.reason);
+    if (options.signal?.aborted) cancel();
+    else options.signal?.addEventListener('abort', cancel, { once: true });
+    let lease: CurrentRoutingExclusions | undefined,
+        acceptingRead = true;
+    const check = () => {
+        abort.signal.throwIfAborted();
+        if (!(options.stillCurrent?.() ?? true) || (lease && !lease.isCurrent()))
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'The passage or its current area restrictions changed. Review the route again.',
+            );
+    };
+    const wait: ValidationAwait = async (promise) => {
+        let stop: () => void = () => {};
+        try {
+            check();
+            const cancelled = new Promise<never>((_, reject) => {
+                stop = () => reject(abort.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+                abort.signal.addEventListener('abort', stop, { once: true });
+            });
+            const value = await Promise.race([promise, cancelled]);
+            check();
+            return value;
+        } finally {
+            abort.signal.removeEventListener('abort', stop);
+            check();
+        }
+    };
+    try {
+        check();
+        const snapshot = route.map((p) => ({ ...p })),
+            window = passageRoutingWindow(snapshot);
+        const reading = readCurrentRoutingExclusions({ bbox: window, signal: abort.signal });
+        // A non-cooperative/late reader still cannot leak its lease after abort.
+        void reading.then(
+            (value) => {
+                if (!acceptingRead || abort.signal.aborted) value.release();
+            },
+            () => {},
+        );
+        lease = await wait(reading);
+        check();
+        let outcome: RouteVerificationOutcome | undefined;
+        let report: RouteHazardReport | null | undefined;
+        const staged = await wait(
+            validateRouteSegmentsCore(
+                snapshot,
+                {
+                    ...options,
+                    publishReport: false,
+                    stillCurrent: () => {
+                        try {
+                            check();
+                            return true;
+                        } catch {
+                            return false;
+                        }
+                    },
+                    onVerificationOutcome: (value) => {
+                        outcome = value;
+                    },
+                    onHazardReport:
+                        (options.publishReport ?? true) || options.onHazardReport
+                            ? (value) => {
+                                  report = value;
+                              }
+                            : undefined,
+                },
+                wait,
+                check,
+            ),
+        );
+        // Acquire publication before final proof; no await may separate that
+        // proof from callbacks, global publication and return.
+        const publisher = (options.publishReport ?? true) ? await wait(import('../enc/EncHazardReportService')) : null;
+        const notes = auditPassageRoutingAreas(staged, lease, window, check);
+        if (notes.length) {
+            const advisories: RouteAdvisory[] = notes.map((text) => ({ severity: 'note', text }));
+            report = report
+                ? { ...report, advisories: [...(report.advisories ?? []), ...advisories] }
+                : { cellsConsulted: 0, bufferNm: 1, entries: [], advisories };
+        }
+        check();
+        options.onRouteAreaCaveats?.(notes);
+        check();
+        if (report !== undefined) {
+            options.onHazardReport?.(report);
+            check();
+        }
+        options.onVerificationOutcome?.(
+            outcome ?? { status: 'unverified', reason: 'route validation did not complete' },
+        );
+        check();
+        if (publisher && report !== undefined) publisher.setLastReport(report);
+        check();
+        return staged;
+    } catch (error) {
+        if (abort.signal.aborted) throw abort.signal.reason;
+        if (isRoutingExclusionFailure(error)) throw error;
+        throw new RoutingExclusionFailure(
+            'exclusion-unavailable',
+            'The current no-go areas for the finished passage could not be fully checked. Review the route again.',
+        );
+    } finally {
+        acceptingRead = false;
+        abort.abort();
+        lease?.release();
+        options.signal?.removeEventListener('abort', cancel);
+    }
+}
+
+async function validateRouteSegmentsCore(
+    route: IsochroneNode[],
+    options: ValidateRouteOptions,
+    wait: ValidationAwait,
+    check: () => void,
 ): Promise<IsochroneNode[]> {
     let verificationReported = false;
     const reportVerification = (outcome: RouteVerificationOutcome): void => {
@@ -505,9 +642,10 @@ export async function validateRouteSegments(
         HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])
     ) {
         try {
-            await HazardQueryService.preloadEncForBBox([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat]);
+            await wait(HazardQueryService.preloadEncForBBox([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat]));
             landLog.info('[ValidateRoute] ENC coverage detected — preloaded spatial indexes');
         } catch (err) {
+            check();
             landLog.warn('[ValidateRoute] ENC preload failed (continuing with coarse ETOPO only)', err);
         }
     }
@@ -561,8 +699,8 @@ export async function validateRouteSegments(
             const endMs = startMs + totalDurMs + 30 * 60 * 1000; // 30-min slack for arrival.
             const midLat = (bboxMinLat + bboxMaxLat) / 2;
             const midLon = (bboxMinLon + bboxMaxLon) / 2;
-            const { fetchTideCurve } = await import('../TideHeightService');
-            const curve = await fetchTideCurve(midLat, midLon, startMs, endMs);
+            const { fetchTideCurve } = await wait(import('../TideHeightService'));
+            const curve = await wait(fetchTideCurve(midLat, midLon, startMs, endMs));
             if (curve) {
                 queryOpts.tideAt = (p) => (p.timeMs != null ? curve.heightAt(p.timeMs) : null);
                 // REGIONAL DATUM PESSIMISM (closing audit): scale the ETOPO
@@ -609,6 +747,7 @@ export async function validateRouteSegments(
                 landLog.info('[ValidateRoute] no tide curve available — falling back to static tideOffsetM');
             }
         } catch (err) {
+            check();
             landLog.warn('[ValidateRoute] tide curve fetch failed', err);
         }
     }
@@ -658,15 +797,17 @@ export async function validateRouteSegments(
                     lon2: result[i + 1].lon,
                 });
             }
-            const perSeg = await HazardQueryService.querySegmentCautions(cautionSegs);
+            const perSeg = await wait(HazardQueryService.querySegmentCautions(cautionSegs));
             const advisory = describeCautionCrossings(perSeg.flat());
             if (advisory) routeAdvisories.push(advisory);
         } catch (err) {
+            check();
             landLog.warn('[ValidateRoute] caution-area crossing check failed', err);
         }
     };
 
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
+        check();
         // ── 1. Sample all segments ──
         // Each sample carries an optional timeMs computed from the
         // segment endpoints' timeHours + the route departure. The
@@ -723,11 +864,12 @@ export async function validateRouteSegments(
             // ENC-covered points so we don't waste edge-fn calls.
             for (let batchStart = 0; batchStart < allSamples.length; batchStart += COARSE_BATHYMETRY_BATCH_SIZE) {
                 const batch = allSamples.slice(batchStart, batchStart + COARSE_BATHYMETRY_BATCH_SIZE);
-                const batchResults = await HazardQueryService.queryHazards(batch, queryOpts);
+                const batchResults = await wait(HazardQueryService.queryHazards(batch, queryOpts));
                 allResults.push(...batchResults);
             }
             lastAllResults = allResults; // for the exhaustion path's advisories
         } catch (err) {
+            check();
             landLog.warn('[ValidateRoute] hazard query FAILED — route NOT validated:', err);
             reportVerification({ status: 'unverified', reason: 'chart/depth hazard query failed' });
             // LOUD fail-open (audit: this path returned SILENTLY, leaving the
@@ -736,7 +878,7 @@ export async function validateRouteSegments(
             // repo's loud-warn policy). Clear the stale report and surface an
             // unmissable caution instead.
             try {
-                const { setLastReport } = await import('./../enc/EncHazardReportService');
+                const { setLastReport } = await wait(import('./../enc/EncHazardReportService'));
                 const unavailableReport: RouteHazardReport = {
                     cellsConsulted: 0,
                     bufferNm: 1.0,
@@ -755,6 +897,7 @@ export async function validateRouteSegments(
                     if (options.publishReport ?? true) setLastReport(unavailableReport);
                 }
             } catch {
+                check();
                 /* best effort — the warn log above still fires */
             }
             return result;
@@ -813,7 +956,7 @@ export async function validateRouteSegments(
             // by segmentCheckFailed instead).
             worstGraze = null;
             try {
-                const segResults = await HazardQueryService.querySegmentHazards(polySegs, queryOpts);
+                const segResults = await wait(HazardQueryService.querySegmentHazards(polySegs, queryOpts));
                 segTideConstrained = 0;
                 segNoDataLocs = [];
                 for (let k = 0; k < polySegs.length; k++) {
@@ -839,6 +982,7 @@ export async function validateRouteSegments(
                     if (g && (worstGraze === null || grazeOutranks(g, worstGraze))) worstGraze = g;
                 }
             } catch (err) {
+                check();
                 landLog.warn('[ValidateRoute] segment-polygon check failed (continuing with sample scan):', err);
                 // Loud, not silent: the thin-islet crossing test did not run,
                 // so a "clean" report would hide an unverified exact-segment
@@ -882,7 +1026,7 @@ export async function validateRouteSegments(
                         'or islet between sampled points may be unverified. Verify the line visually.',
                 });
             }
-            await appendCautionCrossings();
+            await wait(appendCautionCrossings());
             const incompleteEvidence = routeAdvisories.find((advisory) =>
                 ['no-data', 'cell-load-failed', 'segment-check-failed'].includes(advisory.kind ?? ''),
             );
@@ -913,7 +1057,7 @@ export async function validateRouteSegments(
             if (landSegments.includes(i)) {
                 const a = result[i];
                 const b = result[i + 1];
-                const detour = await findDetourAroundIsland(a, b, 0, queryOpts);
+                const detour = await wait(findDetourAroundIsland(a, b, 0, queryOpts, wait, check));
                 if (detour.length > 0) {
                     fixed.push(...detour);
                 }
@@ -961,7 +1105,7 @@ export async function validateRouteSegments(
         if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
         const currencyAdvisory = describeChartCurrency(worstChartAgeYears);
         if (currencyAdvisory) routeAdvisories.push(currencyAdvisory);
-        await appendCautionCrossings();
+        await wait(appendCautionCrossings());
         landLog.warn(
             `[ValidateRoute] EXHAUSTED ${MAX_VALIDATION_PASSES} passes with ${unresolvedAfterPasses} ` +
                 `segment(s) unresolved — route NOT verified clear`,
@@ -998,13 +1142,15 @@ export async function validateRouteSegments(
         landLog.warn('[ValidateRoute] report publish skipped — superseded or non-primary polyline');
     } else if (HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])) {
         try {
-            const { findHazardsAlongRoute, setLastReport } = await import('./../enc/EncHazardReportService');
-            const report = await findHazardsAlongRoute(
-                result.map((n) => ({ lat: n.lat, lon: n.lon })),
-                // Draft-aware keel threshold so off-track shoals surface for THIS
-                // vessel (re-audit #1) — the same positive-metres flip the graze
-                // and point-query paths use.
-                { shoalDepthM: -HazardQueryService.hazardDepthForDraft(options.vesselDraftM) },
+            const { findHazardsAlongRoute, setLastReport } = await wait(import('./../enc/EncHazardReportService'));
+            const report = await wait(
+                findHazardsAlongRoute(
+                    result.map((n) => ({ lat: n.lat, lon: n.lon })),
+                    // Draft-aware keel threshold so off-track shoals surface for THIS
+                    // vessel (re-audit #1) — the same positive-metres flip the graze
+                    // and point-query paths use.
+                    { shoalDepthM: -HazardQueryService.hazardDepthForDraft(options.vesselDraftM) },
+                ),
             );
             if (!mayPublish()) {
                 landLog.warn('[ValidateRoute] report publish skipped — went stale during hazard walk');
@@ -1022,6 +1168,7 @@ export async function validateRouteSegments(
                 );
             }
         } catch (err) {
+            check();
             landLog.warn('[ValidateRoute] hazard report generation failed', err);
         }
     } else {
@@ -1031,7 +1178,7 @@ export async function validateRouteSegments(
         // ETOPO outage over uncharted water), surface those as an entry-less
         // report rather than dropping them silently.
         try {
-            const { setLastReport } = await import('./../enc/EncHazardReportService');
+            const { setLastReport } = await wait(import('./../enc/EncHazardReportService'));
             if (mayPublish()) {
                 const finalReport =
                     routeAdvisories.length > 0
@@ -1041,6 +1188,7 @@ export async function validateRouteSegments(
                 if (options.publishReport ?? true) setLastReport(finalReport);
             }
         } catch {
+            check();
             /* best effort */
         }
     }
@@ -1060,6 +1208,8 @@ async function findDetourAroundIsland(
     b: IsochroneNode,
     depth: number,
     queryOpts: { vesselDraftM?: number; tideOffsetM?: number },
+    wait: ValidationAwait,
+    check: () => void,
 ): Promise<IsochroneNode[]> {
     if (depth >= MAX_FIX_DEPTH) return [];
 
@@ -1089,9 +1239,11 @@ async function findDetourAroundIsland(
     }
 
     // ── 2. Batch-query all candidate points in ONE call (ENC + ETOPO unified) ──
-    const candidateResults = await HazardQueryService.queryHazards(
-        candidates.map((c) => ({ lat: c.pt.lat, lon: c.pt.lon })),
-        queryOpts,
+    const candidateResults = await wait(
+        HazardQueryService.queryHazards(
+            candidates.map((c) => ({ lat: c.pt.lat, lon: c.pt.lon })),
+            queryOpts,
+        ),
     );
 
     // ── 3. Find the first water-based candidate (smallest push first) ──
@@ -1106,9 +1258,11 @@ async function findDetourAroundIsland(
         const allSubSamples = [...samplesA, ...samplesB];
 
         if (allSubSamples.length > 0) {
-            const subResults = await HazardQueryService.queryHazards(
-                allSubSamples.map((s) => ({ lat: s.lat, lon: s.lon })),
-                queryOpts,
+            const subResults = await wait(
+                HazardQueryService.queryHazards(
+                    allSubSamples.map((s) => ({ lat: s.lat, lon: s.lon })),
+                    queryOpts,
+                ),
             );
             const hasHazard = subResults.some((r) => r.isHazard);
             if (hasHazard) continue; // Sub-segments cross land/reef — try next candidate
@@ -1152,8 +1306,8 @@ async function findDetourAroundIsland(
             distance: a.distance + haversineNm(a.lat, a.lon, pt.lat, pt.lon),
         };
 
-        const leftFixes = await findDetourAroundIsland(a, waterMid, depth + 1, queryOpts);
-        const rightFixes = await findDetourAroundIsland(waterMid, b, depth + 1, queryOpts);
+        const leftFixes = await wait(findDetourAroundIsland(a, waterMid, depth + 1, queryOpts, wait, check));
+        const rightFixes = await wait(findDetourAroundIsland(waterMid, b, depth + 1, queryOpts, wait, check));
         return [...leftFixes, waterMid, ...rightFixes];
     }
 

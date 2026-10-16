@@ -221,3 +221,49 @@ describe('actual constrained passage orchestration', () => {
         );
     });
 });
+
+describe('constrained passage final area-policy hold', () => {
+    it.each(['route-exclusion', 'exclusion-unavailable'])(
+        'holds a returned %s before any coastal/offshore shortcut',
+        async (code) => {
+            mocks.inshore.mockResolvedValueOnce({ error: 'area restriction held', code });
+            await expect(computeConstrainedPassage(input())).rejects.toMatchObject({ code });
+            expect(mocks.ocean).not.toHaveBeenCalled();
+            expect(mocks.validate).not.toHaveBeenCalled();
+        },
+    );
+    it.each(['route-exclusion', 'exclusion-unavailable'])(
+        'propagates a final validator %s without accepting the assembled route',
+        async (code) => {
+            mocks.validate.mockRejectedValueOnce(Object.assign(Error('held'), { code }));
+            await expect(computeConstrainedPassage(input())).rejects.toMatchObject({ code });
+        },
+    );
+    it('adds accepted current area caveats to the final environment notes', async () => {
+        mocks.validate.mockImplementationOnce(async (route, options) => {
+            options.onRouteAreaCaveats(['Indicative park fixture; check current local rules.']);
+            options.onVerificationOutcome({ status: 'verified' });
+            return route;
+        });
+        const result = await computeConstrainedPassage(input());
+        expect(result.result.environmentNotes).toContain('Indicative park fixture; check current local rules.');
+        expect(mocks.validate.mock.calls.at(-1)?.[1].signal).toBeInstanceOf(AbortSignal);
+    });
+});
+
+it('constrained passage holds an actual auth A/B/A key retirement at the validator return seam', async () => {
+    const { getAuthIdentityScope, setAuthIdentityScope } = await import('../services/authIdentityScope');
+    const original = getAuthIdentityScope().userId;
+    const validate = mocks.validate;
+    validate.mockImplementationOnce(async (route, options) => {
+        setAuthIdentityScope('fictional-other-policy-owner');
+        setAuthIdentityScope(original);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    try {
+        await expect(computeConstrainedPassage(input())).rejects.toMatchObject({ code: 'exclusion-unavailable' });
+    } finally {
+        setAuthIdentityScope(original);
+    }
+});
