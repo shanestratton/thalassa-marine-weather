@@ -39,6 +39,8 @@ import { ZoomLevelFab } from './ZoomLevelFab';
 import { Capacitor } from '@capacitor/core';
 import { DESK_MAP_BASE_OPTIONS, MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
 import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase';
+import { effectiveChartContours, parseChartContours } from '../../services/enc/chartContours';
+import { setEncContourBands } from './encDepthStyleState';
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
 import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
@@ -1965,6 +1967,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // tide margin. A grounding-risk line drawn against a fake draft is worse
     // than none, so this is the LIVE value, recomputed when the profile edits.
     const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
+    const contourSettings = useMemo(() => parseChartContours(settings.chartContours), [settings.chartContours]);
+    const activeContours = useMemo(
+        () => effectiveChartContours(contourSettings, encSafetyDepthM),
+        [contourSettings, encSafetyDepthM],
+    );
+    const reliefSafetyDepthM = activeContours?.reliefSafety ? activeContours.safetyM : null;
     // The ROUTER's grounding threshold (draft×1.5 + UKC), from its OWN function
     // so the satellite glaze's caution band and the router can't drift apart
     // (cycle-5 re-audit: the [safety, hazard) band read GO-white yet routed as
@@ -2344,6 +2352,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // pass can never race it.
     const shownBase: MapBaseKind = plannerMap ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
     const baseVisibility = mapBaseVisibility(shownBase);
+    const reliefSafetyNotice =
+        reliefSafetyDepthM !== null && baseVisibility.relief
+            ? `Relief safety marker ~${reliefSafetyDepthM.toFixed(1)} m · not for navigation`
+            : undefined;
     const satelliteVisible = baseVisibility.satellite;
     const hybridVisible = baseVisibility.hybrid;
     // EVERY base but Light keeps the ENC imagery treatment, which is the
@@ -2468,6 +2480,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setReliefPalette(
                         map,
                         nightMode ? 'night' : shownBase === 'light' ? 'light' : encDrawn ? 'enc' : 'day',
+                        reliefSafetyDepthM,
                     )
                 )
                     changed = true;
@@ -2725,6 +2738,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         encMaster,
         encChartDetail,
         coordCaptureMode,
+        reliefSafetyDepthM,
     ]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide plus the night-dim treatment, both in
@@ -3870,6 +3884,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // has to MOUNT while the tracer is up, or the plotting keel floor has no
     // layers to raise and the plot surface loses its depth read entirely.
     useEncVectorLayer(mapRef, mapReady, encMaster, encChartDetail, encSafetyDepthM, encHazardDepthM, coordCaptureMode);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (mapReady && map) setEncContourBands(map, contourSettings);
+    }, [mapReady, contourSettings]);
     // Planning-only chart furniture: a few chart-backed direction-of-buoyage
     // arrows at numbered laterals. OBS stays uncluttered, and a picker must
     // remain a pure location-selection surface.
@@ -4099,6 +4117,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else toggleEnc();
                     }}
                     onCharts={() => setPaperChartsOpen(true)}
+                    safetyDepthNotice={reliefSafetyNotice}
                     toggles={nightDimRow ? [nightDimRow] : []}
                     onClearView={clearView.available ? clearView.hide : undefined}
                 />
@@ -4114,6 +4133,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onChange={setDeskBase}
                     options={DESK_MAP_BASE_OPTIONS}
                     onCharts={() => setPaperChartsOpen(true)}
+                    safetyDepthNotice={reliefSafetyNotice}
                     encRow={false}
                     toggles={
                         deskSurface
@@ -5465,6 +5485,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         visible={chartKeyOpen && planChartKeyVisible}
                         imageryOn={imageryOn}
                         tideDepthMode={tideDepthMode}
+                        contours={activeContours}
+                        reliefSafetyDepthM={baseVisibility.relief ? reliefSafetyDepthM : null}
                         draftConfigured={Number(settings.vessel?.draft) > 0}
                         onClose={() => setChartKeyOpen(false)}
                     />
@@ -6220,6 +6242,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                         satelliteMode={settings.satelliteMode === true}
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
                         onFindChart={() => setChartFindOpen(true)}
+                        contours={{
+                            value: contourSettings,
+                            requiredM: encSafetyDepthM,
+                            draftAssumed: vesselDraftIsAssumed(settings.vessel),
+                            unit: settings.units.length,
+                            onChange: (value) => updateSettings({ chartContours: value }),
+                        }}
                     />
                 )}
                 {noaaCatalogueOpen && <NoaaCatalogueSheet onClose={closeNoaaCatalogue} bounds={chartCatalog.bounds} />}

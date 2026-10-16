@@ -75,6 +75,8 @@ export interface MapBaseSelectorProps {
     onClearView?: () => void;
     /** Explicit paper overlay/category/catalogue sheet; no source queried by opening the menu. */
     onCharts?: () => void;
+    /** Non-interactive active model-depth marker notice; no extra keyboard row. */
+    safetyDepthNotice?: string;
     /** Extra classes on the root (the desk's narrow-window placement, index.css). */
     className?: string;
 }
@@ -104,6 +106,7 @@ export function MapBaseSelector({
     toggles = [],
     onClearView,
     onCharts,
+    safetyDepthNotice,
     className = '',
 }: MapBaseSelectorProps) {
     const [open, setOpen] = useState(false);
@@ -385,6 +388,11 @@ export function MapBaseSelector({
                                 </span>
                             </button>
                         </>
+                    )}
+                    {safetyDepthNotice && (
+                        <p className="border-t border-white/10 px-2 pt-2 text-[10px] text-amber-100">
+                            {safetyDepthNotice}
+                        </p>
                     )}
                 </div>
             )}

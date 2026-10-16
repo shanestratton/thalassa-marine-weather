@@ -8,6 +8,7 @@ import {
 } from '../../services/authIdentityScope';
 import { noaaAgreementAccepted } from '../../services/enc/noaaAgreement';
 import { DISPLAY_CATEGORIES, type ChartDisplayCategory } from './chartDisplayCategory';
+import ChartContourControls, { type ChartContourControlsProps } from './ChartContourControls';
 const Agreement = React.lazy(() => import('./NoaaAgreementSheet'));
 const button = 'min-h-[44px] rounded-lg border border-white/20 px-3 py-2 text-sm disabled:opacity-40';
 export interface PaperChartSheetProps {
@@ -22,6 +23,7 @@ export interface PaperChartSheetProps {
     satelliteMode: boolean;
     onCatalogue?: () => void;
     onFindChart?: () => void;
+    contours?: ChartContourControlsProps;
 }
 export default function PaperChartSheet(props: PaperChartSheetProps) {
     const [pending, setPending] = React.useState<ChartSourceId | null>(null);
@@ -70,6 +72,7 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             {props.category === null ? 'The slider has a custom setting.' : ''}
                         </p>
                     </fieldset>
+                    {props.contours && <ChartContourControls {...props.contours} />}
                     <section className="space-y-3" aria-label="Paper chart">
                         <h3 className="font-bold">Paper chart</h3>
                         <p className="text-xs">

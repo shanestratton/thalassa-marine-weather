@@ -488,7 +488,7 @@ describe('MapHub wiring', () => {
         // Light is never damped to 'enc' (127-DESKMAP A1): its chart mode draws
         // the ENC opaque over it, and the dark ramp must never come back.
         expect(hub).toMatch(
-            /setReliefPalette\(\s*map,\s*nightMode \? 'night' : shownBase === 'light' \? 'light' : encDrawn \? 'enc' : 'day',?\s*\)/,
+            /setReliefPalette\(\s*map,\s*nightMode \? 'night' : shownBase === 'light' \? 'light' : encDrawn \? 'enc' : 'day',\s*reliefSafetyDepthM,?\s*\)/,
         );
         // No unconditional paint write sneaks in beside them.
         expect(hub).not.toMatch(/setPaintProperty\(\s*'relief-/);

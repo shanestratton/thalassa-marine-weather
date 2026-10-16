@@ -226,7 +226,11 @@ export const LIGHT_PALETTE: typeof DAY = {
 };
 
 /** The index ramp. Stops climb strictly, so a log-squeezed pair can never collide. */
-function indexRamp(ramp: Ramp): mapboxgl.ExpressionSpecification {
+export function reliefIndexRamp(
+    ramp: Ramp,
+    safetyDepthM: number | null = null,
+    night = false,
+): mapboxgl.ExpressionSpecification {
     const out: unknown[] = ['interpolate', ['linear'], ['raster-value']];
     let last = -1;
     for (const [d, colour] of ramp) {
@@ -234,8 +238,25 @@ function indexRamp(ramp: Ramp): mapboxgl.ExpressionSpecification {
         out.push(last, colour);
     }
     out.push(255, ramp[ramp.length - 1][1]);
+    const safety = reliefSafetyDepth(safetyDepthM);
+    if (safety !== null)
+        return [
+            'case',
+            ['all', ['>', ['raster-value'], 0], ['<=', ['raster-value'], 254]],
+            [
+                'case',
+                ['<=', ['raster-value'], Math.ceil(depthIndex(safety))],
+                night ? 'rgba(129,63,36,0.8)' : 'rgba(198,124,50,0.8)',
+                out,
+            ],
+            'rgba(0,0,0,0)',
+        ] as mapboxgl.ExpressionSpecification;
     return out as mapboxgl.ExpressionSpecification;
 }
+/** Index 0 has no water-depth claim; only indices 1..254 encode water. The
+ * source is illustrative model bathymetry, never a chart-datum clearance. */
+const reliefSafetyDepth = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0.3 && v <= 6000 ? v : null;
 
 const zoomFade = (stops: number[]) =>
     ['interpolate', ['linear'], ['zoom'], ...stops] as mapboxgl.ExpressionSpecification;
@@ -250,6 +271,8 @@ const tintFade = (f0: number, f1: number, damp: number) => zoomFade([f0, damp, f
 const shadeFade = (f0: number, f1: number) => zoomFade([5, 0.4, 9, 0.7, f0, 0.7, f1, 0]);
 
 const painted = new WeakMap<object, ReliefPalette>();
+const safetyChoice = new WeakMap<object, number | null>();
+const safetyPainted = new WeakMap<object, number | null>();
 /** Maps that have shown Light since their style loaded: from then on every
  *  palette paints the whole base style, labels included, to undo it. A map
  *  that never shows Light (the Log maps, the Ocean page, every phone chart) is
@@ -345,7 +368,7 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
                     minzoom,
                     maxzoom: t1,
                     paint: {
-                        'raster-color': indexRamp(DAY.ramp),
+                        'raster-color': reliefIndexRamp(DAY.ramp, safetyChoice.get(map) ?? null),
                         // GL JS 3.19 feeds the channels as 0..1: [1,0,0,0] drew nothing.
                         'raster-color-mix': [255, 0, 0, 0],
                         'raster-color-range': [0, 255],
@@ -433,10 +456,16 @@ export function seaBaseLayers(base: MapBaseKind): Array<[string, boolean]> {
  * ends the world tint at z12; once a map has shown Light, every palette does
  * the same, so leaving it restores the whole style.
  */
-export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette): boolean {
-    if (painted.get(map) === mode || (!map.getLayer(SEA_BASE_BANDS) && !map.getLayer(RELIEF_LAYER_IDS[0])))
+export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette, safetyDepthM?: number | null): boolean {
+    const safety = reliefSafetyDepth(safetyDepthM === undefined ? safetyChoice.get(map) : safetyDepthM);
+    safetyChoice.set(map, safety);
+    if (
+        (painted.get(map) === mode && safetyPainted.get(map) === safety) ||
+        (!map.getLayer(SEA_BASE_BANDS) && !map.getLayer(RELIEF_LAYER_IDS[0]))
+    )
         return false;
     painted.set(map, mode);
+    safetyPainted.set(map, safety);
     if (mode === 'light') whole.add(map);
     const p = mode === 'night' ? NIGHT : mode === 'light' ? LIGHT_PALETTE : DAY;
     const set = (id: string, prop: string, value: unknown) => {
@@ -452,7 +481,7 @@ export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette): boolea
         const [f0, f1] = mode === 'light' && setName === 'global' ? [11, 12] : [t0, t1];
         const layer = map.getLayer(tint) as { minzoom?: number; maxzoom?: number } | undefined;
         if (layer && layer.maxzoom !== f1) map.setLayerZoomRange(tint, layer.minzoom ?? 0, f1);
-        set(tint, 'raster-color', indexRamp(p.ramp));
+        set(tint, 'raster-color', reliefIndexRamp(p.ramp, safety, mode === 'night'));
         set(tint, 'raster-opacity', tintFade(f0, f1, mode === 'enc' ? 0.7 : 1));
         set(tint, 'raster-saturation', mode === 'enc' ? -0.5 : 0);
         set(`relief-${setName}-shade`, 'hillshade-shadow-color', p.shadow);

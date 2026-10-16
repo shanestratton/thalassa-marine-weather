@@ -45,6 +45,7 @@ import { chartAgeYears as computeChartAgeYears } from '../../services/enc/chartC
 import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
+import { effectiveChartContours } from '../../services/enc/chartContours';
 import { crumb } from '../../utils/flightRecorder';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { registerSeamarkIcons, UWTROC_ROCK_GLYPH, UWTROC_ROCK_GLYPH_DEFAULT } from './seamarkIcons';
@@ -1143,7 +1144,13 @@ function mountDepthAreaLayers(
                     // Absolute paper-chart ramp — see
                     // buildDepareFillColor. Static: draft changes move
                     // only the safety contour now.
-                    'fill-color': buildDepareFillColor(),
+                    'fill-color': buildDepareFillColor(
+                        0,
+                        effectiveChartContours(
+                            depthStyleState.get(map)?.contours,
+                            depthStyleState.get(map)?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M,
+                        ),
+                    ),
                     // Near-opaque paper on the chart, depth-graded
                     // glaze over satellite — syncDepareBaseTreatment
                     // right below picks per the current base.
@@ -1426,7 +1433,10 @@ export function mountEncVectorLayer(
         depcntValdcosByCell: valdcosByCell,
         tideOffsetM: prevState?.tideOffsetM ?? null,
     });
-    const safetyByCell = computeSafetyValdcoByCell(valdcosByCell, safetyDepthM);
+    const safetyByCell = computeSafetyValdcoByCell(
+        valdcosByCell,
+        effectiveChartContours(prevState?.contours, safetyDepthM)?.safetyM ?? safetyDepthM,
+    );
 
     // Tile buffer per source: symbols need the default 128 (cross-tile
     // label collision), but fills clip cleanly at seams and plain lines

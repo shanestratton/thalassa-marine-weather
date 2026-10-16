@@ -169,6 +169,28 @@ beforeEach(() => {
 });
 
 describe('settingsStore identity isolation', () => {
+    it('persists an explicit contour reset through the cloud JSON patch and account rehydration', async () => {
+        const { settings, identity } = await freshStore();
+        identity.setAuthIdentityScope('account-a');
+        await settings.awaitSettingsLoaded();
+        await update(settings, { chartContours: { shallowM: 2, safetyM: 6, deepM: 20, reliefSafety: true } });
+        await vi.waitFor(() => expect(harness.cloudPatches.length).toBeGreaterThan(0));
+        harness.cloudPatches.length = 0;
+        await update(settings, { chartContours: null });
+        await vi.waitFor(() => expect(harness.cloudPatches.length).toBeGreaterThan(0));
+        const patch = JSON.parse(JSON.stringify(harness.cloudPatches.at(-1)?.p_patch));
+        expect(patch).toHaveProperty('chartContours', null);
+        const savedKey = identity.authScopedStorageKey('thalassa_settings', identity.getAuthIdentityScope());
+        expect(JSON.parse(harness.preferences[savedKey]).settings.chartContours).toBeNull();
+        // Model the existing JSONB object merge's returned account settings.
+        harness.cloudSettings['account-a'] = patch;
+        identity.setAuthIdentityScope('account-b');
+        await settings.awaitSettingsLoaded();
+        expect(settings.useSettingsStore.getState().settings.chartContours).toBeUndefined();
+        identity.setAuthIdentityScope('account-a');
+        await settings.awaitSettingsLoaded();
+        expect(settings.useSettingsStore.getState().settings.chartContours).toBeNull();
+    });
     it('ignores client-authored paid tier fields while preserving ordinary settings writes', async () => {
         const { settings } = await freshStore();
 
