@@ -7,5 +7,5 @@ Deno.serve((request: Request) =>
         restBase: (Deno.env.get('SUPABASE_URL') || '') + '/rest/v1',
         serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
         fetch,
-    }),
+    })
 );

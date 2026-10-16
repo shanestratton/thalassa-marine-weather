@@ -626,9 +626,11 @@ async function fetchPremium(lat: number, lon: number, compact = false): Promise<
         precipSum: om.daily.precipitation_sum?.[i] ?? null,
         precipProbability: om.daily.precipitation_probability_max?.[i] ?? null,
         sunrise: compact && om.daily.sunrise?.[i] && !/Z$|[+-]\d\d:\d\d$/.test(om.daily.sunrise[i])
-            ? om.daily.sunrise[i] + 'Z' : om.daily.sunrise?.[i] ?? '',
+            ? om.daily.sunrise[i] + 'Z'
+            : om.daily.sunrise?.[i] ?? '',
         sunset: compact && om.daily.sunset?.[i] && !/Z$|[+-]\d\d:\d\d$/.test(om.daily.sunset[i])
-            ? om.daily.sunset[i] + 'Z' : om.daily.sunset?.[i] ?? '',
+            ? om.daily.sunset[i] + 'Z'
+            : om.daily.sunset?.[i] ?? '',
         uvIndexMax: om.daily.uv_index_max?.[i] ?? null,
     }));
 
@@ -892,7 +894,6 @@ function wmoToCondition(code: number): string {
 // ════════════════════════════════════════════════════════════════
 // MINIFICATION (Iridium GO! mode)
 // ════════════════════════════════════════════════════════════════
-
 
 // ════════════════════════════════════════════════════════════════
 // MAIN HANDLER

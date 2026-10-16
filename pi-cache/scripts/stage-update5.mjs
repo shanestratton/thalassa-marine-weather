@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { sha256, verifyBundle } from './update5.mjs';
+import { sha256, update5NativeBuild, verifyBundle } from './update5.mjs';
 
 /** Git archive includes only a frozen tracked tree: no Pi runtime data or local secrets. */
 export function stageUpdate5({ repository, commit, output }) {
@@ -11,13 +11,7 @@ export function stageUpdate5({ repository, commit, output }) {
     const git = (args) =>
         execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
     if (git(['rev-parse', `${commit}^{commit}`]) !== commit) throw new Error('Frozen source commit not found');
-    const builds = [
-        ...git(['show', `${commit}:ios/App/App.xcodeproj/project.pbxproj`]).matchAll(
-            /CURRENT_PROJECT_VERSION = (\d+);/g,
-        ),
-    ];
-    if (builds.length !== 4 || builds.some((value) => value[1] !== '133'))
-        throw new Error('Exactly four native build-133 configurations are required');
+    const appBuild = update5NativeBuild(git(['show', `${commit}:ios/App/App.xcodeproj/project.pbxproj`]));
     const entries = git(['ls-tree', '-r', commit, '--', 'pi-cache'])
         .split('\n')
         .filter(Boolean)
@@ -53,7 +47,7 @@ export function stageUpdate5({ repository, commit, output }) {
     const manifest = {
         schema: 1,
         update: 5,
-        appBuild: 133,
+        appBuild,
         sourceCommit: commit,
         guardVersion: 1,
         nodeMajor: 22,
