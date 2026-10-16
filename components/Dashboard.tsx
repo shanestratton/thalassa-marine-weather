@@ -1426,6 +1426,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         isLive={activeDay === 0 && activeHour === 0}
                                         modelUsed={data.modelUsed}
                                         generatedAt={data.generatedAt}
+                                        forecastSampling={data.forecastSampling}
+                                        forecastRunAt={data.forecastRunAt}
+                                        limitedForecast={data.limitedForecast}
                                         coordinates={data.coordinates}
                                     />
                                 </div>

@@ -81,7 +81,7 @@ export class PiPolarLearner {
                     const grid = saved.grids[p as PolarPeriod];
                     return (
                         grid &&
-                        Object.keys(grid).length <= 435 &&
+                        Object.keys(grid).length <= 465 &&
                         Object.entries(grid).every(
                             ([key, b]) =>
                                 /^tws_\d{1,2}_twa_\d{2,3}$/.test(key) &&
@@ -191,10 +191,11 @@ export class PiPolarLearner {
         samples: Record<PolarPeriod, number>;
         rejected: number;
         polars: Record<PolarPeriod, PolarTable | null>;
+        extendedPolars: Record<PolarPeriod, PolarTable | null>;
     } {
         const table = (period: PolarPeriod): PolarTable | null => {
             const windSpeeds = [6, 8, 10, 12, 15, 20, 25],
-                angles = [45, 60, 90, 120, 150, 180];
+                angles = [30, 35, 40, 45, 60, 90, 120, 150, 180];
             const matrix = angles.map((angle) =>
                 windSpeeds.map((tws) => {
                     let weight = 0,
@@ -213,6 +214,9 @@ export class PiPolarLearner {
             );
             return matrix.flat().some((v) => v > 0) ? { windSpeeds, angles, matrix } : null;
         };
+        const extendedPolars = { all: table('all'), day: table('day'), night: table('night') };
+        const legacy = (p: PolarTable | null): PolarTable | null =>
+            p ? { windSpeeds: p.windSpeeds, angles: p.angles.slice(3), matrix: p.matrix.slice(3) } : null;
         return {
             version: 1,
             enabled: this.state.enabled,
@@ -221,7 +225,13 @@ export class PiPolarLearner {
             processedRowId: this.state.cursor,
             samples: { ...this.state.samples },
             rejected: this.state.rejected,
-            polars: { all: table('all'), day: table('day'), night: table('night') },
+            // Build133's strict reader retains its original axes. New clients use the optional extension.
+            polars: {
+                all: legacy(extendedPolars.all),
+                day: legacy(extendedPolars.day),
+                night: legacy(extendedPolars.night),
+            },
+            extendedPolars,
         };
     }
 }

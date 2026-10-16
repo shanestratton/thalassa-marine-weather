@@ -17,6 +17,8 @@ import {
     RELIEF_ATTRIBUTION,
     RELIEF_AU_BOUNDS,
     RELIEF_LAYER_IDS,
+    offlineReliefStyle,
+    reloadReliefSources,
     SEA_BASE_BANDS,
     SEA_BASE_COAST,
     SEA_BASE_LAND_SHADE,
@@ -297,11 +299,40 @@ describe('the quiet fallback', () => {
         expect(at(SEA_BASE_BANDS)).toBeGreaterThan(at('water'));
     });
 
-    it('builds nothing on a style without the composite sea', () => {
-        const map = fakeMap();
-        map.sources.delete('composite');
+    it('draws saved terrain on a cold offline style without any Mapbox composite dependency', () => {
+        const map = fakeMap(['land']);
+        map.sources.clear();
         addReliefBase(asMap(map), BASE);
-        expect(order(map)).toEqual(order(fakeMap()));
+        expect(order(map)).toEqual(['land', ...RELIEF_LAYER_IDS]);
+        expect([...map.sources.keys()]).toEqual([
+            'relief-global-idx',
+            'relief-global-dem',
+            'relief-au-idx',
+            'relief-au-dem',
+        ]);
+        expect(offlineReliefStyle()).toMatchObject({
+            version: 8,
+            sources: {},
+            layers: [{ id: 'land', type: 'background' }],
+        });
+        expect(setReliefPalette(asMap(map), 'night')).toBe(true);
+        expect(map.writes.some(([id]) => id === 'relief-global-tint')).toBe(true);
+    });
+    it('refreshes only terrain through public setTiles, retaining all custom chart layers', () => {
+        const map = fakeMap();
+        addReliefBase(asMap(map), BASE);
+        const calls: Array<[string, string[]]> = [];
+        for (const [id, source] of map.sources) source.setTiles = (tiles: string[]) => calls.push([id, tiles]);
+        const layers = order(map);
+        reloadReliefSources(asMap(map), BASE);
+        expect(calls.map(([id]) => id)).toEqual([
+            'relief-global-idx',
+            'relief-global-dem',
+            'relief-au-idx',
+            'relief-au-dem',
+        ]);
+        expect(calls[0][1]).toEqual([`${BASE}/relief-global/idx/{z}/{x}/{y}.png`]);
+        expect(order(map)).toEqual(layers);
     });
 });
 

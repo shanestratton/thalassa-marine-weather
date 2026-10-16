@@ -48,7 +48,8 @@ vi.mock('../stores/WindStore', () => ({
 }));
 vi.mock('../services/weather/WindFieldAdapter', () => ({ createWindFieldFromGrid: vi.fn(() => ({})) }));
 vi.mock('../services/BathymetryCache', () => ({ preloadBathymetry: vi.fn(async () => null) }));
-vi.mock('../services/cycloneAvoidance', () => ({ buildCycloneExclusionField: vi.fn(async () => null) }));
+vi.mock('../services/cycloneAvoidance', () => ({ buildCycloneExclusionFromCyclones: vi.fn(() => null) }));
+vi.mock('../services/weather/CycloneTrackingService', () => ({ fetchActiveCyclones: vi.fn(async () => []) }));
 vi.mock('../services/weather/waveField', () => ({
     fetchWaveField: vi.fn(async () => {
         throw new Error('offline (test)');
@@ -114,7 +115,15 @@ describe('enhanceVoyagePlanWithIsochrone routes on the resolved polar', () => {
         const out = await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART);
         expect(out).not.toBeNull();
         expect(mocks.resolveRoutingPolar).toHaveBeenCalledWith({ vessel: VESSEL });
-        expect(mocks.getPrecomputedRoute).toHaveBeenCalledWith(43.3, 5.37, 41.39, 9.16, RESOLVED.signature);
+        expect(mocks.getPrecomputedRoute).toHaveBeenCalledWith(
+            43.3,
+            5.37,
+            41.39,
+            9.16,
+            RESOLVED.signature,
+            undefined,
+            expect.stringContaining(DEPART),
+        );
         expect(mocks.computeIsochrones).toHaveBeenCalledTimes(1);
         expect(mocks.computeIsochrones.mock.calls[0][3]).toBe(RESOLVED.polar);
         expect(out!.routeGeoJSON?.properties).toMatchObject({ source: 'isochrone' });
@@ -126,5 +135,39 @@ describe('enhanceVoyagePlanWithIsochrone routes on the resolved polar', () => {
         expect(out).not.toBeNull();
         expect(mocks.getPrecomputedRoute.mock.calls[0][4]).toBe(RESOLVED.signature);
         expect(mocks.computeIsochrones).not.toHaveBeenCalled();
+    });
+
+    it('will not transfer a cached route wave clearance to a different chart-verified geometry', async () => {
+        mocks.getPrecomputedRoute.mockReturnValue(candidate());
+        const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+        vi.mocked(validateRouteSegments).mockImplementationOnce(async (route) =>
+            route.map((node, i) => (i === 1 ? { ...node, lat: node.lat + 1 } : node)),
+        );
+        expect(await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).toBeNull();
+    });
+
+    it('rejects a chart detour that moves the displayed route into seas above the vessel limit', async () => {
+        const { fetchWaveField } = await import('../services/weather/waveField');
+        vi.mocked(fetchWaveField).mockResolvedValueOnce({
+            referenceTimeIso: DEPART,
+            totalHours: 240,
+            samples: [
+                [43.3, 5.37, 1],
+                [42.3, 7.4, 1],
+                [41.39, 9.16, 1],
+                [45, 7.4, 5],
+            ].map(([lat, lon, height]) => ({
+                lat,
+                lon,
+                heightM: Array(240).fill(height),
+                periodS: Array(240).fill(8),
+                directionFromDeg: Array(240).fill(90),
+            })),
+        });
+        const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+        vi.mocked(validateRouteSegments).mockImplementationOnce(async (route) =>
+            route.map((node, i) => (i === 1 ? { ...node, lat: 45 } : node)),
+        );
+        expect(await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).toBeNull();
     });
 });

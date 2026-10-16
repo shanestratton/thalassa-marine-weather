@@ -77,6 +77,9 @@ import type { RegionalPair } from '../seaway/gateExtractor';
 import type { WaterPackUse } from '../waterPack/waterPackWords';
 import { canReadPictures, satelliteCropWater, type SatelliteCrop } from './satelliteWaterJob';
 import { createLogger } from '../../utils/createLogger';
+import { runOffshoreJob } from './offshoreJob';
+import type { OffshoreJob, OffshoreCandidate } from './offshoreProtocol';
+import type { OffshoreProgress } from '../isochrone/offshoreKernel';
 
 // The lines it logs are the router's, as they always were (the route worker
 // forwards them to the main thread's console with the same text).
@@ -1078,11 +1081,14 @@ export interface NavGridJobArgs {
 }
 
 export type RouteWorkerRequest =
+    | { type: 'offshore'; id: number; job: OffshoreJob }
     | { type: 'job'; id: number; job: RouteJob }
     | { type: 'grid'; id: number; args: NavGridJobArgs }
     | { type: 'water'; id: number; crop: SatelliteCrop }
     | { type: 'trim' };
 export type RouteWorkerReply =
+    | { type: 'offshore'; id: number; candidate: OffshoreCandidate | null }
+    | { type: 'offshore-progress'; id: number; progress: OffshoreProgress }
     | { type: 'ready' }
     | { type: 'init-error'; message: string }
     | { type: 'result'; id: number; output: RouteJobOutput }
@@ -1124,6 +1130,15 @@ export function startRouteWorker(scope: RouteWorkerScope, out: Pick<Console, 'wa
             const message = ev.data;
             if (message.type === 'trim') {
                 trimNavGridCache(0);
+                return;
+            }
+            if (message.type === 'offshore') {
+                runOffshoreJob(message.job, (progress) =>
+                    post({ type: 'offshore-progress', id: message.id, progress }),
+                ).then(
+                    (candidate) => post({ type: 'offshore', id: message.id, candidate }),
+                    (error) => failed(message.id, error),
+                );
                 return;
             }
             if (message.type === 'water') {

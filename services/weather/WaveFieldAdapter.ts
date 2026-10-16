@@ -41,22 +41,26 @@ function lerpAngle(a: number, b: number, t: number): number {
  * passing a wave field to the engine (the engine treats null as "no
  * wave penalty, polar gives raw boat speed").
  */
-export function createWaveFieldFromSamples(data: WaveFieldData | null): WaveField | null {
-    if (!data || data.samples.length === 0) return null;
+export function createWaveFieldFromSamples(data: WaveFieldData | null, departureMs = Date.now()): WaveField | null {
+    if (
+        !data ||
+        data.samples.length === 0 ||
+        !Number.isInteger(data.totalHours) ||
+        data.totalHours < 1 ||
+        data.totalHours > 1000
+    )
+        return null;
 
     const refMs = new Date(data.referenceTimeIso).getTime();
-    if (isNaN(refMs)) return null;
+    if (!Number.isFinite(refMs) || !Number.isFinite(departureMs)) return null;
 
     return {
+        sampleHours: Array.from({ length: data.totalHours }, (_, index) => (refMs - departureMs) / 3600_000 + index),
         getWave(lat: number, lon: number, timeOffsetHours: number) {
-            // Temporal bracket — relative to engine's "departure + offset",
-            // not the field's reference time. Adjust accordingly: the
-            // engine queries with timeOffsetHours from departureTime,
-            // which we assume is close to refMs.
-            const queryMs = Date.now() + timeOffsetHours * 3600_000;
+            const queryMs = departureMs + timeOffsetHours * 3600_000;
             // Map to the field's hour index
             const hourFloat = (queryMs - refMs) / 3600_000;
-            if (hourFloat < 0) return null;
+            if (!Number.isFinite(hourFloat) || hourFloat < 0 || hourFloat > data.totalHours - 1) return null;
             const h0 = Math.floor(hourFloat);
             const h1 = Math.min(h0 + 1, data.totalHours - 1);
             if (h0 >= data.totalHours) return null;
@@ -69,10 +73,12 @@ export function createWaveFieldFromSamples(data: WaveFieldData | null): WaveFiel
             let dirX = 0;
             let dirY = 0;
             let neighbours = 0;
+            let nearestKnown = Infinity;
+            let nearestMissing = Infinity;
 
             for (const sample of data.samples) {
                 const dLat = sample.lat - lat;
-                const dLon = sample.lon - lon;
+                const dLon = ((sample.lon - lon + 540) % 360) - 180;
                 if (Math.abs(dLat) > SEARCH_RADIUS_DEG || Math.abs(dLon) > SEARCH_RADIUS_DEG) continue;
 
                 const distSq = dLat * dLat + dLon * dLon;
@@ -81,9 +87,24 @@ export function createWaveFieldFromSamples(data: WaveFieldData | null): WaveFiel
                 const w = 1 / Math.max(0.001, distSq);
 
                 // Time-interp this sample's height/period/direction
-                const h = lerp(sample.heightM[h0] ?? 0, sample.heightM[h1] ?? 0, tFrac);
-                const p = lerp(sample.periodS[h0] ?? 8, sample.periodS[h1] ?? 8, tFrac);
-                const d = lerpAngle(sample.directionFromDeg[h0] ?? 0, sample.directionFromDeg[h1] ?? 0, tFrac);
+                const required = tFrac > 0 ? [h0, h1] : [h0];
+                if (
+                    required.some(
+                        (i) =>
+                            !Number.isFinite(sample.heightM[i]) ||
+                            sample.heightM[i] < 0 ||
+                            !Number.isFinite(sample.periodS[i]) ||
+                            sample.periodS[i] <= 0 ||
+                            !Number.isFinite(sample.directionFromDeg[i]),
+                    )
+                ) {
+                    nearestMissing = Math.min(nearestMissing, distSq);
+                    continue;
+                }
+                nearestKnown = Math.min(nearestKnown, distSq);
+                const h = lerp(sample.heightM[h0], sample.heightM[tFrac > 0 ? h1 : h0], tFrac);
+                const p = lerp(sample.periodS[h0], sample.periodS[tFrac > 0 ? h1 : h0], tFrac);
+                const d = lerpAngle(sample.directionFromDeg[h0], sample.directionFromDeg[tFrac > 0 ? h1 : h0], tFrac);
 
                 heightSum += h * w;
                 periodSum += p * w;
@@ -94,7 +115,7 @@ export function createWaveFieldFromSamples(data: WaveFieldData | null): WaveFiel
                 neighbours++;
             }
 
-            if (neighbours === 0 || weightSum === 0) return null;
+            if (neighbours === 0 || weightSum === 0 || nearestMissing <= nearestKnown) return null;
 
             const heightM = heightSum / weightSum;
             const periodS = periodSum / weightSum;

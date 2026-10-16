@@ -38,8 +38,8 @@ describe('the wind credit names the model’s provider and its licence', () => {
         expect(windCreditLine(model)).toBe(line);
     });
 
-    it('names each of the Glass’s five by the chips’ own label', () => {
-        expect(WIND_OVERLAY_MODELS.map(windModelLabel)).toEqual(['ICON', 'ECMWF', 'AIFS', 'UKMO', 'JMA']);
+    it('names each of the Glass’s six by the chips’ own label', () => {
+        expect(WIND_OVERLAY_MODELS.map(windModelLabel)).toEqual(['ICON', 'ECMWF', 'AIFS', 'UKMO', 'JMA', 'GFS']);
     });
 });
 

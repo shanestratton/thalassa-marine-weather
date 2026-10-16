@@ -38,6 +38,8 @@ import {
     resolveForecastModel,
 } from '../../services/weather/forecastModels';
 import { splitDaysHours } from '../../utils/splitDaysHours';
+import { RouteEstimateSummary } from './RouteEstimateSummary';
+import { estimateRouteFuel } from '../../services/isochrone/routeStats';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -674,6 +676,20 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     );
     const effectiveTime = localTimeValue(passageSchedule.departureTime);
     const effectiveTimeMin = localDepartureTimeMin(passageSchedule.departureTime, now);
+    const exactStats =
+        !foreignBoat &&
+        passageMatchesVoyage &&
+        passage.departureTime &&
+        Date.parse(passage.departureTime) === Date.parse(passageSchedule.departureTime)
+            ? passage.sailingStats
+            : undefined;
+    const routeFuel = useMemo(
+        () =>
+            !foreignBoat && passageSchedule.durationHours != null && passageSchedule.durationHours > 0
+                ? estimateRouteFuel(exactStats?.motorHours, passageSchedule.durationHours, settings.vessel)
+                : null,
+        [foreignBoat, exactStats, passageSchedule.durationHours, settings.vessel],
+    );
     const effectiveDistance = passageSchedule.distanceNm;
     const effectiveEta = passageSchedule.eta;
     const duration = formatPassageDuration(passageSchedule.durationHours);
@@ -768,6 +784,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             origin: { name: departPort || 'Departure', lat: effectiveDepartLat, lon: effectiveDepartLon },
             destination: { name: destPort || 'Arrival', lat: effectiveArriveLat, lon: effectiveArriveLon },
             departureTime: passageSchedule.departureTime,
+            sailingStats: exactStats,
+            routeComfort: exactStats ? passage.routeComfort : undefined,
+            routeFuel,
             totalDistanceNM: effectiveDistance,
             estimatedDuration: passageSchedule.durationHours ?? 0,
             speed: passageSchedule.cruisingSpeedKt,
@@ -785,6 +804,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             })),
         };
     }, [
+        exactStats,
+        passage.routeComfort,
+        routeFuel,
         effectiveDistance,
         effectiveDepartLat,
         effectiveDepartLon,
@@ -975,6 +997,11 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 </div>
             </div>
 
+            <RouteEstimateSummary
+                stats={exactStats}
+                fuel={routeFuel}
+                comfort={exactStats ? passage.routeComfort : undefined}
+            />
             {/* ── Difficulty Overview ── */}
             {difficultySummary && (
                 <div className="bg-white/3 border border-white/6 rounded-xl p-3">

@@ -7,6 +7,7 @@ import { isSeaCellForecast } from '../coastalProvenance';
 import { markModelUnavailable } from '../modelLiveness';
 import { ECMWF_9KM } from '../regionalModels';
 import { fetchPublishedForecast } from '../wxPublished';
+import { utcMarineLookup } from '../wxMarineAlignment';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistanceKm } from '../../../utils/math';
@@ -82,6 +83,7 @@ interface OMWeatherResponse {
 }
 
 interface OMMarineHourly {
+    time?: string[];
     wave_height?: number[];
     wave_period?: number[];
     wave_direction?: number[];
@@ -179,7 +181,12 @@ export const fetchOpenMeteo = async (
 
     // 1. Fresh memo hit — return immediately, zero network.
     const hit = memo.get(key);
-    if (hit && Date.now() - hit.at < INMEM_TTL_MS) {
+    if (
+        hit &&
+        Date.now() - hit.at < INMEM_TTL_MS &&
+        (hit.data.forecastSampling !== 'quarter-degree-cell' ||
+            Math.floor(Date.parse(hit.data.generatedAt) / 3_600_000) === Math.floor(Date.now() / 3_600_000))
+    ) {
         return hit.data;
     }
 
@@ -213,6 +220,8 @@ const doFetchOpenMeteo = async (
 ): Promise<MarineWeatherReport> => {
     const now = new Date();
     let servedModel = model;
+    let publishedRunAt: string | undefined;
+    let publishedSampling: 'quarter-degree-cell' | undefined;
 
     // normalize (wrap/clamp) - copied logic
     const safeLat = Math.max(-90, Math.min(90, lat));
@@ -249,9 +258,18 @@ const doFetchOpenMeteo = async (
         // contract, so the parser below cannot tell the difference.
         if (isConcreteModel(model)) {
             const published = await fetchPublishedForecast(safeLat, safeLon, model);
-            if (published && isSeaCellForecast(published.payload, model, safeLat, safeLon))
+            if (
+                published &&
+                (published.sampling === 'quarter-degree-cell' ||
+                    isSeaCellForecast(published.payload, model, safeLat, safeLon))
+            ) {
+                publishedRunAt = published.runAt;
+                publishedSampling = published.sampling;
+                startMarine(published.sampling ? 'UTC' : 'auto');
                 return published.payload as OMWeatherResponse;
+            }
         }
+        startMarine('auto');
         try {
             const reply = await fetchOpenMeteoProxy<OMWeatherResponse>(
                 'forecast',
@@ -276,23 +294,13 @@ const doFetchOpenMeteo = async (
         });
     };
 
-    // Pi Cache combined endpoint — serves the full dataset pre-fetched by the
-    // scheduler. Cache key uses 2dp rounding so GPS drift on a moored boat
-    // still gets cache HITs. Skipped for concrete-model fetches: the Pi's
-    // pre-fetched dataset is best_match-shaped and would silently serve the
-    // wrong model's numbers.
-    // ── Start everything that only needs lat/lon, before we block ──
-    // None of these three reads wData. They used to run strictly AFTER the
-    // main report resolved — marine awaited immediately below it, geocoding
-    // ~300 lines later — which added their full latency to time-to-fresh for
-    // no reason. The file already admitted it: "Actually, let's refactor to
-    // Promise.all the initial fetches. However, for minimal diff, we can just
-    // call it here."
-    //
-    // .catch() attached AT CREATION, not at the await: an early rejection on a
-    // promise nobody is awaiting yet is an unhandled rejection, and on iOS that
-    // is a console error at best and a killed WebContent at worst.
-    const marineProximityPromise = checkMarineProximity(lat, lon).catch(() => null);
+    // Tides and geocoding run independently. Marine starts when the source
+    // is known so a published wx run and fresh waves share UTC axes.
+    // Attach rejection handlers at creation to avoid unhandled iOS promises.
+    let marineProximityPromise: Promise<Awaited<ReturnType<typeof checkMarineProximity>> | null> | undefined;
+    function startMarine(timezone: 'auto' | 'UTC') {
+        marineProximityPromise ??= checkMarineProximity(lat, lon, timezone).catch(() => null);
+    }
     const tideDataPromise = fetchRealTides(lat, lon).catch(() => null);
     const landContextPromise = reverseGeocodeContext(lat, lon).catch(() => null);
 
@@ -342,7 +350,10 @@ const doFetchOpenMeteo = async (
 
     // Build Current
     const cur = wData.current;
-    const curWave = waveData?.current || {};
+    const utcMarine = publishedSampling ? utcMarineLookup(waveData) : null;
+    const curWave = utcMarine
+        ? utcMarine.at(String((cur as OMCurrentBlock & { time?: string }).time)) || {}
+        : waveData?.current || {};
 
     // Fallback if current block missing (rare)
     if (!cur) throw new Error('OpenMeteo: No Current Data');
@@ -413,7 +424,9 @@ const doFetchOpenMeteo = async (
         description: '',
         day: wData.timezone ? now.toLocaleDateString('en-US', { weekday: 'long', timeZone: wData.timezone }) : 'Today',
         date: wData.timezone ? now.toLocaleDateString('en-US', { timeZone: wData.timezone }) : now.toLocaleDateString(),
-        feelsLike: calculateFeelsLike(cur.temperature_2m, cur.relative_humidity_2m, cur.wind_speed_10m * kFactor * 0.8), // Approx
+        feelsLike: [cur.temperature_2m, cur.relative_humidity_2m, cur.wind_speed_10m].every((v) => num(v) !== null)
+            ? calculateFeelsLike(cur.temperature_2m, cur.relative_humidity_2m, cur.wind_speed_10m * kFactor * 0.8)
+            : null,
         isDay: cur.is_day === 1,
         isEstimated: false,
         sunrise: '', // Filled from daily + SunCalc
@@ -469,7 +482,7 @@ const doFetchOpenMeteo = async (
             // the raw value isn't a finite number so the type stays
             // null and downstream UI can render "—" instead.
             waveHeight: ((): number | null => {
-                const raw = waveData?.daily?.wave_height_max?.[i];
+                const raw = utcMarine ? utcMarine.maximumForDay(t) : waveData?.daily?.wave_height_max?.[i];
                 if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
                 return parseFloat((raw * 3.28084).toFixed(1));
             })(),
@@ -520,12 +533,12 @@ const doFetchOpenMeteo = async (
         windDirection: degreesToCardinal(hourlyArr.wind_direction_10m?.[i]),
         windDegree: hourlyArr.wind_direction_10m?.[i] ?? undefined,
         waveHeight: ((): number | null => {
-            const raw = waveData?.hourly?.wave_height?.[i];
+            const raw = utcMarine ? utcMarine.at(t)?.wave_height : waveData?.hourly?.wave_height?.[i];
             if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
             return raw * 3.28084;
         })(),
         swellPeriod: ((): number | null => {
-            const raw = waveData?.hourly?.wave_period?.[i];
+            const raw = utcMarine ? utcMarine.at(t)?.wave_period : waveData?.hourly?.wave_period?.[i];
             if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
             return raw;
         })(),
@@ -547,11 +560,15 @@ const doFetchOpenMeteo = async (
         uvIndex: num(hourlyArr.uv_index?.[i]),
         cape: num(hourlyArr.cape?.[i]),
         dewPoint: hourlyArr.dew_point_2m?.[i] ?? null,
-        feelsLike: calculateFeelsLike(
-            hourlyArr.temperature_2m[i],
-            hourlyArr.relative_humidity_2m[i],
-            hourlyArr.wind_speed_10m[i] * kFactor * 0.8,
-        ),
+        feelsLike: [hourlyArr.temperature_2m[i], hourlyArr.relative_humidity_2m[i], hourlyArr.wind_speed_10m[i]].every(
+            (v) => num(v) !== null,
+        )
+            ? calculateFeelsLike(
+                  hourlyArr.temperature_2m[i],
+                  hourlyArr.relative_humidity_2m[i],
+                  hourlyArr.wind_speed_10m[i] * kFactor * 0.8,
+              )
+            : undefined,
     }));
 
     // Advice
@@ -561,12 +578,13 @@ const doFetchOpenMeteo = async (
         locationName,
         coordinates: { lat, lon },
         generatedAt: now.toISOString(),
+        ...(publishedSampling ? { forecastSampling: publishedSampling, forecastRunAt: publishedRunAt } : {}),
         current: currentMetrics,
         hourly: hourly,
         forecast: dailies,
         tides: [],
         tideHourly: [],
-        modelUsed: `openmeteo_${servedModel}`,
+        modelUsed: `${publishedSampling ? 'wx' : 'openmeteo'}_${servedModel}`,
         boatingAdvice: advice,
         isLandlocked: false,
         alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),

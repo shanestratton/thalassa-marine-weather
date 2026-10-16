@@ -47,6 +47,8 @@ export async function fetchModelWindGrid(
     bounds: { north: number; south: number; west: number; east: number },
     forecastHours: number = FORECAST_HOURS,
     resolutionDeg: number = 2.0,
+    routingDomain?: 'ecmwf_ifs' | 'gfs_global' | 'dwd_icon' | 'gem_global',
+    signal?: AbortSignal,
 ): Promise<WindGrid | null> {
     const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
     if (!model) {
@@ -104,10 +106,11 @@ export async function fetchModelWindGrid(
             {
                 hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
                 forecast_hours: forecastHours,
-                models: model.openMeteoModel,
+                models: routingDomain ?? model.openMeteoModel,
                 timezone: 'UTC',
             },
             CONCURRENCY,
+            ...(signal ? [signal] : []),
         );
 
         // Check we got enough data
@@ -158,9 +161,17 @@ export async function fetchModelWindGrid(
                     const idx = r * cols + c;
                     const hourly = (allResults[idx] as Record<string, Record<string, number[]>> | null)?.hourly;
 
-                    const speedKmh = hourly?.wind_speed_10m?.[h] ?? 0;
-                    const dirDeg = hourly?.wind_direction_10m?.[h] ?? 0;
-                    const gustKmh = hourly?.wind_gusts_10m?.[h] ?? 0;
+                    // An absent provider cell is unknown; it must never become a calm-water route.
+                    const speedValue = hourly?.wind_speed_10m?.[h];
+                    const dirValue = hourly?.wind_direction_10m?.[h];
+                    const gustValue = hourly?.wind_gusts_10m?.[h];
+                    const speedKmh =
+                        typeof speedValue === 'number' && Number.isFinite(speedValue) && speedValue >= 0
+                            ? speedValue
+                            : NaN;
+                    const dirDeg = typeof dirValue === 'number' && Number.isFinite(dirValue) ? dirValue : NaN;
+                    const gustKmh =
+                        typeof gustValue === 'number' && Number.isFinite(gustValue) && gustValue >= 0 ? gustValue : NaN;
 
                     // km/h → m/s
                     const speedMs = speedKmh / 3.6;

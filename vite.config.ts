@@ -24,6 +24,8 @@ import {
 } from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
+import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
+import { shareSvgProps } from './scripts/share-svg-props.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 import {
@@ -428,6 +430,9 @@ export default defineConfig(({ mode }) => {
     }
 
     return {
+        // Lazy ENC contours otherwise introduce this dependency during a
+        // browser test and Vite reloads every open page halfway through input.
+        optimizeDeps: { include: ['delaunator'] },
         server: {
             port: 3000,
             // Localhost by default. LAN exposure is an explicit developer opt-in.
@@ -612,6 +617,8 @@ export default defineConfig(({ mode }) => {
             // log.info()/log.debug() are no-ops in production: their calls go,
             // arguments with side effects stay (129-10; tests/StripNoopLogs.test.ts).
             stripNoopLogs(__dirname),
+            pngInflateDedup(__dirname),
+            shareSvgProps(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
@@ -698,6 +705,8 @@ export default defineConfig(({ mode }) => {
             // diagnostics while recovering ~68 KB against the unchanged JS
             // budget. No property mangling or unsafe compression is enabled.
             minify: 'terser',
+            // A second standard compression pass recovers another ~8 KB; no unsafe transforms or property mangling.
+            terserOptions: { compress: { passes: 2 } },
             // Production emits source maps ONLY for a run that will upload and
             // then delete them (scripts/upload-sourcemaps.mjs, SENTRY_SOURCEMAPS=1
             // in CI). 'hidden' omits the sourceMappingURL comment, but the .map

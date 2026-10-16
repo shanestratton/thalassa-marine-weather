@@ -27,6 +27,9 @@ import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 import { resolveTimeZone, formatTimeInZone } from '../../../utils/timezone';
 import type { MarineWeatherReport, SourcedWeatherMetrics, HourlyForecast, ForecastDay } from '../../../types/weather';
 import { temperatureOrNull } from '../temperatureOrNull';
+import { satelliteModeActive } from '../../networkPolicy';
+import { expandMinifiedWeather } from '../../../utils/compactWeather';
+import { parseCompactText, readCompactResponse } from '../compactResponse';
 
 const log = createLogger('UnifiedWeather');
 
@@ -312,7 +315,8 @@ export async function fetchUnifiedWeatherRaw(
     // Point weather must not be reused for a nearby marina or anchorage.
     // Five decimals keeps the short-lived memory cache aligned with the
     // coordinate-bound persistent cache (~1 m at the equator).
-    const cacheKey = `${lat.toFixed(5)},${lon.toFixed(5)},${userId || ''}`;
+    const compact = satelliteModeActive();
+    const cacheKey = `${lat.toFixed(5)},${lon.toFixed(5)},${userId || ''},${compact ? 'compact2' : 'full'}`;
     if (cached && cached.key === cacheKey && Date.now() - cached.fetchedAt < CACHE_TTL) {
         return cached.data;
     }
@@ -323,7 +327,7 @@ export async function fetchUnifiedWeatherRaw(
     // cold-start + JWT-signing + network round-trip. Graceful fallback
     // to the Supabase path below if the native call fails (capability
     // not yet granted, network error, etc.).
-    if (Capacitor.isNativePlatform()) {
+    if (!compact && Capacitor.isNativePlatform()) {
         try {
             const { fetchWeatherKitNative } = await import('../../native/weatherKit');
             const nativeRaw = await fetchWeatherKitNative(lat, lon);
@@ -352,6 +356,7 @@ export async function fetchUnifiedWeatherRaw(
         lat: lat.toFixed(4),
         lon: lon.toFixed(4),
     });
+    if (compact) params.set('minified', '1');
     const directUrl = `${supabaseUrl}/functions/v1/get-weather?${params}`;
 
     // Try Pi Cache first, via the DEDICATED /api/weather/unified endpoint.
@@ -377,12 +382,13 @@ export async function fetchUnifiedWeatherRaw(
     // pre-fetching a payload nothing ever read.
     if (piCache.canReachPinned()) {
         try {
-            const piUrl = piCache.unifiedWeatherUrl(lat, lon, userId, false);
+            const piUrl = piCache.unifiedWeatherUrl(lat, lon, userId, compact);
             if (piUrl) {
                 const { pinnedPiRequest } = await import('../../PiPairingService');
                 const piRes = await pinnedPiRequest({ url: piUrl, readTimeout: 5000 });
                 if (piRes.status >= 200 && piRes.status < 300) {
-                    const data = piRes.data ? JSON.parse(piRes.data) : null;
+                    const raw = piRes.data ? (compact ? parseCompactText(piRes.data) : JSON.parse(piRes.data)) : null;
+                    const data = compact ? compactToStandard(raw, lat, lon) : raw;
                     if (data && !data.error) {
                         const xCache = piRes.headers['X-Cache'] ?? piRes.headers['x-cache'];
                         cached = { data, fetchedAt: Date.now(), key: cacheKey };
@@ -419,12 +425,13 @@ export async function fetchUnifiedWeatherRaw(
 
         // Edge function may return an { error: string } envelope instead of
         // the full StandardWeatherResponse on failure — parse defensively.
-        const raw = (await res.json()) as StandardWeatherResponse | { error: string };
-        if ('error' in raw && typeof raw.error === 'string') {
+        const raw = compact ? await readCompactResponse(res) : await res.json();
+        if (raw && typeof raw === 'object' && 'error' in raw && typeof raw.error === 'string') {
             log.warn('Unified weather returned error:', raw.error);
             return null;
         }
-        const data = raw as StandardWeatherResponse;
+        const data = compact ? compactToStandard(raw, lat, lon) : (raw as StandardWeatherResponse);
+        if (!data) return null;
 
         cached = { data, fetchedAt: Date.now(), key: cacheKey };
         log.info(`Unified weather: ${data.provider}, premium=${data.isPremium}`);
@@ -433,6 +440,20 @@ export async function fetchUnifiedWeatherRaw(
         log.error('Unified weather fetch failed:', err);
         return null;
     }
+}
+
+function compactToStandard(raw: unknown, lat: number, lon: number): StandardWeatherResponse | null {
+    const expanded = expandMinifiedWeather(raw, lat, lon);
+    return expanded
+        ? {
+              ...expanded,
+              hourly: expanded.hourly.map((h) => ({
+                  ...h,
+                  uvIndex: h.uvIndex ?? null,
+                  visibility: h.visibility ?? null,
+              })),
+          }
+        : null;
 }
 
 // ── Map to MarineWeatherReport ───────────────────────────────

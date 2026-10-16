@@ -4228,6 +4228,13 @@ html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
    chart's Back chevron went in Release 118, and the one-handed zoom buttons
    now sit on the right at this height (UX scorecard run 7). */
 @media (orientation: portrait) and (max-width: 360px) {
+    .thalassa-offline-area-download {
+        /* The compact right rail contains MOB at this height. This left
+           slot clears the tide controls above and the coverage notice below. */
+        top: 200px;
+        left: max(12px, env(safe-area-inset-left));
+        right: auto;
+    }
     .thalassa-enc-tide-badge {
         left: 12px;
         max-width: calc(100% - 100px);
@@ -5200,6 +5207,13 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
        (its toggle's nav is then labelled 'Navigation toggle'), and these
        lowered positions put Locate under it and the scale into the ENC
        notice's band (UX scorecard run 7). The defaults already clear it. */
+    .thalassa-offline-area-download {
+        /* The right rail contains attribution here. The top row has a free
+           slot after the zoom readout, clear of the central base picker. */
+        top: 8px;
+        left: calc(max(16px, env(safe-area-inset-left)) + 112px);
+        right: auto;
+    }
     :root:not(:has(nav[aria-label='Navigation toggle'])) {
         --thalassa-chart-credits-bottom: calc(env(safe-area-inset-bottom) + 60px);
     }

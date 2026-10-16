@@ -56,6 +56,9 @@ export interface SegmentWeather {
 }
 
 export interface RouteAnalysis {
+    sailingStats?: import('./isochrone/routeStats').RouteSailingStats;
+    routeFuel?: import('./isochrone/routeStats').RouteFuelEstimate;
+    routeComfort?: import('./isochrone/routeComfort').RouteComfortSummary;
     waypoints: RouteWaypoint[];
     segments: RouteSegment[];
     totalDistance: number; // nm

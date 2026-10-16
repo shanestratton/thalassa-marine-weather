@@ -1,302 +1,209 @@
-/**
- * OfflineAreaModal — "Download this area for offline use" UI.
- *
- * Reads the map's current bounds, lets the user pick a zoom range
- * (defaults to 8–13 — a good cruising sweet spot), shows a tile-count
- * and size estimate, and runs the download via MapOfflineService.
- *
- * Tiles are routed through the Pi when the boat network is up. Otherwise they
- * are persisted in app storage on native or CacheStorage on the web.
- */
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+/** Explicit offline download of Thalassa's public terrain, never Mapbox/OSM or licensed charts. */
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type mapboxgl from 'mapbox-gl';
-import { ModalSheet } from '../ui/ModalSheet';
-import { Button } from '../ui/Button';
-import { triggerHaptic } from '../../utils/system';
-import {
-    BULK_OFFLINE_PREFETCH_CAPABILITY,
-    MapOfflineService,
-    type OfflineBounds,
-    type OfflineDownloadProgress,
-} from '../../services/MapOfflineService';
-import { piCache } from '../../services/PiCacheService';
 import { Capacitor } from '@capacitor/core';
+import { ModalSheet } from '../ui/ModalSheet';
+import { RELIEF_TILE_BASE } from './reliefBase';
+import { planReliefArea, type ReliefBounds } from '../../services/offlineReliefPlan';
+import {
+    deleteSavedRelief,
+    downloadReliefArea,
+    hydrateRelief,
+    reliefStorage,
+    type ReliefProgress,
+} from '../../services/OfflineReliefService';
+import { subscribeOfflineRelief } from '../../services/offlineReliefRuntime';
+import { satelliteModeBlocks } from '../../services/networkPolicy';
 
 interface OfflineAreaModalProps {
     isOpen: boolean;
     onClose: () => void;
     map: mapboxgl.Map | null;
 }
-
-const DEFAULT_MIN_ZOOM = 8;
-const DEFAULT_MAX_ZOOM = 13;
-const ZOOM_BOUNDS = { min: 4, max: 16 };
-
-function formatBounds(b: OfflineBounds): string {
-    return `${b.south.toFixed(2)}°, ${b.west.toFixed(2)}° → ${b.north.toFixed(2)}°, ${b.east.toFixed(2)}°`;
-}
-
+const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onClose, map }) => {
-    const [minZoom, setMinZoom] = useState(DEFAULT_MIN_ZOOM);
-    const [maxZoom, setMaxZoom] = useState(DEFAULT_MAX_ZOOM);
-    const [progress, setProgress] = useState<OfflineDownloadProgress | null>(null);
-    const abortRef = useRef<AbortController | null>(null);
-
-    // Snapshot bounds at modal-open time so the estimate doesn't flicker
-    // while the user tweaks the zoom range.
-    const bounds = useMemo<OfflineBounds | null>(() => {
-        if (!isOpen || !map) return null;
-        const b = map.getBounds();
+    const [detail, setDetail] = useState(9),
+        [progress, setProgress] = useState<ReliefProgress | null>(null);
+    const [storage, setStorage] = useState(reliefStorage),
+        [error, setError] = useState('');
+    const [deleting, setDeleting] = useState(false);
+    const abort = useRef<AbortController | null>(null);
+    const bounds = useMemo<ReliefBounds | null>(() => {
+        const b = isOpen ? map?.getBounds() : null;
         if (!b) return null;
+        const span = b.getEast() - b.getWest(),
+            wrap = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
         return {
-            north: b.getNorth(),
-            south: b.getSouth(),
-            east: b.getEast(),
-            west: b.getWest(),
+            north: Math.min(90, b.getNorth()),
+            south: Math.max(-90, b.getSouth()),
+            west: span >= 360 ? -180 : wrap(b.getWest()),
+            east: span >= 360 ? 180 : wrap(b.getEast()),
         };
     }, [isOpen, map]);
-
-    const tileCount = useMemo(() => {
-        if (!bounds) return 0;
-        return MapOfflineService.estimateTileCount(bounds, minZoom, maxZoom);
-    }, [bounds, minZoom, maxZoom]);
-
-    const sizeMB = useMemo(() => MapOfflineService.estimateSizeMB(tileCount), [tileCount]);
-
-    // canReachPinned, matching MapOfflineService.downloadArea. isAvailable()
-    // is true for a Pi that is merely reachable, so this label promised "via
-    // Pi cache" for a download the service was about to send entirely direct.
-    const route: 'pi' | 'direct' = piCache.canReachPinned() ? 'pi' : 'direct';
-    const directStorageLabel = Capacitor.isNativePlatform() ? 'persistent app storage' : 'browser offline storage';
-
-    const busy = progress?.phase === 'downloading';
-    const done = progress?.phase === 'done';
-    const cancelled = progress?.phase === 'cancelled';
-    const errored = progress?.phase === 'error';
-
-    const pct = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
-
-    const handleDownload = useCallback(async () => {
-        if (!bounds || busy) return;
-        triggerHaptic('medium');
-        abortRef.current = new AbortController();
-        setProgress({ phase: 'downloading', current: 0, total: tileCount, failed: 0, route, message: 'Starting…' });
-        await MapOfflineService.downloadArea(
-            { bounds, minZoom, maxZoom, signal: abortRef.current.signal },
-            setProgress,
-        );
-    }, [bounds, busy, tileCount, minZoom, maxZoom, route]);
-
-    const handleCancel = useCallback(() => {
-        triggerHaptic('light');
-        abortRef.current?.abort();
-    }, []);
-
-    const handleClose = useCallback(() => {
-        if (busy) {
-            abortRef.current?.abort();
+    const plan = useMemo(() => {
+        try {
+            return bounds ? planReliefArea(bounds, detail, RELIEF_TILE_BASE) : null;
+        } catch {
+            return null;
         }
+    }, [bounds, detail]);
+    useEffect(() => {
+        if (!isOpen) return;
+        let alive = true;
+        const stop = subscribeOfflineRelief(() => {
+            if (alive) setStorage(reliefStorage());
+        });
+        hydrateRelief()
+            .then(() => {
+                if (alive) setStorage(reliefStorage());
+            })
+            .catch((e) => {
+                if (alive) setError(e.message);
+            });
+        return () => {
+            alive = false;
+            stop();
+            abort.current?.abort();
+        };
+    }, [isOpen]);
+    const downloading = progress?.phase === 'downloading',
+        busy = downloading || deleting,
+        satellite = satelliteModeBlocks('offline-download');
+    const close = () => {
+        abort.current?.abort();
         setProgress(null);
         onClose();
-    }, [busy, onClose]);
-
-    const canDownload = bounds && tileCount > 0 && tileCount < 20000 && !busy;
-
-    if (!BULK_OFFLINE_PREFETCH_CAPABILITY.enabled) {
-        return (
-            <ModalSheet isOpen={isOpen} onClose={handleClose} title="Offline Charts" maxWidth="max-w-md">
-                <div className="space-y-3 text-[13px] leading-relaxed text-gray-300">
-                    <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
-                        <p className="font-bold text-amber-200">Area download unavailable for this map source</p>
-                        <p className="mt-1 text-xs text-amber-100/75">{BULK_OFFLINE_PREFETCH_CAPABILITY.reason}</p>
-                    </div>
-                    <p className="text-xs text-gray-400">
-                        You can still import MBTiles, GeoTIFF, KAP and licensed o-charts in Chart Locker. Charts already
-                        installed on your phone or boat Pi are unaffected.
-                    </p>
-                    <Button type="button" variant="secondary" onClick={handleClose} className="w-full text-white">
-                        Close
-                    </Button>
-                </div>
-            </ModalSheet>
-        );
-    }
-
+    };
+    const download = async () => {
+        if (!bounds || busy) return;
+        setError('');
+        abort.current = new AbortController();
+        try {
+            await downloadReliefArea(bounds, detail, RELIEF_TILE_BASE, abort.current.signal, setProgress);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Relief download unavailable.');
+        }
+    };
+    const remove = async () => {
+        setDeleting(true);
+        try {
+            setError('');
+            await deleteSavedRelief();
+            setStorage(reliefStorage());
+            setProgress(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Delete failed.');
+        } finally {
+            setDeleting(false);
+        }
+    };
     return (
-        <ModalSheet isOpen={isOpen} onClose={handleClose} title="Download Offline Area" maxWidth="max-w-md">
-            <div className="space-y-4 text-[13px] text-gray-300">
-                {/* ── Route badge ── */}
-                <div
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
-                        route === 'pi' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-sky-500/10 border-sky-500/20'
-                    }`}
-                >
-                    <span className="text-base">{route === 'pi' ? '\u2693' : '\u{1F4F1}'}</span>
-                    <div className="flex-1">
-                        <p className={`text-[12px] font-bold ${route === 'pi' ? 'text-emerald-300' : 'text-sky-300'}`}>
-                            {route === 'pi' ? 'Saving to boat Pi' : 'Saving to phone'}
-                        </p>
-                        <p className="text-[11px] text-gray-500">
-                            {route === 'pi'
-                                ? 'Pi detected — tiles cached on boat network for all devices.'
-                                : `No Pi detected — tiles saved in ${directStorageLabel}.`}
-                        </p>
-                    </div>
-                </div>
-
-                {/* ── Bounds ── */}
+        <ModalSheet isOpen={isOpen} onClose={close} title="Offline Relief" maxWidth="max-w-md">
+            <div className="space-y-3 text-xs leading-relaxed text-gray-300">
+                <p>
+                    Save the seafloor colours and relief for the visible area. Global relief covers zoom 0–9;
+                    Queensland's GBR terrain adds zoom 8–13. Relief is not a navigation chart.
+                </p>
+                <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-amber-100">
+                    Mapbox imagery, place labels and public OSM tiles are not stored. Free NOAA and imported public
+                    charts stay in Chart Locker; licensed charts require your boat Pi connection.
+                </p>
+                <p>
+                    {Capacitor.isNativePlatform()
+                        ? 'Saved in persistent app storage.'
+                        : 'Saved in this browser; clearing site data removes it.'}{' '}
+                    The 128 MiB limit removes the least recently used saved terrain first.
+                </p>
                 {bounds && (
-                    <div className="px-3 py-2 rounded-xl bg-white/3 border border-white/6">
-                        <p className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1">Area</p>
-                        <p className="text-[12px] font-mono text-white/80">{formatBounds(bounds)}</p>
-                    </div>
+                    <p className="font-mono text-gray-400">
+                        {bounds.south.toFixed(2)}°, {bounds.west.toFixed(2)}° → {bounds.north.toFixed(2)}°,{' '}
+                        {bounds.east.toFixed(2)}°
+                    </p>
                 )}
-
-                {/* ── Zoom range ── */}
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">Zoom range</p>
-                        <p className="text-[12px] font-mono text-sky-300">
-                            z{minZoom} – z{maxZoom}
+                <label className="block">
+                    Maximum detail: <strong>zoom {detail}</strong>
+                    <input
+                        aria-label="Maximum relief detail"
+                        className="block w-full min-h-[44px] accent-sky-400"
+                        type="range"
+                        min={4}
+                        max={13}
+                        step={1}
+                        value={detail}
+                        disabled={busy}
+                        onChange={(e) => setDetail(Number(e.target.value))}
+                    />
+                </label>
+                <p>
+                    {plan
+                        ? `${plan.tileCount.toLocaleString()} terrain files · about ${mb(plan.estimatedBytes)}. Actual size varies; missing all-land tiles are skipped.`
+                        : 'Choose a map area first.'}
+                </p>
+                {plan?.tooLarge && (
+                    <p role="alert" className="text-amber-200">
+                        Area too large. Zoom in or lower the detail (maximum 4,096 terrain files).
+                    </p>
+                )}
+                {satellite && (
+                    <p role="status" className="text-amber-200">
+                        Satellite Mode blocks bulk relief downloads. Saved terrain remains available.
+                    </p>
+                )}
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-white/5 p-3">
+                    <p>
+                        {storage.tiles.toLocaleString()} saved files · {mb(storage.bytes)} / 128 MiB
+                    </p>
+                    <button
+                        className="min-h-[44px] px-3 rounded-lg bg-red-500/10 text-red-200 disabled:opacity-40"
+                        disabled={busy || !storage.tiles}
+                        onClick={() => void remove()}
+                    >
+                        Delete saved relief
+                    </button>
+                </div>
+                {progress && (
+                    <div role="status" aria-live="polite">
+                        <p>
+                            {progress.phase === 'downloading'
+                                ? `Downloading ${progress.current} / ${progress.total}`
+                                : progress.phase === 'cancelled'
+                                  ? 'Cancelled'
+                                  : progress.phase === 'error'
+                                    ? 'Download needs attention'
+                                    : 'Download finished'}
                         </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <label className="flex-1 flex items-center gap-2">
-                            <span className="text-[11px] text-gray-500 w-8">Min</span>
-                            <input
-                                type="range"
-                                min={ZOOM_BOUNDS.min}
-                                max={ZOOM_BOUNDS.max}
-                                value={minZoom}
-                                onChange={(e) => {
-                                    const v = Number(e.target.value);
-                                    setMinZoom(v);
-                                    if (v > maxZoom) setMaxZoom(v);
-                                }}
-                                disabled={busy}
-                                className="flex-1 accent-sky-400"
-                            />
-                        </label>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <label className="flex-1 flex items-center gap-2">
-                            <span className="text-[11px] text-gray-500 w-8">Max</span>
-                            <input
-                                type="range"
-                                min={ZOOM_BOUNDS.min}
-                                max={ZOOM_BOUNDS.max}
-                                value={maxZoom}
-                                onChange={(e) => {
-                                    const v = Number(e.target.value);
-                                    setMaxZoom(v);
-                                    if (v < minZoom) setMinZoom(v);
-                                }}
-                                disabled={busy}
-                                className="flex-1 accent-sky-400"
-                            />
-                        </label>
-                    </div>
-                    <p className="text-[10px] text-gray-500 leading-relaxed">
-                        Lower zooms show whole regions; higher zooms show harbours in detail. A 6-level range covers
-                        most cruising needs.
-                    </p>
-                </div>
-
-                {/* ── Estimate ── */}
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="px-3 py-2 rounded-xl bg-white/3 border border-white/6">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Tiles</p>
-                        <p className="text-[14px] font-bold text-white tabular-nums">{tileCount.toLocaleString()}</p>
-                    </div>
-                    <div className="px-3 py-2 rounded-xl bg-white/3 border border-white/6">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">~ Size</p>
-                        <p className="text-[14px] font-bold text-white tabular-nums">{sizeMB} MB</p>
-                    </div>
-                </div>
-
-                {tileCount > 5000 && !busy && (
-                    <p className="text-[11px] text-amber-400/80">
-                        {'\u26A0'} Large download — consider lowering the max zoom or zooming the map to a smaller area.
-                    </p>
-                )}
-                {tileCount >= 20000 && !busy && (
-                    <p className="text-[11px] text-red-400">
-                        Too many tiles. Please zoom in on the map or narrow the zoom range.
-                    </p>
-                )}
-
-                {/* ── Progress ── */}
-                {progress && progress.phase !== 'idle' && (
-                    <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                            <span
-                                className={`text-[11px] font-bold uppercase tracking-wider ${
-                                    done
-                                        ? 'text-emerald-400'
-                                        : errored
-                                          ? 'text-red-400'
-                                          : cancelled
-                                            ? 'text-amber-400'
-                                            : 'text-sky-400'
-                                }`}
-                            >
-                                {done
-                                    ? '\u2713 Complete'
-                                    : errored
-                                      ? '\u2717 Failed'
-                                      : cancelled
-                                        ? 'Cancelled'
-                                        : 'Downloading'}
-                            </span>
-                            <span className="text-[11px] text-white/60 font-mono">{pct}%</span>
-                        </div>
-                        <div className="w-full h-1.5 rounded-full bg-white/6 overflow-hidden">
-                            <div
-                                className={`h-full rounded-full transition-all duration-300 ease-out ${
-                                    done
-                                        ? 'bg-emerald-400'
-                                        : errored
-                                          ? 'bg-red-500'
-                                          : cancelled
-                                            ? 'bg-amber-500'
-                                            : 'bg-sky-500'
-                                }`}
-                                style={{ width: `${pct}%` }}
-                            />
-                        </div>
-                        <p className="text-[11px] text-gray-500">{progress.message}</p>
+                        <progress
+                            className="w-full accent-sky-400"
+                            max={Math.max(1, progress.total)}
+                            value={progress.current}
+                        />
+                        <p>{progress.message}</p>
                     </div>
                 )}
-
-                {/* ── Actions ── */}
-                <div className="flex gap-2 pt-2">
-                    {busy ? (
+                {error && (
+                    <p role="alert" className="text-red-200">
+                        {error}
+                    </p>
+                )}
+                <div className="flex gap-2">
+                    <button className="min-h-[44px] px-4 rounded-xl bg-white/5" onClick={close}>
+                        Close
+                    </button>
+                    {downloading ? (
                         <button
-                            onClick={handleCancel}
-                            className="flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 transition-all active:scale-95"
+                            className="min-h-[44px] flex-1 rounded-xl bg-amber-500/15 text-amber-200"
+                            onClick={() => abort.current?.abort()}
                         >
-                            Cancel
+                            Cancel download
                         </button>
                     ) : (
-                        <>
-                            <button
-                                onClick={handleClose}
-                                className="min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/4 border border-white/8 text-gray-400 hover:bg-white/8 transition-all active:scale-95"
-                            >
-                                Close
-                            </button>
-                            <button
-                                onClick={handleDownload}
-                                disabled={!canDownload}
-                                className={`flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                    canDownload
-                                        ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
-                                        : 'bg-white/3 border border-white/6 text-gray-400 cursor-not-allowed'
-                                }`}
-                            >
-                                {done ? 'Download Again' : 'Download'}
-                            </button>
-                        </>
+                        <button
+                            className="min-h-[44px] flex-1 rounded-xl bg-sky-500/15 text-sky-200 disabled:opacity-40"
+                            disabled={!plan || plan.tooLarge || satellite || deleting}
+                            onClick={() => void download()}
+                        >
+                            Download relief
+                        </button>
                     )}
                 </div>
             </div>

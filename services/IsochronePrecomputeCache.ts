@@ -10,6 +10,11 @@
 
 import { createLogger } from '../utils/createLogger';
 import type { IsochroneResult } from './IsochroneRouter';
+import { useSettingsStore } from '../stores/settingsStore';
+import { vesselDraftMetres } from './units';
+import { INSHORE_HOP_NM, vesselIsochroneConfig, isochroneRoutingContext } from './routing/isochronePolicy';
+import { loadIsochroneEnvironment } from './routing/isochroneEnvironment';
+import { routingComfortConfig } from './routing/isochronePolicy';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -22,6 +27,7 @@ interface PrecomputedRoute {
     scope: AuthIdentityScope;
     /** The routing polar it was sailed on (services/routingPolar signature). */
     polarSignature: string;
+    routingContext: string;
     depLat: number;
     depLon: number;
     arrLat: number;
@@ -57,6 +63,7 @@ export function getPrecomputedRoute(
     arrLon: number,
     polarSignature: string,
     expectedScope: AuthIdentityScope = getAuthIdentityScope(),
+    routingContext?: string,
 ): IsochroneResult | null {
     if (!isAuthIdentityScopeCurrent(expectedScope)) return null;
     if (!_cache) return null;
@@ -72,6 +79,7 @@ export function getPrecomputedRoute(
     const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
     if (
         _cache.polarSignature === polarSignature &&
+        (routingContext === undefined || _cache.routingContext === routingContext) &&
         close(_cache.depLat, depLat) &&
         close(_cache.depLon, depLon) &&
         close(_cache.arrLat, arrLat) &&
@@ -111,7 +119,7 @@ export async function precomputeIsochrone(
         const { createWindFieldFromGrid } = await import('./weather/WindFieldAdapter');
         const { resolveRoutingPolar } = await import('./routingPolar');
         const { preloadBathymetry } = await import('./BathymetryCache');
-        const { computeIsochrones } = await import('./IsochroneRouter');
+        const { computeComfortIsochrones: computeIsochrones } = await import('./routing/comfortRoute');
 
         if (!isCurrent()) return; // aborted
 
@@ -134,7 +142,10 @@ export async function precomputeIsochrone(
         const φ2 = (arr.lat * Math.PI) / 180;
         const a = Math.sin(dLat / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dLon / 2) ** 2;
         const straightNM = R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        if (straightNM < INSHORE_HOP_NM) return;
         const isShortRoute = straightNM < 100;
+        const settings = useSettingsStore.getState().settings;
+        const routingContext = isochroneRoutingContext(departureTime, settings);
 
         const depGate = dep;
         const arrGate = arr;
@@ -146,23 +157,52 @@ export async function precomputeIsochrone(
         if (!isCurrent()) return;
 
         // 4. Run isochrone
-        const minDepthM = isShortRoute ? 3.5 : null; // draft+1m for coastal
+        const minDepthM = isShortRoute ? vesselDraftMetres(settings.vessel) + 1 : null;
+        const config = vesselIsochroneConfig(settings.vessel, straightNM);
+        const environment = await loadIsochroneEnvironment({
+            origin: depGate,
+            destination: arrGate,
+            departureTime,
+            speedKts: config.motoringSpeed,
+            currentNrtEnabled: settings.currentNrtEnabled,
+            satelliteMode: settings.satelliteMode,
+        });
+        if (
+            !isCurrent() ||
+            routingContext !== isochroneRoutingContext(departureTime, useSettingsStore.getState().settings)
+        )
+            return;
         const isoResult = await computeIsochrones(
             depGate,
             arrGate,
             departureTime,
             polar,
             windField,
-            minDepthM != null ? { minDepthM } : {},
+            {
+                ...config,
+                vesselDraft: vesselDraftMetres(settings.vessel),
+                minDepthM,
+                ...routingComfortConfig(settings.vessel, settings.comfortParams),
+                shouldContinue: isCurrent,
+            },
             bathyGrid,
+            environment.currentField,
+            environment.exclusionField,
+            environment.waveField,
         );
 
-        if (!isCurrent()) return;
+        if (
+            !isCurrent() ||
+            routingContext !== isochroneRoutingContext(departureTime, useSettingsStore.getState().settings)
+        )
+            return;
 
         if (isoResult && isoResult.routeCoordinates.length >= 2) {
+            isoResult.environmentNotes = environment.notes;
             _cache = {
                 scope: expectedScope,
                 polarSignature: routingPolar.signature,
+                routingContext,
                 depLat: depGate.lat,
                 depLon: depGate.lon,
                 arrLat: arrGate.lat,

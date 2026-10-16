@@ -5760,9 +5760,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                 </Suspense>
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
-                    Parked behind OFFLINE_AREA_FAB_VISIBLE until the selected
-                    provider has an explicit bulk/offline-download licence. */}
-                {!embedded && !pickerMode && !isPinView && !planningSurface && (
+                    Saves app-owned relief. Other providers never enter the download plan. */}
+                {!embedded && !pickerMode && !isPinView && !planningSurface && !clearView.on && (
                     <>
                         {OFFLINE_AREA_FAB_VISIBLE && (
                             <>
@@ -5773,9 +5772,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     }}
                                     // Right-rail column — sits directly below SysStatus and
                                     // above the Radial Helm FAB.
-                                    className="absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                                    aria-label="Download offline map area"
-                                    title="Download offline area"
+                                    className="thalassa-offline-area-download absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                                    aria-label="Download offline relief"
+                                    title="Download offline relief"
                                 >
                                     <svg
                                         className="w-5 h-5 text-sky-400"
@@ -5814,10 +5813,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <div className="flex-1">
                                 <p className="text-sm font-bold text-white">Offline</p>
                                 <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
-                                    The base map may not fully render — tiles can only load when there was internet
-                                    before, or when a boat Pi has them cached. Your downloaded{' '}
-                                    <span className="text-emerald-400 font-bold">.mbtiles</span> charts and GPS work
-                                    fully offline.
+                                    Saved relief and installed free charts can draw offline. Mapbox imagery and place
+                                    labels are not included in relief downloads. GPS continues to work.
                                 </p>
                             </div>
                             <button
@@ -5837,8 +5834,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </button>
                         </div>
                         <p className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/8 px-3 py-2 text-[11px] leading-relaxed text-sky-200/80">
-                            Offline-area tile downloads are unavailable for this public map source. Imported MBTiles,
-                            licensed charts and previously viewed cached tiles remain available offline.
+                            Use Download offline relief before leaving internet coverage. Free NOAA charts and imported
+                            public charts remain in Chart Locker. Licensed charts require your boat Pi connection.
                         </p>
                     </div>
                 )}

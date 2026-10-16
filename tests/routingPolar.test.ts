@@ -491,9 +491,9 @@ describe('a learned polar says how much it has learned', () => {
         // The banner prints the label as it stands (components/map/PassageBanner).
     });
 
-    it('with nothing learned yet (or the store not read) it says 0 of 42, never just the factory name', () => {
+    it('with nothing learned yet (or the store not read) it counts the extended 63-cell grid', () => {
         expect(resolve(SMART_ON, SLOOP, null).label).toBe(
-            'Learning (0 of 42 cells), sailing on Generic cruising polar',
+            'Learning (0 of 63 cells), sailing on Generic cruising polar',
         );
     });
 

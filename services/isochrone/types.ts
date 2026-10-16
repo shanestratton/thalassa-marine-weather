@@ -63,6 +63,8 @@ export interface CurrentField {
  * Direction is "FROM" (meteorological convention, matching wind).
  */
 export interface WaveField {
+    /** Actual field knots, expressed as hours from the route departure. */
+    readonly sampleHours?: readonly number[];
     /**
      * Get wave conditions at a position and time offset.
      * @returns heightM (significant), directionFromDeg, periodS, or
@@ -112,6 +114,11 @@ export interface IsochroneConfig {
     minDepthM: number | null; // minimum safe depth in metres (draft+1m for coastal) — null = disabled
     minWindSpeed: number; // kts — below this, use motoring speed
     motoringSpeed: number; // kts — fallback when wind too light
+    /** Power vessels always use the engine; omitted preserves existing sail behavior. */
+    powerVessel?: boolean;
+    waveLimitCeilingM?: number;
+    comfortVessel?: { type: 'sail' | 'power' | 'observer'; length: number };
+    shouldContinue?: () => boolean;
     useDepthPenalty: boolean; // query GEBCO for depth-aware routing
     comfortParams?: ComfortParams; // user safety thresholds — cells exceeding these are treated as obstacles
 }
@@ -132,6 +139,12 @@ export const DEFAULT_ISOCHRONE_CONFIG: IsochroneConfig = {
 // ── Node & Result Types ──────────────────────────────────────────
 
 export interface IsochroneNode {
+    /** How the incoming modeled leg was made. Missing legacy/synthetic legs remain unknown. */
+    propulsion?: 'sail' | 'motor' | 'unknown';
+    tackSide?: -1 | 1 | null;
+    waveHeightM?: number | null;
+    wavePeriodS?: number | null;
+    waveFromDeg?: number | null;
     lat: number;
     lon: number;
     timeHours: number; // hours from departure
@@ -151,6 +164,11 @@ export interface Isochrone {
 }
 
 export interface IsochroneResult {
+    motorHours?: number | null;
+    sailingStats?: import('./routeStats').RouteSailingStats;
+    comfort?: import('./routeComfort').RouteComfortSummary;
+    /** Environmental omissions/provenance retained with cached route estimates. */
+    environmentNotes?: string[];
     route: IsochroneNode[]; // optimal path (departure → arrival)
     isochrones: Isochrone[]; // all wavefronts (for visualisation)
     totalDistanceNM: number;

@@ -271,8 +271,8 @@ const whole = new WeakSet<object>();
 export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE): void {
     const layers = map.getStyle()?.layers ?? [];
     const waterAt = layers.findIndex((layer) => layer.id === 'water');
-    if (waterAt < 0 || !map.getSource('composite')) return;
-    const above = layers[waterAt + 1]?.id;
+    const vectorSea = waterAt >= 0 && !!map.getSource('composite');
+    const above = vectorSea ? layers[waterAt + 1]?.id : undefined;
     painted.delete(map);
     whole.delete(map);
     const add = (layer: Record<string, unknown>, before: string | undefined) => {
@@ -281,7 +281,7 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
     };
     const sea = { source: 'composite', paint: {} as Record<string, unknown> };
 
-    if (map.getSource('satellite-base'))
+    if (vectorSea && map.getSource('satellite-base'))
         add(
             {
                 id: LAND_IMAGERY_LAYER,
@@ -291,34 +291,36 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
             },
             'water',
         );
-    add(
-        {
-            ...sea,
-            id: SEA_BASE_LAND_SHADE,
-            type: 'fill',
-            'source-layer': 'hillshade',
-            paint: {
-                'fill-antialias': false,
-                'fill-color': ['match', ['get', 'class'], 'shadow', 'rgba(0,0,0,0.16)', 'rgba(255,255,255,0.05)'],
+    if (vectorSea)
+        add(
+            {
+                ...sea,
+                id: SEA_BASE_LAND_SHADE,
+                type: 'fill',
+                'source-layer': 'hillshade',
+                paint: {
+                    'fill-antialias': false,
+                    'fill-color': ['match', ['get', 'class'], 'shadow', 'rgba(0,0,0,0.16)', 'rgba(255,255,255,0.05)'],
+                },
             },
-        },
-        'water',
-    );
-    add(
-        {
-            ...sea,
-            id: SEA_BASE_BANDS,
-            type: 'fill',
-            'source-layer': 'depth',
-            maxzoom: BANDS_FADE[1],
-            paint: {
-                'fill-antialias': false,
-                'fill-color': bandColour(DAY),
-                'fill-opacity': zoomFade([BANDS_FADE[0], 1, BANDS_FADE[1], 0]),
+            'water',
+        );
+    if (vectorSea)
+        add(
+            {
+                ...sea,
+                id: SEA_BASE_BANDS,
+                type: 'fill',
+                'source-layer': 'depth',
+                maxzoom: BANDS_FADE[1],
+                paint: {
+                    'fill-antialias': false,
+                    'fill-color': bandColour(DAY),
+                    'fill-opacity': zoomFade([BANDS_FADE[0], 1, BANDS_FADE[1], 0]),
+                },
             },
-        },
-        above,
-    );
+            above,
+        );
     if (base) {
         for (const [set, minzoom, maxzoom, t0, t1, s0, s1] of SETS) {
             for (const kind of ['idx', 'dem'] as const) {
@@ -372,16 +374,35 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
             );
         }
     }
-    add(
-        {
-            ...sea,
-            id: SEA_BASE_COAST,
-            type: 'line',
-            'source-layer': 'water',
-            paint: { 'line-color': DAY.coast, 'line-width': zoomFade([5, 0.5, 10, 0.9, 14, 1.3]) },
-        },
-        above,
-    );
+    if (vectorSea)
+        add(
+            {
+                ...sea,
+                id: SEA_BASE_COAST,
+                type: 'line',
+                'source-layer': 'water',
+                paint: { 'line-color': DAY.coast, 'line-width': zoomFade([5, 0.5, 10, 0.9, 14, 1.3]) },
+            },
+            above,
+        );
+}
+
+/** A cold offline launch cannot depend on an uncached Mapbox style request. */
+export function offlineReliefStyle(): mapboxgl.StyleSpecification {
+    return {
+        version: 8,
+        sources: {},
+        layers: [{ id: 'land', type: 'background', paint: { 'background-color': '#333b45' } }],
+    };
+}
+
+/** Public API only: retry missing tiles after hydration/download/delete without replacing the style. */
+export function reloadReliefSources(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE): void {
+    for (const [set] of SETS)
+        for (const kind of ['idx', 'dem']) {
+            const source = map.getSource(`relief-${set}-${kind}`) as mapboxgl.RasterTileSource | undefined;
+            source?.setTiles?.([`${base}/relief-${set}/${kind}/{z}/{x}/{y}.${kind === 'dem' ? 'webp' : 'png'}`]);
+        }
 }
 
 /** The sea layers a base shows, as [layer id, visible]. Satellite and Hybrid show none. */
@@ -410,7 +431,8 @@ export function seaBaseLayers(base: MapBaseKind): Array<[string, boolean]> {
  * the same, so leaving it restores the whole style.
  */
 export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette): boolean {
-    if (painted.get(map) === mode || !map.getLayer(SEA_BASE_BANDS)) return false;
+    if (painted.get(map) === mode || (!map.getLayer(SEA_BASE_BANDS) && !map.getLayer(RELIEF_LAYER_IDS[0])))
+        return false;
     painted.set(map, mode);
     if (mode === 'light') whole.add(map);
     const p = mode === 'night' ? NIGHT : mode === 'light' ? LIGHT_PALETTE : DAY;

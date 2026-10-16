@@ -27,6 +27,14 @@ vi.mock('../services/BathymetryCache', () => ({
 vi.mock('../services/IsochroneRouter', () => ({
     computeIsochrones: precomputeMocks.computeIsochrones,
 }));
+vi.mock('../services/routing/isochroneEnvironment', () => ({
+    loadIsochroneEnvironment: vi.fn(async () => ({
+        currentField: null,
+        waveField: null,
+        exclusionField: null,
+        notes: [],
+    })),
+}));
 
 const POLAR_A = {
     windSpeeds: [6, 12],
@@ -50,6 +58,10 @@ const resolvedPolar = (signature: string) => ({
 const departure = { lat: -27.5, lon: 153.1 };
 const arrival = { lat: -26.4, lon: 153.2 };
 const result = {
+    route: [
+        { lat: -27.5, lon: 153.1, timeHours: 0, bearing: 0, speed: 0, tws: 0, twa: 0, parentIndex: null, distance: 0 },
+        { lat: -26.4, lon: 153.2, timeHours: 12, bearing: 0, speed: 6, tws: 12, twa: 90, parentIndex: 0, distance: 72 },
+    ],
     routeCoordinates: [
         [153.1, -27.5],
         [153.2, -26.4],
@@ -75,6 +87,30 @@ beforeEach(() => {
 });
 
 describe('IsochronePrecomputeCache identity ownership', () => {
+    it('refuses a cached route when the requested departure/settings context differs', async () => {
+        const { service } = await loadFor();
+        await service.precomputeIsochrone(departure, arrival, '2026-07-23T00:00:00.000Z');
+        expect(
+            service.getPrecomputedRoute(
+                departure.lat,
+                departure.lon,
+                arrival.lat,
+                arrival.lon,
+                'sig-a',
+                undefined,
+                'different-departure-or-limits',
+            ),
+        ).toBeNull();
+    });
+    it('does not precompute an offshore substitute for a hop under 15 NM', async () => {
+        const { service } = await loadFor();
+        await service.precomputeIsochrone(
+            departure,
+            { lat: departure.lat + 0.02, lon: departure.lon },
+            '2026-07-23T00:00:00.000Z',
+        );
+        expect(precomputeMocks.computeIsochrones).not.toHaveBeenCalled();
+    });
     it('returns a completed route only to the exact identity generation that computed it', async () => {
         const { identity, service } = await loadFor();
         const accountA = identity.getAuthIdentityScope();

@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { desktopTileCacheSize } from '../components/map/useMapInit';
 import { countMapTiles, registerCensusMap } from '../services/memoryCensus';
+import { mapInitNodes, mapInitSource, ts } from './helpers/mapInitSourceAst';
 
 const el = (w: number, h: number) => ({ clientWidth: w, clientHeight: h }) as HTMLElement;
 
@@ -178,14 +179,22 @@ describe('the census can actually see tiles', () => {
         const init = readFileSync('components/map/useMapInit.ts', 'utf8');
         expect(init).toContain('registerCensusMap(map);');
         expect(init).toContain('registerCensusMap(null);');
-        // Bound the slice to the DEV block itself — slicing to end-of-file
-        // sweeps up the teardown's own registerCensusMap(null) and the
-        // assertion passes or fails for the wrong reason.
-        const devAt = init.indexOf('if (import.meta.env.DEV)');
-        expect(devAt).toBeGreaterThan(-1);
-        const devBranch = init.slice(devAt, init.indexOf('\n        }', devAt));
-        expect(devBranch).toContain('__thalassaMap');
-        expect(devBranch).not.toContain('registerCensusMap');
+        // Parse block boundaries: indentation changes during async offline
+        // startup must not accidentally include the production teardown.
+        const devBranches = mapInitNodes(ts.isIfStatement).filter(
+            (node) => node.expression.getText(mapInitSource) === 'import.meta.env.DEV',
+        );
+        expect(devBranches).toHaveLength(1);
+        expect(devBranches[0].thenStatement.getText(mapInitSource)).toContain('__thalassaMap');
+        const registrations = mapInitNodes(ts.isCallExpression).filter(
+            (node) => node.expression.getText(mapInitSource) === 'registerCensusMap',
+        );
+        expect(registrations.map((node) => node.arguments[0].getText(mapInitSource))).toEqual(['map', 'null']);
+        for (const call of registrations) {
+            for (let parent = call.parent; parent; parent = parent.parent) {
+                expect(devBranches.includes(parent as ts.IfStatement)).toBe(false);
+            }
+        }
     });
 
     it('records which engine died', () => {

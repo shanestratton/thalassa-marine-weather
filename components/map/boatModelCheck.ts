@@ -88,7 +88,7 @@ const log = createLogger('ModelCheck');
 
 // ── Constants ───────────────────────────────────────────────────
 
-/** The five global models of the Glass picker, in its order. */
+/** The global models of the Glass picker, in its order. */
 export const MODEL_CHECK_MODELS: readonly string[] = SELECTABLE_MODELS.map((m) => m.id);
 /** The Pi sends a TWS sample time only for a sample this fresh. */
 export const MODEL_CHECK_LAN_MAX_AGE_MS = 20_000;
@@ -540,12 +540,12 @@ export function rankModelsAtHer(session: HerSession, spread: RouteSpread | null)
 const utcDate = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 /**
- * The one request: both wind variables for the five global models at her
+ * The one request: both wind variables for the selected global models at her
  * point (fetchOpenMeteoPoints adds the coordinates), an hour and five minutes
  * either side of now in UTC days. Every key and value is in the proxy's
  * vocabulary (supabase/functions/proxy-openmeteo), pinned by a contract test:
- * a refused request still spends a quota unit. Two variables for five models
- * is ten pairs; gusts are never added here.
+ * a refused request still spends a quota unit. Two variables per model;
+ * gusts are never added here.
  */
 export function buildModelCheckParams(_lat: number, _lon: number, now: number): OpenMeteoParameters {
     return {
@@ -641,7 +641,7 @@ function evictSeries(): void {
 }
 
 /**
- * The five models at her position, asking at most once per 10 NM and hour.
+ * The selected global models at her position, asking at most once per 10 NM and hour.
  * Never rejects. Concurrent calls share one request; after a failure the
  * proxy is left alone for spreadRetryAfterMs; offline with nothing held, no
  * request at all.
@@ -784,7 +784,7 @@ export function modelCheckDetails(speedUnit?: string): string[] {
         'Models give wind 10 m above the sea, averaged over a grid square. Her anemometer is one spot, up her mast.',
         'Her instruments measure wind over the water; the models, over the ground. Tide and current shift it.',
         "Each model's latest run is used, so a newer run has an edge. A few minutes in one place says little about tomorrow.",
-        `Only the five global models are checked. Direction is compared from ${from}, and only on a direct instrument link.`,
+        `Only the ${MODEL_CHECK_MODELS.length} global models are checked. Direction is compared from ${from}, and only on a direct instrument link.`,
     ];
 }
 export const MODEL_CHECK_DETAILS: readonly string[] = modelCheckDetails();

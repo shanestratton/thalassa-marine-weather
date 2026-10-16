@@ -139,11 +139,10 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
  * that array feeds recommendModels() and the routing comparison paths, which
  * still want GFS and GEM (and ACCESS-G, once its feed is live again).
  *
- * GFS is absent ON PURPOSE and must not be added back: it was dropped from
- * the Glass on 2026-07-21 because `ncep_gfs025` carries no 10 m wind on the
- * open-data mirror — precisely the field this overlay draws.
+ * GFS seamless was restored on 2026-10-16 after GFS013 ingest and actual
+ * wind values were verified worldwide; GFS025 alone remains insufficient.
  */
-export const WIND_OVERLAY_MODELS: WeatherModelId[] = ['icon', 'ecmwf', 'aifs', 'ukmo', 'jma'];
+export const WIND_OVERLAY_MODELS: WeatherModelId[] = ['icon', 'ecmwf', 'aifs', 'ukmo', 'jma', 'gfs'];
 
 /**
  * One model hour. Every field is null when the model did not supply it —

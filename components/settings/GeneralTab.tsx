@@ -867,13 +867,10 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             role="list"
                             className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300"
                         >
-                            {/* The forecast still runs every source it normally
-                                does — five small JSON calls every three hours.
-                                "StormGlass only" was never true; the cadence is
-                                the saving, and the cadence is what is promised.
-                                The middle of the list is rendered FROM the policy
-                                module, so what it says and what the fetchers
-                                enforce are one thing. */}
+                            <li className="text-xs text-amber-200/70">
+                                Compact atmosphere only: 24 hours and up to 5 days. Waves, currents and tides are
+                                unavailable.
+                            </li>
                             <li className="flex items-center gap-2 text-xs">
                                 <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                                 <span className="text-amber-200/70">Weather updates every 3 hours</span>

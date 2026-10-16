@@ -57,6 +57,9 @@ interface StatusBadgesProps {
     isLive?: boolean;
     modelUsed?: string;
     generatedAt?: string;
+    forecastSampling?: 'quarter-degree-cell';
+    forecastRunAt?: string;
+    limitedForecast?: 'satellite';
     coordinates?: { lat: number; lon: number };
 }
 
@@ -77,6 +80,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         locationType,
         modelUsed,
         generatedAt,
+        forecastSampling,
+        forecastRunAt,
+        limitedForecast,
         coordinates,
         isOffshore: isOffshoreProp,
     }) => {
@@ -193,7 +199,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             const id = window.setInterval(() => setAgeTick(Date.now()), 30_000);
             return () => window.clearInterval(id);
         }, []);
-        const generatedMs = generatedAt ? Date.parse(String(generatedAt)) : Number.NaN;
+        const ageAt = forecastSampling === 'quarter-degree-cell' ? forecastRunAt : generatedAt;
+        const generatedMs = ageAt ? Date.parse(String(ageAt)) : Number.NaN;
         const forecastAge = Number.isFinite(generatedMs) ? formatAge(Math.max(0, ageTick - generatedMs)) : null;
         // Past ~90 min the age tints amber so staleness is visible without
         // reading the number.
@@ -260,7 +267,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             };
         }, [coordinates?.lat, coordinates?.lon, offshore]);
         const spitfireSelected = !offshore && isSpitfire(glassModel);
-        const pillLabel = spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
+        const pillLabel =
+            limitedForecast === 'satellite' ? 'Satellite' : spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
         const pillHex = spitfireSelected ? '#facc15' : modelInfo?.hex || '#94a3b8';
         const pickModel = (id: WeatherModel) => {
             void triggerHaptic('medium');
@@ -308,7 +316,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                         {forecastAge && (
                             <span
                                 role="status"
-                                aria-label={`Forecast updated ${forecastAge}`}
+                                aria-label={`${forecastSampling ? 'Model run age' : 'Forecast updated'} ${forecastAge}`}
                                 className={`col-start-2 whitespace-nowrap text-center text-micro font-semibold tabular-nums ${forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}`}
                             >
                                 {forecastAge}
@@ -399,6 +407,13 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                     spitfireAvailable={!!spitfireLoc || publishedModels.includes('spitfire')}
                     spitfireLocationName={spitfireLoc?.name}
                     publishedModels={publishedModels}
+                    samplingDescription={
+                        limitedForecast === 'satellite'
+                            ? 'Satellite mode: a compact atmospheric forecast with 24 hours and up to 5 days. Waves, currents and tides are unavailable. Your usual model choice is saved for normal network use.'
+                            : forecastSampling === 'quarter-degree-cell'
+                              ? 'Weather from wx, sampled at the centre of a 0.25° cell (about 25 km). The age shows the model run; current conditions follow its forecast hour.'
+                              : undefined
+                    }
                     onPick={pickModel}
                     onClose={() => setShowModelSheet(false)}
                     onRefresh={() => {

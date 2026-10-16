@@ -134,18 +134,9 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
         hex: '#fb923c',
         missing: ['gust'],
     },
-    // ── GFS removed 2026-07-21 ──
-    // `ncep_gfs025` carries NO 10 m wind in the open-data mirror — not on the
-    // wx server and not on the public API either. Open-Meteo splits GFS across
-    // domains: gusts/pressure/visibility/cape in ncep_gfs025, the 10 m wind and
-    // temperature in ncep_gfs013. A single-domain request therefore yields a
-    // model with no wind — the Glass's headline metric — so it must not be
-    // offered. It shipped because the original check only confirmed the
-    // request returned 200, never that values came back.
-    // To restore: sync ncep_gfs013 as well and switch this entry to
-    // `gfs_seamless`, which the API already accepts and resolves to the 0.13°
-    // grid; verify wind_speed_10m is non-null BEFORE re-listing it here.
-    // (The comparison sheet already shows GFS: see SPREAD_EXTRA_MODELS.)
+    // GFS013 ingest restored 2026-10-16; six world points verified 24 finite
+    // wind/direction/temperature hours. Seamless keeps both actual domains.
+    { id: 'gfs_seamless', label: 'GFS', provider: 'NOAA', blurb: 'American global forecast', hex: '#fbbf24' },
 ];
 
 /** A member of the model comparison. Comparison-only ids (GEM) are not
@@ -153,12 +144,9 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
 export type CompareModelInfo = Pick<ForecastModelInfo, 'label' | 'provider' | 'hex' | 'missing'> & { id: string };
 
 /**
- * The two models the comparison adds to the picker's five, so it keeps at
- * least five members to day 9.5 (ICON stops near day 7, UKMO near 6.5).
- * Through the commercial proxy only: the tailnet wx server has no wind for
- * either. Measured through proxy-openmeteo at Fiji on 2026-10-07, non-null
- * 10 m wind hours of 240: GFS 240, GEM 227. Not offered in the picker, so the
- * Glass and the model-check card keep their five.
+ * GEM remains comparison-only through the commercial proxy. GFS seamless
+ * moved into the picker after verified GFS013 ingest recovery on 2026-10-16;
+ * keep it out of this extra list to avoid duplicate comparison series.
  *
  * "Seamless" means not purely global: Open-Meteo serves gfs_seamless from
  * NOAA's 3 km HRRR over the contiguous US (and nearby Canada) for the first
@@ -171,7 +159,6 @@ export type CompareModelInfo = Pick<ForecastModelInfo, 'label' | 'provider' | 'h
  * Open-Meteo interpolates them to hourly; the app itself never fills a gap.
  */
 export const SPREAD_EXTRA_MODELS: CompareModelInfo[] = [
-    { id: 'gfs_seamless', label: 'GFS', provider: 'NOAA', hex: '#fbbf24' },
     { id: 'gem_seamless', label: 'GEM', provider: 'Environment and Climate Change Canada', hex: '#a3e635' },
 ];
 

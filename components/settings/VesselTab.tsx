@@ -461,6 +461,7 @@ function MetricInput({
     autoInStandard,
     decimals = 2,
     note,
+    allowZero = false,
 }: {
     label: string;
     valInStandard: number;
@@ -481,6 +482,7 @@ function MetricInput({
     decimals?: number;
     /** One line under the field saying what it is for; it also describes the field. */
     note?: string;
+    allowZero?: boolean;
 }) {
     const inputId = useId();
     // Convert from standard (stored) unit → display unit
@@ -497,7 +499,8 @@ function MetricInput({
               : '--';
 
     const scale = 10 ** decimals;
-    const shownVal = displayVal > 0 ? String(Math.round(displayVal * scale) / scale) : '';
+    const shownVal =
+        displayVal > 0 || (allowZero && displayVal === 0) ? String(Math.round(displayVal * scale) / scale) : '';
     const [localVal, setLocalVal] = useState(shownVal);
     // Track whether the user is mid-edit so we never overwrite their
     // half-typed value with a re-derived display number from props.
@@ -1871,6 +1874,28 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                         means "absent", so Reset hands the figure back to the formula. */}
                     <SubSection title="Performance" aside="Auto unless you set it">
                         <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+                            <MetricInput
+                                label="Motor below this wind"
+                                allowZero
+                                valInStandard={vessel?.minWindSpeed ?? 4}
+                                standardUnit="kts"
+                                unitType="kts"
+                                unitOptions={['kts']}
+                                onChangeValue={(v) => updateVessel('minWindSpeed', Math.max(0, Math.min(30, v)))}
+                                onChangeUnit={() => {}}
+                                note="True wind for passage routing. 0 keeps sailing in light air."
+                            />
+                            <MetricInput
+                                label="Speed under engine"
+                                valInStandard={vessel?.motoringSpeed ?? 0}
+                                standardUnit="kts"
+                                unitType="kts"
+                                unitOptions={['kts']}
+                                onChangeValue={(v) => updateVessel('motoringSpeed', Math.max(0, Math.min(60, v)))}
+                                onChangeUnit={() => {}}
+                                autoInStandard={vesselCruisingSpeedKts(vessel, 6)}
+                                note="Passage routing speed in knots. Leave at auto to use cruising speed."
+                            />
                             <div>
                                 <MetricInput
                                     label="Cruising speed"
@@ -2172,6 +2197,28 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                 <Section title="Tanks & crew">
                     <SubSection title="Tanks">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
+                            <MetricInput
+                                label="Fuel burn per hour"
+                                valInStandard={vessel?.fuelBurn ?? 0}
+                                standardUnit="l"
+                                unitType={volumeUnit}
+                                unitOptions={['gal', 'l']}
+                                onChangeValue={(v) => updateVessel('fuelBurn', Math.max(0, v))}
+                                onChangeUnit={(u) => updateVesselUnits({ volume: u as VolumeUnit })}
+                                placeholder="--"
+                                note="Under engine at routing speed. Stored as litres/hour; 0 means unknown."
+                            />
+                            <MetricInput
+                                label="Fuel reserve"
+                                allowZero
+                                valInStandard={vessel?.fuelReservePct ?? 20}
+                                standardUnit="%"
+                                unitType="%"
+                                unitOptions={['%']}
+                                onChangeValue={(v) => updateVessel('fuelReservePct', Math.max(0, Math.min(90, v)))}
+                                onChangeUnit={() => {}}
+                                note="Percentage of tank capacity kept aside, not available for the route."
+                            />
                             <MetricInput
                                 label="Fuel capacity"
                                 valInStandard={vessel?.fuelCapacity || 0}

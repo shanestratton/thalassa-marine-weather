@@ -76,6 +76,14 @@ export interface ScoredDeparture {
     maxHeadwindKts: number;
     gustComplete: boolean;
     waveComplete: boolean;
+    maxRainMmPerHour?: number | null;
+    upwindPct?: number | null;
+    adverseCurrentKts?: number | null;
+    comfortLevel?: number | null;
+    rainComplete?: boolean;
+    upwindComplete?: boolean;
+    currentComplete?: boolean;
+    comfortComplete?: boolean;
 }
 type Candidate = ScoredDeparture;
 
@@ -85,10 +93,22 @@ type Candidate = ScoredDeparture;
 export interface DepartureScoreTerms {
     gusts: boolean;
     waves: boolean;
+    rain?: boolean;
+    upwind?: boolean;
+    current?: boolean;
+    comfort?: boolean;
 }
 
 export function departureScoreTerms(candidates: readonly ScoredDeparture[]): DepartureScoreTerms {
-    return { gusts: candidates.every((c) => c.gustComplete), waves: candidates.every((c) => c.waveComplete) };
+    const all = (test: (candidate: ScoredDeparture) => boolean) => candidates.length > 0 && candidates.every(test);
+    return {
+        gusts: all((c) => c.gustComplete),
+        waves: all((c) => c.waveComplete),
+        ...(all((c) => c.rainComplete === true && Number.isFinite(c.maxRainMmPerHour)) ? { rain: true } : {}),
+        ...(all((c) => c.upwindComplete === true && Number.isFinite(c.upwindPct)) ? { upwind: true } : {}),
+        ...(all((c) => c.currentComplete === true && Number.isFinite(c.adverseCurrentKts)) ? { current: true } : {}),
+        ...(all((c) => c.comfortComplete === true && Number.isFinite(c.comfortLevel)) ? { comfort: true } : {}),
+    };
 }
 
 /** Lower is calmer: wind, plus a share of headwind, gust and wave. */
@@ -97,7 +117,11 @@ export function departureScore(c: ScoredDeparture, terms: DepartureScoreTerms): 
         c.maxWindKts +
         0.35 * c.maxHeadwindKts +
         (terms.gusts ? 0.25 * c.maxGustKts : 0) +
-        (terms.waves ? 5 * c.maxWaveM : 0)
+        (terms.waves ? 5 * c.maxWaveM : 0) +
+        (terms.rain ? 2 * c.maxRainMmPerHour! : 0) +
+        (terms.upwind ? 0.1 * c.upwindPct! : 0) +
+        (terms.current ? 3 * c.adverseCurrentKts! : 0) +
+        (terms.comfort ? 3 * c.comfortLevel! : 0)
     );
 }
 

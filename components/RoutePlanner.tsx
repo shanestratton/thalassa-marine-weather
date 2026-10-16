@@ -132,6 +132,7 @@ export const RoutePlanner: React.FC<{
         destination,
         setDestination,
         departureDate,
+        selectedDepartureIso,
         handleDateChange,
         isMapOpen,
         setIsMapOpen,
@@ -186,9 +187,10 @@ export const RoutePlanner: React.FC<{
     const planRouteCaveats = React.useMemo(() => savedInshoreRouteCaveats(voyagePlan), [voyagePlan]);
     const acceptSweepDeparture = useCallback(
         (departMs: number) => {
-            // Mirror acceptWindowScenario: the form carries a DATE; the
-            // precise time lives in the row the user just read.
-            void handleDateChange(new Date(departMs).toISOString().split('T')[0]);
+            const instant = new Date(departMs);
+            if (!Number.isFinite(departMs) || departMs < Date.now()) return;
+            const local = new Date(departMs - instant.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+            void handleDateChange(local, instant.toISOString());
             setShowSweepSheet(false);
         },
         [handleDateChange],
@@ -1187,10 +1189,7 @@ export const RoutePlanner: React.FC<{
                                 </div>
                             </div>
 
-                            {/* Departure date — time-of-day is set later in
-                        Passage Planning (the time card was removed
-                        2026-05-05 because it was never threaded into
-                        the saved plan and only confused the form). */}
+                            {/* The date picker stays a calendar day; an accepted departure window retains its exact hour. */}
                             <div className="relative w-full min-w-0 group">
                                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
                                     <CalendarIcon className="w-4 h-4" />
@@ -1218,6 +1217,17 @@ export const RoutePlanner: React.FC<{
                                     style={{ WebkitAppearance: 'none' }}
                                 />
                             </div>
+                            {selectedDepartureIso && (
+                                <p className="text-xs text-sky-200">
+                                    Chosen departure:{' '}
+                                    {new Date(selectedDepartureIso).toLocaleString('en-GB', {
+                                        dateStyle: 'medium',
+                                        timeStyle: 'short',
+                                        timeZone: 'UTC',
+                                    })}{' '}
+                                    UTC
+                                </p>
+                            )}
                         </>
                     )}
                 </div>

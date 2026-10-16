@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     settings: { forecastModel: 'ecmwf_aifs025_single', offshoreModel: 'ecmwf' },
@@ -28,6 +28,7 @@ const props = {
 };
 
 describe('Glass chooses the source that serves the selected environment', () => {
+    afterEach(() => vi.useRealTimers());
     beforeEach(() => {
         mocks.settings.forecastModel = 'ecmwf_aifs025_single';
         mocks.settings.offshoreModel = 'ecmwf';
@@ -92,6 +93,34 @@ describe('Glass chooses the source that serves the selected environment', () => 
         expect(mocks.updateSettings).toHaveBeenCalledExactlyOnceWith({
             forecastModel: 'ukmo_global_deterministic_10km',
         });
+        expect(mocks.settings.offshoreModel).toBe('ecmwf');
+    });
+    it('shows wx cell sampling and true model-run age instead of the fresh read time', async () => {
+        vi.useFakeTimers({ now: new Date('2026-10-16T12:00:00Z'), toFake: ['Date'] });
+        render(
+            <StatusBadges
+                {...props}
+                locationType="coastal"
+                forecastSampling="quarter-degree-cell"
+                forecastRunAt="2026-10-16T06:00:00Z"
+                generatedAt="2026-10-16T12:00:00Z"
+            />,
+        );
+        await act(async () => {});
+        expect(screen.getByRole('status', { name: /Model run age.*6/ })).toBeVisible();
+        fireEvent.click(screen.getByRole('button', { name: 'Choose forecast model' }));
+        expect(screen.getByText(/Weather from wx, sampled at the centre of a 0.25° cell/)).toBeVisible();
+    });
+    it('labels the limited Satellite forecast and explains missing marine fields offshore', async () => {
+        render(<StatusBadges {...props} locationType="offshore" limitedForecast="satellite" />);
+        await act(async () => {});
+        const picker = screen.getByRole('button', { name: 'Choose forecast model' });
+        expect(picker).toHaveTextContent(/^Satellite$/);
+        fireEvent.click(picker);
+        expect(screen.getByText(/Satellite mode: a compact atmospheric forecast/)).toHaveTextContent(
+            'Waves, currents and tides are unavailable.',
+        );
+        expect(mocks.updateSettings).not.toHaveBeenCalled();
         expect(mocks.settings.offshoreModel).toBe('ecmwf');
     });
 });

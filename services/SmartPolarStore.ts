@@ -13,7 +13,7 @@ const TWS_BUCKET_SIZE = 2; // kts
 const TWA_BUCKET_SIZE = 5; // degrees
 const TWS_MIN = 0;
 const TWS_MAX = 30;
-const TWA_MIN = 40;
+const TWA_MIN = 30;
 const TWA_MAX = 180;
 /** A bucket shows on the Polars page chart from this many samples. */
 const DISPLAY_MIN_SAMPLES = 3;
@@ -67,6 +67,7 @@ class SmartPolarStoreClass {
         const data = await loadLargeData(STORAGE_KEY);
         if (data && (data as SmartPolarBucketGrid).version === 1) {
             this.grid = data as SmartPolarBucketGrid;
+            this.grid.twaMin = TWA_MIN;
         } else {
             this.grid = this.createEmptyGrid();
         }
@@ -156,7 +157,7 @@ class SmartPolarStoreClass {
 
         // Standard output wind speeds and angles (match factory polar format)
         const windSpeeds = [6, 8, 10, 12, 15, 20, 25];
-        const angles = [45, 60, 90, 120, 150, 180];
+        const angles = [30, 35, 40, 45, 60, 90, 120, 150, 180];
 
         const matrix = angles.map((targetAngle) => {
             return windSpeeds.map((targetTws) => {
@@ -176,12 +177,14 @@ class SmartPolarStoreClass {
     exportToRoutingPolar(piPolar: PolarData | null = null): PolarData | null {
         const local = this.exportToPolarData(ROUTING_MIN_BUCKET_SAMPLES);
         if (!piPolar) return local;
+        const angles = [...new Set([...piPolar.angles, ...(local?.angles ?? [])])].sort((a, b) => a - b);
+        const windSpeeds = [...new Set([...piPolar.windSpeeds, ...(local?.windSpeeds ?? [])])].sort((a, b) => a - b);
+        const cell = (table: PolarData | null, a: number, w: number) =>
+            table?.matrix[table.angles.indexOf(a)]?.[table.windSpeeds.indexOf(w)] ?? 0;
         return {
-            windSpeeds: [...piPolar.windSpeeds],
-            angles: [...piPolar.angles],
-            matrix: piPolar.matrix.map((row, a) =>
-                row.map((speed, w) => (speed > 0 ? speed : (local?.matrix[a]?.[w] ?? 0))),
-            ),
+            windSpeeds,
+            angles,
+            matrix: angles.map((a) => windSpeeds.map((w) => cell(piPolar, a, w) || cell(local, a, w))),
         };
     }
 
@@ -198,7 +201,7 @@ class SmartPolarStoreClass {
 
         const entries = Object.values(this.grid.buckets);
         const filled = entries.filter((b) => b.count > 0);
-        const totalBuckets = ((TWS_MAX - TWS_MIN) / TWS_BUCKET_SIZE) * ((TWA_MAX - TWA_MIN) / TWA_BUCKET_SIZE);
+        const totalBuckets = ((TWS_MAX - TWS_MIN) / TWS_BUCKET_SIZE) * ((TWA_MAX - TWA_MIN) / TWA_BUCKET_SIZE + 1);
 
         let oldest: number | null = null;
         let newest: number | null = null;

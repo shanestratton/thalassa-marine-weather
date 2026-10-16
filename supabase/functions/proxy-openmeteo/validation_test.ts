@@ -4,6 +4,8 @@ Deno.test('all new native model IDs pass but the eight-model cap holds', () => {
     for (
         const model of [
             'ecmwf_ifs',
+            'gfs_global',
+            'gem_global',
             'meteofrance_arome_france_hd',
             'meteofrance_arome_france',
             'dwd_icon_d2',

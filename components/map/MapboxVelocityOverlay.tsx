@@ -71,7 +71,8 @@ import { getBoatWindReadout, resolveBoatWindReadout, setBoatWindReadout } from '
 import { chartBearing, chartTurning, subscribeChartTurning } from './chartOrientation';
 
 const log = createLogger('MapboxVelocityOverlay');
-import L from 'leaflet';
+import type L from 'leaflet';
+import { leafletRuntime } from '../../utils/leafletRuntime.mjs';
 import 'leaflet/dist/leaflet.css';
 
 // NOTE: leaflet-velocity-ts is dynamically imported inside useEffect
@@ -240,7 +241,9 @@ function createVelocityLayer(
     particleMultiplier: number,
     palette: WindPalette,
 ): L.Layer {
-    const layer = (L as unknown as Record<string, (...args: unknown[]) => MutableVelocityLayer>).velocityLayer({
+    const layer = (
+        leafletRuntime as unknown as Record<string, (...args: unknown[]) => MutableVelocityLayer>
+    ).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: WIND_MAX_MS,
@@ -1063,7 +1066,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
 
-            window.L = L;
+            window.L = leafletRuntime as unknown as typeof L;
             await import('leaflet-velocity-ts');
 
             // leaflet-velocity-ts includes `zoomanim: undefined` in its
@@ -1072,7 +1075,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // Filter only non-functions at the plugin boundary; all valid
             // resize/move/zoom callbacks remain untouched.
             const canvasLayerProto = (
-                L as unknown as {
+                leafletRuntime as unknown as {
                     CanvasLayer?: {
                         prototype?: {
                             getEvents?: () => Record<string, unknown>;
@@ -1109,7 +1112,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // Create headless Leaflet map (transparent, no tiles, no controls)
             const center = mapboxMap.getCenter();
             const zoom = mapboxMap.getZoom();
-            const lMap = L.map(div, {
+            const lMap = leafletRuntime.map(div, {
                 center: [center.lat, center.lng],
                 zoom: zoom + 1,
                 zoomControl: false,

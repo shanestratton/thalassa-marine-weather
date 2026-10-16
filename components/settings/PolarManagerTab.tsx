@@ -41,6 +41,13 @@ import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon, 
 import { RowChevron } from './SettingsPrimitives';
 import { Button } from '../ui/Button';
 import { createLogger } from '../../utils/createLogger';
+import {
+    polarFromTargets,
+    resizePolar,
+    routingPolarScale,
+    sharePolar,
+    type PolarTargets,
+} from '../../services/polarTools';
 
 const log = createLogger('PolarManagerTab');
 
@@ -56,7 +63,7 @@ function describePolarImportError(caught: unknown): string {
     return 'This file could not be read as a polar. Choose a polar file (.pol, .csv or .txt) and try again.';
 }
 
-type InputTab = 'import' | 'manual';
+type InputTab = 'import' | 'manual' | 'targets';
 type PolarKind = 'database' | 'file_import' | 'manual';
 
 /** A table with a figure in it: what 'Clear all' or an import would lose. Same test PolarChart uses for its own empty state. */
@@ -92,6 +99,7 @@ const OffPageLinkText: React.FC<{ children: React.ReactNode }> = ({ children }) 
 interface PolarManagerTabProps {
     settings?: {
         polarSource?: 'factory' | 'smart';
+        routingPolarScale?: number;
         nmeaHost?: string;
         nmeaPort?: number;
         smartPolarsEnabled?: boolean;
@@ -133,7 +141,10 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     /** An import waiting for 'Replace polar': her polar has figures it would replace. */
-    const [replaceWith, setReplaceWith] = useState<{ data: PolarData; name: string } | null>(null);
+    const [replaceWith, setReplaceWith] = useState<{ data: PolarData; name: string; src?: PolarKind } | null>(null);
+    const [resizeWith, setResizeWith] = useState<PolarData | null>(null);
+    const [exportStatus, setExportStatus] = useState('');
+    const [performance, setPerformance] = useState(routingPolarScale(settings?.routingPolarScale));
 
     // Smart Polars state
     const [smartPolarData, setSmartPolarData] = useState<PolarData | null>(null);
@@ -218,6 +229,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     }, [flushPending]);
 
     // Sync local state when settings prop changes (e.g. after onboarding)
+    useEffect(() => setPerformance(routingPolarScale(settings?.routingPolarScale)), [settings?.routingPolarScale]);
     useEffect(() => {
         if (settings?.polarData) {
             setPolarData(settings.polarData);
@@ -271,16 +283,16 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     );
 
     /** An import, saved at once: it replaces the whole table. */
-    const applyImport = (data: PolarData, name: string) => {
-        updatePolar(data, name, 'file_import', true);
+    const applyImport = (data: PolarData, name: string, src: PolarKind = 'file_import') => {
+        updatePolar(data, name, src, true);
         setReplaceWith(null);
         setShowAdvancedInput(false);
     };
 
     // A polar with figures is asked about first: an import replaces every one.
-    const requestImport = (data: PolarData, name: string) => {
-        if (hasFigures(polarData)) setReplaceWith({ data, name });
-        else applyImport(data, name);
+    const requestImport = (data: PolarData, name: string, src: PolarKind = 'file_import') => {
+        if (hasFigures(polarData)) setReplaceWith({ data, name, src });
+        else applyImport(data, name, src);
     };
 
     const clearAll = () => {
@@ -325,6 +337,29 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                     <span className="font-bold text-white">Routes sail on:</span> {routesSailOn}
                 </p>
             )}
+            <div className="shrink-0 mb-4 p-3 rounded-xl border border-white/10">
+                <label className="block text-sm font-bold text-white">
+                    Routing polar: {Math.round(performance * 100)}%
+                    <input
+                        aria-label="Routing polar performance"
+                        type="range"
+                        min="70"
+                        max="130"
+                        step="1"
+                        value={Math.round(performance * 100)}
+                        onChange={(e) => {
+                            const factor = Number(e.target.value) / 100;
+                            setPerformance(factor);
+                            onSave?.({ routingPolarScale: factor });
+                        }}
+                        className="block w-full min-h-11"
+                    />
+                </label>
+                <p className="text-xs text-gray-400">
+                    Adjust sailing speeds from 70–130%. The routing banner shows the adjustment; engine speed and your
+                    saved figures stay separate.
+                </p>
+            </div>
 
             {/* ═══════════════════════════════════════════ */}
             {/* SMART POLARS SECTION */}
@@ -411,6 +446,35 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                         </span>
                     )}
                 </div>
+                <div className="flex flex-wrap justify-center gap-2 mt-3">
+                    {(['pol', 'csv'] as const).map((format) => (
+                        <button
+                            key={format}
+                            type="button"
+                            disabled={!hasFigures(shown.polar) || exportStatus === 'Preparing export…'}
+                            className="min-h-11 px-3 rounded-lg border border-white/10 text-xs text-sky-300 disabled:opacity-40"
+                            onClick={() => {
+                                setExportStatus('Preparing export…');
+                                void sharePolar(shown.polar, format, boatModel).then(
+                                    () => {
+                                        if (mountedRef.current) setExportStatus('Export ready.');
+                                    },
+                                    () => {
+                                        if (mountedRef.current)
+                                            setExportStatus(
+                                                'Could not export this polar. Check the grid and try again.',
+                                            );
+                                    },
+                                );
+                            }}
+                        >
+                            Export .{format}
+                        </button>
+                    ))}
+                </div>
+                <p role="status" className="text-xs text-gray-400 text-center">
+                    {exportStatus}
+                </p>
             </div>
 
             {/* ═══════════════════════════════════════════ */}
@@ -465,7 +529,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                 role="group"
                                 aria-label="Polar input method"
                             >
-                                {(['import', 'manual'] as InputTab[]).map((tab) => (
+                                {(['import', 'manual', 'targets'] as InputTab[]).map((tab) => (
                                     <button
                                         type="button"
                                         key={tab}
@@ -482,17 +546,27 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                         ) : (
                                             <EditIcon className="w-4 h-4" />
                                         )}
-                                        <span>{tab === 'import' ? 'Import' : 'Manual'}</span>
+                                        <span>
+                                            {tab === 'import' ? 'Import' : tab === 'targets' ? 'Targets' : 'Manual'}
+                                        </span>
                                     </button>
                                 ))}
                             </div>
 
                             {activeTab === 'import' && <ImportTab onImport={requestImport} />}
+                            {activeTab === 'targets' && (
+                                <TargetsTab
+                                    onBuild={(data) => requestImport(data, 'Target-speed estimate', 'manual')}
+                                />
+                            )}
                             {activeTab === 'manual' && (
                                 <ManualTab
                                     polarData={shown.polar}
                                     scaledToKts={shown.scaledToKts}
                                     onChange={(data) => updatePolar(data, boatModel, 'manual')}
+                                    onResize={(data, removesFigures) =>
+                                        removesFigures ? setResizeWith(data) : updatePolar(data, boatModel, 'manual')
+                                    }
                                     onClearAll={() => setShowClearConfirm(true)}
                                 />
                             )}
@@ -534,9 +608,22 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                 cancelLabel="Keep mine"
                 destructive
                 onConfirm={() => {
-                    if (replaceWith) applyImport(replaceWith.data, replaceWith.name);
+                    if (replaceWith) applyImport(replaceWith.data, replaceWith.name, replaceWith.src);
                 }}
                 onCancel={() => setReplaceWith(null)}
+            />
+            <ConfirmDialog
+                isOpen={resizeWith !== null}
+                title="Remove these polar figures?"
+                message="The selected wind column or angle row will be removed. Other figures stay unchanged."
+                confirmLabel="Remove"
+                cancelLabel="Keep figures"
+                destructive
+                onConfirm={() => {
+                    if (resizeWith) updatePolar(resizeWith, boatModel, 'manual', true);
+                    setResizeWith(null);
+                }}
+                onCancel={() => setResizeWith(null)}
             />
         </div>
     );
@@ -1031,14 +1118,103 @@ const ImportTab: React.FC<{
 // TAB C: MANUAL MATRIX
 // ═══════════════════════════════════════════
 
+const TargetsTab: React.FC<{ onBuild: (data: PolarData) => void }> = ({ onBuild }) => {
+    const [target, setTarget] = useState<PolarTargets>({
+        windKts: 12,
+        beatAngle: 45,
+        beatKts: 5,
+        reachKts: 6,
+        runKts: 4.5,
+    });
+    const [error, setError] = useState('');
+    const fields: Array<[keyof PolarTargets, string]> = [
+        ['windKts', 'Target true wind (kn)'],
+        ['beatAngle', 'Beat angle (°)'],
+        ['beatKts', 'Beat boat speed (kn)'],
+        ['reachKts', 'Beam reach boat speed (kn)'],
+        ['runKts', 'Dead run boat speed (kn)'],
+    ];
+    return (
+        <form
+            onSubmit={(e) => {
+                e.preventDefault();
+                try {
+                    onBuild(polarFromTargets(target));
+                    setError('');
+                } catch (caught) {
+                    setError(caught instanceof Error ? caught.message : 'Check the target speeds.');
+                }
+            }}
+        >
+            <p className="text-xs text-gray-400 mb-3">
+                Create a starting estimate from your beat, beam-reach and dead-run speeds at one true wind speed. Other
+                winds follow the generic cruising shape. Check the grid before routing with it.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+                {fields.map(([key, label]) => (
+                    <label key={key} className="text-xs text-gray-300">
+                        {label}
+                        <input
+                            aria-label={label}
+                            type="number"
+                            step="0.1"
+                            min={key === 'beatAngle' ? 30 : key === 'windKts' ? 3 : 0.1}
+                            max={key === 'beatAngle' ? 80 : 30}
+                            required
+                            value={Number.isFinite(target[key]) ? target[key] : ''}
+                            onChange={(e) =>
+                                setTarget({ ...target, [key]: e.target.value === '' ? NaN : Number(e.target.value) })
+                            }
+                            className="block w-full min-h-11 p-2 rounded-lg bg-black/30 border border-white/10"
+                        />
+                    </label>
+                ))}
+            </div>
+            <p role="alert" className="text-xs text-amber-300">
+                {error}
+            </p>
+            <button
+                type="submit"
+                className="min-h-11 mt-3 px-3 rounded-lg border border-sky-500/30 text-sm text-sky-300"
+            >
+                Use estimated polar
+            </button>
+        </form>
+    );
+};
+
 const ManualTab: React.FC<{
     polarData: PolarData;
     /** The cruising speed a yacht-database shape is shown scaled to; null for her own figures. */
     scaledToKts: number | null;
     onChange: (data: PolarData) => void;
+    onResize: (data: PolarData, removesFigures: boolean) => void;
     /** 'Clear all': her page asks first (132-B22). */
     onClearAll: () => void;
-}> = ({ polarData, scaledToKts, onChange, onClearAll }) => {
+}> = ({ polarData, scaledToKts, onChange, onResize, onClearAll }) => {
+    const [newWind, setNewWind] = useState('');
+    const [newAngle, setNewAngle] = useState('');
+    const [gridError, setGridError] = useState('');
+    const changeAxis = (kind: 'wind' | 'angle', value: number, remove = false) => {
+        try {
+            const old = kind === 'wind' ? polarData.windSpeeds : polarData.angles;
+            if (!remove && old.includes(value)) throw new Error('That value is already in this grid.');
+            const next = remove ? old.filter((v) => v !== value) : [...old, value].sort((a, b) => a - b);
+            onResize(
+                resizePolar(
+                    polarData,
+                    kind === 'wind' ? next : polarData.windSpeeds,
+                    kind === 'angle' ? next : polarData.angles,
+                ),
+                remove,
+            );
+            setGridError('');
+            if (kind === 'wind') setNewWind('');
+            else setNewAngle('');
+        } catch (error) {
+            setGridError(error instanceof Error ? error.message : 'Could not resize the grid.');
+        }
+    };
     const updateCell = (angleIdx: number, windIdx: number, value: string) => {
         const num = parseFloat(value);
         const newMatrix = polarData.matrix.map((row, ai) =>
@@ -1082,6 +1258,15 @@ const ManualTab: React.FC<{
                                     className="text-xs font-bold text-sky-300 uppercase tracking-wider p-2 text-center min-w-[52px]"
                                 >
                                     {ws}kts
+                                    <button
+                                        type="button"
+                                        disabled={polarData.windSpeeds.length <= 2}
+                                        aria-label={`Remove ${ws} knot wind column`}
+                                        onClick={() => changeAxis('wind', ws, true)}
+                                        className="block min-h-11 w-full disabled:opacity-30"
+                                    >
+                                        ×
+                                    </button>
                                 </th>
                             ))}
                         </tr>
@@ -1094,6 +1279,15 @@ const ManualTab: React.FC<{
                                     className="text-xs font-bold text-amber-400 p-2 sticky left-0 bg-slate-950 z-10"
                                 >
                                     {angle}°
+                                    <button
+                                        type="button"
+                                        disabled={polarData.angles.length <= 2}
+                                        aria-label={`Remove ${angle} degree angle row`}
+                                        onClick={() => changeAxis('angle', angle, true)}
+                                        className="block min-h-11 w-full disabled:opacity-30"
+                                    >
+                                        ×
+                                    </button>
                                 </th>
                                 {polarData.windSpeeds.map((_, wIdx) => {
                                     const val = polarData.matrix[aIdx]?.[wIdx] ?? 0;
@@ -1127,6 +1321,49 @@ const ManualTab: React.FC<{
                     </tbody>
                 </table>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2 items-end">
+                <label className="text-xs text-gray-400">
+                    Wind speed (kn)
+                    <input
+                        aria-label="New polar wind speed"
+                        type="number"
+                        min="0.1"
+                        max="150"
+                        value={newWind}
+                        onChange={(e) => setNewWind(e.target.value)}
+                        className="block min-h-11 w-24 bg-black/30 p-2 rounded"
+                    />
+                </label>
+                <button
+                    type="button"
+                    onClick={() => changeAxis('wind', Number(newWind))}
+                    className="min-h-11 px-2 text-xs text-sky-300"
+                >
+                    Add wind
+                </button>
+                <label className="text-xs text-gray-400">
+                    Angle (°)
+                    <input
+                        aria-label="New polar angle"
+                        type="number"
+                        min="1"
+                        max="180"
+                        value={newAngle}
+                        onChange={(e) => setNewAngle(e.target.value)}
+                        className="block min-h-11 w-24 bg-black/30 p-2 rounded"
+                    />
+                </label>
+                <button
+                    type="button"
+                    onClick={() => changeAxis('angle', Number(newAngle))}
+                    className="min-h-11 px-2 text-xs text-sky-300"
+                >
+                    Add angle
+                </button>
+            </div>
+            <p role="alert" className="text-xs text-amber-300">
+                {gridError}
+            </p>
 
             <div className="flex gap-2 mt-4">
                 <button

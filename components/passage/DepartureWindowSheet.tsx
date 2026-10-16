@@ -1,109 +1,34 @@
-/**
- * DepartureWindowSheet — Modal sheet that surfaces the
- * planDepartureWindow() engine to the user.
- *
- * UX flow:
- *   1. User has filled origin + destination + departureDate
- *   2. User taps "Plan Window" button on the route summary overlay
- *   3. This sheet slides up from the bottom
- *   4. Engine runs ~14 isochrone scenarios across the next 7 days,
- *      streaming results through the planner invocation's owned callback
- *   5. Each scenario shows a verdict chip + key metrics
- *   6. User taps a scenario → sets departureDate, sheet closes
- *
- * The sheet stays open during compute so the user can watch results
- * populate live (~10-30s per scenario, ~3-5 min total). They can
- * cancel by tapping the backdrop or close button at any time.
- */
-
 import React from 'react';
 import type { DepartureScenario } from '../../services/departureWindow';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 
-interface VerdictStyle {
-    bg: string;
-    border: string;
-    text: string;
-    label: string;
-}
-
-const VERDICT_STYLES: Record<DepartureScenario['verdict'], VerdictStyle> = {
-    go: {
-        bg: 'bg-emerald-500/15',
-        border: 'border-emerald-500/30',
-        text: 'text-emerald-400',
-        label: 'GO',
-    },
-    maybe: {
-        bg: 'bg-amber-500/10',
-        border: 'border-amber-500/25',
-        text: 'text-amber-400',
-        label: 'MAYBE',
-    },
-    avoid: {
-        bg: 'bg-orange-500/10',
-        border: 'border-orange-500/25',
-        text: 'text-orange-400',
-        label: 'AVOID',
-    },
-    'no-go': {
-        bg: 'bg-red-500/10',
-        border: 'border-red-500/25',
-        text: 'text-red-400',
-        label: 'NO-GO',
-    },
+const VERDICT = {
+    go: 'Within compared weather limits',
+    maybe: 'Check coverage',
+    avoid: 'Avoid weather',
+    'no-go': 'No viable option',
 };
-
-/**
- * Format a departure time for the row display: "Tue 7 May, 06:00 UTC".
- * Times are kept in UTC because they're forecast-anchored — the user
- * picks a wall-clock time of day they're willing to depart, and UTC
- * makes that unambiguous across time zones (the date picker localises
- * back to local for the form submission).
- */
-function formatDepartureRow(iso: string): string {
-    try {
-        const d = new Date(iso);
-        const dayName = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
-        const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-        const time = d.toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: 'UTC',
-        });
-        return `${dayName} ${date}, ${time} UTC`;
-    } catch {
-        return iso;
-    }
+const number = (value: number | null | undefined, suffix = '') =>
+    value == null || !Number.isFinite(value) ? 'Unknown' : `${value.toFixed(1)}${suffix}`;
+function utc(iso: string): string {
+    const d = new Date(iso);
+    return Number.isFinite(d.getTime())
+        ? `${d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })} UTC`
+        : iso;
 }
-
-/**
- * Format duration hours → "Xd Yh" or "Xh".
- */
-function formatDuration(hours: number): string {
-    if (hours <= 0) return '—';
-    if (hours < 24) return `${Math.round(hours)}h`;
-    const d = Math.floor(hours / 24);
-    const h = Math.round(hours % 24);
-    return h > 0 ? `${d}d ${h}h` : `${d}d`;
-}
-
-interface DepartureWindowSheetProps {
+interface Props {
     open: boolean;
     onClose: () => void;
     planning: boolean;
     scenarios: DepartureScenario[];
     progressLabel?: string;
     onAccept: (scenario: DepartureScenario) => void;
-    /** Origin/destination labels for the sheet header. */
     origin?: string;
     destination?: string;
 }
-
-export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
+export const DepartureWindowSheet: React.FC<Props> = ({
     open,
     onClose,
     planning,
@@ -114,181 +39,147 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
     destination,
 }) => {
     const closeButtonRef = React.useRef<HTMLButtonElement>(null);
-    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
-        initialFocusRef: closeButtonRef,
-        onEscape: onClose,
-    });
-
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, { initialFocusRef: closeButtonRef, onEscape: onClose });
     if (!open) return null;
-
-    // Best scenario (lowest score, route-found). Already sorted by
-    // planDepartureWindow once the run completes; while streaming, the
-    // raw insertion order is whatever's been computed so far. We
-    // re-sort in the UI for live ranking.
-    const sorted = [...scenarios].sort((a, b) => a.score - b.score);
-    const best = sorted.find((s) => s.routeFound) ?? null;
-
+    const sorted = [...scenarios].sort((a, b) => a.score - b.score || a.departureTime.localeCompare(b.departureTime));
+    const best = sorted.find((s) => s.routeFound && s.verdict !== 'no-go' && Number.isFinite(s.score));
+    const dates = scenarios.map((s) => s.departureTime).sort();
     return (
         <OverlayPortal className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]">
-            {/* Backdrop */}
             <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
-
-            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="departure-window-title"
-                className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
+                className="relative w-full max-w-5xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl text-slate-200"
             >
-                {/* Header */}
-                <div className="shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
+                <div className="p-4 border-b border-white/10">
                     <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                            <h2 id="departure-window-title" className="text-base font-bold text-white">
+                        <div>
+                            <h2 id="departure-window-title" className="font-bold text-white">
                                 Departure Window
                             </h2>
-                            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                                {origin && destination ? `${origin} → ${destination}` : 'Optimal departure analysis'}
+                            <p className="text-xs text-slate-400">
+                                {origin && destination ? `${origin} → ${destination}` : 'Departure weather comparison'}
                             </p>
                         </div>
                         <button
+                            type="button"
                             ref={closeButtonRef}
                             onClick={onClose}
-                            type="button"
                             aria-label="Close"
-                            className="shrink-0 p-3 -m-1 text-slate-400 hover:text-white"
+                            className="p-3 -m-1"
                         >
-                            <svg
-                                className="w-5 h-5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+                            ✕
                         </button>
                     </div>
-
-                    {/* Progress */}
+                    <p className="mt-2 text-xs text-slate-400">
+                        Exploratory estimates in 3–6 hour steps, limited to 14 runs and 90 seconds. Only fully covered
+                        terms shared by every compared option affect the ranking. Selecting a time reruns chart
+                        verification.
+                    </p>
+                    <p className="mt-1 text-xs text-amber-200">
+                        Weather ranking does not clear tide gates. The existing tide leave-window check remains required
+                        for a verified chart route.
+                    </p>
+                    {dates.length > 0 && (
+                        <p className="mt-1 text-xs">
+                            Evaluated: {utc(dates[0])} to {utc(dates.at(-1)!)} ({dates.length} departures).
+                        </p>
+                    )}
                     {planning && (
-                        <div className="mt-3 flex items-center gap-2 text-[11px] text-sky-400">
-                            <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
-                            <span className="font-mono tabular-nums tracking-wide">
-                                {progressLabel ?? `Computing… ${scenarios.length} of 14`}
-                            </span>
-                        </div>
+                        <p role="status" className="mt-2 text-xs text-sky-300">
+                            {progressLabel ?? `Computing… ${scenarios.length} completed`}
+                        </p>
                     )}
                 </div>
-
-                {/* Best-pick callout */}
                 {best && !planning && (
-                    <div className="shrink-0 px-5 pt-3 pb-2">
-                        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                                    Best Departure
-                                </span>
-                                <span className="text-[10px] text-emerald-300/70">
-                                    {best.galeHours > 0 ? `${best.galeHours}h gale` : 'no gale'}
-                                </span>
-                            </div>
-                            <div className="text-sm font-bold text-white">{formatDepartureRow(best.departureTime)}</div>
-                            <div className="text-xs text-slate-300 mt-0.5">
-                                {formatDuration(best.durationHours)} • {Math.round(best.distanceNM)} NM • avg{' '}
-                                {best.avgWindKts} kt
-                            </div>
-                        </div>
+                    <div className="px-4 pt-3 text-xs text-emerald-200">
+                        Best compared estimate: <strong>{utc(best.departureTime)}</strong>. Ranked on{' '}
+                        {best.rankedTerms?.join(', ') ?? 'available weather'}.
                     </div>
                 )}
-
-                {/* Scenarios list */}
-                <div
-                    className="flex-1 min-h-0 overflow-y-auto px-3 pt-2"
-                    style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
-                >
-                    {sorted.length === 0 && planning && (
-                        <>
-                            {/* Skeleton rows mirroring scenario row geometry while the first scenario computes */}
-                            <div className="space-y-2" aria-hidden="true">
-                                {Array.from({ length: 3 }).map((_, i) => (
-                                    <div
-                                        key={i}
-                                        className="rounded-xl border border-white/6 bg-white/3 h-[64px] animate-pulse"
-                                    />
-                                ))}
-                            </div>
-                            <div className="px-3 py-6 text-center text-xs text-slate-500">
-                                Running first scenario… results will populate live as each completes.
-                            </div>
-                        </>
+                <div className="overflow-auto p-4" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
+                    {!sorted.length && (
+                        <p className="text-sm text-slate-400">
+                            {planning ? 'Running first scenario…' : 'No completed scenarios available.'}
+                        </p>
                     )}
-                    {sorted.length === 0 && !planning && (
-                        <div className="px-3 py-12 text-center text-xs text-slate-500">No scenarios available.</div>
-                    )}
-                    <ul className="space-y-2">
-                        {sorted.map((s, idx) => {
-                            const style = VERDICT_STYLES[s.verdict];
-                            const isBest = best && s.departureTime === best.departureTime && !planning;
-                            return (
-                                <li key={s.departureTime}>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (!s.routeFound) return;
-                                            triggerHaptic('light');
-                                            onAccept(s);
-                                        }}
-                                        disabled={!s.routeFound}
-                                        aria-label={`Select departure ${formatDepartureRow(s.departureTime)}`}
-                                        className={`w-full text-left rounded-xl border ${style.border} ${style.bg} px-3 py-3 transition-all ${
-                                            s.routeFound
-                                                ? 'hover:bg-white/5 active:scale-[0.98]'
-                                                : 'opacity-50 cursor-not-allowed'
-                                        } ${isBest ? 'ring-1 ring-emerald-400/40' : ''}`}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] font-mono text-slate-500">
-                                                        #{idx + 1}
-                                                    </span>
-                                                    <span className="text-sm font-bold text-white truncate">
-                                                        {formatDepartureRow(s.departureTime)}
-                                                    </span>
-                                                </div>
-                                                {s.routeFound ? (
-                                                    <div className="mt-1 grid grid-cols-3 gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
-                                                        <span className="text-slate-300">
-                                                            <span className="text-slate-500">ETA</span>{' '}
-                                                            {formatDuration(s.durationHours)}
-                                                        </span>
-                                                        <span className="text-slate-300">
-                                                            <span className="text-slate-500">Wind</span> {s.avgWindKts}/
-                                                            {s.maxWindKts} kt
-                                                        </span>
-                                                        <span className="text-slate-300">
-                                                            <span className="text-slate-500">Gale</span> {s.galeHours}h
-                                                        </span>
-                                                    </div>
-                                                ) : (
-                                                    <p className="mt-1 text-[11px] text-slate-500">
-                                                        No safe route found at this departure.
-                                                    </p>
-                                                )}
-                                            </div>
-                                            <div
-                                                className={`shrink-0 rounded-full px-2.5 py-1 text-sm font-bold ${style.bg} ${style.text} border ${style.border}`}
+                    {sorted.length > 0 && (
+                        <table
+                            className="w-full min-w-[880px] text-xs text-left border-collapse"
+                            aria-label="Departure weather comparison"
+                        >
+                            <thead>
+                                <tr>
+                                    {[
+                                        'Departure (UTC)',
+                                        'Duration',
+                                        'Wind max',
+                                        'Wave max',
+                                        'Rain max',
+                                        'Upwind',
+                                        'Ocean current',
+                                        'Beta comfort',
+                                        'Tide / coverage',
+                                    ].map((label) => (
+                                        <th key={label} scope="col" className="p-2 border-b border-white/10">
+                                            {label}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sorted.map((s) => (
+                                    <tr key={s.departureTime} className="border-b border-white/10 align-top">
+                                        <th scope="row" className="p-2">
+                                            <button
+                                                type="button"
+                                                disabled={!s.routeFound || s.verdict === 'no-go'}
+                                                aria-label={`Select departure ${utc(s.departureTime)}`}
+                                                onClick={() => {
+                                                    triggerHaptic('light');
+                                                    onAccept(s);
+                                                }}
+                                                className="text-left text-sky-300 underline disabled:text-slate-500 disabled:no-underline"
                                             >
-                                                {style.label}
+                                                <span>{utc(s.departureTime)}</span>
+                                            </button>
+                                            <div className="mt-1 text-slate-400 font-normal">{VERDICT[s.verdict]}</div>
+                                        </th>
+                                        <td className="p-2">
+                                            {s.routeFound ? number(s.durationHours, ' h') : 'No route'}
+                                        </td>
+                                        <td className="p-2">
+                                            {s.windComplete === false ? 'Unknown' : number(s.maxWindKts, ' kn')}
+                                        </td>
+                                        <td className="p-2">{number(s.maxWaveM, ' m')}</td>
+                                        <td className="p-2">{number(s.maxRainMmPerHour, ' mm/h')}</td>
+                                        <td className="p-2">{number(s.upwindPct, '%')}</td>
+                                        <td className="p-2">
+                                            {number(s.avgCurrentKts, ' kn along track')}
+                                            <div className="text-slate-500">One surface snapshot; no tidal streams</div>
+                                        </td>
+                                        <td className="p-2">
+                                            {number(s.comfortLevel, '/3')}
+                                            <div className="text-slate-500">Total waves only</div>
+                                        </td>
+                                        <td className="p-2">
+                                            Tide: {s.tideStatus ?? 'unknown'}
+                                            <div className="text-amber-200">
+                                                {s.coverage?.length
+                                                    ? `Incomplete: ${s.coverage.join(', ')}`
+                                                    : s.routeFound
+                                                      ? 'Available weather sampled'
+                                                      : 'No route estimate'}
                                             </div>
-                                        </div>
-                                    </button>
-                                </li>
-                            );
-                        })}
-                    </ul>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             </div>
         </OverlayPortal>

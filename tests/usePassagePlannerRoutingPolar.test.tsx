@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
     getPrecomputedRoute: vi.fn(),
     computeIsochrones: vi.fn(),
     validateRouteSegments: vi.fn(),
+    loadEnvironment: vi.fn(),
 }));
 
 vi.mock('../utils/createLogger', () => ({
@@ -73,6 +74,10 @@ vi.mock('../services/IsochroneRouter', () => ({
 vi.mock('../services/BathymetryCache', () => ({ preloadBathymetry: vi.fn(async () => null) }));
 vi.mock('../services/weather/WindFieldAdapter', () => ({ createWindFieldFromGrid: vi.fn(() => ({})) }));
 vi.mock('../services/routingPolar', () => ({ resolveRoutingPolar: mocks.resolveRoutingPolar }));
+vi.mock('../services/routing/isochroneEnvironment', () => ({
+    loadIsochroneEnvironment: mocks.loadEnvironment,
+    isochroneEnvironmentAt: vi.fn((env) => env),
+}));
 vi.mock('../services/IsochronePrecomputeCache', () => ({ getPrecomputedRoute: mocks.getPrecomputedRoute }));
 // A world-wide grid: covers the route, so no route-grid fetch.
 vi.mock('../stores/WindStore', () => ({
@@ -98,7 +103,7 @@ vi.mock('../services/ComfortZoneEngine', () => ({
 vi.mock('../services/InshoreRouter', () => ({ tryInshoreRoute: vi.fn(async () => null) }));
 vi.mock('../services/isochrone/landAvoidance', () => ({ validateRouteSegments: mocks.validateRouteSegments }));
 vi.mock('../services/enc/EncHazardReportService', () => ({ publishRouteNotValidated: vi.fn() }));
-// No ECMWF grid: the confidence braid stands down.
+// Extra models are fetched only by the explicit comparison action.
 vi.mock('../services/weather/OpenMeteoWindFetcher', () => ({ fetchModelWindGrid: vi.fn(async () => null) }));
 
 import { usePassagePlanner } from '../components/map/usePassagePlanner';
@@ -168,6 +173,12 @@ describe('the passage planner routes on the resolved polar and names it', () => 
     beforeEach(() => {
         clearPassageRequest();
         vi.clearAllMocks();
+        mocks.loadEnvironment.mockResolvedValue({
+            currentField: { current: true },
+            waveField: { waves: true, getWave: () => null },
+            exclusionField: { cyclone: true, isExcluded: () => false },
+            notes: ['Synthetic missing-coverage caution'],
+        });
         completes = [];
         window.addEventListener('thalassa:isochrone-complete', onComplete);
         // Offline: the sea-buoy depth search fails fast and each gate falls
@@ -206,6 +217,13 @@ describe('the passage planner routes on the resolved polar and names it', () => 
 
         expect(mocks.computeIsochrones).toHaveBeenCalledTimes(1);
         expect(mocks.computeIsochrones.mock.calls[0][3]).toBe(RESOLVED.polar);
+        const environment = await mocks.loadEnvironment.mock.results[0].value;
+        expect(mocks.computeIsochrones.mock.calls[0].slice(7)).toEqual([
+            environment.currentField,
+            environment.exclusionField,
+            environment.waveField,
+        ]);
+        expect(result.current.routeCaveats).toContain('Synthetic missing-coverage caution');
 
         expect(result.current.routingPolarLabel).toBe('Fair Wind 2025.pol (imported)');
         expect(result.current.routeAnalysis?.estimatedDuration).toBeGreaterThan(0);
@@ -225,5 +243,21 @@ describe('the passage planner routes on the resolved polar and names it', () => 
         expect(result.current.routingPolarLabel).toBe('Fair Wind 2025.pol (imported)');
         act(() => result.current.clearRoute());
         expect(result.current.routingPolarLabel).toBeNull();
+    });
+
+    it('offers comparison for a freshly verified cached passage and preserves it when public relief is unavailable', async () => {
+        mocks.getPrecomputedRoute.mockReturnValue(candidate());
+        const { result } = await plan();
+        const original = result.current.isoResultRef.current;
+        const { fetchModelWindGrid } = await import('../services/weather/OpenMeteoWindFetcher');
+        expect(fetchModelWindGrid).not.toHaveBeenCalled();
+        expect(result.current.modelComparison.ready).toBe(true);
+        expect(result.current.routeActionsAvailable).toBe(true);
+        await act(() => result.current.modelComparison.start());
+        expect(result.current.modelComparison.message).toContain('Public relief unavailable');
+        expect(result.current.isoResultRef.current).toBe(original);
+        expect(result.current.routeActionsAvailable).toBe(true);
+        expect(result.current.routeVerification.status).toBe('verified');
+        expect(mocks.computeIsochrones).not.toHaveBeenCalled();
     });
 });

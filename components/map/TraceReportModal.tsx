@@ -21,6 +21,11 @@ import { triggerHaptic } from '../../utils/system';
 import { fetchRouteWaypointWeather, windCompass, type WaypointWeather } from '../../services/routeReportWeather';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { traceVerificationSummary, type TraceReleaseGate } from '../../services/traceVerification';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { haversineNm } from '../../services/isochrone/geodesy';
+import { estimateRouteFuel } from '../../services/isochrone/routeStats';
+import { vesselIsochroneConfig } from '../../services/routing/isochronePolicy';
+import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
 
@@ -197,6 +202,15 @@ export const TraceReportModal: React.FC<Props> = ({
     const [weather, setWeather] = React.useState<WaypointWeather[] | null>(null);
     const [weatherLoading, setWeatherLoading] = React.useState(false);
     const spd = cruisingSpeedKts && cruisingSpeedKts > 0 ? cruisingSpeedKts : 6;
+    const vessel = useSettingsStore((state) => state.settings.vessel);
+    const routeFuel = React.useMemo(() => {
+        if (pins.length < 2 || (vesselName && vessel?.name !== vesselName)) return null;
+        const distance = pins
+            .slice(1)
+            .reduce((sum, p, i) => sum + haversineNm(pins[i].lat, pins[i].lon, p.lat, p.lon), 0);
+        const motorSpeed = vesselIsochroneConfig(vessel, distance).motoringSpeed;
+        return estimateRouteFuel(null, distance / motorSpeed, vessel);
+    }, [pins, vessel, vesselName]);
     const departingNow = departureMs == null;
     React.useEffect(() => {
         if (!open || pins.length < 2) {
@@ -247,6 +261,7 @@ export const TraceReportModal: React.FC<Props> = ({
                 draftM,
                 weather,
                 cruisingSpeedKts: spd,
+                routeFuel,
                 departureMs,
                 nowMs: Date.now(),
                 verification: releaseGate.verification,
@@ -271,6 +286,7 @@ export const TraceReportModal: React.FC<Props> = ({
         vesselName,
         draftM,
         weather,
+        routeFuel,
         spd,
         departureMs,
         exporting,
@@ -421,6 +437,7 @@ export const TraceReportModal: React.FC<Props> = ({
                     </div>
                 ) : null}
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+                    <RouteEstimateSummary fuel={routeFuel} />
                     {verdicts.length === 0 && (
                         <div className="text-[12px] text-gray-400">No legs yet — trace a route first.</div>
                     )}

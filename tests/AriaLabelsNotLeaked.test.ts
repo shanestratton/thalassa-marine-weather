@@ -31,9 +31,4 @@ describe('leaked placeholder aria-labels', () => {
         const src = readFileSync('pages/log/TrackingFooterControls.tsx', 'utf8');
         expect(src).toMatch(/aria-label="Share your position"\s+onClick=\{handleShareCurrentPosition\}/);
     });
-    it('ResourceCalculator renders its Crew / Days / Meals / Water summary once', () => {
-        const src = readFileSync('components/passage/ResourceCalculator.tsx', 'utf8');
-        expect((src.match(/>Crew</g) ?? []).length).toBe(1);
-        expect(src).not.toContain('THREE RESOURCE CARDS (fuel, water, provisions)');
-    });
 });

@@ -86,7 +86,7 @@ vi.mock('../services/PiCacheService', () => ({
         getStatus: () => ({ reachable: false, diaryRelayConfigured: false, diaryRelayOwnerId: null }),
     },
 }));
-vi.mock('leaflet', () => ({ default: {} }));
+vi.mock('../utils/leafletRuntime.mjs', () => ({ leafletRuntime: {} }));
 vi.mock('leaflet-velocity-ts', () => ({}));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),

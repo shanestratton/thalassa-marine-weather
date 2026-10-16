@@ -69,11 +69,18 @@ export interface VesselProfile {
     maxWaveHeight: number;
     maxWindSpeed?: number;
     cruisingSpeed: number;
+    /** True wind below which passage routing uses the engine, in knots. 0 means no light-air threshold. */
+    minWindSpeed?: number;
+    /** Passage routing speed under engine, knots. Unset uses cruising speed. */
+    motoringSpeed?: number;
     /** Stored in US gallons; vesselUnits.volume controls display/input only. */
     fuelCapacity?: number;
     /** Stored in US gallons; vesselUnits.volume controls display/input only. */
     waterCapacity?: number;
+    /** Litres per hour under engine. A zero or missing value is unknown. */
     fuelBurn?: number;
+    /** Percentage of tank capacity held in reserve for route fuel estimates (default 20). */
+    fuelReservePct?: number;
     hullColor?: string;
     registration?: string;
     mmsi?: string;

@@ -57,6 +57,9 @@ export interface PassageLeg {
 }
 
 export interface PassageRouteState {
+    sailingStats?: import('../services/isochrone/routeStats').RouteSailingStats | null;
+    routeFuel?: import('../services/isochrone/routeStats').RouteFuelEstimate | null;
+    routeComfort?: import('../services/isochrone/routeComfort').RouteComfortSummary | null;
     /** Whether a computed route is available */
     hasRoute: boolean;
     /** Route name (e.g., "Moreton Bay → Hamilton Island") */
@@ -217,6 +220,9 @@ export const PassageStore = {
         state = {
             ...state,
             ...data,
+            sailingStats: data.sailingStats ?? null,
+            routeFuel: data.routeFuel ?? null,
+            routeComfort: data.routeComfort ?? null,
             legs,
             hasRoute: true,
         };

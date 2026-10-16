@@ -9,6 +9,7 @@ import React from 'react';
 import type { RouteAnalysis } from '../../services/WeatherRoutingService';
 import type { TurnWaypoint } from '../../services/IsochroneRouter';
 import { splitDaysHours } from '../../utils/splitDaysHours';
+import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
 
 interface PassageDataPanelProps {
     routeAnalysis: RouteAnalysis | null;
@@ -99,6 +100,13 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                 </div>
             )}
 
+            {routeAnalysis && (
+                <RouteEstimateSummary
+                    stats={routeAnalysis.sailingStats}
+                    fuel={routeAnalysis.routeFuel}
+                    comfort={routeAnalysis.routeComfort}
+                />
+            )}
             {/* Waypoint Table */}
             {turnWaypoints.length > 0 && (
                 <div className="px-4 py-3">

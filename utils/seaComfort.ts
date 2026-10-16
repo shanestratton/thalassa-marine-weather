@@ -23,7 +23,6 @@
  * No period: no word ("Comfort needs a wave period"), never a guess.
  */
 import type { VesselProfile } from '../types';
-import { waveToSeaState } from './marineFormatters';
 
 export type ComfortWord = 'Comfortable' | 'Lively' | 'Uncomfortable' | 'Hard going';
 
@@ -69,7 +68,7 @@ const FT_TO_M = 0.3048;
 const wavelengthM = (periodS: number): number => 1.56 * periodS * periodS;
 
 /** Her estimated waterline, metres; null for no boat to judge (no profile, an observer, no length). */
-export function waterlineM(vessel?: VesselProfile | null): number | null {
+export function waterlineM(vessel?: Pick<VesselProfile, 'type' | 'length'> | null): number | null {
     if (!vessel || vessel.type === 'observer' || !(vessel.length > 0)) return null;
     return 0.85 * vessel.length * FT_TO_M;
 }
@@ -79,7 +78,10 @@ function apartDeg(a: number, b: number): number {
     return d > 180 ? 360 - d : d;
 }
 
-export function seaComfort(parts: ComfortParts, vessel?: VesselProfile | null): SeaComfort | null {
+export function seaComfort(
+    parts: ComfortParts,
+    vessel?: Pick<VesselProfile, 'type' | 'length'> | null,
+): SeaComfort | null {
     const { total } = parts;
     if (!total) return null;
     const own = waterlineM(vessel);
@@ -138,13 +140,15 @@ export function seaComfort(parts: ComfortParts, vessel?: VesselProfile | null): 
         input = 'cross';
     }
 
-    // WMO 3700's floors.
-    const code = waveToSeaState(total.hM);
-    if (code >= 6 && level < 3) {
+    // WMO 3700's two comfort floors, directly in metres. This pure helper
+    // also runs in the routing Worker; importing the display formatters
+    // would couple the route-job closure back to everyday app screens.
+    const floor = total.hM < 2.5 ? 0 : total.hM < 4 ? 2 : 3;
+    if (floor === 3 && level < 3) {
         level = 3;
         reason = 'very rough sea (WMO)';
         input = 'wmo';
-    } else if (code === 5 && level < 2) {
+    } else if (floor === 2 && level < 2) {
         level = 2;
         reason = 'rough sea (WMO)';
         input = 'wmo';

@@ -11,6 +11,7 @@ interface PiPolarSnapshot {
     enabled: boolean;
     updatedAt: number;
     polars: Record<PolarPeriod, PolarData | null>;
+    extendedPolars?: Record<PolarPeriod, PolarData | null>;
 }
 interface Cached {
     key: string;
@@ -56,9 +57,21 @@ function validSnapshot(value: unknown): value is PiPolarSnapshot {
                 polar === null ||
                 (validPolarTable(polar) &&
                     JSON.stringify(polar.windSpeeds) === '[6,8,10,12,15,20,25]' &&
-                    JSON.stringify(polar.angles) === '[45,60,90,120,150,180]')
+                    ['[45,60,90,120,150,180]', '[30,35,40,45,60,90,120,150,180]'].includes(
+                        JSON.stringify(polar.angles),
+                    ))
             );
-        })
+        }) &&
+        (v.extendedPolars === undefined ||
+            ['all', 'day', 'night'].every((p) => {
+                const polar = v.extendedPolars![p as PolarPeriod];
+                return (
+                    polar === null ||
+                    (validPolarTable(polar) &&
+                        JSON.stringify(polar.windSpeeds) === '[6,8,10,12,15,20,25]' &&
+                        JSON.stringify(polar.angles) === '[30,35,40,45,60,90,120,150,180]')
+                );
+            }))
     );
 }
 async function request(path: string, method: 'GET' | 'POST', data?: unknown): Promise<PiPolarSnapshot | null> {
@@ -151,6 +164,7 @@ export async function getPiLearnedPolar(period?: PolarPeriod): Promise<PolarData
         (NmeaStore.isBoatFeed() && lat !== null && lon !== null && age >= -5000 && age <= 60000
             ? polarPeriodAt(Date.now(), lat, lon)
             : 'all');
-    const preferred = cache.snapshot.polars[phase];
-    return structuredClone(cells(preferred) >= 8 ? preferred : cache.snapshot.polars.all);
+    const polars = cache.snapshot.extendedPolars ?? cache.snapshot.polars;
+    const preferred = polars[phase];
+    return structuredClone(cells(preferred) >= 8 ? preferred : polars.all);
 }

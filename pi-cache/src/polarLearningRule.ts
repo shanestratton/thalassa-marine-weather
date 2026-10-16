@@ -118,7 +118,7 @@ export function polarNoRpmGate(
         c.at - p.at > 180000 ||
         c.tws < 3 ||
         c.tws >= 30 ||
-        c.twa < 40 ||
+        c.twa < 30 ||
         c.twa > 180 ||
         c.stw < 1 ||
         c.stw > 25
@@ -158,7 +158,7 @@ export function polarSailingGate(
         Math.abs(current.lon) > 180 ||
         current.tws < 3 ||
         current.tws >= 30 ||
-        current.twa < 40 ||
+        current.twa < 30 ||
         current.twa > 180 ||
         current.stw < 1 ||
         current.stw > 25 ||

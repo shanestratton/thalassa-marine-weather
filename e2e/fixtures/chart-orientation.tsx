@@ -24,7 +24,8 @@
 // Chesapeake-like bay, the beacon on the antimeridian by a Taveuni-like reef.
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import L from 'leaflet';
+import type L from 'leaflet';
+import { leafletRuntime } from '../../utils/leafletRuntime.mjs';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { MapboxVelocityOverlay } from '../../components/map/MapboxVelocityOverlay';
@@ -79,7 +80,7 @@ setChartOrientation({ turning, target: turning ? bearing : null });
 
 // Every Leaflet map made on this page, so the spec can ask the wind field's own.
 const leafletMaps: L.Map[] = [];
-L.Map.addInitHook(function (this: L.Map) {
+leafletRuntime.Map.addInitHook(function (this: L.Map) {
     leafletMaps.push(this);
 });
 

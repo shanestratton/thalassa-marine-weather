@@ -269,10 +269,12 @@ async function expectHitTarget(locator: Locator) {
             locator.evaluate((element) => {
                 const box = element.getBoundingClientRect();
                 const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-                return hit === element || (hit !== null && element.contains(hit));
+                return hit === element || (hit !== null && element.contains(hit))
+                    ? 'clear'
+                    : `${element.getAttribute('aria-label') ?? element.textContent}: covered by ${hit?.getAttribute('aria-label') ?? hit?.className ?? 'nothing'}`;
             }),
         )
-        .toBe(true);
+        .toBe('clear');
 }
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -588,6 +590,7 @@ for (const size of cases) {
         const zoomOut = page.getByRole('button', { name: 'Zoom out', exact: true });
         const mob = page.getByRole('button', { name: 'MOB, open Man Overboard emergency', exact: true });
         const layers = page.getByRole('button', { name: 'Open layer menu', exact: true });
+        const offlineArea = page.getByRole('button', { name: 'Download offline relief', exact: true });
         // Any chart layer (ENC alone here) brings the collapsed layer-key pill
         // to the bottom-left, the Mapbox wordmark's corner.
         const layerKey = page.getByRole('button', { name: 'Show layer controls', exact: true });
@@ -653,6 +656,7 @@ for (const size of cases) {
                 ['Chart orientation', orient],
                 ['MOB', mob],
                 ['Layers', layers],
+                ['Offline relief', offlineArea],
                 ['Mapbox attribution', attribution],
                 ['map scale', scale],
                 ['Mapbox logo', logo],
@@ -672,6 +676,7 @@ for (const size of cases) {
                 'Zoom out',
                 'MOB',
                 'Layers',
+                'Offline relief',
                 'Mapbox attribution',
                 'map scale',
                 'Mapbox logo',
@@ -729,7 +734,7 @@ for (const size of cases) {
                 await expect(tideScrubber).toHaveCount(0);
                 expect(glyphDiagnostics.tideRequests, `no live-depth fetch after ${stage}`).toBe(0);
             }
-            for (const control of [locate, zoomIn, zoomOut, orient, mob, layers, attribution])
+            for (const control of [locate, zoomIn, zoomOut, orient, mob, layers, attribution, offlineArea])
                 await expectHitTarget(control);
             await expect(warning).toContainText(EMPTY_ENC_NOTICE);
             await expectFullHitTarget(logo, 'Mapbox logo');

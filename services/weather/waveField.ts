@@ -132,16 +132,27 @@ export async function fetchWaveField(
 
             // Use the first valid time as reference
             if (!referenceTimeIso && hourly.time[0]) {
-                referenceTimeIso = hourly.time[0];
+                referenceTimeIso = /Z$|[+-]\d\d:\d\d$/.test(hourly.time[0]) ? hourly.time[0] : `${hourly.time[0]}Z`;
                 totalHours = hourly.time.length;
             }
+            const firstMs = Date.parse(
+                /Z$|[+-]\d\d:\d\d$/.test(hourly.time[0]) ? hourly.time[0] : `${hourly.time[0]}Z`,
+            );
+            if (
+                firstMs !== Date.parse(referenceTimeIso) ||
+                hourly.time.some(
+                    (time, hour) =>
+                        Date.parse(/Z$|[+-]\d\d:\d\d$/.test(time) ? time : `${time}Z`) !== firstMs + hour * 3_600_000,
+                )
+            )
+                continue;
 
             samples.push({
                 lat: row.latitude ?? points[i]?.lat ?? 0,
                 lon: row.longitude ?? points[i]?.lon ?? 0,
-                heightM: hourly.wave_height.map((v) => (v == null || isNaN(v) ? 0 : v)),
-                directionFromDeg: hourly.wave_direction.map((v) => (v == null || isNaN(v) ? 0 : v)),
-                periodS: hourly.wave_period.map((v) => (v == null || isNaN(v) ? 8 : v)),
+                heightM: hourly.wave_height.map((v) => (v == null || !Number.isFinite(v) ? NaN : v)),
+                directionFromDeg: hourly.wave_direction.map((v) => (v == null || !Number.isFinite(v) ? NaN : v)),
+                periodS: hourly.wave_period.map((v) => (v == null || !Number.isFinite(v) ? NaN : v)),
             });
         }
 
