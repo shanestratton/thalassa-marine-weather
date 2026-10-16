@@ -33,6 +33,7 @@ export default defineConfig({
         'nmea-udp136-layout.spec.ts',
         'signalk136-layout.spec.ts',
         'wind-tide-layout.spec.ts',
+        'tide-footer-layout.spec.ts',
         'vessel-scroll.spec.ts',
         // Menu pages fit one screen; the split-pane Plan and Log front doors fit their pane.
         'menu-pages-fit.spec.ts',
