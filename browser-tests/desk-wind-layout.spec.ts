@@ -89,6 +89,10 @@ interface Net {
 async function serve(page: Page, origin: string, net: Net) {
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
+        // The fixture's synthetic Mapbox service is reachable, including on
+        // a native-style phone; no actual WAN request leaves this test.
+        if (url.hostname === 'www.gstatic.com' && url.pathname === '/generate_204')
+            return route.fulfill({ status: 204 });
         const xyz = (m: RegExpMatchArray, at: number) => [Number(m[at]), Number(m[at + 1]), Number(m[at + 2])] as const;
         if (url.pathname.endsWith('/functions/v1/proxy-openmeteo'))
             return proxy(route.request().postData(), net, route);
@@ -832,26 +836,32 @@ test.describe('the wind credit on the phone’s Obs chart', () => {
             await inPanel(page, (region) =>
                 region.getByRole('button', { name: 'Wind model UKMO' }).click({ timeout: 4_000 }),
             );
-            await expect(credit).toHaveText('Wind: UK Met Office (CC BY-SA 4.0) via Open-Meteo', { timeout: 30_000 });
-            await expectWideFaceDrawn(credit);
-            const box = (await credit.boundingBox())!;
-            expect(box.height, 'one line').toBeLessThan(26);
-            expect(box.x).toBeGreaterThanOrEqual(0);
-            expect(box.x + box.width).toBeLessThanOrEqual(size.width);
-            const picker = (await page.getByRole('button', { name: /^Map base: / }).boundingBox())!;
-            expect(box.y, 'under the base picker').toBeGreaterThanOrEqual(picker.y + picker.height);
-            for (const [name, locator] of Object.entries({
-                zoom: page.getByRole('button', { name: /^Zoom / }),
-                mic: page.getByTitle('Talk to Calypso'),
-                status: page.getByRole('button', { name: /^System status/ }),
-                layers: page.getByRole('button', { name: /layer menu$/ }),
-            })) {
-                for (let i = 0; i < (await locator.count()); i++) {
-                    const item = locator.nth(i);
-                    if (!(await item.isVisible())) continue;
-                    expect(overlaps(box, (await item.boundingBox())!), `the credit lies on the ${name}`).toBe(false);
+            // Selecting a model clears the old field while its replacement
+            // loads. Read the visible credit and all geometry in one retry;
+            // toHaveText alone can catch its last frame before removal.
+            await expect(async () => {
+                await expect(credit).toHaveText('Wind: UK Met Office (CC BY-SA 4.0) via Open-Meteo');
+                await expect(credit).toBeVisible();
+                await expectWideFaceDrawn(credit);
+                const box = await boxOf(credit);
+                expect(box.height, 'one line').toBeLessThan(26);
+                expect(box.x).toBeGreaterThanOrEqual(0);
+                expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+                const picker = await boxOf(page.getByRole('button', { name: /^Map base: / }));
+                expect(box.y, 'under the base picker').toBeGreaterThanOrEqual(picker.y + picker.height);
+                for (const [name, locator] of Object.entries({
+                    zoom: page.getByRole('button', { name: /^Zoom / }),
+                    mic: page.getByTitle('Talk to Calypso'),
+                    status: page.getByRole('button', { name: /^System status/ }),
+                    layers: page.getByRole('button', { name: /layer menu$/ }),
+                })) {
+                    for (let i = 0; i < (await locator.count()); i++) {
+                        const item = locator.nth(i);
+                        if (!(await item.isVisible())) continue;
+                        expect(overlaps(box, await boxOf(item)), `the credit lies on the ${name}`).toBe(false);
+                    }
                 }
-            }
+            }, 'visible model credit fits after the replacement field loads').toPass({ timeout: 30_000 });
             await shot(page, info, `obs-wind-credit-${size.width}x${size.height}`);
             await context.close();
         });

@@ -79,7 +79,7 @@ export function ModelCheckCard({ view, details, onToggleDetails, onClose, speedU
                 tabIndex={-1}
                 className="flex max-h-full w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 text-white shadow-2xl backdrop-blur-xl"
             >
-                <div data-model-check-header className="shrink-0 border-b border-white/10 px-4 py-2">
+                <div data-model-check-header className="shrink-0 border-b border-white/10 px-4 py-2 max-[340px]:py-1">
                     <div className="flex h-11 items-center gap-1">
                         <h2 className="min-w-0 flex-1 text-sm font-black leading-5">Her wind vs the models</h2>
                         <button
@@ -97,7 +97,7 @@ export function ModelCheckCard({ view, details, onToggleDetails, onClose, speedU
                     </div>
                     <p className="mt-0.5 text-xs font-semibold leading-4 text-amber-200">{view.caveat}</p>
                 </div>
-                <div data-model-check-body className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+                <div data-model-check-body className="min-h-0 flex-1 overflow-y-auto px-4 py-2 max-[340px]:py-1">
                     {details ? (
                         <div className="space-y-2">
                             {modelCheckDetails(speedUnit).map((text) => (
