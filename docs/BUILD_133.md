@@ -30,7 +30,7 @@ Build 133 is assembled locally on `codex/build-133-integration`; this is not yet
 | ------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | 133-01  | AIS report age, ghosts/trails/details and conservative collision envelope; repaired parity fixtures | Combined CI and physical alarm checks                           |
 | 133-02  | Account display filters, Targets sheet and receiver-first search; safety overrides                  | Combined browser/release CI                                     |
-| 133-03  | Existing integrated coastal capability package                                                      | Commercial proxy deployment and model probe                     |
+| 133-03  | Integrated coastal capability package; commercial proxy deployed and live model probes passed       | Combined client release and physical acceptance                 |
 | 133-04  | App cone/query/watch, isolated Pi vault query, enrolled followed-route handoff and Pi XTE watch     | Relay migration/deploy, Pi install and locked-phone tests       |
 | 133-05  | Incremental Pi learner, RPM/heuristic gates, civil twilight and routing blend                       | Linux native SQLite checks, Pi install and sailing data         |
 | 133-06  | Recovered barometer package with corrected tendency/history/freshness                               | Pi install and physical sensors                                 |
@@ -45,3 +45,9 @@ Shane's additional requests are included: the repeated off-route arming notice i
 The existing JavaScript budget remains 10.15 MiB. A standard, pinned development-only Terser minifier replaces esbuild compression; no auth or feature code is stubbed out. The final local production checkpoint measured 10,586,736 JavaScript bytes against 10,643,046 bytes, including offline weather. The hosted source check also covers the final polar guard alignment. Release checks measure the final exact source again.
 
 No held migration has been applied, no Pi install has occurred, and no build 133 upload has been attempted. Database/server deployment, installed Pi behavior, Apple processing, beta-group assignment and installation on a physical iPhone are distinct outcomes and must be recorded independently.
+
+## Provider-use correction before upload
+
+Shane confirmed that no written WorldTides permission for navigation or safety-critical use was known. The fixed [provider-use boundary](BUILD_133_TIDE_PROVIDER_USE.md) keeps its predictions informational. Fresh navigation curves, Pi IPC tide allowances and saved tide-dependent route claims cannot grant clearance. Chart checks use charted depths and explicitly say tidal clearance is unverified; the Glass predictions and attribution remain available. No preference, account entitlement or environment flag can override this boundary.
+
+Focused app tests, Pi vault tests, both app compilers, the Pi compiler/mirror and actual Chromium/WebKit chart-label checks passed for this correction. The earlier complete validation run is baseline evidence only: this changed source requires a fresh full run before signing or upload. The pending upload was cancelled before any Mac build or signing started. No validation result or build 132 release is evidence that build 133 is available in TestFlight.

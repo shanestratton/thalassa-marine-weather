@@ -42,6 +42,7 @@ const KIND_HEADLINES: Record<string, string> = {
     // (RESTRN 7, 8, 14): not all of them prohibit, all of them restrict.
     'caution-crossing': 'Route crosses a restricted area',
     'tide-constrained': 'Tide-constrained leg',
+    'tide-unverified': 'Tidal clearance unverified',
     // Only ever the HEADLINE when the gebco-share advisory is CAUTION-grade
     // (chart cells FAILED to load, or ≥30% of checks fell to the ~1.8 km
     // NOAA ETOPO grid) — the collapsed header shows the first CAUTION, and a
