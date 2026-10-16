@@ -1,0 +1,122 @@
+name: Thalassa 136 native source checkpoint
+
+# Native compile checkpoint only. No Apple credentials, signing, upload or
+# retained app artifact. Full release validation and size gates remain required.
+on:
+    push:
+        branches: ['codex/build-136-native-check']
+        paths: ['.github/workflows/validate-native-136.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-136-native-check
+    cancel-in-progress: false
+jobs:
+    native:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: macos-26
+        timeout-minutes: 40
+        env:
+            CANDIDATE_SHA: 101986db98ab31b52da31ef5c96c5ea1e34a465f
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+            VITE_APP_BUILD: '135'
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 101986db98ab31b52da31ef5c96c5ea1e34a465f
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Exact source, Xcode and four native build numbers
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
+                  git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+                  git merge-base --is-ancestor 81dc2f39808967910a1ef788fd4cde13b4c81aa5 HEAD
+                  git merge-base --is-ancestor 687aaa85b HEAD
+                  git merge-base --is-ancestor 92f95b362 HEAD
+                  test -d "$DEVELOPER_DIR"
+                  xcode_version="$(xcodebuild -version)"
+                  test "${xcode_version%%$'\n'*}" = 'Xcode 26.6'
+                  node --input-type=module <<'NODE'
+                  import {readFileSync} from 'node:fs';
+                  const versions=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(versions.length!==4||versions.some(m=>m[1]!=='135'))throw Error('Four committed native build135 configurations required');
+                  NODE
+            - run: npm ci
+            - name: Public source guard and complete TypeScript/web build
+              run: |
+                  set -euo pipefail
+                  npm run check:beta:source
+                  GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+            - name: Pinned CocoaPods runtime
+              run: |
+                  set -euo pipefail
+                  pinned=$(awk '/^BUNDLED WITH/{getline; gsub(/ /,""); print}' ios/App/Gemfile.lock)
+                  if ! gem install bundler -v "$pinned" --no-document; then
+                      gem install bundler -v "$pinned" --no-document --user-install
+                      echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+                      export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+                  fi
+                  {
+                      echo "BUNDLER_VERSION=$pinned"
+                      echo "BUNDLE_PATH=$RUNNER_TEMP/gems135"
+                      echo "BUNDLE_APP_CONFIG=$RUNNER_TEMP/bundle-config135"
+                      echo "BUNDLE_FROZEN=true"
+                  } >> "$GITHUB_ENV"
+                  BUNDLER_VERSION="$pinned" BUNDLE_PATH="$RUNNER_TEMP/gems135" BUNDLE_APP_CONFIG="$RUNNER_TEMP/bundle-config135" \
+                      BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
+            - name: Capacitor sync through pinned Bundler
+              run: npm run cap:sync
+            - name: Compile actual iPhone native target without signing
+              run: |
+                  set -euo pipefail
+                  xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug \
+                      -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd135-native" \
+                      CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+                  echo 'Combined UDP/GPX/Systems source compiled on the iPhone SDK. Workbench native build135; no signing or upload.' >> "$GITHUB_STEP_SUMMARY"
+
+    unix-contracts:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            CI: 'true'
+            HUSKY: '0'
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 101986db98ab31b52da31ef5c96c5ea1e34a465f
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+                  cache-dependency-path: pi-cache/package-lock.json
+            - name: Exact source and Pi runtime
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = '101986db98ab31b52da31ef5c96c5ea1e34a465f'
+                  npm ci --prefix pi-cache
+                  npm run build --prefix pi-cache
+            - name: Real Unix storage, enrolled HTTP, course and track contracts
+              working-directory: pi-cache
+              run: |
+                  set -euo pipefail
+                  node --import tsx --test src/courseWriter.test.mts src/courseOwnership.test.mts src/signalKClient.test.mts src/routes/course.test.mts src/piCommandLock.test.mts src/trackStore.test.mts src/trackPaging.test.mts src/routes/trackPaging.test.mts src/routes/track.test.mts
+                  echo 'Unix permission, durable ownership, enrolled HTTP, route cancellation and SQLite paging contracts passed on the exact source.' >> "$GITHUB_STEP_SUMMARY"
