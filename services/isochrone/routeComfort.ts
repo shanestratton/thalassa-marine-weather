@@ -98,28 +98,6 @@ export function routeComfortForNodes(
     };
 }
 
-export function routeComfortLines(comfort?: RouteComfortSummary | null): string[] {
-    if (!comfort) return [];
-    const at = comfort.maxWaveAt;
-    const place = at
-        ? ` near ${Math.abs(at.lat).toFixed(3)}° ${at.lat < 0 ? 'S' : 'N'}, ${Math.abs(at.lon).toFixed(3)}° ${at.lon < 0 ? 'W' : 'E'}`
-        : '';
-    const lines = [
-        comfort.coverage === 'unavailable'
-            ? 'Wave coverage unavailable; the route has no proven wave-limit clearance.'
-            : `Wave coverage ${comfort.coverage}; known maximum ${comfort.maxWaveM!.toFixed(1)} m${place}${comfort.unknownHours > 0 ? `; ${comfort.unknownHours.toFixed(1)} h unchecked` : ''}.`,
-    ];
-    if (comfort.relaxedFromM !== undefined)
-        lines.push(
-            `Relaxed wave limit: needs ${comfort.maxWaveM?.toFixed(1) ?? 'unknown'} m seas${place}; your limit is ${comfort.relaxedFromM.toFixed(1)} m.`,
-        );
-    if (comfort.word)
-        lines.push(
-            `Beta comfort ${comfort.level}/3: ${comfort.word}${comfort.genericBoat ? ' for a generic 38 ft boat' : ''}. Total waves only; wind-sea and cross-sea effects are unknown. This is not a safety rating.`,
-        );
-    return lines;
-}
-
 /** Recheck the actual smoothed line: an endpoint-only test can shortcut a storm or a high-sea cell. */
 export function inspectRouteEnvironment(
     route: readonly IsochroneNode[],

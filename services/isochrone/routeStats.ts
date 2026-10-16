@@ -1,61 +1,29 @@
 import type { VesselProfile } from '../../types';
-import type { IsochroneNode } from './types';
-import { routeComfortLines, type RouteComfortSummary } from './routeComfort';
+import type { RouteComfortSummary } from './routeComfort';
+import type { RouteSailingStats } from './routeSailingStats';
+export { sailingStatsForNodes, combineSailingStats } from './routeSailingStats';
+export type { RouteSailingStats } from './routeSailingStats';
 
-export interface RouteSailingStats {
-    beatingHours: number;
-    reachingHours: number;
-    runningHours: number;
-    /** Null if any part has unknown propulsion. Never derived from SOG. */
-    motorHours: number | null;
-    knownMotorHours: number;
-    unknownHours: number;
-    totalHours: number;
-    tacks: number | null;
-}
-
-/** Incoming-leg metadata from the computed path, before geometry smoothing. */
-export function sailingStatsForNodes(route: readonly IsochroneNode[]): RouteSailingStats {
-    let beatingHours = 0,
-        reachingHours = 0,
-        runningHours = 0,
-        knownMotorHours = 0,
-        unknownHours = 0,
-        totalHours = 0,
-        tacks = 0;
-    let lastSide: number | null = null;
-    for (let i = 1; i < route.length; i++) {
-        const n = route[i];
-        const duration = n.timeHours - route[i - 1].timeHours;
-        if (!Number.isFinite(duration) || duration <= 0) continue;
-        totalHours += duration;
-        if (n.propulsion === 'motor') {
-            knownMotorHours += duration;
-            lastSide = null;
-        } else if (n.propulsion === 'sail' && Number.isFinite(n.twa)) {
-            const angle = Math.abs(n.twa);
-            if (angle < 50) beatingHours += duration;
-            else if (angle < 150) reachingHours += duration;
-            else runningHours += duration;
-            if (angle < 90 && n.tackSide) {
-                if (lastSide !== null && lastSide !== n.tackSide) tacks++;
-                lastSide = n.tackSide;
-            } else lastSide = null;
-        } else {
-            unknownHours += duration;
-            lastSide = null;
-        }
-    }
-    return {
-        beatingHours,
-        reachingHours,
-        runningHours,
-        knownMotorHours,
-        unknownHours,
-        totalHours,
-        motorHours: unknownHours > 0 || totalHours === 0 ? null : knownMotorHours,
-        tacks: unknownHours > 0 || totalHours === 0 ? null : tacks,
-    };
+export function routeComfortLines(comfort?: RouteComfortSummary | null): string[] {
+    if (!comfort) return [];
+    const at = comfort.maxWaveAt;
+    const place = at
+        ? ` near ${Math.abs(at.lat).toFixed(3)}° ${at.lat < 0 ? 'S' : 'N'}, ${Math.abs(at.lon).toFixed(3)}° ${at.lon < 0 ? 'W' : 'E'}`
+        : '';
+    const lines = [
+        comfort.coverage === 'unavailable'
+            ? 'Wave coverage unavailable; the route has no proven wave-limit clearance.'
+            : `Wave coverage ${comfort.coverage}; known maximum ${comfort.maxWaveM!.toFixed(1)} m${place}${comfort.unknownHours > 0 ? `; ${comfort.unknownHours.toFixed(1)} h unchecked` : ''}.`,
+    ];
+    if (comfort.relaxedFromM !== undefined)
+        lines.push(
+            `Relaxed wave limit: needs ${comfort.maxWaveM?.toFixed(1) ?? 'unknown'} m seas${place}; your limit is ${comfort.relaxedFromM.toFixed(1)} m.`,
+        );
+    if (comfort.word)
+        lines.push(
+            `Beta comfort ${comfort.level}/3: ${comfort.word}${comfort.genericBoat ? ' for a generic 38 ft boat' : ''}. Total waves only; wind-sea and cross-sea effects are unknown. This is not a safety rating.`,
+        );
+    return lines;
 }
 
 export interface RouteFuelEstimate {
@@ -147,23 +115,4 @@ export function withRouteEstimates<T extends { estimatedDuration: number }>(
 } {
     const routeFuel = estimateRouteFuel(stats?.motorHours, analysis.estimatedDuration, vessel);
     return { ...analysis, sailingStats: stats, routeFuel, fuelEstimate: routeFuel.litres, routeComfort };
-}
-
-/** Separate legs keep their modes; the unmodeled seam cannot prove a tack count. */
-export function combineSailingStats(parts: Array<RouteSailingStats | undefined>): RouteSailingStats | undefined {
-    if (parts.some((p) => !p)) return undefined;
-    const known = parts as RouteSailingStats[];
-    const sum = (
-        key: 'beatingHours' | 'reachingHours' | 'runningHours' | 'knownMotorHours' | 'unknownHours' | 'totalHours',
-    ) => known.reduce((n, p) => n + p[key], 0);
-    return {
-        beatingHours: sum('beatingHours'),
-        reachingHours: sum('reachingHours'),
-        runningHours: sum('runningHours'),
-        knownMotorHours: sum('knownMotorHours'),
-        unknownHours: sum('unknownHours'),
-        totalHours: sum('totalHours'),
-        motorHours: known.some((p) => p.motorHours === null) ? null : sum('knownMotorHours'),
-        tacks: null,
-    };
 }

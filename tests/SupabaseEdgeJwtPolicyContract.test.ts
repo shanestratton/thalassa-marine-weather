@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Every Edge Function's gateway JWT policy is declared in supabase/config.toml,
  * with a reason, and this test holds the file to the decisions.
@@ -13,7 +14,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publisher/handler';
 
 /**
  * verify_jwt = false, matching production, because the function guards itself —
@@ -83,6 +85,7 @@ const CREDENTIALLESS_ALLOWLIST = {
     'seabed-relay':
         'Pi relay authenticates with its own relay token (via _shared/pi-relay-auth); the phone path verifies the user JWT inside with requireAuthenticatedQuota',
     'voyage-log': 'public shore-contact link with a scoped published-data response',
+    'wx-publisher': 'dedicated 256-bit producer bearer token SHA256 checked before any privileged database request',
 } as const;
 
 /** The 22 that had drifted on 2026-09-05 — every one must land in a bucket above. */
@@ -196,7 +199,48 @@ describe('Supabase Edge gateway JWT policy', () => {
         // fetch-gfs-tracker's shape: a bare fetch with a public quota, 17 → 18.
         // ingest-official-alerts (129-05) is cyclone-watch's shape, 18 → 19, and
         // so is official-alerts-watch (129-06), 19 → 20.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(20);
+        // wx-publisher (134) is a separate producer identity: its exact 256-bit
+        // token is verified inside the handler, never a credentialless DB path.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(21);
+    });
+
+    it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {
+        expect(policies['wx-publisher']).toBe(false);
+        const secret = 'a'.repeat(64);
+        const privileged = vi.fn(async () => new Response('[]', { headers: { 'Content-Type': 'application/json' } }));
+        const options = {
+            tokenHash: await tokenHash(secret),
+            restBase: 'https://example.supabase.co/rest/v1',
+            serviceKey: 'fixture-internal-only',
+            fetch: privileged as typeof fetch,
+        };
+        const request = (authorization?: string) =>
+            new Request('https://example.com/wx-publisher', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(authorization ? { Authorization: authorization } : {}),
+                },
+                body: JSON.stringify({ action: 'work' }),
+            });
+        for (const authorization of [
+            undefined,
+            'Bearer user-jwt',
+            `Bearer ${'b'.repeat(64)}`,
+            `Bearer ${'a'.repeat(63)}`,
+        ]) {
+            expect((await handlePublisherRequest(request(authorization), options)).status).toBe(401);
+            expect(privileged).not.toHaveBeenCalled();
+        }
+        expect((await handlePublisherRequest(request(`Bearer ${secret}`), { ...options, tokenHash: '' })).status).toBe(
+            503,
+        );
+        expect(privileged).not.toHaveBeenCalled();
+        expect((await handlePublisherRequest(request(`Bearer ${secret}`), options)).status).toBe(200);
+        expect(privileged).toHaveBeenCalledTimes(1);
+        const entrypoint = readFileSync(resolve(process.cwd(), 'supabase/functions/wx-publisher/index.ts'), 'utf8');
+        expect(entrypoint).toContain('handlePublisherRequest(request,');
+        expect(entrypoint).toContain('tokenHash: WX_PUBLISHER_TOKEN_SHA256');
     });
 
     it('every declared function has a comment explaining its policy', () => {

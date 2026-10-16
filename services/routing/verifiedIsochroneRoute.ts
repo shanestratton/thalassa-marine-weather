@@ -1,6 +1,6 @@
 import type { IsochroneNode, IsochroneResult } from '../isochrone/types';
 import { cumulativeLegs } from '../isochrone/geodesy';
-import { sailingStatsForNodes } from '../isochrone/routeStats';
+import { sailingStatsForNodes } from '../isochrone/routeSailingStats';
 import { routeComfortForNodes } from '../isochrone/routeComfort';
 
 /** Chart verification must not erase the modeled ETA or attach old modes to a new geometry. */

@@ -11,6 +11,7 @@ import {
     routeEngineChunkOf,
     routeEngineLoggerSource,
     routeJobClosure,
+    ROUTE_ENGINE_SHARED_LEAVES,
 } from '../scripts/route-job-closure.mjs';
 
 const ROOT = process.cwd();
@@ -77,6 +78,34 @@ describe('the router-engine chunk', () => {
     it('a module only the router imports stays in router-engine, whatever the shell loads lazily', () => {
         const m = app([], ['/repo/services/InshoreRouter.ts']);
         expect(routeEngineChunkOf('/repo/services/engine/types.ts', m)).toBe('router-engine');
+    });
+
+    it('puts the exact pure helpers used by lazy passage screens in engine-leaf', () => {
+        expect(ROUTE_ENGINE_SHARED_LEAVES).toEqual([
+            'services/isochrone/polar.ts',
+            'services/isochrone/geodesy.ts',
+            'services/isochrone/routeSailingStats.ts',
+        ]);
+        const helpers = ROUTE_ENGINE_SHARED_LEAVES.map((leaf: string) => `/repo/${leaf}`);
+        const graph: Record<string, [string[], string[]?]> = {
+            '/repo/index.html': [[], ['/repo/Today.tsx']],
+            '/repo/Today.tsx': [helpers],
+            [JOB]: [helpers],
+            ...Object.fromEntries(helpers.map((id: string) => [id, [[]]])),
+        };
+        const m = meta(graph, ['/repo/index.html']);
+        for (const helper of helpers) expect(routeEngineChunkOf(helper, m)).toBe('engine-leaf');
+        expect(routeEngineChunkOf(JOB, m)).toBe('router-engine');
+    });
+
+    it('fails closed if a shared helper starts importing runtime code', () => {
+        for (const leaf of ROUTE_ENGINE_SHARED_LEAVES) {
+            const helper = `/repo/${leaf}`;
+            for (const dependency of [[[JOB]], [[], [JOB]]] as [string[], string[]?][]) {
+                const m = meta({ [JOB]: [[helper]], [helper]: dependency }, []);
+                expect(() => routeEngineChunkOf(helper, m), leaf).toThrow(/must have no runtime imports/);
+            }
+        }
     });
 
     it("fails the build when the app's start-up imports the router statically (131-04)", () => {

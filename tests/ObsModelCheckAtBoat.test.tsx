@@ -77,6 +77,8 @@ vi.mock('../services/weather/openMeteoProxy', async (importOriginal) => {
                     wind_direction_10m_ukmo_global_deterministic_10km: constant(190),
                     wind_speed_10m_jma_gsm: constant(9),
                     wind_direction_10m_jma_gsm: constant(220),
+                    wind_speed_10m_gfs_seamless: constant(16),
+                    wind_direction_10m_gfs_seamless: constant(215),
                 },
             }));
         }),
@@ -348,10 +350,12 @@ describe('Her wind vs the models: the card', () => {
         expect(dialog()).toHaveTextContent('One reading is a snapshot, not a verdict.');
         expect(dialog()).toHaveTextContent('Boat instruments ·');
         const list = within(dialog()).getByRole('list', { name: 'Models, closest first' });
-        expect(within(list).getAllByRole('listitem')).toHaveLength(5);
+        expect(within(list).getAllByRole('listitem')).toHaveLength(6);
+        expect(within(list).getByText('GFS')).toBeInTheDocument();
+        expect(within(list).queryByText(/No wind from GFS/)).not.toBeInTheDocument();
         expect(within(list).queryAllByRole('button')).toHaveLength(0);
         expect(dialog()).toHaveTextContent(
-            'Data via Open-Meteo: DWD, ECMWF, JMA (CC BY 4.0); UK Met Office (CC BY-SA 4.0)',
+            'Data via Open-Meteo: DWD, ECMWF, JMA (CC BY 4.0); UK Met Office (CC BY-SA 4.0); NOAA (public domain)',
         );
 
         // A new gateway aggregate every 5 s for a minute.
@@ -424,7 +428,7 @@ describe('Her wind vs the models: the card', () => {
         expect(dialog()).toHaveTextContent('Data via Open-Meteo:');
         fireEvent.click(how);
         expect(how).toHaveAttribute('aria-pressed', 'true');
-        expect(dialog()).toHaveTextContent('Only the five global models are checked.');
+        expect(dialog()).toHaveTextContent('Only the 6 global models are checked.');
         expect(dialog()).not.toHaveTextContent('Data via Open-Meteo:');
         expect(within(dialog()).queryByRole('list')).not.toBeInTheDocument();
         fireEvent.click(how);

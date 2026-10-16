@@ -1,5 +1,5 @@
 import type { IsochroneResult } from '../isochrone/types';
-import { combineSailingStats } from '../isochrone/routeStats';
+import { combineSailingStats } from '../isochrone/routeSailingStats';
 import { combineRouteComfort } from '../isochrone/routeComfort';
 
 /** Leg clocks are relative to each leg's departure; the displayed route has one clock. */

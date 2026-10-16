@@ -15,7 +15,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    CANDIDATE_SHA: '9c52ff102b3bc151533523476efd1cb15948c8aa'
+    CANDIDATE_SHA: 'fe0cf65e7076c39a819b20ba8edefaf2ff8f5e5a'
     CI: 'true'
     HUSKY: '0'
     NODE_OPTIONS: --max-old-space-size=4096
@@ -41,7 +41,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '9c52ff102b3bc151533523476efd1cb15948c8aa'
+                  ref: 'fe0cf65e7076c39a819b20ba8edefaf2ff8f5e5a'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -58,7 +58,7 @@ jobs:
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
                   git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
                   git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
-                  git merge-base --is-ancestor 6e2ee4ad203b60d7ddbcb377f29708b6420684ff HEAD
+                  git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
                   node --input-type=module <<'NODE'
                   import {readFileSync} from 'node:fs';
                   const matches=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
@@ -135,7 +135,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '9c52ff102b3bc151533523476efd1cb15948c8aa'
+                  ref: 'fe0cf65e7076c39a819b20ba8edefaf2ff8f5e5a'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -152,7 +152,7 @@ jobs:
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
                   git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
                   git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
-                  git merge-base --is-ancestor 6e2ee4ad203b60d7ddbcb377f29708b6420684ff HEAD
+                  git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
             - name: Ephemeral PostgreSQL underway privacy, capability and RLS replay
               env:
                   PGPASSWORD: fixture-only-password
@@ -253,7 +253,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '9c52ff102b3bc151533523476efd1cb15948c8aa'
+                  ref: 'fe0cf65e7076c39a819b20ba8edefaf2ff8f5e5a'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -271,7 +271,7 @@ jobs:
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
                   git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
                   git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
-                  git merge-base --is-ancestor 6e2ee4ad203b60d7ddbcb377f29708b6420684ff HEAD
+                  git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
             - name: Install, audit and validate independent dependency tree
               working-directory: ${{ matrix.directory }}
               run: |
