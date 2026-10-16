@@ -1,5 +1,10 @@
 import { createTelegramWebhook } from './handler.ts';
-import { privateTelegramSender, shoreBotCommand } from '../../../utils/shoreContacts.ts';
+import {
+    privateTelegramConfirmation,
+    privateTelegramSender,
+    shoreBotCommand,
+    shoreConfirmationData,
+} from '../../../utils/shoreContacts.ts';
 const secret = 'fixture_' + 'x'.repeat(40),
     now = Date.now(),
     env = {
@@ -26,16 +31,16 @@ const req = (b: unknown, s = secret) =>
         headers: { 'X-Telegram-Bot-Api-Secret-Token': s },
         body: JSON.stringify(b),
     });
-function fixture() {
+function fixture(result: unknown = { text: 'Position unavailable: no fresh receipt.' }) {
     const calls: unknown[] = [], sent: unknown[] = [];
     const handler = createTelegramWebhook(env, {
         now: () => now,
         rpc: async (name, args) => {
             calls.push({ name, args });
-            return { text: 'Position unavailable: no fresh receipt.' };
+            return result;
         },
-        send: async (chat, text) => {
-            sent.push({ chat, text });
+        send: async (chat, text, nonce) => {
+            sent.push({ chat, text, ...(nonce ? { nonce } : {}) });
             return true;
         },
     });
@@ -46,6 +51,59 @@ Deno.test('secret authentication precedes body/db/network', async () => {
     eq((await f.handler(req(body(), 'wrong'))).status, 401);
     eq(f.calls, []);
     eq(f.sent, []);
+});
+const nonce = 'ab'.repeat(32);
+const callback = () => ({
+    update_id: 2,
+    callback_query: {
+        id: 'callback_fixture',
+        from: { id: 123, is_bot: false },
+        data: shoreConfirmationData(nonce),
+        message: { date: Math.floor(now / 1000), from: { id: 456, is_bot: true }, chat: { type: 'private', id: 123 } },
+    },
+});
+Deno.test('start only previews explicit anchor and position permissions; never confirms', async () => {
+    for (const sharePosition of [false, true]) {
+        const f = fixture({ invitation: { sharePosition } });
+        await f.handler(req(body({ text: '/start ' + nonce })));
+        eq((f.calls[0] as { args: Record<string, unknown> }).args.p_command, 'preview');
+        const sent = f.sent[0] as { text: string; nonce: string };
+        eq(sent.text.includes('anchor-watch notices'), true);
+        eq(sent.text.includes(sharePosition ? 'Position sharing is ON' : 'Position sharing is OFF'), true);
+        eq(sent.text.includes('Use /stop'), true);
+        eq(sent.nonce, nonce);
+        eq(f.calls.length, 1);
+    }
+});
+Deno.test('explicit private callback alone confirms; callback nonce is canonical and below64bytes', async () => {
+    const f = fixture({ text: 'Consent recorded.' });
+    await f.handler(req(callback()));
+    eq((f.calls[0] as { args: Record<string, unknown> }).args.p_command, 'confirm');
+    eq(shoreConfirmationData(nonce).length, 57);
+    eq(privateTelegramConfirmation(callback(), '456')?.nonce, nonce);
+    eq(privateTelegramSender(callback()), null);
+});
+Deno.test('forwarded/group/foreignbot/mismatched/expired callback cannot confirm', async () => {
+    const valid = callback();
+    for (
+        const c of [
+            { ...valid.callback_query, from: { id: 124, is_bot: false } },
+            { ...valid.callback_query, message: { ...valid.callback_query.message, chat: { id: 123, type: 'group' } } },
+            { ...valid.callback_query, message: { ...valid.callback_query.message, from: { id: 457, is_bot: true } } },
+            { ...valid.callback_query, inline_message_id: 'foreign_inline' },
+            {
+                ...valid.callback_query,
+                message: { ...valid.callback_query.message, date: Math.floor(now / 1000) - 301 },
+            },
+            { ...valid.callback_query, data: 'shore-confirm:' + '_'.repeat(43) },
+            { ...valid.callback_query, id: 'bad\ncallback' },
+        ]
+    ) {
+        const f = fixture();
+        await f.handler(req({ ...valid, callback_query: c }));
+        eq(f.calls, []);
+        eq(f.sent, []);
+    }
 });
 Deno.test('verified /stop still retires consent while ordinary messaging is held', async () => {
     let calls = 0;

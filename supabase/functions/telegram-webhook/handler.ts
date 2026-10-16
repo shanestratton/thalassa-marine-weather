@@ -1,9 +1,21 @@
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
-import { privateTelegramSender, shoreBotCommand, shoreRecord } from '../../../utils/shoreContacts.ts';
-import { type Environment, nonceHash, sendShoreTelegram, shoreBackend } from '../anchor-alert-messaging/transport.ts';
+import {
+    privateTelegramConfirmation,
+    privateTelegramSender,
+    shoreBotCommand,
+    shoreRecord,
+} from '../../../utils/shoreContacts.ts';
+import {
+    answerShoreTelegram,
+    type Environment,
+    nonceHash,
+    sendShoreTelegram,
+    shoreBackend,
+} from '../anchor-alert-messaging/transport.ts';
 export interface TelegramDependencies {
     rpc(name: string, args: unknown): Promise<unknown>;
-    send(chat: string, text: string): Promise<boolean>;
+    send(chat: string, text: string, confirmationNonce?: string): Promise<boolean>;
+    answer?(callbackId: string): Promise<boolean>;
     now(): number;
 }
 export function createTelegramWebhook(env: Environment, overrides?: TelegramDependencies, fetcher = fetch) {
@@ -19,12 +31,19 @@ export function createTelegramWebhook(env: Environment, overrides?: TelegramDepe
         }
         try {
             const body = await readJsonObject(req, 8192),
-                sender = privateTelegramSender(body),
-                command = sender ? shoreBotCommand(sender.text) : null;
+                confirmation = privateTelegramConfirmation(body, env.get('TELEGRAM_BOT_ID')),
+                sender = confirmation ?? privateTelegramSender(body),
+                command = confirmation
+                    ? { kind: 'confirm' as const, nonce: confirmation.nonce }
+                    : sender && 'text' in sender
+                    ? shoreBotCommand(sender.text)
+                    : null;
             const deps = overrides ??
                 {
                     rpc: shoreBackend(env, fetcher).rpc,
-                    send: (chat: string, text: string) => sendShoreTelegram(env, fetcher, chat, text),
+                    send: (chat: string, text: string, nonce?: string) =>
+                        sendShoreTelegram(env, fetcher, chat, text, nonce),
+                    answer: (id: string) => answerShoreTelegram(env, fetcher, id),
                     now: Date.now,
                 };
             if (
@@ -40,8 +59,12 @@ export function createTelegramWebhook(env: Environment, overrides?: TelegramDepe
                 p_update: sender.updateId,
                 p_at: sender.at,
                 p_command: command.kind,
-                p_hash: command.kind === 'confirm' ? await nonceHash(command.nonce) : null,
+                p_hash: command.kind === 'confirm' || command.kind === 'preview'
+                    ? await nonceHash(command.nonce)
+                    : null,
             });
+            // A failed progress-spinner acknowledgement must not suppress the consent result reply.
+            if (confirmation && deps.answer) await deps.answer(confirmation.callbackId).catch(() => false);
             if (!shoreRecord(result)) return jsonResponse({ accepted: true });
             let text: string | null = typeof result.text === 'string' && result.text.length <= 1000
                 ? result.text
@@ -59,7 +82,20 @@ export function createTelegramWebhook(env: Environment, overrides?: TelegramDepe
                     }. This is a saved report, not live tracking. Use /stop to revoke.`;
                 }
             }
-            if (text) await deps.send(sender.chatId, text);
+            let previewNonce: string | undefined;
+            if (
+                command.kind === 'preview' && shoreRecord(result.invitation) &&
+                Object.keys(result.invitation).length === 1 && typeof result.invitation.sharePosition === 'boolean'
+            ) {
+                text = 'This invitation requests consent for personal anchor-watch notices. ' +
+                    (result.invitation.sharePosition
+                        ? 'Position sharing is ON: /where may show a fresh saved report from the explicitly registered vessel. '
+                        : 'Position sharing is OFF. ') +
+                    'These notices are not an emergency service or a delivery guarantee. Confirm only if you know the sender and agree. ' +
+                    'The owner must separately enable notices. Use /stop to revoke. This confirmation expires in five minutes.';
+                previewNonce = command.nonce;
+            }
+            if (text) await deps.send(sender.chatId, text, previewNonce);
             return jsonResponse({ accepted: true });
         } catch {
             return jsonResponse({ error: 'Webhook unavailable' }, 503);

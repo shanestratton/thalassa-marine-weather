@@ -1,5 +1,5 @@
 import { readResponseTextLimited } from '../_shared/http-security.ts';
-import { shoreEmail, shoreNonce, shoreUuid } from '../../../utils/shoreContacts.ts';
+import { shoreConfirmationData, shoreEmail, shoreNonce, shoreUuid } from '../../../utils/shoreContacts.ts';
 export interface Environment {
     get(name: string): string | undefined;
 }
@@ -131,17 +131,55 @@ export async function sendShoreTelegram(
     fetcher: typeof fetch,
     chat: string,
     text: string,
+    confirmationNonce?: string,
 ): Promise<boolean> {
     const token = env.get('TELEGRAM_BOT_TOKEN'), bot = env.get('TELEGRAM_BOT_ID');
     if (
         env.get('SHORE_MESSAGING_ENABLED') !== '1' || !token || !/^\d{1,16}:[A-Za-z\d_-]{30,100}$/.test(token) ||
-        token.split(':')[0] !== bot || !/^\d{1,16}$/.test(chat) || text.length > 3000
+        token.split(':')[0] !== bot || !/^[1-9]\d{0,15}$/.test(chat) || text.length > 3000 ||
+        (confirmationNonce !== undefined && !shoreNonce(confirmationNonce))
     ) return false;
     // Telegram requires its token in this fixed URL. No upstream URL/body/error is logged or returned.
     const r = await boundedFetch(fetcher, `https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chat, text, link_preview_options: { is_disabled: true } }),
+        body: JSON.stringify({
+            chat_id: chat,
+            text,
+            link_preview_options: { is_disabled: true },
+            ...(confirmationNonce
+                ? {
+                    reply_markup: {
+                        inline_keyboard: [[{
+                            text: 'I agree to these permissions',
+                            callback_data: shoreConfirmationData(confirmationNonce),
+                        }]],
+                    },
+                }
+                : {}),
+        }),
+    });
+    return r.status === 200 && !!r.body && typeof r.body === 'object' && 'ok' in r.body && r.body.ok === true;
+}
+/** Fixed, content-free callback acknowledgement; never treats an API acceptance as consent. */
+export async function answerShoreTelegram(
+    env: Environment,
+    fetcher: typeof fetch,
+    callbackId: string,
+): Promise<boolean> {
+    const token = env.get('TELEGRAM_BOT_TOKEN'), bot = env.get('TELEGRAM_BOT_ID');
+    if (
+        env.get('SHORE_MESSAGING_ENABLED') !== '1' || !token || !/^\d{1,16}:[A-Za-z\d_-]{30,100}$/.test(token) ||
+        token.split(':')[0] !== bot || !/^[A-Za-z\d_-]{1,128}$/.test(callbackId)
+    ) return false;
+    const r = await boundedFetch(fetcher, `https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            callback_query_id: callbackId,
+            text: 'Request processed. Check the bot reply.',
+            cache_time: 0,
+        }),
     });
     return r.status === 200 && !!r.body && typeof r.body === 'object' && 'ok' in r.body && r.body.ok === true;
 }

@@ -26,7 +26,7 @@ CREATE TABLE private_shore.contacts(
 );
 CREATE INDEX shore_contacts_owner ON private_shore.contacts(owner_id,boat_id);
 CREATE INDEX shore_contacts_chat ON private_shore.contacts(bot_id,chat_id,user_id) WHERE consent='confirmed';
-CREATE TABLE private_shore.nonces(contact_id uuid REFERENCES private_shore.contacts ON DELETE CASCADE,revision uuid NOT NULL,kind text CHECK(kind IN ('confirm','revoke')),hash text NOT NULL UNIQUE CHECK(hash~'^[a-f0-9]{64}$'),expires_at timestamptz NOT NULL,used_at timestamptz,PRIMARY KEY(contact_id,kind));
+CREATE TABLE private_shore.nonces(contact_id uuid REFERENCES private_shore.contacts ON DELETE CASCADE,revision uuid NOT NULL,kind text CHECK(kind IN ('confirm','revoke')),hash text NOT NULL UNIQUE CHECK(hash~'^[a-f0-9]{64}$'),expires_at timestamptz NOT NULL,used_at timestamptz,preview_chat text,preview_user text,preview_at timestamptz,PRIMARY KEY(contact_id,kind));
 CREATE TABLE private_shore.quotas(owner_id uuid PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,day date NOT NULL,invites integer NOT NULL DEFAULT 0 CHECK(invites BETWEEN 0 AND 10),deliveries integer NOT NULL DEFAULT 0 CHECK(deliveries BETWEEN 0 AND 30));
 CREATE TABLE private_shore.global_quotas(day date PRIMARY KEY,invites integer NOT NULL DEFAULT 0 CHECK(invites BETWEEN 0 AND 500),deliveries integer NOT NULL DEFAULT 0 CHECK(deliveries BETWEEN 0 AND 5000));
 CREATE TABLE private_shore.anchor_bindings(session_code text PRIMARY KEY REFERENCES public.anchor_watch_sessions ON DELETE CASCADE,owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,boat_id uuid NOT NULL REFERENCES public.boats ON DELETE CASCADE,revision uuid NOT NULL DEFAULT gen_random_uuid());
@@ -104,7 +104,7 @@ CREATE FUNCTION public.shore_invite(p_owner uuid,p_contact uuid,p_revision uuid,
  UPDATE private_shore.contacts SET consent='pending',consented_at=NULL,chat_id=NULL,user_id=NULL,bot_id=NULL,invite_bot_id=(SELECT bot_id FROM private_shore.control WHERE singleton),revoke_key=c.revision,invited_at=now(),configuration=jsonb_set(configuration,'{enabled}','false') WHERE id=c.id;
  UPDATE private_shore.deliveries SET finished=true WHERE contact_id=c.id;
  DELETE FROM private_shore.nonces WHERE contact_id=c.id;
- INSERT INTO private_shore.nonces VALUES(c.id,c.revision,'confirm',p_confirm_hash,now()+interval '24 hours',NULL),(c.id,c.revision,'revoke',p_revoke_hash,now()+interval '1 year',NULL);
+ INSERT INTO private_shore.nonces(contact_id,revision,kind,hash,expires_at,used_at) VALUES(c.id,c.revision,'confirm',p_confirm_hash,now()+interval '24 hours',NULL),(c.id,c.revision,'revoke',p_revoke_hash,now()+interval '1 year',NULL);
  RETURN jsonb_build_object('invitationId',gen_random_uuid(),'channel',c.configuration->>'channel','address',c.configuration->>'address','sharePosition',(c.configuration->>'sharePosition')::boolean,'botId',(SELECT bot_id FROM private_shore.control WHERE singleton));
 END $$;
 CREATE FUNCTION public.shore_consent(p_hash text,p_action text,p_chat text DEFAULT NULL,p_user text DEFAULT NULL,p_bot text DEFAULT NULL) RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$ DECLARE n private_shore.nonces;c private_shore.contacts; BEGIN
@@ -116,7 +116,7 @@ CREATE FUNCTION public.shore_consent(p_hash text,p_action text,p_chat text DEFAU
  IF NOT FOUND OR n.used_at IS NOT NULL OR n.expires_at<=now() OR n.revision<>c.revision OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=c.boat_id AND owner_id=c.owner_id AND archived_at IS NULL) THEN RETURN false; END IF;
  IF p_action='confirm' THEN
   IF NOT private_shore.permitted(c.configuration->>'channel') THEN RETURN false; END IF;
-  IF c.configuration->>'channel'='telegram' AND (p_chat IS NULL OR p_user IS NULL OR p_chat!~'^[1-9][0-9]{0,15}$' OR p_chat<>p_user OR p_bot IS DISTINCT FROM c.invite_bot_id OR p_bot IS DISTINCT FROM (SELECT bot_id FROM private_shore.control WHERE singleton)) THEN RETURN false; END IF;
+  IF c.configuration->>'channel'='telegram' AND (p_chat IS NULL OR p_user IS NULL OR p_chat!~'^[1-9][0-9]{0,15}$' OR p_chat<>p_user OR p_bot IS DISTINCT FROM c.invite_bot_id OR p_bot IS DISTINCT FROM (SELECT bot_id FROM private_shore.control WHERE singleton) OR n.preview_chat IS DISTINCT FROM p_chat OR n.preview_user IS DISTINCT FROM p_user OR n.preview_at IS NULL OR n.preview_at<=now()-interval '5 minutes' OR n.preview_at>now()) THEN RETURN false; END IF;
   IF c.configuration->>'channel'='email' AND (p_chat IS NOT NULL OR p_user IS NOT NULL OR p_bot IS NOT NULL) THEN RETURN false; END IF;
   UPDATE private_shore.contacts SET consent='confirmed',consented_at=now(),chat_id=p_chat,user_id=p_user,bot_id=p_bot WHERE id=c.id;
  ELSE UPDATE private_shore.contacts SET consent='revoked',consented_at=NULL,configuration=jsonb_set(configuration,'{enabled}','false') WHERE id=c.id; UPDATE private_shore.deliveries SET finished=true WHERE contact_id=c.id; END IF;
@@ -124,13 +124,21 @@ CREATE FUNCTION public.shore_consent(p_hash text,p_action text,p_chat text DEFAU
 END $$;
 -- Bounded per-chat high-water mark (one row per known recipient). /stop remains
 -- effective even while transport readiness is held. Old/replayed updates do not reply.
-CREATE FUNCTION public.shore_telegram_command(p_bot text,p_chat text,p_user text,p_update bigint,p_at bigint,p_command text,p_hash text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$ DECLARE prior private_shore.telegram_updates; c private_shore.contacts; pos jsonb; matches integer; result jsonb; BEGIN
- IF p_bot IS DISTINCT FROM (SELECT bot_id FROM private_shore.control WHERE singleton) OR p_chat IS NULL OR p_chat<>p_user OR p_chat!~'^[1-9][0-9]{0,15}$' OR p_update IS NULL OR p_update<0 OR p_at IS NULL OR p_at>extract(epoch FROM now())*1000 OR (p_command<>'stop' AND p_at<extract(epoch FROM now()-interval '5 minutes')*1000) OR p_command NOT IN ('confirm','stop','where') THEN RETURN NULL; END IF;
+CREATE FUNCTION public.shore_telegram_command(p_bot text,p_chat text,p_user text,p_update bigint,p_at bigint,p_command text,p_hash text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$ DECLARE prior private_shore.telegram_updates; c private_shore.contacts; n private_shore.nonces; pos jsonb; matches integer; result jsonb; BEGIN
+ IF p_bot IS DISTINCT FROM (SELECT bot_id FROM private_shore.control WHERE singleton) OR p_chat IS NULL OR p_user IS NULL OR p_chat<>p_user OR p_chat!~'^[1-9][0-9]{0,15}$' OR p_update IS NULL OR p_update<0 OR p_at IS NULL OR p_at<=0 OR p_at>extract(epoch FROM now())*1000 OR (p_command<>'stop' AND p_at<extract(epoch FROM now()-interval '5 minutes')*1000) OR p_command IS NULL OR p_command NOT IN ('preview','confirm','stop','where') THEN RETURN NULL; END IF;
  DELETE FROM private_shore.telegram_updates WHERE accepted_at<now()-interval '1 day';
  PERFORM pg_advisory_xact_lock(hashtextextended('shore-chat:'||p_bot||':'||p_chat,0));
  SELECT * INTO prior FROM private_shore.telegram_updates WHERE bot_id=p_bot AND chat_id=p_chat AND user_id=p_user FOR UPDATE;
  IF prior.update_id IS NOT NULL AND p_update<=prior.update_id THEN RETURN NULL; END IF;
- IF p_command='confirm' THEN
+ IF p_command='preview' THEN
+  IF p_hash IS NULL OR p_hash!~'^[a-f0-9]{64}$' OR NOT private_shore.permitted('telegram') THEN RETURN NULL; END IF;
+  SELECT * INTO n FROM private_shore.nonces WHERE hash=p_hash AND kind='confirm';
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  SELECT * INTO c FROM private_shore.contacts WHERE id=n.contact_id FOR UPDATE;
+  SELECT * INTO n FROM private_shore.nonces WHERE hash=p_hash AND kind='confirm' FOR UPDATE;
+  IF NOT FOUND OR n.used_at IS NOT NULL OR n.expires_at<=now() OR n.revision<>c.revision OR c.configuration->>'channel'<>'telegram' OR c.invite_bot_id IS DISTINCT FROM p_bot OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=c.boat_id AND owner_id=c.owner_id AND archived_at IS NULL) OR (n.preview_chat IS NOT NULL AND (n.preview_chat IS DISTINCT FROM p_chat OR n.preview_user IS DISTINCT FROM p_user)) THEN RETURN NULL; END IF;
+  UPDATE private_shore.nonces SET preview_chat=p_chat,preview_user=p_user,preview_at=now() WHERE contact_id=c.id AND kind='confirm';
+ ELSIF p_command='confirm' THEN
   IF public.shore_consent(p_hash,'confirm',p_chat,p_user,p_bot) IS NOT TRUE THEN RETURN NULL; END IF;
  ELSIF NOT EXISTS(SELECT 1 FROM private_shore.contacts WHERE bot_id=p_bot AND chat_id=p_chat AND user_id=p_user AND consent='confirmed') THEN RETURN NULL; END IF;
  INSERT INTO private_shore.telegram_updates VALUES(p_bot,p_chat,p_user,p_update,now(),prior.replied_at) ON CONFLICT(bot_id,chat_id,user_id) DO UPDATE SET update_id=EXCLUDED.update_id,accepted_at=now();
@@ -139,8 +147,9 @@ CREATE FUNCTION public.shore_telegram_command(p_bot text,p_chat text,p_user text
   UPDATE private_shore.deliveries d SET finished=true FROM private_shore.contacts x WHERE d.contact_id=x.id AND x.bot_id=p_bot AND x.chat_id=p_chat AND x.user_id=p_user;
   RETURN jsonb_build_object('text','Shore-contact messages stopped. A new invitation and confirmation are required to restart.');
  END IF;
- IF prior.replied_at>now()-interval '1 minute' THEN RETURN NULL; END IF;
+ IF p_command<>'confirm' AND prior.replied_at>now()-interval '1 minute' THEN RETURN NULL; END IF;
  UPDATE private_shore.telegram_updates SET replied_at=now() WHERE bot_id=p_bot AND chat_id=p_chat AND user_id=p_user;
+ IF p_command='preview' THEN RETURN jsonb_build_object('invitation',jsonb_build_object('sharePosition',(c.configuration->>'sharePosition')::boolean)); END IF;
  IF p_command='confirm' THEN RETURN jsonb_build_object('text','Consent recorded. The owner must separately enable this vessel contact. Use /stop to revoke.'); END IF;
  IF NOT private_shore.permitted('telegram') THEN RETURN NULL; END IF;
  SELECT count(*) INTO matches FROM private_shore.contacts x JOIN public.boats b ON b.id=x.boat_id AND b.owner_id=x.owner_id AND b.archived_at IS NULL WHERE x.bot_id=p_bot AND x.chat_id=p_chat AND x.user_id=p_user AND x.consent='confirmed' AND (x.configuration->>'enabled')::boolean AND (x.configuration->>'sharePosition')::boolean;

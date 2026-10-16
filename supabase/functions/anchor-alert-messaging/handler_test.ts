@@ -1,5 +1,13 @@
 import { createShoreHandler, type ShoreDependencies } from './handler.ts';
-import { nonceHash, revokeNonce, sendShoreEmail, sendShoreTelegram, shoreBackend } from './transport.ts';
+import {
+    answerShoreTelegram,
+    nonceHash,
+    revokeNonce,
+    sendShoreEmail,
+    sendShoreTelegram,
+    shoreBackend,
+} from './transport.ts';
+import { shoreConfirmationData } from '../../../utils/shoreContacts.ts';
 const id = '10000000-0000-4000-8000-000000000001', rev = '20000000-0000-4000-8000-000000000001', nonce = 'a'.repeat(64);
 const config: Record<string, string> = {
     SHORE_MESSAGING_ENABLED: '1',
@@ -162,6 +170,34 @@ Deno.test('no provider request for absent Telegram token; Telegram token URLs/er
     });
     const response = await h(request({ action: 'invite', contactId: id, revision: rev }));
     eq((await response.text()).includes('secret upstream'), false);
+});
+Deno.test('private policy prompt and callback acknowledgement have fixed bounded Telegram bodies', async () => {
+    const token = '456:' + 'x'.repeat(32), bodies: unknown[] = [];
+    const e = { get: (k: string) => k === 'TELEGRAM_BOT_TOKEN' ? token : config[k] };
+    const fetcher: typeof fetch = async (input, init) => {
+        eq(String(input).startsWith(`https://api.telegram.org/bot${token}/`), true);
+        eq(init?.redirect, 'error');
+        bodies.push(JSON.parse(String(init?.body)));
+        return Response.json({ ok: true, result: {} });
+    };
+    eq(await sendShoreTelegram(e, fetcher, '123', 'Fixed explicit permissions', nonce), true);
+    eq(bodies[0], {
+        chat_id: '123',
+        text: 'Fixed explicit permissions',
+        link_preview_options: { is_disabled: true },
+        reply_markup: {
+            inline_keyboard: [[{ text: 'I agree to these permissions', callback_data: shoreConfirmationData(nonce) }]],
+        },
+    });
+    eq(await answerShoreTelegram(e, fetcher, 'fixture_callback'), true);
+    eq(bodies[1], {
+        callback_query_id: 'fixture_callback',
+        text: 'Request processed. Check the bot reply.',
+        cache_time: 0,
+    });
+    eq(await sendShoreTelegram(e, fetcher, '123', 'Fixed explicit permissions', 'invalid'), false);
+    eq(await answerShoreTelegram(e, fetcher, 'bad\ncallback'), false);
+    eq(bodies.length, 2);
 });
 Deno.test('fixed backend RPC allowlist and redirect refusal protect service credentials', async () => {
     let calls = 0;
