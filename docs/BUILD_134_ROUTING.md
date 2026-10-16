@@ -1,6 +1,6 @@
 # Build 134 routing integration
 
-Local implementation on `codex/build-134-routing`, incorporating the frozen build 133 corrections from `6e2ee4ad203b60d7ddbcb377f29708b6420684ff`. This document records source behavior, not a benchmark success, physical-device check or TestFlight upload. Weather backend deployments are recorded separately in [the integration record](BUILD_134.md).
+Local implementation on `codex/build-134-routing`, incorporating the frozen build 133 corrections from `9c0d9f2f2e5ca3a00226bc023b44a850e3666225`. This document records source behavior, not a benchmark success, physical-device check or TestFlight upload. Weather backend deployments are recorded separately in [the integration record](BUILD_134.md).
 
 ## 134-02: chart planning environment and vessel rules
 

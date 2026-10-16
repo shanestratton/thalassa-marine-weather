@@ -11,6 +11,7 @@ import {
     setReliefPalette,
 } from '../../components/map/reliefBase';
 
+const errors: string[] = [];
 const ready = (async () => {
     await hydrateRelief();
     mapboxgl.accessToken = 'pk.fixture-offline-terrain';
@@ -31,6 +32,7 @@ const ready = (async () => {
         preserveDrawingBuffer: true,
         transformRequest: (url, type) => ({ url: type === 'Tile' ? (offlineReliefUrl(url) ?? url) : url }),
     });
+    map.on('error', (event) => errors.push(event.error?.message ?? 'Map rendering error'));
     subscribeOfflineRelief(() => {
         if (map.getSource('relief-global-idx')) reloadReliefSources(map);
     });
@@ -69,6 +71,13 @@ Object.assign(window, {
                     map.once('idle', () => resolve());
                     map.triggerRepaint();
                 });
+            // Tile/source readiness can precede its first completed draw on
+            // WebKit's software GPU. Read the pixels from a fresh render,
+            // rather than an earlier frame containing only the background.
+            await new Promise<void>((resolve) => {
+                map.once('render', () => resolve());
+                map.triggerRepaint();
+            });
             const c = map.getCanvas(),
                 gl = c.getContext('webgl2')!,
                 rgba = new Uint8Array(4);
@@ -79,6 +88,7 @@ Object.assign(window, {
                 storage: reliefStorage(),
                 offline: navigator.onLine === false,
                 attribution: document.querySelector('.mapboxgl-ctrl-attrib')?.textContent,
+                errors: errors.slice(-12),
             };
         },
     },

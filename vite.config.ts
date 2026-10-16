@@ -428,6 +428,9 @@ export default defineConfig(({ mode }) => {
     }
 
     return {
+        // Lazy ENC contours otherwise introduce this dependency during a
+        // browser test and Vite reloads every open page halfway through input.
+        optimizeDeps: { include: ['delaunator'] },
         server: {
             port: 3000,
             // Localhost by default. LAN exposure is an explicit developer opt-in.

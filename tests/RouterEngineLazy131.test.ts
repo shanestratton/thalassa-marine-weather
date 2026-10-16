@@ -22,7 +22,12 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { APP_SHELL_ENTRY, routeJobClosure, staticAppGraph } from '../scripts/route-job-closure.mjs';
+import {
+    APP_SHELL_ENTRY,
+    ROUTE_ENGINE_SHARED_LEAVES,
+    routeJobClosure,
+    staticAppGraph,
+} from '../scripts/route-job-closure.mjs';
 
 const ROOT = process.cwd();
 const ENGINE = routeJobClosure(ROOT) as Map<string, { imports: string[] }>;
@@ -44,6 +49,11 @@ const START_UP_LEAVES = [
     // (vite.config.ts routeEngineLogger), so this is not the engine's.
     'utils/createLogger.ts',
 ];
+
+/** Everyday passage summaries share these pure calculations with the offshore
+ * Worker. None imports runtime code: Plan Your Day's existing polar lookup,
+ * saved-route distances, and incoming-leg sailing statistics cannot load a router. */
+const SAFE_ENGINE_LEAVES = [...START_UP_LEAVES, ...ROUTE_ENGINE_SHARED_LEAVES];
 
 /** What `entries` reach statically, of the engine's graph and of the router's front doors. */
 function routerReach(entries: string[]): string[] {
@@ -97,7 +107,7 @@ describe('the app starts without the router (131-04)', () => {
     }, 60_000);
 
     it('those leaves import nothing of the engine for a value, so the router cannot ride in with them', () => {
-        for (const leaf of START_UP_LEAVES.filter((f) => f !== 'utils/createLogger.ts')) {
+        for (const leaf of SAFE_ENGINE_LEAVES.filter((f) => f !== 'utils/createLogger.ts')) {
             expect(ENGINE.get(leaf)?.imports, leaf).toEqual([]);
         }
     });
@@ -135,7 +145,7 @@ describe('the app starts without the router (131-04)', () => {
             'components/passage/TripSheet.tsx',
         ]) {
             expect(
-                routerReach([module]).filter((f) => !START_UP_LEAVES.includes(f)),
+                routerReach([module]).filter((f) => !SAFE_ENGINE_LEAVES.includes(f)),
                 module,
             ).toEqual([]);
         }

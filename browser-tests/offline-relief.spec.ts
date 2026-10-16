@@ -154,10 +154,22 @@ test('saved terrain renders after an offline cold restart through the real servi
     await expect
         .poll(() => cold.evaluate(() => typeof (window as unknown as { __offlineRelief?: unknown }).__offlineRelief))
         .toBe('object');
-    const proof = await cold.evaluate(
-        async () =>
-            await (window as unknown as { __offlineRelief: { probe: () => Promise<unknown> } }).__offlineRelief.probe(),
-    );
+    let proof: unknown;
+    await expect
+        .poll(
+            async () => {
+                proof = await cold.evaluate(
+                    async () =>
+                        await (
+                            window as unknown as { __offlineRelief: { probe: () => Promise<unknown> } }
+                        ).__offlineRelief.probe(),
+                );
+                const p = (proof as { pixel: number[] }).pixel;
+                return p[2] > 2 * p[0] + 10 && p[1] > p[0] + 10 && p[3] === 255;
+            },
+            { message: 'the saved public terrain is drawn after an actual cold offline render', timeout: 15000 },
+        )
+        .toBe(true);
     expect(proof).toMatchObject({ offline: browserName !== 'webkit', loaded: true });
     const pixel = (proof as { pixel: number[] }).pixel;
     expect(pixel[2]).toBeGreaterThan(2 * pixel[0] + 10);

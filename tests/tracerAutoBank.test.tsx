@@ -92,6 +92,7 @@ import { vesselDraftIsAssumed, vesselDraftMetres } from '../services/units';
 import { useTracerGrading, type TracerStatus } from '../components/map/useTracerGrading';
 import { useTracerAutoBank, type TideLabelFor } from '../components/map/useTracerAutoBank';
 import { legCacheKey } from '../components/map/mapHubHelpers';
+import * as navigationUse from '../services/tides/navigationUse';
 
 const FT = 3.28084;
 const DEPART = Date.parse('2026-10-10T07:00:00Z');
@@ -197,6 +198,7 @@ describe('useTracerAutoBank — never banks verdicts graded for other pins or an
         setAuthIdentityScope('autobank-owner');
     });
     afterEach(() => {
+        vi.restoreAllMocks();
         setAuthIdentityScope(null);
     });
 
@@ -262,7 +264,34 @@ describe('useTracerAutoBank — never banks verdicts graded for other pins or an
         expect(h.events).toEqual(['grade:clear', 'bank']);
     });
 
-    it('a tide-gated line waits for a tide window computed for THESE verdicts', async () => {
+    it('a tide-gated line cannot bank while the actual provider boundary is closed, even with its own window', async () => {
+        expect(navigationUse.navigationTideSourceAvailable()).toBe(false);
+        h.needsTide = true;
+        h.gradeByLat.set(antibes[0].lat, 'caution');
+        const id = saveTrace('Antibes → Lérins', antibes).trace.id;
+        const labelForRef: { current: TideLabelFor | null } = { current: null };
+        render(
+            <Harness
+                coords={antibes}
+                vessel={keel(1.8)}
+                capture
+                tideLabel="Leave 09:15–13:30"
+                labelForRef={labelForRef}
+                onVerdicts={(verdicts) => {
+                    labelForRef.current = { verdicts, departureMs: DEPART };
+                }}
+            />,
+        );
+        await waitFor(() => expect(h.events).toContain('grade:caution'));
+        await settle();
+        expect(labelForRef.current?.verdicts[0]?.needsTide).toBe(true);
+        expect(stored(id)?.verification).toBeUndefined();
+        expect(h.events).not.toContain('bank');
+    });
+
+    it('a synthetic approved-source tide window must be computed for THESE verdicts', async () => {
+        // Only this generated-window identity proof assumes an approved source.
+        vi.spyOn(navigationUse, 'navigationTideSourceAvailable').mockReturnValue(true);
         h.needsTide = true;
         h.gradeByLat.set(antibes[0].lat, 'caution');
         const id = saveTrace('Antibes → Lérins', antibes).trace.id;

@@ -16,6 +16,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Feature, FeatureCollection } from 'geojson';
 
+// This suite supplies only generated curves, representing an approved synthetic
+// source for routing/saved-word arithmetic. Real WorldTides stays closed in
+// WorldTidesNavigationUse and SavedTidePermission; no provider request occurs here.
+vi.mock('../services/tides/navigationUse', () => ({ navigationTideSourceAvailable: () => true }));
+
 const mocks = vi.hoisted(() => ({ cells: [] as unknown[], blob: vi.fn(), curve: vi.fn() }));
 vi.mock('../services/enc/EncCellMetadata', async (original) => ({
     ...(await original<typeof import('../services/enc/EncCellMetadata')>()),

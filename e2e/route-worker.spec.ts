@@ -156,6 +156,31 @@ test.describe('the route worker is the engine chunk', () => {
         expect(readdirSync(ASSETS).filter((f) => /^navGridWorker-[\w-]+\.js$/.test(f))).toEqual([]);
     });
 
+    test('opening lazy Crew or Today screens cannot load the router for shared calculations', () => {
+        const screens = readdirSync(ASSETS).filter((file) => /^(CrewManagement|TodaySheet)-[\w-]+\.js$/.test(file));
+        expect(screens).toHaveLength(2);
+        for (const screen of screens) {
+            const seen = new Set<string>();
+            const queue = [screen];
+            while (queue.length) {
+                const file = queue.pop()!;
+                if (seen.has(file)) continue;
+                seen.add(file);
+                const code = readFileSync(join(ASSETS, file), 'utf8');
+                for (const match of code.matchAll(/(?:\bfrom\s*|\bimport\s*)["']\.\/([^"']+\.js)["']/g))
+                    queue.push(match[1]);
+            }
+            expect(
+                [...seen].filter((file) => /^router-engine-/.test(file)),
+                screen,
+            ).toEqual([]);
+            expect(
+                [...seen].some((file) => /^engine-leaf-/.test(file)),
+                screen,
+            ).toBe(true);
+        }
+    });
+
     test('answers a tracer grid job as a module worker, byte for byte as on the main thread', async ({ page }) => {
         test.setTimeout(120_000);
         const args = fiveMileGridArgs();

@@ -97,6 +97,8 @@ async function resolveMapPick(
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+const mobileLandscapeNow = () =>
+    typeof window !== 'undefined' && window.innerHeight < 500 && window.innerWidth > window.innerHeight;
 
 function hasScopedFlag(key: string, scope: AuthIdentityScope): boolean {
     try {
@@ -176,7 +178,7 @@ export const useAppController = () => {
     const [sheetData, setSheetData] = useState<any>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
-    const [isMobileLandscape, setIsMobileLandscape] = useState(false);
+    const [isMobileLandscape, setIsMobileLandscape] = useState(mobileLandscapeNow);
 
     const gpsBootScopeRef = React.useRef<string | null>(null);
 
@@ -489,9 +491,9 @@ export const useAppController = () => {
     // 4. Mobile Landscape Detection
     useEffect(() => {
         const checkOrientation = () => {
-            const isLandscape = window.matchMedia('(orientation: landscape)').matches;
-            const isShort = window.innerHeight < 500; // Typical mobile landscape height
-            setIsMobileLandscape(isLandscape && isShort);
+            // Read one viewport snapshot: WebKit can deliver resize before the
+            // orientation media query changes, briefly retaining the tall header.
+            setIsMobileLandscape(mobileLandscapeNow());
         };
         checkOrientation();
         window.addEventListener('resize', checkOrientation);

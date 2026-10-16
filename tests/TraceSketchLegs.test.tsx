@@ -55,6 +55,7 @@ import { ChartKeyPanel } from '../components/map/ChartKeyPanel';
 import { TracerWaypointList } from '../components/map/tracer/TracerWaypointList';
 import { contrast } from './helpers/colourScience';
 import { FakeMapboxMap } from './helpers/fakeMapboxGl';
+import { mapInitSource, mapInitVariable, ts } from './helpers/mapInitSourceAst';
 
 // Fictional legs in public waters: Chesapeake Bay (USA) and the Solent.
 const LEGS = [
@@ -299,8 +300,18 @@ describe('lines that read on the pale sea (127-DESKMAP A4)', () => {
         const harbour = added('route-harbour-casing');
         expect(init.slice(harbour, harbour + 400)).toMatch(/layout: edgeLayout/);
         expect(init).toMatch(/visibility: Capacitor\.isNativePlatform\(\) \? 'none' : 'visible'/);
-        const helper = init.indexOf('const braidCasing = ');
-        expect(init.slice(helper, helper + 260)).toMatch(/layout: edgeLayout/);
+        const helper = mapInitVariable('braidCasing');
+        expect(ts.isArrowFunction(helper)).toBe(true);
+        if (!ts.isArrowFunction(helper) || !ts.isCallExpression(helper.body))
+            throw Error('Expected casing layer helper');
+        expect(helper.body.expression.getText(mapInitSource)).toBe('map.addLayer');
+        const layer = helper.body.arguments[0];
+        if (!ts.isObjectLiteralExpression(layer)) throw Error('Expected explicit casing layer');
+        const layout = layer.properties.find(
+            (property) => ts.isPropertyAssignment(property) && property.name.getText(mapInitSource) === 'layout',
+        );
+        if (!layout || !ts.isPropertyAssignment(layout)) throw Error('Missing casing layout');
+        expect(layout.initializer.getText(mapInitSource)).toBe('edgeLayout');
 
         vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
         try {

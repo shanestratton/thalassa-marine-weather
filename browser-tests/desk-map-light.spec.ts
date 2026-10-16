@@ -74,6 +74,13 @@ interface Net {
 async function serveDesk(page: Page, origin: string, net: Net) {
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
+        // This fixture supplies a working synthetic Mapbox connection. The
+        // native WAN probe must agree: rejecting it marks the phone offline
+        // before a cold chart starts and deliberately selects the land-only
+        // fallback. No request leaves the fixture. Offline cold-start terrain
+        // has its separate real-service-worker test with networking disabled.
+        if (url.hostname === 'www.gstatic.com' && url.pathname === '/generate_204')
+            return route.fulfill({ status: 204 });
         const xyz = (m: RegExpMatchArray, at: number) => [Number(m[at]), Number(m[at + 1]), Number(m[at + 2])] as const;
         if (url.origin === origin) {
             const m = url.pathname.match(/^\/__log-map-fixture\/composite\/(\d+)\/(\d+)\/(\d+)\.mvt$/);

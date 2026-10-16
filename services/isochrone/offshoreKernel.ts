@@ -4,7 +4,7 @@ import type { PolarData } from '../../types';
 import { type BathymetryGrid, isLand, isNearShore, getDepthFromCache, depthCostPenalty } from './publicBathymetry';
 import type { WindField, CurrentField, ExclusionField, WaveField, IsochroneNode, IsochroneConfig } from './types';
 import { DEFAULT_ISOCHRONE_CONFIG } from './types';
-import { sailingStatsForNodes } from './routeStats';
+import { sailingStatsForNodes } from './routeSailingStats';
 import { routeComfortForNodes } from './routeComfort';
 import { haversineNm, initialBearing, projectPosition, calcTWA, R_NM, toRad, toDeg } from './geodesy';
 import { createPolarSpeedLookup } from './polar';
