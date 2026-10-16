@@ -9,9 +9,13 @@ export interface WeatherPositionFix {
     lon: number;
     at: number;
 }
-export interface WeatherPositionSource {
-    schema: 1;
+export interface WeatherPositionIdentity {
+    ownerId: string;
+    piDeviceId: string;
     relayId: string;
+}
+export interface WeatherPositionSource extends WeatherPositionIdentity {
+    schema: 1;
     selfKey: string;
     sourceKey: string;
     position: WeatherPositionFix;
@@ -76,8 +80,10 @@ export function weatherPositionFix(
 export function parseWeatherPositionSource(value: unknown, now: number): WeatherPositionSource | null {
     if (
         !object(value) ||
-        !exact(value, ['schema', 'relayId', 'selfKey', 'sourceKey', 'position', 'servedAt']) ||
+        !exact(value, ['schema', 'ownerId', 'piDeviceId', 'relayId', 'selfKey', 'sourceKey', 'position', 'servedAt']) ||
         value.schema !== 1 ||
+        !weatherPositionUuid(value.ownerId) ||
+        !weatherPositionUuid(value.piDeviceId) ||
         !weatherPositionRelay(value.relayId) ||
         !weatherPositionHash(value.selfKey) ||
         !weatherPositionHash(value.sourceKey) ||
@@ -92,6 +98,8 @@ export function parseWeatherPositionSource(value: unknown, now: number): Weather
     return position
         ? {
               schema: 1,
+              ownerId: value.ownerId,
+              piDeviceId: value.piDeviceId,
               relayId: value.relayId,
               selfKey: value.selfKey,
               sourceKey: value.sourceKey,

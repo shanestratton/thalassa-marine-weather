@@ -148,11 +148,17 @@ isolation base; it must not overwrite newer live wake fixes with an older bundle
 `GET /api/weather-watch/position-source` accepts no query/body. It runs behind
 the existing app gate and independently requires a currently enrolled phone on
 physical boat LAN, including device observe mode. Its callback reads only the
-authenticated Signal K read-session cache. It returns version1, relay identity,
+authenticated Signal K read-session cache. It returns version1, server-owned
+owner/Pi/relay identity,
 SHA-256 self/selected-source keys, an original-clock position and the catalogue
 time. No source URL, credential, raw self UUID or arbitrary Signal K path crosses
 the seam. Missing `$source`, a parent-only clock, a future/older-than13s fix,
 unpaired Pi, changed enrollment/pairing, tailnet peer or unavailable cache refuses.
+The route copies the registered owner/Pi/relay tuple before the first enrollment
+await and checks it again after the cache and final enrollment waits. The phone
+admits it only for the current account and exact selected Pi/pin. A registration
+uses the same frozen reviewed source object and rechecks account, pin, LAN and
+enrollment; account or pair replacement cannot offer or register the prior source.
 The fixed schema admits genuine `(0,0)` positions.
 
 The owner explicitly reviews this local source and saves
@@ -205,7 +211,12 @@ app.use(
     createWeatherPositionRoutes({
         devices: chartDevices,
         selfDocument, // existing authenticated cache-only callback; no fallback
-        relayId: () => diaryRelayOutbox.lendTelemetryCredentials()?.relayId ?? null,
+        identity: () => {
+            const registered = diaryRelayOutbox.getConfiguration();
+            return registered.ownerId && registered.relayId
+                ? { ownerId: registered.ownerId, piDeviceId: identity.deviceId, relayId: registered.relayId }
+                : null;
+        },
     }),
 );
 // piCommandLock's exact read table:
@@ -224,10 +235,17 @@ Position follow-up proof:78 focused app checks plus two actual portable-wire
 compile/mirror checks;28 Pi legacy/optional-proof/actual-mounted-router checks;
 22 Deno checks;49 isolated SQL behavior/ACL checks; app and Pi full TypeScript;
 four actual Chrome/WebKit300/375 browser cases with inspected screenshots.
-The separate `supabase/tests/weather-watch-postgres.mjs` is prepared, not run:
-it requires an explicitly opted-in empty localhost `weather137_test` database
+The separate `supabase/tests/weather-watch-postgres.mjs` passed against the exact
+92f8e1cf source on actual PostgreSQL17.6 (run38935427858):21 checks,16 parallel
+transactions per feature, two competing source binds, nine account contenders,
+zero product-database writes and zero notifications. Its immutable deployment
+proof receipt is saved outside Git. The runner requires an explicitly opted-in
+empty localhost `weather137_test` database
 on PostgreSQL17.6 and a supplied outside-repository node-postgres module. It
 checks16 competing transactions per feature, cross-boat account quotas, source
 CAS, a verified blocking old-proof/source-replacement race, newer-clock retention
 and relay/owner retirement. No provider, webhook or sender exists in its fixture.
-Run that real lock proof before backend activation; PGlite is not a substitute.
+This proves database lock behavior, not provider entitlement, scheduled operation
+or locked-phone delivery. The owner-envelope follow-up adds16 focused app/wire
+checks and38 Pi/legacy telemetry checks, including nine actual mounted handler
+ownership changes across the three asynchronous boundaries.

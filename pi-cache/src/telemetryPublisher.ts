@@ -29,7 +29,7 @@ import { readTelemetrySnapshot, type TelemetrySnapshot } from './trackSignalk.js
 import {
     appendWeatherPosition,
     readWeatherPositionRequest,
-    readWeatherPositionSource,
+    readWeatherPositionLeaf,
     weatherPositionProof,
 } from './weatherPosition.js';
 import type { WeatherPositionRequest } from './weatherPositionWire.js';
@@ -274,9 +274,7 @@ export class TelemetryPublisher {
         // The legacy instrument reader declines a GPS-only (0,0) document.
         // Its columns stay unknown, while a separately qualified global source
         // may exchange consent/proof in this same existing telemetry request.
-        const positionSource = this.deps.selfDocument
-            ? readWeatherPositionSource(doc, credential.relayId, now())
-            : null;
+        const positionSource = this.deps.selfDocument ? readWeatherPositionLeaf(doc, now()) : null;
         if (!snapshot && !positionSource) return 'no-data';
         if (!stillCurrent()) {
             this.weatherRequest = null;
