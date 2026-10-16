@@ -130,6 +130,46 @@ export class TrackStore {
             .all(query.fromMs, query.toMs, limit) as Record<string, number | string | null>[];
     }
 
+    /** Additive replay protocol: a stable snapshot ordered by time AND append ID. */
+    pointsPage(query: TrackQuery & { cursor?: { atMs: number; rowId: number; snapshot: number } }): {
+        points: Record<string, number | string | null>[];
+        snapshot: number;
+        truncated: boolean;
+        nextCursor: string | null;
+    } {
+        const maximum = this.polarLastRowId();
+        const snapshot = query.cursor?.snapshot ?? maximum;
+        if (!Number.isSafeInteger(snapshot) || snapshot < 0 || snapshot > maximum)
+            throw new RangeError('Invalid track snapshot');
+        const limit = Math.max(1, Math.min(Math.floor(query.limit ?? 500), 2000));
+        const after = query.cursor;
+        const rows = this.db
+            .prepare(
+                `
+            SELECT rowid AS sample_id, * FROM track_points
+            WHERE at_ms >= ? AND at_ms <= ? AND rowid <= ?
+            ${after ? 'AND (at_ms > ? OR (at_ms = ? AND rowid > ?))' : ''}
+            ORDER BY at_ms ASC, rowid ASC LIMIT ?
+        `,
+            )
+            .all(
+                query.fromMs,
+                query.toMs,
+                snapshot,
+                ...(after ? [after.atMs, after.atMs, after.rowId] : []),
+                limit + 1,
+            ) as Record<string, number | string | null>[];
+        const truncated = rows.length > limit;
+        const points = truncated ? rows.slice(0, limit) : rows;
+        const last = points.at(-1);
+        return {
+            points,
+            snapshot,
+            truncated,
+            nextCursor: truncated && last ? `${last.at_ms}:${last.sample_id}:${snapshot}` : null,
+        };
+    }
+
     /** Stable append cursor, independent of duplicate/backward GPS timestamps. */
     polarPointsAfter(rowId: number, limit = 500): Record<string, number | string | null>[] {
         return this.db
