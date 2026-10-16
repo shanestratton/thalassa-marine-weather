@@ -86,7 +86,10 @@ describe('Vessel page fits one screen', () => {
         const compact = block(COMPACT);
         expect(value(compact, '.vessel-hub-menu .hub-row-status', 'white-space')).toBe('nowrap');
         expect(value(compact, '.vessel-hub-menu .hub-row-status', 'text-overflow')).toBe('ellipsis');
-        expect(css).not.toMatch(/display:\s*none/);
+        // Only the paired actions' aria-hidden chevrons may yield space; the
+        // labels, descriptions, icons and controls must stay in the page.
+        const hidden = [...css.matchAll(/([^{}]+)\{[^{}]*display:\s*none[^{}]*\}/g)];
+        expect(hidden.map((rule) => rule[1].trim())).toEqual(['.vessel-hub-tools .hub-row-chevron']);
     });
 
     it('goes two columns in phone landscape, with the tab bar reservation released', () => {
@@ -131,15 +134,20 @@ describe('Vessel page fills its screen', () => {
 
     // Shane 2026-10-13 (128-HUES): "the crew and float plan, really needs its
     // own card ... without having to scroll up and down on the page".
-    it("lifts Crew & Float Plan into its own card that takes one row's share, the box the other five", () => {
+    it("lifts Crew & Float Plan into its own card sharing height with the box's six controls", () => {
         // The menu is the port's last block: the crew card over the box, and
         // it takes the menu box's old share of the height.
         expect(value(css, '.vessel-hub-menus', 'display')).toBe('flex');
         expect(value(css, '.vessel-hub-menus', 'flex-direction')).toBe('column');
         expect(value(css, '.vessel-hub-home .vessel-hub-menus', 'flex-grow')).toBe('1');
         expect(value(css, '.vessel-hub-menus > *', 'flex-shrink')).toBe('0');
-        // One row against the box's five, so all six rows grow alike.
-        expect(value(css, '.vessel-hub-home .vessel-hub-menu.vessel-hub-crew', 'flex-grow')).toBe('0.2');
+        // One row against the full-height box's six; compact pages pair two
+        // controls into one visual row without changing their 44 pt floors.
+        expect(value(css, '.vessel-hub-home .vessel-hub-menu.vessel-hub-crew', 'flex-grow')).toBe('calc(1 / 6)');
+        const paired = block('@container vessel-hub (max-height: 819.98px)');
+        expect(value(paired, '.vessel-hub-home .vessel-hub-menu.vessel-hub-crew', 'flex-grow')).toBe('0.2');
+        expect(value(paired, '.vessel-hub-home .vessel-hub-tools', 'min-height')).toBe('44px');
+        expect(value(paired, '.vessel-hub-tools .hub-row-status', 'white-space')).toBe('nowrap');
         // Its halo is the one card hue's, over the box's drop shadow.
         expect(value(css, '.vessel-hub-home .vessel-hub-menu.vessel-hub-crew', 'box-shadow')).toBe(
             'var(--card-hue-halo)',

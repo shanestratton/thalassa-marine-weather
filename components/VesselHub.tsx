@@ -1533,26 +1533,29 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             }}
                         />
                         <ListDivider />
-                        <SystemsEntry />
-                        {/* No ENC Library on this menu: it is retired (127-C-c). */}
-                        <ListDivider />
-                        {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
-                            ask: the mic and the now-playing bar do not help when you
-                            want to go and choose something. */}
-                        <OfficeRow
-                            icon={
-                                <span className="flex" style={{ color: HUB_ACCENT }}>
-                                    <SpeakerWaveIcon className={HUB_ICON} />
-                                </span>
-                            }
-                            label="Music"
-                            status="Apple Music & speakers"
-                            statusColor="#94a3b8"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('music');
-                            }}
-                        />
+                        {/* Both shortcuts stay visible. Compact pages share one
+                            row; taller pages keep the full-width list. */}
+                        <div className="vessel-hub-tools">
+                            <SystemsEntry />
+                            <div aria-hidden="true" className="vessel-hub-tool-divider" />
+                            {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
+                                ask: the mic and the now-playing bar do not help when you
+                                want to go and choose something. */}
+                            <OfficeRow
+                                icon={
+                                    <span className="flex" style={{ color: HUB_ACCENT }}>
+                                        <SpeakerWaveIcon className={HUB_ICON} />
+                                    </span>
+                                }
+                                label="Music"
+                                status="Apple Music & speakers"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('music');
+                                }}
+                            />
+                        </div>
                         <ListDivider />
                         <OfficeRow
                             // "Settings", with what is in it, not "Account &
