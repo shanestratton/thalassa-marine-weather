@@ -25,13 +25,26 @@ const safeZone = {
         [-20, 20],
     ].map(([x, y]) => anchorZonePosition(anchor, x, y)!),
 };
-const snapshot = {
+const snapshot: AnchorWatchSnapshot = {
     state: 'watching',
     anchorPosition: anchor,
-    vesselPosition: { ...anchor },
+    vesselPosition: { ...anchor, accuracy: 1, heading: 0, speed: 0 },
     safeZone,
     swingRadius: 60,
-} as AnchorWatchSnapshot;
+    distanceFromAnchor: 0,
+    maxDistanceRecorded: 0,
+    bearingToAnchor: 0,
+    config: { rodeLength: 50, waterDepth: 10, scopeRatio: 5, rodeType: 'chain', safetyMargin: 10 },
+    positionHistory: [],
+    alarmTriggeredAt: null,
+    alarmCause: null,
+    watchStartedAt: anchor.timestamp,
+    gpsAccuracy: 1,
+    gpsQuality: 'precision',
+    gpsQualityLabel: 'Synthetic fix',
+    guardianStatus: 'idle',
+    setupError: null,
+};
 createRoot(document.getElementById('root')!).render(
     <AnchorSafeZoneSheet
         snapshot={snapshot}
