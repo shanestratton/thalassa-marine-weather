@@ -40,6 +40,10 @@ export interface AttachSeabedOptions {
     appApiEnabled: boolean;
     requireAppApi: express.RequestHandler;
     fetchImpl?: typeof fetch;
+    /** Shared authenticated source cache; null/failed reads must remain unknown. */
+    selfDocument?: () => Promise<unknown | null>;
+    /** Optional cached product metadata; omitted metadata is unknown, never an unauthenticated fetch. */
+    sourcesDocument?: () => Promise<unknown | null>;
 }
 
 function gzip(text: string): Promise<Buffer> {
@@ -112,7 +116,17 @@ export function attachSeabed(options: AttachSeabedOptions): { close(): void } {
     try {
         const fetchImpl = options.fetchImpl ?? fetch;
         const store = new SeabedStore(options.cacheDir);
-        const reader = new SignalkSelfReader(fetchImpl, options.signalkOrigin);
+        const reader = new SignalkSelfReader(
+            fetchImpl,
+            options.signalkOrigin,
+            Date.now,
+            options.selfDocument
+                ? (path) =>
+                      path === 'vessels/self'
+                          ? options.selfDocument!()
+                          : (options.sourcesDocument?.() ?? Promise.resolve(null))
+                : undefined,
+        );
         const runner = new SeabedRunner({
             read: () => reader.read('vessels/self'),
             readSources: () => reader.read('sources'),
