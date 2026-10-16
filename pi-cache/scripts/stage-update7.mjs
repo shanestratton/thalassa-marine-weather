@@ -64,6 +64,7 @@ export function stageUpdate7({ repository, commit, output }) {
         'pi-cache/src/collisionRule/syncedFrom.ts',
         'pi-cache/src/radar/syncedFrom.ts',
         'pi-cache/src/radar/rawReader.ts',
+        'pi-cache/src/radar/contextSession.ts',
         'pi-cache/src/routes/radar.ts',
         'pi-cache/scripts/sync-wake-rule.mjs',
         'pi-cache/scripts/sync-signalk-protocol.mjs',

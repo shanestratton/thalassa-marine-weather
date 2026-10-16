@@ -61,6 +61,7 @@ import { AIS_WATCH_MAX_DEVICES } from './aisWatchStore.js';
 import { AnchorWatchRunner } from './anchorBroadcaster.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { createRadarRoutes } from './routes/radar.js';
 import { createWeatherRoutes } from './routes/weather.js';
 import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
@@ -279,6 +280,7 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createAisWatchRoutes: createAisWatchRoutes(watch),
         createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
         createWakeRuleRoutes: createWakeRuleRoutes({ keeper: stub, devices }),
+        createRadarRoutes: createRadarRoutes(stub),
         createSignalKReadRoutes: createSignalKReadRoutes(
             {
                 notificationSnapshot: () => ({
@@ -357,6 +359,7 @@ test('every route the Pi registers has a row in the table, and every row is a ro
     assert.equal(classOf('POST /api/ais-watch'), 'by body');
     assert.equal(classOf('POST /api/anchor/watch'), 'by body');
     assert.equal(classOf('GET /api/signalk/notifications'), 'read');
+    assert.equal(classOf('GET /api/radar/targets'), 'read');
     assert.equal(classOf('DELETE /api/anchor/watch'), 'command');
     // A command, but for the internet policy said again as the Pi last took it.
     assert.equal(classOf('POST /api/configure'), 'by body');
@@ -372,7 +375,7 @@ test('every route the Pi registers has a row in the table, and every row is a ro
         assert.equal(classOf(key), 'command', key);
     // The chart door keeps every /api/enc route, the switch keeps its own.
     for (const row of PI_ROUTES) {
-        if (row.path.startsWith('/api/enc') || row.path.startsWith('/api/polars'))
+        if (row.path.startsWith('/api/enc') || row.path.startsWith('/api/polars') || row.path.startsWith('/api/radar'))
             assert.equal(row.door, 'chart', `${row.method} ${row.path}`);
         else if (row.path === '/api/pi-lock' && row.method === 'POST') assert.equal(row.door, 'lock');
         else assert.equal(row.door, undefined, `${row.method} ${row.path}`);

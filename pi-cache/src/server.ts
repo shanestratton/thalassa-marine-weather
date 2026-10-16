@@ -58,6 +58,9 @@ import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
 import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { RadarRawReader } from './radar/rawReader.js';
+import { RadarContextSession, radarContextKey } from './radar/contextSession.js';
+import { createRadarRoutes } from './routes/radar.js';
 import { createAppJsonParser } from './appJson.js';
 import { PiWakeKeeper } from './wakeKeeper/runner.js';
 import { WakeKeeperStore } from './wakeKeeper/store.js';
@@ -208,6 +211,25 @@ try {
     console.warn('[signalk] read stream unavailable: review the operator configuration');
 }
 const selfDocument = async (): Promise<unknown | null> => (await signalkRead?.readDocuments())?.selfDoc ?? null;
+let radarReader: RadarRawReader;
+try {
+    const port = process.env.THALASSA_RADAR_NMEA_PORT;
+    radarReader = new RadarRawReader(port === undefined ? {} : { port: /^\d{1,5}$/.test(port) ? Number(port) : NaN });
+} catch {
+    radarReader = new RadarRawReader();
+    console.warn('[radar] local passthrough unavailable; review the operator configuration');
+}
+const radarSession = new RadarContextSession(radarReader, () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return radarContextKey(
+        config.ownerId,
+        identity.deviceId,
+        config.relayId,
+        signalkRead?.notificationSnapshot() ?? null,
+    );
+});
+if (APP_API_ENABLED) radarSession.start();
 const windHistory = new WindHistory({
     cacheDir: CACHE_DIR,
     fetchImpl: fetch,
@@ -638,6 +660,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
         input.allowInternet = (flatPolicy ?? nestedPolicy) as boolean;
     }
 
+    radarSession.retire();
     diaryRelayOutbox.configure(input);
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
     return input.allowInternet;
@@ -1041,6 +1064,12 @@ app.use(
 // THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
+    app.use(
+        '/api/radar',
+        requireAppApi,
+        createEncFrontDoor({ devices: chartDevices }),
+        createRadarRoutes(radarSession),
+    );
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
     app.use(
         '/api/signalk',
@@ -1098,6 +1127,7 @@ if (APP_API_ENABLED) {
         '/api/signalk',
         '/api/course',
         '/api/wake-rules',
+        '/api/radar',
         '/api/polars',
         '/api/offline-weather',
     ]) {
@@ -1264,6 +1294,7 @@ function shutdown() {
             );
     });
     vaultLink?.stop();
+    radarSession.stop();
     signalkRead?.stop();
     wakeKeeper.stop();
     windHistory.stop();

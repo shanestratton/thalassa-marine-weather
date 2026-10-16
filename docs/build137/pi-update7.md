@@ -2,14 +2,14 @@
 
 This prepares the guarded update7 assembler and rollback helpers. No live
 bundle is staged and no Pi is installed by this source checkpoint. The final
-wake and radar server integration and build137 release must come first.
+build137 release must come first.
 
 `pi-cache/scripts/stage-update7.mjs` accepts only an exact committed source
 already in fetched `origin/master` ancestry with four native build137 values.
 It archives tracked Pi source from that commit, never the Pi's checkout or
 working files. It requires the inherited update6 components, wake keeper and
 relay, radar parser/feed/grading/reader/routes, collision-rule and Signal K
-mirrors, and their checked synchronization helpers. Missing components fail
+mirrors, context retirement wrapper, and checked synchronization helpers. Missing components fail
 before the destination is created. No runtime data, identity, credentials or
 licensed chart assets are allowed in the archive inventory.
 

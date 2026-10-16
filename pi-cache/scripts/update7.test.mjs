@@ -56,6 +56,7 @@ const required = [
     'collisionRule/syncedFrom',
     'radar/syncedFrom',
     'radar/rawReader',
+    'radar/contextSession',
     'routes/radar',
 ];
 function fixture() {
