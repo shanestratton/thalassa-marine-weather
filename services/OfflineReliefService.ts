@@ -98,7 +98,18 @@ async function persist() {
         await Filesystem.writeFile({ path: MANIFEST, directory: Directory.Data, encoding: Encoding.UTF8, data });
     else {
         const cache = await caches.open(RELIEF_WEB_CACHE);
-        await cache.put(WEB_MANIFEST, new Response(data, { headers: { 'content-type': 'application/json' } }));
+        const write = () =>
+            cache.put(WEB_MANIFEST, new Response(data, { headers: { 'content-type': 'application/json' } }));
+        await write();
+        if (!(await cache.match(WEB_MANIFEST))) {
+            // WebKit can retain an indexed key whose body is unreadable: put
+            // resolves but subsequent reads still miss it. Repair only this
+            // exact metadata key, once, preserving every saved terrain entry.
+            await cache.delete(WEB_MANIFEST);
+            await write();
+            if (!(await cache.match(WEB_MANIFEST)))
+                throw new ReliefStorageError('Relief index could not be read back from offline storage.');
+        }
         await cache.delete(LEGACY_WEB_MANIFEST).catch(() => undefined);
     }
 }
