@@ -233,6 +233,23 @@ export function wakeRuleKey(rule: WakeRule): string {
     ]);
 }
 
+/** Exact UTF-8 bytes hashed by phone and Pi. Draft changes alter depth assumptions.
+ * Validation belongs to the boundary; this additionally refuses missing/duplicate presets. */
+export function wakeRulesCanonical(rules: readonly WakeRule[], draftM: number | null): string {
+    if (
+        !Array.isArray(rules) ||
+        rules.length !== Object.keys(WAKE_PRESETS).length ||
+        !(draftM === null || (finite(draftM) && draftM > 0 && draftM <= 20))
+    )
+        throw new Error('Wake configuration unavailable');
+    const ordered = defaultWakeRules().map(({ preset }) => {
+        const matches = rules.filter((rule) => rule?.preset === preset);
+        if (matches.length !== 1) throw new Error('Wake configuration unavailable');
+        return wakeRuleKey(matches[0]);
+    });
+    return JSON.stringify([1, draftM, ordered]);
+}
+
 export interface WakeState {
     key: string;
     active: boolean;

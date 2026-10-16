@@ -80,7 +80,12 @@ function depth(context: WakeInputContext, selection: WakeSelection, maxAge: numb
     if (raw && raw.value >= 0) {
         const offset = read('transducerToKeel');
         if (offset && offset.value > 0 && offset.value <= 5 && raw.at - offset.at <= 10_000)
-            return { ...raw, value: raw.value - offset.value, depthBasis: 'transducer-offset' };
+            return {
+                ...raw,
+                value: raw.value - offset.value,
+                at: Math.min(raw.at, offset.at),
+                depthBasis: 'transducer-offset',
+            };
         if (
             typeof context.draftM === 'number' &&
             Number.isFinite(context.draftM) &&

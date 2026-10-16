@@ -8,12 +8,25 @@ import {
     WAKE_ALARM_PRIORITY,
     wakeKeeper,
     wakePresetPriority,
+    wakeRulesCanonical,
     type WakePreset,
     type WakeReading,
     type WakeRule,
 } from '../utils/wakeRule';
 
 const start = Date.parse('2026-10-16T12:00:00Z');
+describe('shared canonical configuration bytes', () => {
+    it('pins version, draft and fixed preset key order, independent of caller ordering', () => {
+        const rules = defaultWakeRules();
+        const encoded = wakeRulesCanonical(rules, 2);
+        expect(encoded).toBe(wakeRulesCanonical([...rules].reverse(), 2));
+        expect(encoded).not.toBe(wakeRulesCanonical(rules, 2.1));
+        expect(JSON.parse(encoded).slice(0, 2)).toEqual([1, 2]);
+        expect(() => wakeRulesCanonical([...rules.slice(1), rules[1]], 2)).toThrow();
+        expect(() => wakeRulesCanonical(rules, NaN)).toThrow();
+        expect(() => wakeRulesCanonical(rules.slice(1), 2)).toThrow();
+    });
+});
 export function enabled(preset: WakePreset = 'wind-above', overrides: Partial<WakeRule> = {}): WakeRule {
     const rule = defaultWakeRules().find((rule) => rule.preset === preset)!;
     return {

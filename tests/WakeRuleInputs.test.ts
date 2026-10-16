@@ -148,6 +148,19 @@ describe('the existing conservative depth policy', () => {
             wakeReadingFromSignalK(selected, context({ environment: { depth: { belowSurface: leaf(5) } } }))?.value,
         ).toBe(underKeelM(5, 'below-waterline', 2));
     });
+    it('dates an offset-derived reading by its oldest measured dependency', () => {
+        for (const [rawAt, offsetAt] of [
+            [now, now - 5000],
+            [now - 5000, now],
+        ]) {
+            const document = {
+                environment: {
+                    depth: { belowTransducer: leaf(4, rawAt, 'm'), transducerToKeel: leaf(1.5, offsetAt, 'm') },
+                },
+            };
+            expect(wakeReadingFromSignalK(selected, context(document))?.at).toBe(now - 5000);
+        }
+    });
 });
 
 describe('measured station-pressure history', () => {
