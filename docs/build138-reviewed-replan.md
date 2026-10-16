@@ -71,7 +71,12 @@ database acceptance, a native device or the map reference's framebuffer.
 
 - Real multi-session PostgreSQL proof is required before deployment. The
   disposable harness supports PGlite for sequential syntax/privacy checks and
-  opted-in `localhost/route_replan138_test` PostgreSQL for two 16-session races.
+  one exact opted-in local fixture URL for PostgreSQL 17.6. It checks the
+  server version, empty namespaces/relations and absent product roles before
+  any DDL; mixed PGlite/PostgreSQL configuration is refused. Fourteen guard
+  regressions check refusal before importing a client. Both planned races
+  acquire 16 distinct backend sessions up front and require all 16 to be
+  observed blocked behind a coordinator-held row lock before release.
   Its minimal schema includes the actual existing author-stamp migration, but
   does not replace live schema/role/trigger preflight.
 - The current planner stores/display vias without using them in computation.

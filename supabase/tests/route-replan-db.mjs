@@ -18,25 +18,70 @@ const migration = await readFile(
     new URL('../held-migrations/20261016182725_reviewed_route_replan.sql', import.meta.url),
     'utf8',
 );
-let db, Pool, pool;
+let db, Pool, pool, preflight;
+const races = [];
 if (process.env.PGLITE_MODULE_PATH) {
+    if (
+        Object.keys(process.env).some(
+            (name) => /^PG/i.test(name) && name !== 'PGLITE_MODULE_PATH' && process.env[name],
+        ) ||
+        process.env.DATABASE_URL ||
+        process.env.THALASSA_DISPOSABLE_REPLAN_TEST
+    )
+        throw Error('PGlite refuses stray PostgreSQL configuration');
     const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href);
     db = new PGlite();
+    preflight = { engine: 'PGlite', configuration: 'isolated' };
 } else {
     if (process.env.THALASSA_DISPOSABLE_REPLAN_TEST !== '1' || !process.env.PG_MODULE_PATH || !process.env.DATABASE_URL)
         throw Error('Explicit isolated PGlite or opted-in local disposable PostgreSQL required');
+    const exact = 'postgresql://postgres:fixture-only-password@127.0.0.1:5432/route_replan138_test';
     const url = new URL(process.env.DATABASE_URL);
     if (
+        process.env.DATABASE_URL !== exact ||
         url.protocol !== 'postgresql:' ||
-        !['localhost', '127.0.0.1'].includes(url.hostname) ||
-        url.pathname !== '/route_replan138_test'
+        url.hostname !== '127.0.0.1' ||
+        url.port !== '5432' ||
+        url.username !== 'postgres' ||
+        url.password !== 'fixture-only-password' ||
+        url.pathname !== '/route_replan138_test' ||
+        url.search ||
+        url.hash ||
+        Object.keys(process.env).some(
+            (name) =>
+                /^PG/i.test(name) && !['PG_MODULE_PATH', 'PGLITE_MODULE_PATH'].includes(name) && process.env[name],
+        )
     )
         throw Error('Refusing a non-fixture database');
     const pg = await import(pathToFileURL(process.env.PG_MODULE_PATH).href);
     Pool = pg.Pool ?? pg.default.Pool;
-    pool = new Pool({ connectionString: url.href, max: 18 });
+    pool = new Pool({ connectionString: url.href, max: 18, connectionTimeoutMillis: 5000, query_timeout: 10000 });
     db = await pool.connect();
     db.exec = (sql) => db.query(sql);
+    try {
+        const {
+            rows: [r],
+        } = await db.query(
+            "SELECT current_database() AS db,current_user AS role,current_setting('server_version_num') AS version,(SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND c.relkind IN ('r','p','v','m','f')) AS relations,(SELECT count(*)::int FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname NOT IN ('public','information_schema')) AS namespaces,(SELECT count(*)::int FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')) AS product_roles",
+        );
+        assert.deepEqual(
+            r,
+            {
+                db: 'route_replan138_test',
+                role: 'postgres',
+                version: '170006',
+                relations: 0,
+                namespaces: 0,
+                product_roles: 0,
+            },
+            'An empty PostgreSQL17.6 fixture is required before any DDL',
+        );
+        preflight = { ...r, disposable: true, productConnections: false };
+    } catch (error) {
+        db.release();
+        await pool.end();
+        throw error;
+    }
 }
 let checks = 0;
 const eq = (actual, want, label) => {
@@ -227,23 +272,70 @@ try {
         // These are genuinely independent PostgreSQL sessions. PGlite does
         // not establish concurrency and deliberately does not run this lane.
         await resetLink();
-        const race = async (shared) =>
-            Promise.all(
-                Array.from({ length: 16 }, async () => {
-                    const client = await pool.connect();
-                    try {
+        const race = async (name, shared) => {
+            const acquired = await Promise.allSettled(Array.from({ length: 16 }, () => pool.connect()));
+            const clients = acquired.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+            if (clients.length !== 16) {
+                clients.forEach((client) => client.release());
+                throw Error('Could not acquire sixteen fixture sessions');
+            }
+            let running = [],
+                holding = false;
+            try {
+                const pids = await Promise.all(
+                    clients.map(async (client) => {
                         await client.query(
-                            `SET ROLE authenticated;SELECT set_config('request.jwt.claim.sub','${owner}',false);SELECT set_config('request.jwt.claim.session_id','${session}',false);`,
+                            `BEGIN;SET LOCAL ROLE authenticated;SELECT set_config('request.jwt.claim.sub','${owner}',true);SELECT set_config('request.jwt.claim.session_id','${session}',true);`,
                         );
-                        return (await client.query(sql, args({ request: shared ?? randomUUID() }))).rows[0]
+                        return Object.values((await client.query('SELECT pg_backend_pid()')).rows[0])[0];
+                    }),
+                );
+                eq(new Set(pids).size, 16, name + ': sixteen distinct backend PIDs');
+                await db.exec('BEGIN');
+                holding = true;
+                await db.query('SELECT 1 FROM public.user_active_vessels WHERE user_id=$1 FOR UPDATE', [owner]);
+                running = clients.map(async (client) => {
+                    try {
+                        const value = (await client.query(sql, args({ request: shared ?? randomUUID() }))).rows[0]
                             .accept_reviewed_route_replan;
-                    } finally {
-                        await client.query('RESET ROLE');
-                        client.release();
+                        await client.query('COMMIT');
+                        return { ok: true, value };
+                    } catch (error) {
+                        await client.query('ROLLBACK').catch(() => {});
+                        return { ok: false, code: error.code ?? null };
                     }
-                }),
-            );
-        const distinct = await race();
+                });
+                const deadline = Date.now() + 2000;
+                let blocked = 0;
+                while (Date.now() < deadline) {
+                    await db.exec('SELECT pg_stat_clear_snapshot()');
+                    blocked = await scalar(
+                        db,
+                        "SELECT count(*)::int FROM pg_stat_activity WHERE pid=ANY($1::int[]) AND state='active' AND wait_event_type='Lock'",
+                        [pids],
+                    );
+                    if (blocked === 16) break;
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                eq(blocked, 16, name + ': all contenders observed simultaneously blocked');
+                await db.exec('COMMIT');
+                holding = false;
+                const results = await Promise.all(running);
+                assert.equal(
+                    results.every((r) => r.ok),
+                    true,
+                    name + ': every actual query must complete normally',
+                );
+                races.push({ name, sessions: 16, backendPids: pids, distinctBackends: 16, blockedSessions: blocked });
+                return results.map((r) => r.value);
+            } finally {
+                if (holding) await db.exec('ROLLBACK').catch(() => {});
+                await Promise.allSettled(running);
+                await Promise.allSettled(clients.map((client) => client.query('ROLLBACK')));
+                clients.forEach((client) => client.release());
+            }
+        };
+        const distinct = await race('distinct-requests');
         eq(distinct.filter((r) => r.applied).length, 1, 'sixteen distinct sessions only one replacement');
         eq(
             distinct.filter((r) => r.reason === 'link-changed').length,
@@ -251,7 +343,7 @@ try {
             'fifteen stale competing replacements refused',
         );
         await resetLink();
-        const same = await race(randomUUID());
+        const same = await race('same-request', randomUUID());
         eq(same.filter((r) => r.applied).length, 16, 'sixteen retries of one request acknowledged');
         eq(same.filter((r) => r.repeated === false).length, 1, 'sixteen same-request sessions one actual write');
         eq(
@@ -266,6 +358,8 @@ try {
             engine: Pool ? 'PostgreSQL16-session races' : 'PGlite sequential only',
             migrationSha256: createHash('sha256').update(migration).digest('hex'),
             productionMutations: false,
+            preflight,
+            races,
         }) + '\n',
     );
 } finally {
