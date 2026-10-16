@@ -10,6 +10,7 @@ import {
     mPerDegLon,
     pointInGeometry,
     rasterizePolygonCells,
+    rasterizePolygonBoundaryCells,
     bresenhamCells,
     segmentGeometryDistanceM,
 } from './geometry.js';
@@ -94,7 +95,7 @@ export function trafficLaneGridFields(
         ![grid.width, grid.height].every((value) => Number.isSafeInteger(value) && value > 0) ||
         !Number.isSafeInteger(total) ||
         total < 1 ||
-        total > 8_000_000 ||
+        total > 2_500_000 ||
         ![grid.minLat, grid.minLon, grid.dLat, grid.dLon].every(Number.isFinite) ||
         grid.dLat <= 0 ||
         grid.dLon <= 0
@@ -107,14 +108,17 @@ export function trafficLaneGridFields(
         direction = new Float32Array(total);
     direction.fill(NaN);
     let operations = 0;
+    const spend = (count = 1) => {
+        operations += count;
+        if (operations > MAX_OPERATIONS) throw Error('Traffic lane raster exceeds its bounded budget.');
+        if ((operations & 1023) === 0) check();
+    };
     for (const area of selected) {
         check();
         const first = Math.max(0, Math.floor((area.bbox[1] - grid.minLat) / grid.dLat)),
             last = Math.min(grid.height - 1, Math.ceil((area.bbox[3] - grid.minLat) / grid.dLat));
-        operations += area.vertices * Math.max(0, last - first + 1);
-        if (operations > MAX_OPERATIONS) throw Error('Traffic lane raster exceeds its bounded budget.');
-        rasterizePolygonCells(grid, area.geometry, (x, y) => {
-            if (++operations > MAX_OPERATIONS) throw Error('Traffic lane raster exceeds its bounded budget.');
+        spend(area.vertices * Math.max(0, last - first + 1));
+        const mark = (x: number, y: number) => {
             const index = y * grid.width + x;
             if (lane[index] === 2) return;
             if (
@@ -127,7 +131,12 @@ export function trafficLaneGridFields(
                 lane[index] = 1;
                 direction[index] = area.direction;
             }
+        };
+        rasterizePolygonCells(grid, area.geometry, (x, y) => {
+            spend();
+            mark(x, y);
         });
+        rasterizePolygonBoundaryCells(grid, area.geometry, mark, spend);
     }
     check();
     return { tssLane: lane, tssDirection: direction };
