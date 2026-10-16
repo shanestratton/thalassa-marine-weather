@@ -10,6 +10,152 @@ test.beforeEach(async ({ page }) => {
     const errors: string[] = [];
     errorsByPage.set(page, errors);
     page.on('pageerror', (error) => errors.push(error.message));
+    // Observe commands without adding a draw, reading pixels during drawing,
+    // changing arguments or changing the original assertion outcome.
+    await page.addInitScript(() => {
+        if (!new URLSearchParams(location.search).has('canvasProbe')) return;
+        const records = new WeakMap<HTMLCanvasElement, Record<string, number>>();
+        type Bounds = { minX: number; maxX: number; minY: number; maxY: number; points: number };
+        type DrawPass = {
+            atMs: number;
+            cleared: unknown[];
+            fontsStatus: string;
+            theme: Record<string, unknown>;
+            strokes: Array<Record<string, unknown>>;
+            fills: Array<Record<string, unknown>>;
+            texts: Array<Record<string, unknown>>;
+        };
+        const passes = new WeakMap<HTMLCanvasElement, DrawPass[]>();
+        const paths = new WeakMap<CanvasRenderingContext2D, Bounds>();
+        const point = (ctx: CanvasRenderingContext2D, x: unknown, y: unknown) => {
+            if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
+            const path = paths.get(ctx);
+            paths.set(ctx, {
+                minX: Math.min(path?.minX ?? x, x),
+                maxX: Math.max(path?.maxX ?? x, x),
+                minY: Math.min(path?.minY ?? y, y),
+                maxY: Math.max(path?.maxY ?? y, y),
+                points: (path?.points ?? 0) + 1,
+            });
+        };
+        const state = (ctx: CanvasRenderingContext2D) => {
+            const transform = ctx.getTransform();
+            return {
+                alpha: ctx.globalAlpha,
+                composite: ctx.globalCompositeOperation,
+                lineWidth: ctx.lineWidth,
+                strokeStyle: typeof ctx.strokeStyle === 'string' ? ctx.strokeStyle : 'gradient/pattern',
+                fillStyle: typeof ctx.fillStyle === 'string' ? ctx.fillStyle : 'gradient/pattern',
+                shadowBlur: ctx.shadowBlur,
+                font: ctx.font,
+                textAlign: ctx.textAlign,
+                textBaseline: ctx.textBaseline,
+                transform: [transform.a, transform.b, transform.c, transform.d, transform.e, transform.f],
+            };
+        };
+        const record = (canvas: HTMLCanvasElement) => {
+            let row = records.get(canvas);
+            if (!row) {
+                row = {};
+                records.set(canvas, row);
+            }
+            return row;
+        };
+        const proto = CanvasRenderingContext2D.prototype;
+        for (const method of [
+            'clearRect',
+            'stroke',
+            'fill',
+            'fillText',
+            'moveTo',
+            'lineTo',
+            'arc',
+            'save',
+            'restore',
+            'clip',
+            'setTransform',
+            'resetTransform',
+            'reset',
+            'beginPath',
+        ] as const) {
+            const original = Reflect.get(proto, method);
+            if (typeof original !== 'function') continue;
+            Reflect.set(proto, method, function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+                const row = record(this.canvas);
+                row[method + 'Calls'] = (row[method + 'Calls'] ?? 0) + 1;
+                row.lastCommandMs = performance.now();
+                if (method === 'save') row.saveDepth = (row.saveDepth ?? 0) + 1;
+                if (method === 'restore') row.saveDepth = Math.max(0, (row.saveDepth ?? 0) - 1);
+                if (method === 'reset') row.saveDepth = 0;
+                if (args.some((value) => typeof value === 'number' && !Number.isFinite(value)))
+                    row.nonFiniteCommands = (row.nonFiniteCommands ?? 0) + 1;
+                if (method === 'clearRect') {
+                    const history = passes.get(this.canvas) ?? [];
+                    if (history.length < 4) {
+                        const style = getComputedStyle(this.canvas.parentElement ?? this.canvas);
+                        history.push({
+                            atMs: performance.now(),
+                            cleared: args,
+                            fontsStatus: document.fonts.status,
+                            theme: {
+                                htmlClass: document.documentElement.className,
+                                daylight: this.canvas.closest('.display-light') !== null,
+                                color: style.color,
+                                fontFamily: style.fontFamily,
+                                fontSans: style.getPropertyValue('--font-sans'),
+                                cyan400: style.getPropertyValue('--color-cyan-400'),
+                                textPrimary: style.getPropertyValue('--text-primary'),
+                            },
+                            strokes: [],
+                            fills: [],
+                            texts: [],
+                        });
+                        passes.set(this.canvas, history);
+                    }
+                }
+                if (method === 'beginPath') paths.delete(this);
+                if (method === 'moveTo' || method === 'lineTo') point(this, args[0], args[1]);
+                if (method === 'arc' && args.slice(0, 3).every((n) => typeof n === 'number')) {
+                    const [x, y, radius] = args as number[];
+                    point(this, x - radius, y - radius);
+                    point(this, x + radius, y + radius);
+                }
+                const pass = passes.get(this.canvas)?.at(-1);
+                if (pass && method === 'stroke' && !pass.strokes.some((s) => s.lineWidth === this.lineWidth))
+                    pass.strokes.push({ ...state(this), path: paths.get(this) });
+                if (pass && method === 'fill' && pass.fills.length < 4)
+                    pass.fills.push({ ...state(this), path: paths.get(this) });
+                if (pass && method === 'fillText' && pass.texts.length < 6) pass.texts.push({ ...state(this), args });
+                return Reflect.apply(original, this, args);
+            });
+        }
+        for (const dimension of ['width', 'height'] as const) {
+            const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, dimension);
+            if (!descriptor?.set || !descriptor.configurable) continue;
+            const set = descriptor.set;
+            Object.defineProperty(HTMLCanvasElement.prototype, dimension, {
+                ...descriptor,
+                set(this: HTMLCanvasElement, value: number) {
+                    const row = record(this);
+                    row[dimension + 'Writes'] = (row[dimension + 'Writes'] ?? 0) + 1;
+                    row.lastResizeMs = performance.now();
+                    row.saveDepth = 0;
+                    set.call(this, value);
+                },
+            });
+        }
+        Object.defineProperty(window, '__tideCanvasCommands', {
+            value: (canvas: HTMLCanvasElement) => ({
+                clipCalls: 0,
+                resetCalls: 0,
+                saveDepth: 0,
+                nonFiniteCommands: 0,
+                ...record(canvas),
+                drawPasses: passes.get(canvas) ?? [],
+            }),
+            configurable: true,
+        });
+    });
     await applyWideFonts(page);
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
@@ -28,7 +174,7 @@ test.afterEach(({ page }) => {
  * visibility. Require the original real-pixel threshold within a bounded paint
  * interval and retain every sample, including a blank first paint on failure. */
 async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
-    const samples: Array<Record<string, number>> = [];
+    const samples: Array<Record<string, unknown>> = [];
     let actual = { curve: 0, axis: 0, visibleHeight: 0 };
     try {
         await expect
@@ -41,10 +187,57 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                         const axisTop = el.height - 14 * devicePixelRatio;
                         const visibleTop = Math.ceil((captionBottom - el.getBoundingClientRect().y) * devicePixelRatio);
                         let curve = 0,
-                            axis = 0;
+                            axis = 0,
+                            nontransparent = 0,
+                            opaque = 0,
+                            belowCaptionPaint = 0,
+                            maxAlpha = 0;
+                        const columns: Array<{ count: number; minY: number; maxY: number } | undefined> = [];
+                        for (let i = 3; i < data.length; i += 4) {
+                            if (data[i] > 0) {
+                                nontransparent++;
+                                const pixel = (i - 3) / 4;
+                                const x = pixel % el.width;
+                                const y = (pixel - x) / el.width;
+                                const column = columns[x];
+                                columns[x] = {
+                                    count: (column?.count ?? 0) + 1,
+                                    minY: Math.min(column?.minY ?? y, y),
+                                    maxY: Math.max(column?.maxY ?? y, y),
+                                };
+                            }
+                            if (data[i] > 128) opaque++;
+                            maxAlpha = Math.max(maxAlpha, data[i]);
+                        }
+                        const alphaBands: Array<{
+                            minX: number;
+                            maxX: number;
+                            minY: number;
+                            maxY: number;
+                            pixels: number;
+                        }> = [];
+                        for (let x = 0; x < el.width; x++) {
+                            const column = columns[x];
+                            if (!column) continue;
+                            const previous = alphaBands.at(-1);
+                            if (previous?.maxX === x - 1) {
+                                previous.maxX = x;
+                                previous.minY = Math.min(previous.minY, column.minY);
+                                previous.maxY = Math.max(previous.maxY, column.maxY);
+                                previous.pixels += column.count;
+                            } else if (alphaBands.length < 32)
+                                alphaBands.push({
+                                    minX: x,
+                                    maxX: x,
+                                    minY: column.minY,
+                                    maxY: column.maxY,
+                                    pixels: column.count,
+                                });
+                        }
                         for (let y = Math.max(0, visibleTop); y < el.height; y++)
                             for (let x = 0; x < el.width; x++) {
                                 const i = (y * el.width + x) * 4;
+                                if (data[i + 3] > 0) belowCaptionPaint++;
                                 if (
                                     y < axisTop &&
                                     data[i + 1] > 100 &&
@@ -62,15 +255,127 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                                     axis++;
                             }
                         const transform = ctx.getTransform();
+                        const commands =
+                            (
+                                window as unknown as {
+                                    __tideCanvasCommands?: (canvas: HTMLCanvasElement) => Record<string, unknown>;
+                                }
+                            ).__tideCanvasCommands?.(el) ?? {};
+                        const rect = (element: Element | null) => {
+                            if (!element) return null;
+                            const box = element.getBoundingClientRect();
+                            const style = getComputedStyle(element);
+                            return {
+                                x: box.x,
+                                y: box.y,
+                                width: box.width,
+                                height: box.height,
+                                opacity: style.opacity,
+                                display: style.display,
+                                visibility: style.visibility,
+                                overflow: style.overflow,
+                                clipPath: style.clipPath,
+                                transform: style.transform,
+                                willChange: style.willChange,
+                                contain: style.contain,
+                            };
+                        };
+                        // Fresh calibration surfaces are diagnostic controls
+                        // only. They never draw into or overlay the product.
+                        let freshSurface: Record<string, unknown> | null = null;
+                        if (Object.keys(commands).length > 0) {
+                            const calibrate = (attachment: 'none' | 'body' | 'source-parent') => {
+                                const control = document.createElement('canvas');
+                                const sourceBox = el.getBoundingClientRect();
+                                control.style.cssText = `position:fixed;left:-2000px;top:-2000px;width:${sourceBox.width}px;height:${sourceBox.height}px;pointer-events:none`;
+                                control.setAttribute('aria-hidden', 'true');
+                                control.width = el.width;
+                                control.height = el.height;
+                                if (attachment === 'body') document.body.append(control);
+                                if (attachment === 'source-parent') el.parentElement!.append(control);
+                                try {
+                                    const cssRect = rect(control);
+                                    const controlContext = control.getContext('2d')!;
+                                    controlContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+                                    controlContext.fillStyle = '#22d3ee';
+                                    controlContext.fillRect(10, 12, 4, 5);
+                                    const pixels = controlContext.getImageData(
+                                        0,
+                                        0,
+                                        control.width,
+                                        control.height,
+                                    ).data;
+                                    let minX = control.width,
+                                        minY = control.height,
+                                        maxX = -1,
+                                        maxY = -1,
+                                        count = 0;
+                                    for (let i = 3; i < pixels.length; i += 4)
+                                        if (pixels[i] > 0) {
+                                            const index = (i - 3) / 4;
+                                            const x = index % control.width;
+                                            const y = (index - x) / control.width;
+                                            minX = Math.min(minX, x);
+                                            maxX = Math.max(maxX, x);
+                                            minY = Math.min(minY, y);
+                                            maxY = Math.max(maxY, y);
+                                            count++;
+                                        }
+                                    const matrix = controlContext.getTransform();
+                                    return {
+                                        attachment,
+                                        backing: { width: control.width, height: control.height },
+                                        cssSize: { width: sourceBox.width, height: sourceBox.height },
+                                        cssRect,
+                                        logicalRect: { x: 10, y: 12, width: 4, height: 5 },
+                                        expectedBacking: {
+                                            minX: 10 * devicePixelRatio,
+                                            minY: 12 * devicePixelRatio,
+                                            maxX: 14 * devicePixelRatio - 1,
+                                            maxY: 17 * devicePixelRatio - 1,
+                                        },
+                                        actualBacking: { minX, minY, maxX, maxY, pixels: count },
+                                        transform: [matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f],
+                                    };
+                                } finally {
+                                    control.remove();
+                                }
+                            };
+                            freshSurface = {
+                                unmounted: calibrate('none'),
+                                body: calibrate('body'),
+                                sourceParent: calibrate('source-parent'),
+                            };
+                        }
                         return {
+                            ...commands,
                             atMs: performance.now(),
                             curve: curve / devicePixelRatio ** 2,
                             axis: axis / devicePixelRatio ** 2,
+                            nontransparent: nontransparent / devicePixelRatio ** 2,
+                            opaque: opaque / devicePixelRatio ** 2,
+                            belowCaptionPaint: belowCaptionPaint / devicePixelRatio ** 2,
+                            maxAlpha,
+                            alphaBands,
                             visibleHeight: (axisTop - visibleTop) / devicePixelRatio,
                             width: el.width,
                             height: el.height,
                             scaleX: transform.a,
                             scaleY: transform.d,
+                            skewX: transform.c,
+                            skewY: transform.b,
+                            translateX: transform.e,
+                            translateY: transform.f,
+                            globalAlpha: ctx.globalAlpha,
+                            composite: ctx.globalCompositeOperation,
+                            filter: typeof ctx.filter === 'string' ? ctx.filter : 'unavailable',
+                            shadowBlur: ctx.shadowBlur,
+                            canvasRect: rect(el),
+                            containerRect: rect(el.parentElement),
+                            plotRect: rect(el.closest('[data-testid="tide-plot"]')),
+                            graphRect: rect(el.closest('[data-testid="tide-plot"]')?.parentElement ?? null),
+                            freshSurface,
+                            contextLost: typeof ctx.isContextLost === 'function' ? Number(ctx.isContextLost()) : -1,
                         };
                     }, captionBox.y + captionBox.height);
                     samples.push(sample);
@@ -293,4 +598,19 @@ test('short all-day card keeps the full four-event table in its source disclosur
     await expect(events).toContainText('Low 10:00 · 0.4 m');
     await expect(events).toContainText('High 16:00 · 2.0 m');
     await expect(events).toContainText('Low 22:00 · 0.4 m');
+});
+
+test('diagnostic canvas command trace retains the actual compact curve requirement', async ({ page }, info) => {
+    await page.setViewportSize({ width: 300, height: 640 });
+    await page.goto('/e2e/fixtures/wind-tide.html?mode=dark&provenance=1&height=85&late=1&canvasProbe=1');
+    await expect(page.getByTestId('tide-source-disclosure')).toBeVisible();
+    const pixels = await drawnPixels(
+        page.getByTestId('tide-plot').locator('canvas'),
+        page.getByTestId('tide-caption-band'),
+        info,
+    );
+    expect(pixels.visibleHeight).toBeGreaterThan(10);
+    expect(pixels.curve).toBeGreaterThan(100);
+    expect(pixels.axis).toBeGreaterThan(30);
+    await page.screenshot({ path: info.outputPath('canvas-command-probe.png') });
 });

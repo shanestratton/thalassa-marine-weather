@@ -54,15 +54,19 @@ export const TideCanvas = React.memo(
             const rect = container.getBoundingClientRect();
             const w = rect.width;
             const h = rect.height;
-
-            canvas.width = w * dpr;
-            canvas.height = h * dpr;
-            canvas.style.width = `${w}px`;
-            canvas.style.height = `${h}px`;
-
-            const ctx = canvas.getContext('2d');
+            if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             if (!ctx) return;
-            ctx.scale(dpr, dpr);
+
+            // A backing-size assignment destroys the bitmap even when its
+            // value is unchanged. Caption/ResizeObserver redraws must not
+            // repeatedly recreate the surface, including fractional DPR sizes.
+            const pixelWidth = Math.max(1, Math.round(w * dpr));
+            const pixelHeight = Math.max(1, Math.round(h * dpr));
+            if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+            if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+            ctx.resetTransform();
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             // Canvas pixels do not inherit the daylight stylesheet. Read the
             // effective display class on each draw, including theme switches.
             const daylight = container.closest('.display-light') !== null;
@@ -236,15 +240,23 @@ export const TideCanvas = React.memo(
         }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, topBandPx, rightInsetPx]);
 
         useEffect(() => {
-            draw();
             const container = containerRef.current;
             if (!container) return;
-
-            const ro = new ResizeObserver(() => draw());
+            // Caption measurements can replace the plot geometry during the
+            // layout/observer cycle. Paint once on its following frame and
+            // cancel obsolete requests when that geometry changes again.
+            let frame = 0;
+            const scheduleDraw = () => {
+                cancelAnimationFrame(frame);
+                frame = requestAnimationFrame(draw);
+            };
+            scheduleDraw();
+            const ro = new ResizeObserver(scheduleDraw);
             ro.observe(container);
-            const themeObserver = new MutationObserver(() => draw());
+            const themeObserver = new MutationObserver(scheduleDraw);
             themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
             return () => {
+                cancelAnimationFrame(frame);
                 ro.disconnect();
                 themeObserver.disconnect();
             };
@@ -252,7 +264,7 @@ export const TideCanvas = React.memo(
 
         return (
             <div ref={containerRef} className="absolute inset-0">
-                <canvas ref={canvasRef} className="absolute inset-0" />
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             </div>
         );
     },
@@ -263,6 +275,7 @@ export const TideCanvas = React.memo(
             prev.currentHeight === next.currentHeight &&
             prev.minHeight === next.minHeight &&
             prev.maxHeight === next.maxHeight &&
+            prev.domainBuffer === next.domainBuffer &&
             prev.topBandPx === next.topBandPx &&
             prev.rightInsetPx === next.rightInsetPx
         );
