@@ -1,0 +1,61 @@
+name: Build 136 private track proof
+on:
+  push:
+    branches: [codex/prove-build136-private-track-20261016-1]
+permissions:
+  contents: read
+concurrency:
+  group: build136-private-track-proof-20261016-1
+  cancel-in-progress: false
+jobs:
+  private-track-sqlite:
+    name: Real SQLite track snapshot and pagination
+    if: github.repository_owner == 'shanestratton' && github.repository == 'shanestratton/thalassa-marine-weather' && github.event_name == 'push' && github.ref == 'refs/heads/codex/prove-build136-private-track-20261016-1' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 34ab952504f64fbc52d9597d7bd9a3763d4ec1d7
+          persist-credentials: false
+      - name: Verify exact source and definition identity
+        env:
+          EXPECTED_SOURCE: 34ab952504f64fbc52d9597d7bd9a3763d4ec1d7
+          DEFINITION_SHA: ${{ github.workflow_sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$DEFINITION_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$DEFINITION_SHA" = "$PUSH_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          printf 'source=%s\ndefinition=%s\n' "$EXPECTED_SOURCE" "$DEFINITION_SHA" > track136-source-identity.txt
+          git hash-object pi-cache/src/trackStore.ts pi-cache/src/routes/track.ts pi-cache/src/trackPaging.test.mts pi-cache/src/routes/trackPaging.test.mts pi-cache/package-lock.json > track136-source-blobs.txt
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: pi-cache/package-lock.json
+      - name: Install exact Pi dependencies including native SQLite
+        working-directory: pi-cache
+        run: npm ci
+      - name: Compile Pi source
+        working-directory: pi-cache
+        run: npm run build
+      - name: Exercise actual SQLite and HTTP track paging
+        working-directory: pi-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx --test src/trackStore.test.mts src/trackPaging.test.mts src/routes/track.test.mts src/routes/trackPaging.test.mts 2>&1 | tee ../track136-native-proof.log
+      - name: Preserve source and proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: track136-native-sqlite-proof-34ab952504
+          path: |
+            track136-source-identity.txt
+            track136-source-blobs.txt
+            track136-native-proof.log
+          if-no-files-found: error
+          retention-days: 14
