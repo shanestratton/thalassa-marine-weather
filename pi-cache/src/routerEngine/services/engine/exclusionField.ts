@@ -13,13 +13,21 @@ import {
     segmentGeometryDistanceM,
 } from './geometry.js';
 import type { InshoreLayers, NavGrid } from './types.js';
+import {
+    buildTrafficLaneField,
+    trafficLaneGridFields,
+    auditTrafficLaneRoute,
+    type TrafficLaneField,
+    type TrafficLaneGuidance,
+} from './trafficLanes.js';
 
 export type ExclusionKind =
     | 'entry-prohibited'
     | 'entry-restricted'
     | 'traffic-separation'
     | 'manual-no-go'
-    | 'marine-park';
+    | 'marine-park'
+    | 'traffic-lane';
 interface ExclusionArea {
     readonly kind: ExclusionKind;
     readonly geometry: Polygon | MultiPolygon;
@@ -28,10 +36,12 @@ interface ExclusionArea {
 }
 export interface ExclusionField {
     readonly areas: readonly ExclusionArea[];
+    readonly trafficLanes?: TrafficLaneField;
 }
 export interface ExclusionSources {
     RESARE?: FeatureCollection;
     TSEZNE?: FeatureCollection;
+    TSSLPT?: FeatureCollection;
     /** Caller supplies explicitly enabled private polygon files only. */
     manual?: FeatureCollection;
     /** Indicative park footprints add caution cost; they do not prohibit transit. */
@@ -58,6 +68,7 @@ export function applyExclusionField(base: NavGrid, field: ExclusionField, check:
         preferred: base.preferred.slice(),
         exclusionBlocked: masks?.blocked,
         exclusionCaution: masks?.caution,
+        ...trafficLaneGridFields(base, field.trafficLanes, check),
     };
     if (masks)
         for (let i = 0; i < masks.blocked.length; i++) {
@@ -69,6 +80,8 @@ export function applyExclusionField(base: NavGrid, field: ExclusionField, check:
 }
 
 export function exclusionRefusal(kind: ExclusionKind): string {
+    if (kind === 'traffic-lane')
+        return 'The planned route would oppose charted traffic-lane flow or cross obliquely. Review the lane and route before proceeding.';
     if (kind === 'manual-no-go')
         return 'The route would cross one of your no-go polygons. Move the route outside it or edit that polygon.';
     if (kind === 'traffic-separation')
@@ -90,6 +103,7 @@ export function auditFinishedRouteExclusions(
         const field = buildExclusionField({
             RESARE: layers.RESARE,
             TSEZNE: layers.TSEZNE,
+            TSSLPT: layers.TSSLPT,
             manual: layers.USER_NOGO,
             marineParks: layers.MPA_CAUTION,
         });
@@ -104,9 +118,21 @@ export function auditFinishedRouteExclusions(
     }
 }
 
+/** Shared success disclosure after the final source audit, including promoted/reshaped lines. */
+export function finishedTrafficLaneGuidance(
+    layers: InshoreLayers,
+    polyline: readonly (readonly [number, number])[],
+    check: () => void = () => {},
+): TrafficLaneGuidance | undefined {
+    const audit = auditTrafficLaneRoute(polyline, buildTrafficLaneField(layers.TSSLPT), check);
+    if (audit.conflict) throw Error(exclusionRefusal('traffic-lane'));
+    return audit.guidance;
+}
+
 /** Take a bounded independent geometry snapshot before routing. Malformed hard
  * constraints are refused, never silently dropped or reinterpreted as a line. */
 export function buildExclusionField(sources: ExclusionSources): ExclusionField {
+    const trafficLanes = buildTrafficLaneField(sources.TSSLPT);
     const selected: Feature[] = [],
         kinds: ExclusionKind[] = [];
     let scanned = 0;
@@ -134,7 +160,7 @@ export function buildExclusionField(sources: ExclusionSources): ExclusionField {
     add(sources.TSEZNE, 'traffic-separation');
     add(sources.manual, 'manual-no-go');
     add(sources.marineParks, 'marine-park');
-    if (!selected.length) return { areas: [] };
+    if (!selected.length) return { areas: [], ...(trafficLanes ? { trafficLanes } : {}) };
     // Reuse the bounded topology/WGS84 validator; no user-overlay store is read.
     const normalized = normalizeOverlay({ type: 'FeatureCollection', features: selected });
     if (normalized.data.features.length !== kinds.length) throw Error('Route exclusion geometry changed shape.');
@@ -150,7 +176,7 @@ export function buildExclusionField(sources: ExclusionSources): ExclusionField {
                 }
         return { kind: kinds[i], geometry, vertices, bbox: geometryBbox(geometry) };
     });
-    return { areas };
+    return { areas, ...(trafficLanes ? { trafficLanes } : {}) };
 }
 
 /** Clip a boundary to the grid BEFORE its supercover walk: a distant feature
@@ -272,7 +298,7 @@ export function routeExclusionConflict(
     field: ExclusionField,
     check: () => void = () => {},
 ): ExclusionKind | null {
-    if (!field.areas.length) return null;
+    if (!field.areas.length && !field.trafficLanes?.areas.length) return null;
     if (
         points.length < 2 ||
         points.length > 8192 ||
@@ -295,5 +321,5 @@ export function routeExclusionConflict(
         }
     }
     check();
-    return null;
+    return auditTrafficLaneRoute(points, field.trafficLanes, check).conflict ? 'traffic-lane' : null;
 }
