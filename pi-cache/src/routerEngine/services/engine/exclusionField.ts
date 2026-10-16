@@ -12,7 +12,7 @@ import {
     rasterizePolygonCells,
     segmentGeometryDistanceM,
 } from './geometry.js';
-import type { NavGrid } from './types.js';
+import type { InshoreLayers, NavGrid } from './types.js';
 
 export type ExclusionKind =
     | 'entry-prohibited'
@@ -76,6 +76,32 @@ export function exclusionRefusal(kind: ExclusionKind): string {
     return kind === 'entry-prohibited'
         ? 'The route would enter an area marked entry prohibited. Move the route outside that area.'
         : 'The route would enter a restricted area. This planner keeps entry-restricted areas closed.';
+}
+
+/** Audit the actual emitted line after cloud/shadow/lead/tail splices. No IO,
+ * chart permission, positive depth or persistent authority is supplied here. */
+export function auditFinishedRouteExclusions(
+    layers: InshoreLayers,
+    polyline: readonly (readonly [number, number])[],
+    check: () => void = () => {},
+): { error: string; code: 'route-exclusion' | 'exclusion-unavailable' } | null {
+    try {
+        check();
+        const field = buildExclusionField({
+            RESARE: layers.RESARE,
+            TSEZNE: layers.TSEZNE,
+            manual: layers.USER_NOGO,
+            marineParks: layers.MPA_CAUTION,
+        });
+        const conflict = routeExclusionConflict(polyline, field, check);
+        return conflict ? { error: exclusionRefusal(conflict), code: 'route-exclusion' } : null;
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        return {
+            error: 'The finished route’s area restrictions could not be fully checked. Review the current chart and route again.',
+            code: 'exclusion-unavailable',
+        };
+    }
 }
 
 /** Take a bounded independent geometry snapshot before routing. Malformed hard
