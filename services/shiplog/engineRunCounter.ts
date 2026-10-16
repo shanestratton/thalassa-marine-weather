@@ -123,6 +123,12 @@ export function endEngineRunCounter(counter: EngineRunCounter, atMs: number): En
     return { ...advanceEngineRunCounter(counter, atMs), ended: true };
 }
 
+/** Pausing or changing account is not evidence of engine-off. The unobserved interval stays unknown. */
+export function suspendEngineRunCounter(counter: EngineRunCounter, atMs: number): EngineRunCounter {
+    const next = advanceEngineRunCounter(counter, atMs);
+    return next.ended ? next : { ...next, declared: null, rpm: null };
+}
+
 export function engineRunSummary(counter: EngineRunCounter) {
     if (!validEngineRunCounter(counter, counter.voyageId)) throw new RangeError('Invalid engine-log counter');
     return {

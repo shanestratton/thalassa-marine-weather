@@ -6,11 +6,20 @@ import {
     engineRunSummary,
     newEngineRunCounter,
     observeEngineRpm,
+    suspendEngineRunCounter,
     validEngineRunCounter,
 } from '../services/shiplog/engineRunCounter';
 
 const T = 1_800_000_000_000;
 describe('voyage engine time evidence', () => {
+    it('keeps a pause or different-account interval unknown rather than carrying a declaration across it', () => {
+        let c = declareEngineRunning(newEngineRunCounter('pause', T), true, T);
+        c = suspendEngineRunCounter(c, T + 60_000);
+        c = advanceEngineRunCounter(c, T + 660_000);
+        c = declareEngineRunning(c, true, T + 720_000);
+        c = endEngineRunCounter(c, T + 780_000);
+        expect(engineRunSummary(c)).toMatchObject({ seconds: 120, unknownSeconds: 660 });
+    });
     it('keeps undeclared departure time unknown and counts exact toggle boundaries through reload', () => {
         let c = newEngineRunCounter('voyage-one', T);
         c = declareEngineRunning(c, true, T + 60_000);

@@ -172,6 +172,31 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         LocalEngineHoursService.getReading(),
     );
     const engineHours = engineHoursReading.hours;
+    const [hasEndedEngineRun, setHasEndedEngineRun] = useState(false);
+    useEffect(() => {
+        const scope = taskData.identity;
+        let live = true;
+        setHasEndedEngineRun(false);
+        void import('../../services/shiplog/TrackingStateStore')
+            .then(async ({ loadTrackingState }) => {
+                const state = await loadTrackingState(scope);
+                const { engineRunSummary, validEngineRunCounter } =
+                    await import('../../services/shiplog/engineRunCounter');
+                if (
+                    live &&
+                    isAuthIdentityScopeCurrent(scope) &&
+                    state?.engineRun &&
+                    state.engineRun.ended &&
+                    validEngineRunCounter(state.engineRun, state.engineRun.voyageId)
+                ) {
+                    setHasEndedEngineRun(engineRunSummary(state.engineRun).seconds > 0);
+                }
+            })
+            .catch(() => undefined);
+        return () => {
+            live = false;
+        };
+    }, [taskData.identity]);
     /** False on a view-only share: the figure shows, the field does not open. */
     const engineHoursCanEdit = engineHoursReading.canEdit;
     /** The engine-hours table is live on this device: listen for changes to it. */
@@ -1373,6 +1398,21 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                 {/* ═══ SEARCH (132-B19) ═══ as its sibling pages have it: only
                     once there is something to search. */}
+                {hasEndedEngineRun && taskDataIsCurrent && engineHoursCanEdit && !engineHoursShared && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <button
+                            type="button"
+                            className="min-h-[44px] w-full rounded-xl border border-sky-500/25 px-3 py-2 text-sm text-sky-300"
+                            onClick={() => {
+                                void import('./GlobalEngineHoursReviewGate')
+                                    .then(({ reviewLatestEndedEngineRun }) => reviewLatestEndedEngineRun())
+                                    .catch(() => toast.error('Can’t open the voyage engine record.'));
+                            }}
+                        >
+                            Review last voyage’s engine time
+                        </button>
+                    </div>
+                )}
                 {(visibleTasks.length > 0 || searchQuery) && (
                     <div className="shrink-0 px-4 pb-3">
                         <input
