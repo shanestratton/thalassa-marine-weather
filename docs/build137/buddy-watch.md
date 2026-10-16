@@ -34,7 +34,7 @@ provider credentials are absent from notice data and owner list responses.
 `20261016171547_buddy_watch.sql` remains in held migrations. Owner reads and
 configuration use fixed RPCs; direct writes, foreign boat access and private
 state/credential reads are denied. Configuration/removal uses owner-wide lock,
-exact revision CAS and live boat ownership. Source changes reset the one latest
+exact revision CAS and live, unarchived boat ownership. Source changes reset the one latest
 state. Apply checks current configuration, state revision and the exact cached
 facts again under the watch row lock. One atomic transaction updates the latest
 state, consumes an independent owner quota and creates the queue row. The caps
@@ -81,7 +81,7 @@ poller activation, migration, cron or notification is performed here.
 ## Evidence
 
 Source checks:26 focused app/rule/client/Targets/radar/upload-boundary regressions, six Deno
-handler/stream/body/deadline/delivery checks, and43 disposable PGlite ACL/CAS/
+handler/stream/body/deadline/delivery checks, and45 disposable PGlite ACL/CAS/
 quota checks. The latter uses generated nonspatial latest rows; it does not
 exercise PostGIS or prove PostgreSQL transaction races. Browser fixtures use
 generated public-water AIS and a synthetic REST origin, with all other WAN

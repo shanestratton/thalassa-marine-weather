@@ -64,7 +64,7 @@ async function assess(id, at, sog = 0, nav = 0) {
 }
 try {
     await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;CREATE SCHEMA auth;CREATE TABLE auth.users(id uuid PRIMARY KEY);CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated,service_role;
- CREATE TABLE public.boats(id uuid PRIMARY KEY,owner_id uuid REFERENCES auth.users);ALTER TABLE public.boats ENABLE ROW LEVEL SECURITY;GRANT SELECT ON public.boats TO authenticated;CREATE POLICY own_boat ON public.boats FOR SELECT TO authenticated USING(owner_id=auth.uid());
+ CREATE TABLE public.boats(id uuid PRIMARY KEY,owner_id uuid REFERENCES auth.users,archived_at timestamptz);ALTER TABLE public.boats ENABLE ROW LEVEL SECURITY;GRANT SELECT ON public.boats TO authenticated;CREATE POLICY own_boat ON public.boats FOR SELECT TO authenticated USING(owner_id=auth.uid());
  CREATE TABLE public.vessels(mmsi bigint PRIMARY KEY,data_source text,position_at timestamptz,location point,sog double precision,nav_status integer);
  CREATE TABLE public.ais_fleet_control(singleton boolean PRIMARY KEY,enabled boolean,licence_reference text);INSERT INTO public.ais_fleet_control VALUES(true,false,NULL);
  CREATE TABLE public.push_device_tokens(user_id uuid);CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid,notification_type text,title text,body text,data jsonb,created_at timestamptz DEFAULT now());
@@ -136,6 +136,10 @@ try {
     eq((await list()).ready, false, 'unrelated cron not proof');
     await db.exec("UPDATE cron.job SET command='SELECT public.invoke_edge_function(''buddy-watch'', 25000)'");
     const armedRevision = await save(id, revision, config(234567890, true));
+    await db.query('UPDATE public.boats SET archived_at=now() WHERE id=$1', [boat]);
+    await denied(() => list(), '42501', 'archived hull cannot read or configure');
+    eq((await service('SELECT public.buddy_watch_work(NULL,32)')).length, 0, 'archived hull cannot run');
+    await db.query('UPDATE public.boats SET archived_at=NULL WHERE id=$1', [boat]);
     const stamp = Date.now() - 180000;
     await assess(id, stamp, 0);
     eq(await scalar('SELECT count(*)::integer FROM public.push_notification_queue'), 0, 'baseline silent');

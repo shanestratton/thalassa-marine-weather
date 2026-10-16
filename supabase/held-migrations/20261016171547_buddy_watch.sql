@@ -44,7 +44,7 @@ ALTER TABLE private_buddy_watch.quotas ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.vessel_watchlist FROM PUBLIC,anon,authenticated;
 GRANT SELECT ON public.vessel_watchlist TO authenticated;
 GRANT SELECT,INSERT,UPDATE,DELETE ON public.vessel_watchlist TO service_role;
-CREATE POLICY buddy_owner_read ON public.vessel_watchlist FOR SELECT TO authenticated USING(owner_id=(SELECT auth.uid()) AND EXISTS(SELECT 1 FROM public.boats b WHERE b.id=boat_id AND b.owner_id=(SELECT auth.uid())));
+CREATE POLICY buddy_owner_read ON public.vessel_watchlist FOR SELECT TO authenticated USING(owner_id=(SELECT auth.uid()) AND EXISTS(SELECT 1 FROM public.boats b WHERE b.id=boat_id AND b.owner_id=(SELECT auth.uid()) AND b.archived_at IS NULL));
 GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA private_buddy_watch TO service_role;
 CREATE FUNCTION private_buddy_watch.permitted() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
  SELECT EXISTS(SELECT 1 FROM private_buddy_watch.control c,public.ais_fleet_control f WHERE c.singleton AND f.singleton AND c.enabled AND c.licence_reference IS NOT NULL AND c.entitlement_until>now() AND c.delivery_version=1 AND f.enabled AND f.licence_reference IS NOT NULL);
@@ -59,20 +59,20 @@ END $$;
 CREATE FUNCTION public.buddy_watch_list(p_boat_id uuid) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 DECLARE caller uuid:=auth.uid(); rows jsonb;
 BEGIN
- IF caller IS NULL OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=p_boat_id AND owner_id=caller) THEN RAISE EXCEPTION 'Owned vessel required' USING ERRCODE='42501'; END IF;
+ IF caller IS NULL OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=p_boat_id AND owner_id=caller AND archived_at IS NULL) THEN RAISE EXCEPTION 'Owned vessel required' USING ERRCODE='42501'; END IF;
  SELECT coalesce(jsonb_agg(jsonb_build_object('id',w.id,'revision',w.revision,'configuration',w.configuration,'state',s.state)),'[]'::jsonb) INTO rows FROM public.vessel_watchlist w LEFT JOIN private_buddy_watch.states s ON s.watch_id=w.id WHERE w.owner_id=caller AND w.boat_id=p_boat_id;
  RETURN jsonb_build_object('schema',1,'ownerId',caller,'boatId',p_boat_id,'ready',private_buddy_watch.ready(),'checkedAt',floor(extract(epoch FROM statement_timestamp())*1000),'watches',rows);
 END $$;
 CREATE FUNCTION public.configure_buddy_watch(p_boat_id uuid,p_watch_id uuid,p_expected uuid,p_configuration jsonb) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 DECLARE caller uuid:=auth.uid(); w public.vessel_watchlist%ROWTYPE; next_revision uuid:=gen_random_uuid();
 BEGIN
- IF caller IS NULL OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=p_boat_id AND owner_id=caller) THEN RAISE EXCEPTION 'Owned vessel required' USING ERRCODE='42501'; END IF;
+ IF caller IS NULL OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=p_boat_id AND owner_id=caller AND archived_at IS NULL) THEN RAISE EXCEPTION 'Owned vessel required' USING ERRCODE='42501'; END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended('buddy-watch:'||caller::text,0));
- PERFORM 1 FROM public.boats WHERE id=p_boat_id AND owner_id=caller FOR UPDATE;
+ PERFORM 1 FROM public.boats WHERE id=p_boat_id AND owner_id=caller AND archived_at IS NULL FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Vessel ownership changed' USING ERRCODE='42501'; END IF;
  -- Reclaim only this caller's no-longer-owned hull follows, so hidden rows
  -- cannot permanently strand the account's ten bounded slots.
- DELETE FROM public.vessel_watchlist old WHERE old.owner_id=caller AND NOT EXISTS(SELECT 1 FROM public.boats b WHERE b.id=old.boat_id AND b.owner_id=caller);
+ DELETE FROM public.vessel_watchlist old WHERE old.owner_id=caller AND NOT EXISTS(SELECT 1 FROM public.boats b WHERE b.id=old.boat_id AND b.owner_id=caller AND b.archived_at IS NULL);
  IF p_watch_id IS NOT NULL THEN
   SELECT * INTO w FROM public.vessel_watchlist WHERE id=p_watch_id AND owner_id=caller AND boat_id=p_boat_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Owned watch required' USING ERRCODE='42501'; END IF;
@@ -108,7 +108,7 @@ BEGIN
  IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 32 THEN RAISE EXCEPTION 'Bounded page required'; END IF;
  IF NOT private_buddy_watch.permitted() THEN RETURN NULL; END IF;
  SELECT coalesce(jsonb_agg(jsonb_build_object('id',w.id,'revision',w.revision,'configuration',w.configuration,'stateRevision',s.revision,'state',s.state,'facts',private_buddy_watch.facts((w.configuration->>'mmsi')::bigint,w.configuration->'area')) ORDER BY w.id),'[]'::jsonb) INTO rows
- FROM (SELECT x.* FROM public.vessel_watchlist x JOIN public.boats b ON b.id=x.boat_id AND b.owner_id=x.owner_id WHERE (x.configuration->>'enabled')::boolean AND (p_after IS NULL OR x.id>p_after) ORDER BY x.id LIMIT p_limit) w LEFT JOIN private_buddy_watch.states s ON s.watch_id=w.id;
+ FROM (SELECT x.* FROM public.vessel_watchlist x JOIN public.boats b ON b.id=x.boat_id AND b.owner_id=x.owner_id AND b.archived_at IS NULL WHERE (x.configuration->>'enabled')::boolean AND (p_after IS NULL OR x.id>p_after) ORDER BY x.id LIMIT p_limit) w LEFT JOIN private_buddy_watch.states s ON s.watch_id=w.id;
  RETURN rows;
 END $$;
 CREATE FUNCTION public.buddy_watch_apply(p_id uuid,p_revision uuid,p_state_revision uuid,p_facts jsonb,p_result jsonb) RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog,pg_temp AS $$
@@ -116,7 +116,7 @@ DECLARE w public.vessel_watchlist%ROWTYPE; s private_buddy_watch.states%ROWTYPE;
 BEGIN
  IF NOT private_buddy_watch.permitted() THEN RETURN false; END IF;
  SELECT * INTO w FROM public.vessel_watchlist WHERE id=p_id FOR UPDATE;
- IF NOT FOUND OR w.revision IS DISTINCT FROM p_revision OR NOT (w.configuration->>'enabled')::boolean OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=w.boat_id AND owner_id=w.owner_id) THEN RETURN false; END IF;
+ IF NOT FOUND OR w.revision IS DISTINCT FROM p_revision OR NOT (w.configuration->>'enabled')::boolean OR NOT EXISTS(SELECT 1 FROM public.boats WHERE id=w.boat_id AND owner_id=w.owner_id AND archived_at IS NULL) THEN RETURN false; END IF;
  SELECT * INTO s FROM private_buddy_watch.states WHERE watch_id=w.id FOR UPDATE;
  IF s.revision IS DISTINCT FROM p_state_revision OR private_buddy_watch.facts((w.configuration->>'mmsi')::bigint,w.configuration->'area') IS DISTINCT FROM p_facts THEN RETURN false; END IF;
  IF jsonb_typeof(p_result)<>'object' OR NOT p_result ?& ARRAY['state','event'] OR p_result-ARRAY['state','event']<>'{}' THEN RAISE EXCEPTION 'Fixed assessment required'; END IF;
@@ -144,7 +144,7 @@ BEGIN
 END $$;
 CREATE FUNCTION public.buddy_watch_finish(p_success boolean) RETURNS void LANGUAGE sql SECURITY INVOKER SET search_path=pg_catalog,pg_temp AS $$UPDATE private_buddy_watch.control SET function_version=1,succeeded_at=CASE WHEN p_success THEN clock_timestamp() ELSE NULL END WHERE singleton$$;
 CREATE FUNCTION public.buddy_notice_delivery(p_queue_id uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog,pg_temp AS $$
- SELECT private_buddy_watch.ready() AND EXISTS(SELECT 1 FROM public.push_notification_queue q JOIN public.vessel_watchlist w ON w.id=(q.data->>'watch_id')::uuid JOIN private_buddy_watch.states s ON s.watch_id=w.id JOIN public.boats b ON b.id=w.boat_id AND b.owner_id=w.owner_id WHERE q.id=p_queue_id AND q.notification_type='buddy_notice' AND q.recipient_user_id=w.owner_id AND q.created_at>now()-interval '30 minutes' AND (w.configuration->>'enabled')::boolean AND q.data->>'revision'=w.revision::text AND q.data->>'receipt_id'=s.notice_id::text AND q.data->>'event'=s.notice_event AND (q.data->>'observed_at')::bigint=s.notice_observed_at AND s.state->>'observedAt'=q.data->>'observed_at' AND CASE WHEN s.notice_event='not-seen' THEN (private_buddy_watch.facts((w.configuration->>'mmsi')::bigint,w.configuration->'area')->>'at')::bigint IS NULL OR (private_buddy_watch.facts((w.configuration->>'mmsi')::bigint,w.configuration->'area')->>'at')::bigint<floor(extract(epoch FROM now()-interval '15 minutes')*1000) ELSE s.notice_observed_at>floor(extract(epoch FROM now()-interval '15 minutes')*1000) END);
+ SELECT private_buddy_watch.ready() AND EXISTS(SELECT 1 FROM public.push_notification_queue q JOIN public.vessel_watchlist w ON w.id=(q.data->>'watch_id')::uuid JOIN private_buddy_watch.states s ON s.watch_id=w.id JOIN public.boats b ON b.id=w.boat_id AND b.owner_id=w.owner_id AND b.archived_at IS NULL WHERE q.id=p_queue_id AND q.notification_type='buddy_notice' AND q.recipient_user_id=w.owner_id AND q.created_at>now()-interval '30 minutes' AND (w.configuration->>'enabled')::boolean AND q.data->>'revision'=w.revision::text AND q.data->>'receipt_id'=s.notice_id::text AND q.data->>'event'=s.notice_event AND (q.data->>'observed_at')::bigint=s.notice_observed_at AND s.state->>'observedAt'=q.data->>'observed_at' AND CASE WHEN s.notice_event='not-seen' THEN (private_buddy_watch.facts((w.configuration->>'mmsi')::bigint,w.configuration->'area')->>'at')::bigint IS NULL OR (private_buddy_watch.facts((w.configuration->>'mmsi')::bigint,w.configuration->'area')->>'at')::bigint<floor(extract(epoch FROM now()-interval '15 minutes')*1000) ELSE s.notice_observed_at>floor(extract(epoch FROM now()-interval '15 minutes')*1000) END);
 $$;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA private_buddy_watch FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA private_buddy_watch TO service_role;
