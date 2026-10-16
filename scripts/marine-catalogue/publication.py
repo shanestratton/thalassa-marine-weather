@@ -16,7 +16,7 @@ MAX_OBJECTS = 100000
 MAX_GENERATION_BYTES = 2 * 1024**3
 
 def owned(key):
-    return bool(re.fullmatch(r"marine-catalogue/v1/(places|osm|noaa)/(?:manifest\.json|[a-z0-9-]{8,48}/(?:manifest\.json|SOURCE\.json|LICENCE\.txt|NOAA-AGREEMENT\.txt|(?:areas/\d{1,2}_\d{1,3}|names/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json))", key))
+    return bool(re.fullmatch(r"marine-catalogue/v1/(places|osm|noaa)/(?:manifest\.json|[a-z0-9-]{8,48}/(?:manifest\.json|SOURCE\.json|LICENCE\.txt|NOAA-AGREEMENT\.txt|(?:areas/\d{1,2}_\d{1,3}(?:-[0-3]{1,8})?|names/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json))", key))
 
 def plan(generation, inventory, current):
     generation = Path(generation).resolve()

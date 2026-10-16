@@ -1,6 +1,6 @@
 #135-05 /135-08 public marine catalogues
 
-Status: app path and local build/plan tools implemented. **No world dataset has been downloaded, uploaded, activated or represented as deployed.** Existing Queensland atlas and place-label fallback remain usable until the first reviewed global publication. No database migration is required: these are credential-free static objects.
+Status: app path and build/plan tools implemented. The reviewed worldwide GeoNames source has been downloaded into isolated wx staging; its first build exposed a dense Finnish cell and was stopped without truncation. Adaptive area refinement is being validated against that saved source. **No dataset has been uploaded, activated or represented as deployed.** Existing Queensland atlas and place-label fallback remain usable until the first reviewed global publication. No database migration is required: these are credential-free static objects.
 
 ## Source boundaries verified16 October2026
 
@@ -16,19 +16,19 @@ Owned prefix only: `https://tiles.thalassatiles.com/marine-catalogue/v1/`.
 
 ```
 places/manifest.json
-places/<generation>/areas/<lat-index>_<lon-index>.json
+places/<generation>/areas/<lat-index>_<lon-index>[-<quadrants>].json
 places/<generation>/names/<unicode-prefix-in-hex>.json
 osm/manifest.json
-osm/<generation>/areas/<lat-index>_<lon-index>.json
+osm/<generation>/areas/<lat-index>_<lon-index>[-<quadrants>].json
 noaa/manifest.json
-noaa/<generation>/areas/<lat-index>_<lon-index>.json
+noaa/<generation>/areas/<lat-index>_<lon-index>[-<quadrants>].json
 ```
 
-Each dataset is independently published; failure in one cannot promote another dataset's manifest. Generations are immutable `<YYYYMM>-<input-manifest-sha256-prefix>`. The monthly job must retain the current generation while its successor uploads, then atomically replace only that dataset's manifest last. Manifest identity is checked on every shard. Source URLs, licence, time, IDs, coordinate range, keys, byte count and records are validated. Unexpected fields are rejected before persistence.
+Each dataset is independently published; failure in one cannot promote another dataset's manifest. Generations are immutable `<YYYYMM>-<hash-of-input-manifest-and-build-policy>`. Including the build policy prevents a changed shard partition from reusing an earlier immutable identity. The monthly job must retain the current generation while its successor uploads, then atomically replace only that dataset's manifest last. Manifest identity is checked on every shard. Source URLs, licence, time, IDs, coordinate range, keys, byte count and records are validated. Unexpected fields are rejected before persistence.
 
-Glass →★→Marine places searches after Submit and at least three letters; ambiguous results rank by local distance, with country/location labels. Dense prefixes split into longer leaves, up to24 letters, without dropping records. A query reads at most four matching leaves; wider matches ask for a longer name. Boat coordinates stay local. The CDN sees public prefix IDs or two-degree cell indices, never exact boat coordinates. Spot actions explicitly open the existing sea-cell Glass forecast, nearby observations, informational tide stations or save the exact public point. No forecast is automatically queried by opening search. Tide/observation adapters retain their existing freshness, permission and missing-data policies.
+Glass →★→Marine places searches after Submit and at least three letters; ambiguous results rank by local distance, with country/location labels. Dense prefixes split into longer leaves, up to24 letters, without dropping records. A query reads at most four matching leaves; wider matches ask for a longer name. Boat coordinates stay local. The CDN sees public prefix IDs or public spatial shard IDs, never exact boat coordinates. Dense two-degree root cells split into nonempty quadtree leaves, at most eight levels (SW=0, SE=1, NW=2, NE=3), without dropping records. Spot actions explicitly open the existing sea-cell Glass forecast, nearby observations, informational tide stations or save the exact public point. No forecast is automatically queried by opening search. Tide/observation adapters retain their existing freshness, permission and missing-data policies.
 
-Read/save shown area asks at most16 two-degree cells/source, within50NM, with a10000-record operation ceiling. Wide polar fan-outs are refused. Individual JSON objects ≤2MiB,10k rows, two in flight, a16-request queue and15-second request deadline. A three-source area has a hard maximum of48 shard requests plus three manifests; it can exceed cache capacity, so completion is checked against all required persisted objects after eviction. No query at phone boot. Outside the richer bundled QLD atlas, public anchorage points augment existing layers; no absent fetch table becomes a favourable shelter verdict. The existing small bounded Overpass mooring query remains a fallback while a published extract is unavailable, and is suppressed in Satellite Mode. It is not used by place-name search.
+Read/save shown area selects at most 16 two-degree root cells within 50 NM, then reads at most 16 published leaves per source with a 10000-record operation ceiling. When a dense area has more leaves, local distance prioritizes the reads and the result explicitly remains incomplete; it cannot claim the whole area is saved. Wide polar fan-outs are refused. Individual JSON objects ≤2MiB,10k rows, two in flight, a16-request queue and15-second request deadline. A three-source area has a hard maximum of48 shard requests plus three manifests; it can exceed cache capacity, so completion is checked against all required persisted objects after eviction. No query at phone boot. Outside the richer bundled QLD atlas, public anchorage points augment existing layers; no absent fetch table becomes a favourable shelter verdict. The existing small bounded Overpass mooring query remains a fallback while a published extract is unavailable, and is suppressed in Satellite Mode. It is not used by place-name search.
 
 Public data cache: serialized writes, at most96 entries /24MiB **including serialized pack overhead**, native Directory.Data or one IndexedDB record on web. A cold process validates its pack and records. Oldest downloaded objects are evicted (not an indefinitely pinned full-area promise). A large/partially available area is explicitly incomplete; users should test the saved area offline before departure. Satellite Mode is cache-only, including explicit area requests. Delete fences in-flight operations and clears the pack; the service worker bypasses this exact prefix, avoiding a second stale copy in the terrain cache. Purchased-chart persistence rules are unchanged.
 
@@ -62,7 +62,7 @@ python3 scripts/marine-catalogue/publication.py --generation /srv/thalassa-catal
 python3 -m unittest discover -s scripts/marine-catalogue -p 'test_*.py'
 ```
 
-`build.py` performs no requests. It streams GeoNames TSV and GeoJSON lines through SQLite (16MiB page cache,2GiB scratch limit), ≤32 input files each≤8GiB,≤2M admitted records,≤8MiB input line,≤2GiB output. Dense name shards subdivide; an area shard or unsplittable name shard exceeding its row/byte cap fails the entire generation rather than dropping records. Empty/all-source-failure builds cannot create or replace an active manifest. Existing immutable generations are reused. The complete inventory (≤50000 keys,≤2MiB manifest) distinguishes a known-empty cell from a missing listed object.
+`build.py` performs no requests. It streams GeoNames TSV and GeoJSON lines through SQLite (16MiB page cache,2GiB scratch limit), ≤32 input files each≤8GiB,≤2M admitted records,≤8MiB input line,≤2GiB output. Dense name and spatial shards subdivide; an unsplittable name or exact-location group exceeding its row/byte cap fails the entire generation rather than dropping records. Empty/all-source-failure builds cannot create or replace an active manifest. Existing immutable generations are reused. The complete inventory (≤50000 keys,≤2MiB manifest) distinguishes a known-empty cell from a missing listed object.
 
 OSM extraction preparation on wx (review available disk/region scope first): use installed `osmium tags-filter` on **public Geofabrik PBFs only**, retaining `nwr/seamark:type=anchorage,anchor_berth,mooring`, `nwr/mooring=buoy`, `nwr/seamark:buoy_special_purpose:category=mooring`, `nwr/anchorage=yes`; export with `osmium export --attributes=type,id -f geojsonseq`. Convert the RFC8142 record separators to newline-delimited JSON in the controlled staging directory. The parser uses original @type plus @id; area-derived synthetic IDs never replace the original way/relation ID. Referenced nodes must remain available to osmium; do not drop dependencies. Never run a global Overpass query. Build AU first with honest coverage, then add reviewed world extracts; do not label an AU-only extract worldwide.
 
@@ -104,7 +104,7 @@ Optional unattended monthly publication requires a second explicit policy file a
 }
 ```
 
-This opt-in mode records each actual publication plan before uploading, keeps active-source proof, and performs only the bounded owned retention above. The supplied service does not pass these arguments. First live acquisition, publication, cleanup and timer activation remain held for root review of a concrete dry run; no deployed world dataset or active timer is claimed.
+This opt-in mode records each actual publication plan before uploading, keeps active-source proof, and performs only the bounded owned retention above. The supplied service does not pass these arguments. The first GeoNames acquisition was reviewed and executed in isolated /srv/weather staging. Publication, cleanup and timer activation remain held for root review of the exact generated plan; no deployed world dataset or active timer is claimed.
 
 ## Checks
 

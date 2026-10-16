@@ -9,6 +9,7 @@ import {
     normaliseName,
     namePrefix,
     nameSearchKeys,
+    areaSearchKeys,
     parseManifest,
     parseShard,
     type CatalogueDataset,
@@ -179,13 +180,14 @@ export async function loadMarineArea(
     signal?: AbortSignal,
     cacheOnly = false,
 ): Promise<CatalogueResult> {
-    return loadMarineCells(nearbyAreaKeys(lat, lon), datasets, signal, cacheOnly);
+    return loadMarineCells(nearbyAreaKeys(lat, lon), datasets, signal, cacheOnly, { lat, lon });
 }
 export async function loadMarineCells(
     keys: readonly string[],
     datasets: readonly CatalogueDataset[],
     signal?: AbortSignal,
     cacheOnly = false,
+    near?: { lat: number; lon: number },
 ): Promise<CatalogueResult> {
     if (keys.length > 16 || !keys.every((key) => /^(?:[0-8]?\d)_(?:1[0-7]\d|[0-9]?\d)$/.test(key)))
         throw new Error('Invalid catalogue area');
@@ -223,19 +225,20 @@ export async function loadMarineCells(
             if (dataset === 'noaa' && m.agreementSha256 !== agreementHash)
                 throw new Error('NOAA agreement version differs; update the app before using this catalogue');
             manifests.push(m);
+            const leaves = areaSearchKeys(m, keys, near);
+            if (leaves.length > 16) partial = true;
+            const selected = leaves.slice(0, 16);
             requiredPaths.push(
                 `${dataset}/manifest.json`,
-                ...keys
-                    .filter((key) => m.shards.includes(`areas/${key}`))
-                    .map((key) => `${dataset}/${m.generation}/areas/${key}.json`),
+                ...selected.map((key) => `${dataset}/${m.generation}/${key}.json`),
             );
             // Sequential cells avoid a large pending queue; the shared gate permits two sheets only.
-            for (const key of keys) {
+            for (const key of selected) {
                 if (records.size >= 10000) {
                     partial = true;
                     break;
                 }
-                const points = await shard(m, `areas/${key}`, signal, cacheOnly);
+                const points = await shard(m, key, signal, cacheOnly);
                 if (!isAuthIdentityScopeCurrent(scope)) throw new Error('Catalogue account changed');
                 if (points === null) partial = true;
                 for (const p of points ?? []) {

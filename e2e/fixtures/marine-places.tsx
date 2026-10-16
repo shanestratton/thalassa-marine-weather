@@ -30,8 +30,10 @@ window.fetch = async (input) => {
             builtAt: new Date().toISOString(),
             sourceAt: new Date().toISOString(),
             count: 30,
-            shards: ['names/63-6f-72', 'areas/36_179'],
-            ...(dataset === 'noaa' ? { agreementSha256: '175f625ba0ae7b8656bf41010d6e5226b70f66a5a5c00ceff450c2eba2411c24' } : {}),
+            shards: ['names/63-6f-72', 'areas/36_179-3'],
+            ...(dataset === 'noaa'
+                ? { agreementSha256: '175f625ba0ae7b8656bf41010d6e5226b70f66a5a5c00ceff450c2eba2411c24' }
+                : {}),
             coverage: 'Generated Fiji fixture only; no real catalogue publication',
             licence,
             sourceUrl:
@@ -46,7 +48,7 @@ window.fetch = async (input) => {
             .slice(2)
             .join('/')
             .replace(/\.json$/, '');
-        if (!['names/63-6f-72', 'areas/36_179'].includes(key)) return new Response('', { status: 404 });
+        if (!['names/63-6f-72', 'areas/36_179-3'].includes(key)) return new Response('', { status: 404 });
         const records =
             dataset === 'places'
                 ? Array.from({ length: key.startsWith('names') ? 30 : 1 }, (_, i) => ({
