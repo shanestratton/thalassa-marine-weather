@@ -86,7 +86,11 @@ describe('bounded official chart bytes and proxy', () => {
         expect(result.headers.get('access-control-allow-origin')).toBe('*');
         expect(fetcher).toHaveBeenCalledWith(
             synopticChart('opc-atl-analysis')!.url,
-            expect.objectContaining({ redirect: 'error', credentials: 'omit' }),
+            expect.objectContaining({
+                redirect: 'error',
+                credentials: 'omit',
+                headers: { Accept: 'image/gif', 'User-Agent': 'Thalassa/1.2 (+https://www.thalassawx.app)' },
+            }),
         );
         for (const query of [
             'id=https://evil.test/a',
@@ -96,6 +100,21 @@ describe('bounded official chart bytes and proxy', () => {
         ])
             expect((await handler(new Request(`https://example.test/api/synoptic-chart?${query}`))).status).toBe(400);
         expect(fetcher).toHaveBeenCalledOnce();
+    });
+    it('reports only the fixed public source status when the host rejects the request', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('private diagnostic', { status: 403 })));
+        const result = await handler(new Request('https://example.test/api/synoptic-chart?id=opc-atl-analysis'));
+        expect(result.status).toBe(502);
+        expect(result.headers.get('x-thalassa-upstream-status')).toBe('403');
+        expect(result.headers.get('cache-control')).toBe('no-store');
+        expect(await result.text()).toBe('Official chart unavailable');
+    });
+    it('suppresses network exceptions while distinguishing that no HTTP response arrived', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('private diagnostic')));
+        const result = await handler(new Request('https://example.test/api/synoptic-chart?id=opc-atl-analysis'));
+        expect(result.status).toBe(502);
+        expect(result.headers.get('x-thalassa-upstream-status')).toBe('0');
+        expect(await result.text()).toBe('Official chart unavailable');
     });
 });
 
