@@ -55,7 +55,7 @@ import {
     stampScaleRank,
     type CellScaleFacts,
 } from './enc/scaleShadow';
-import { capCellsForMerge } from './enc/mergeCap';
+import { capCellsForMerge, MAX_MERGE_CELLS } from './enc/mergeCap';
 import { crumb } from '../utils/flightRecorder';
 import { peekLeadGraphForView } from './routing/leadOverlayData';
 import { piCache } from './PiCacheService';
@@ -338,6 +338,7 @@ interface InshoreRunControl {
     asks: AbortSignal;
     onStage: (stage: RouteStage) => void;
     timing: InshoreRunTiming;
+    chartView?: Awaited<ReturnType<typeof import('./enc/noaaPackageWindow').loadNoaaPackageCohort>>;
 }
 
 const exitDurations = (t: InshoreRunTiming): string =>
@@ -593,7 +594,16 @@ function startInshoreRun(
         control,
     );
     entry.run = withDeadline(
-        untilStopped(routed.finally(endAsks), entry.stop.signal),
+        untilStopped(
+            routed.finally(() => {
+                endAsks();
+                // An outer watchdog/last-caller race can settle first. Prep
+                // and the hosted job still borrow the geometry until HERE.
+                control.chartView?.release();
+                control.chartView = undefined;
+            }),
+            entry.stop.signal,
+        ),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -662,7 +672,10 @@ async function tryInshoreRouteInner(
     // A run every caller has stopped drops out at its next wait (review
     // 2026-10-11): it starts no more fetches, cell reads or satellite reads
     // beside a re-tap's fresh run. The waits themselves can't be cancelled.
-    const stillWanted = (): void => run.signal.throwIfAborted();
+    const stillWanted = (): void => {
+        run.signal.throwIfAborted();
+        run.chartView?.check();
+    };
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
         log.warn(
@@ -724,6 +737,31 @@ async function tryInshoreRouteInner(
     const minLon = Math.min(origin.lon, destination.lon);
     const maxLon = Math.max(origin.lon, destination.lon);
     const candidateCells = cellsForBBox([minLon, minLat, maxLon, maxLat]);
+    if (listCells().some((c) => c.noaaPackage)) {
+        // Use the engine's actual request envelope, including the coarse
+        // precheck, rather than the smaller fixed OSM overlay padding.
+        const { corridorBBox } = await import('./enc/corridorPrefetch');
+        stillWanted();
+        const window = corridorBBox([origin, destination]);
+        const packages = cellsForBBox(window).filter((c) => c.noaaPackage);
+        if (packages.length) {
+            for (const cell of packages) if (!candidateCells.some((c) => c.id === cell.id)) candidateCells.push(cell);
+            try {
+                if (candidateCells.length > MAX_MERGE_CELLS)
+                    throw Error('Complete chart cohort exceeds the cell limit.');
+                const { loadNoaaPackageCohort } = await import('./enc/noaaPackageWindow');
+                run.chartView = await loadNoaaPackageCohort(packages, window, () => run.asks.throwIfAborted());
+                stillWanted();
+            } catch (error) {
+                run.signal.throwIfAborted();
+                log.warn('Complete NOAA chart window unavailable', error);
+                return {
+                    error: 'The complete installed NOAA chart window could not be verified within device limits.',
+                    code: 'chart-window-unavailable',
+                };
+            }
+        }
+    }
     if (candidateCells.length === 0) {
         log.warn('GATE: No installed cells intersect the route bbox — skipping inshore router');
         return null;
@@ -874,8 +912,14 @@ async function tryInshoreRouteInner(
     };
     const cellReads: ReturnType<typeof loadCellGeoJSON>[] = [];
     for (const [i, cell] of candidateCells.entries()) {
-        while (cellReads.length < Math.min(i + CELL_READS, candidateCells.length))
-            cellReads.push(askedNow(loadCellGeoJSON(candidateCells[cellReads.length].id, true, oneAtATime)));
+        while (cellReads.length < Math.min(i + CELL_READS, candidateCells.length)) {
+            const next = candidateCells[cellReads.length];
+            cellReads.push(
+                next.noaaPackage
+                    ? Promise.resolve(run.chartView?.blobs.get(next.id) ?? null)
+                    : askedNow(loadCellGeoJSON(next.id, true, oneAtATime)),
+            );
+        }
         const blob = await cellReads[i];
         stillWanted();
         if (!blob) {
@@ -1912,6 +1956,7 @@ async function tryInshoreRouteInner(
     stillWanted();
     run.timing.prepMs = Date.now() - run.timing.t0;
     const hosted = await runRouteJobHosted(job, { signal: run.signal, onStage: run.onStage });
+    stillWanted();
     Object.assign(run.timing, {
         waitMs: hosted.waitMs,
         handoffMs: hosted.handoffMs,

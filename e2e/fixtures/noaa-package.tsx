@@ -102,6 +102,19 @@ function Fixture() {
                         2,
                         0.5,
                     ),
+                async inshore() {
+                    const { tryInshoreRoute } = await import('../../services/InshoreRouter');
+                    const before = noaaResidentBytes();
+                    const result = await tryInshoreRoute(
+                        { lat: 55.5, lon: -133.76 },
+                        { lat: 55.5, lon: -133.74 },
+                        0.5,
+                        null,
+                        'safest',
+                        { tideCeilings: [] },
+                    );
+                    return { result, before, after: noaaResidentBytes() };
+                },
                 satellite(enabled: boolean) {
                     const s = useSettingsStore.getState();
                     useSettingsStore.setState({ settings: { ...s.settings, satelliteMode: enabled } });

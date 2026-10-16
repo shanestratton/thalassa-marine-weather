@@ -208,6 +208,14 @@ test('complete package survives a genuinely new browser context with local data 
     expect((await api<Array<{ hazard: boolean }>>(page, 'query()'))[0].hazard).toBe(true);
     expect(await api(page, 'datum()')).toBe('MLLW');
     expect(await api(page, 'ahead()')).toMatchObject({ coverage: 'charted', hit: { kind: 'depth' } });
+    await api(page, 'satellite(true)');
+    const inshore = await api<{ result: { polyline: number[][]; cellsUsed: string[] }; before: number; after: number }>(
+        page,
+        'inshore()',
+    );
+    expect(inshore.result.polyline.length).toBeGreaterThan(1);
+    expect(inshore.result.cellsUsed).toContain('US3AK1EX');
+    expect(inshore.after).toBe(inshore.before);
     await expect(api(page, 'view([-134,55,-132,56])')).rejects.toThrow(/resident/);
     await api(page, 'satellite(true)');
     const stored = await context.storageState({ indexedDB: true });
@@ -258,6 +266,7 @@ test('cancel/tamper/account transitions fail closed and cleanup preserves a late
     expect((await api<Array<{ covered: boolean }>>(page, 'query()'))[0].covered).toBe(false);
     expect(await api(page, 'datum()')).toBeNull();
     expect(await api(page, 'ahead()')).toEqual({ hit: null, coverage: 'none' });
+    expect(await api(page, 'inshore()')).toMatchObject({ result: { code: 'chart-window-unavailable' } });
     await api(page, 'replaceManual()');
     await api(page, 'removeOriginal()');
     const final = await api<Inspection>(page, 'inspect()');
