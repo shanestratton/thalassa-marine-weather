@@ -17,6 +17,47 @@ export interface OverlayPreview {
     polygons: number;
     bytes: number;
 }
+export type OverlayRouteBounds = readonly [west: number, south: number, east: number, north: number];
+export function validOverlayRouteBounds(bbox: readonly number[]): bbox is OverlayRouteBounds {
+    return (
+        bbox.length === 4 &&
+        bbox.every(Number.isFinite) &&
+        Math.abs(bbox[0]) <= 180 &&
+        Math.abs(bbox[2]) <= 180 &&
+        bbox[1] >= -90 &&
+        bbox[3] <= 90 &&
+        bbox[1] < bbox[3] &&
+        bbox[0] !== bbox[2]
+    );
+}
+/** Complete polygons only, including dateline world copies; no clipping or geometry reinterpretation. */
+export function overlayPolygonOverlaps(
+    geometry: Extract<OverlayGeometry, { type: 'Polygon' | 'MultiPolygon' }>,
+    bbox: OverlayRouteBounds,
+): boolean {
+    const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+    const east = bbox[2] < bbox[0] ? bbox[2] + 360 : bbox[2];
+    return polygons.some((p) => {
+        let west = Infinity,
+            right = -Infinity,
+            south = Infinity,
+            north = -Infinity;
+        let last = bbox[0];
+        for (const [raw, lat] of p[0]) {
+            const lon = raw + 360 * Math.round((last - raw) / 360);
+            last = lon;
+            west = Math.min(west, lon);
+            right = Math.max(right, lon);
+            south = Math.min(south, lat);
+            north = Math.max(north, lat);
+        }
+        return (
+            south <= bbox[3] &&
+            north >= bbox[1] &&
+            [-360, 0, 360].some((shift) => west + shift <= east && right + shift >= bbox[0])
+        );
+    });
+}
 export const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 export const safeLabel = (v: unknown, fallback: string) =>
     (typeof v === 'string'

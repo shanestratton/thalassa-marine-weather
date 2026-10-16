@@ -82,7 +82,8 @@ export default function UserOverlaysSheet({ onClose }: { onClose: () => void }) 
             <div className="space-y-4 p-4 text-sm text-slate-200">
                 <p>
                     Private files stay on this device, under your account. User overlays are reference annotations, not
-                    official charts or routing data.
+                    official charts. Polygons affect routing only when you explicitly enable Avoid while routing.
+                    Avoidance is independent of visibility and entry notices; it does not prove safe water outside them.
                 </p>
                 <p>
                     GeoJSON up to 4 MiB, KML up to 1 MiB, or a ZIP with one 2D shapefile, matching .dbf and geographic
@@ -119,8 +120,8 @@ export default function UserOverlaysSheet({ onClose }: { onClose: () => void }) 
                             />
                         </label>
                         <p>
-                            Only geometry and short labels will be saved. Entry notices start off. No files or names are
-                            uploaded.
+                            Only geometry and short labels will be saved. Entry notices and routing avoidance start off.
+                            No files or names are uploaded.
                         </p>
                         <button
                             className={button}
@@ -196,7 +197,7 @@ export default function UserOverlaysSheet({ onClose }: { onClose: () => void }) 
                                 className="space-y-2 rounded border border-white/20 p-3"
                             >
                                 <h3 className="font-bold break-words">{row.label}</h3>
-                                <p>
+                                <p className="break-words">
                                     {row.features} features · {row.polygons} polygons · imported{' '}
                                     {new Date(row.createdAt).toISOString()}
                                 </p>
@@ -212,6 +213,19 @@ export default function UserOverlaysSheet({ onClose }: { onClose: () => void }) 
                                         }
                                     />
                                     Show on Obs
+                                </label>
+                                <label className="flex gap-2 min-h-11 items-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={row.avoidRouting === true}
+                                        disabled={busy || !row.polygons}
+                                        onChange={(e) =>
+                                            void action(() =>
+                                                updateUserOverlay(row.id, { avoidRouting: e.target.checked }, scope),
+                                            )
+                                        }
+                                    />
+                                    Avoid while routing
                                 </label>
                                 <label className="flex gap-2 min-h-11 items-center">
                                     <input
