@@ -30,7 +30,7 @@ jobs:
                   persist-credentials: false
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: af2ab4699c348a139d74eac7c6a7790ba7f14154
+                  ref: 08ede95ed8399e476ed1e7285ebe1f3e8775e0c5
                   path: source
                   fetch-depth: 0
                   persist-credentials: false
@@ -43,7 +43,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  test "$(git -C source rev-parse HEAD)" = af2ab4699c348a139d74eac7c6a7790ba7f14154
+                  test "$(git -C source rev-parse HEAD)" = 08ede95ed8399e476ed1e7285ebe1f3e8775e0c5
                   test "$(git -C controls rev-parse HEAD)" = "$GITHUB_SHA"
                   test -z "$(git -C source status --porcelain)"
                   git -C controls diff --name-only 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD > "$RUNNER_TEMP/inventory.txt"
@@ -67,7 +67,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  test "$(git -C source rev-parse HEAD)" = af2ab4699c348a139d74eac7c6a7790ba7f14154
+                  test "$(git -C source rev-parse HEAD)" = 08ede95ed8399e476ed1e7285ebe1f3e8775e0c5
                   test -z "$(git -C source status --porcelain)"
             - name: Preserve diagnostic state, screenshots and traces regardless of result
               if: always()
