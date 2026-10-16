@@ -9,11 +9,17 @@ import {
 } from '../../../../utils/weatherWatch.ts';
 import { composeBriefing } from '../../../../services/briefing/composeBriefing.ts';
 import { officialCovers, type OfficialForCover } from '../forecast-alerts/cover.ts';
+import {
+    WEATHER_POSITION_HOLD_MS,
+    weatherPositionFix,
+    weatherPositionUuid,
+} from '../../../../utils/weatherPosition.ts';
 export interface WatchWork {
     boat_id: string;
     owner_id: string;
     revision: string;
     preferences: unknown;
+    position?: unknown;
 }
 export interface WatchClaim {
     p_boat_id: string;
@@ -25,6 +31,8 @@ export interface WatchClaim {
     p_expires: string;
     p_title: string;
     p_body: string;
+    p_position_revision?: string | null;
+    p_position_at?: string | null;
 }
 export interface WeatherWatchDeps {
     now(): number;
@@ -39,7 +47,9 @@ export interface WeatherWatchDeps {
 }
 /** No free/provider fallback. Missing cached fields are unknown; work/claim recheck live opt-in. */
 export async function runWeatherWatch(feature: WeatherWatchFeature, deps: WeatherWatchDeps) {
-    const now = deps.now(), deadline = now + 45_000;
+    // Reserve time inside the55s cron invocation for one bounded response
+    // and the final heartbeat. No event may be claimed after this work budget.
+    const now = deps.now(), deadline = now + 30_000;
     let after: string | null = null, checked = 0, queued = 0, complete = true;
     const cells = new Map<string, Promise<ConvectiveMember[]>>();
     const forecast = (lat: number, lon: number) => {
@@ -76,9 +86,32 @@ export async function runWeatherWatch(feature: WeatherWatchFeature, deps: Weathe
                 const prefs = parseWeatherWatchPreferences(row.preferences, now);
                 if (!prefs || !prefs[feature]) continue;
                 checked++;
-                const local = weatherWatchLocalSlot(now, prefs.zone);
+                const rawPosition = row.position && typeof row.position === 'object'
+                    ? row.position as Record<string, unknown>
+                    : null;
+                const fix = weatherPositionFix(rawPosition, now, WEATHER_POSITION_HOLD_MS);
+                const position =
+                    fix && weatherPositionUuid(rawPosition?.revision) && typeof rawPosition.zone === 'string' &&
+                        weatherWatchLocalSlot(now, rawPosition.zone)
+                        ? { ...fix, revision: rawPosition.revision, zone: rawPosition.zone }
+                        : null;
+                // A short manually selected position never becomes overnight coverage.
+                if ((feature === 'morning' || feature === 'rain') && !position) continue;
+                const zone = position?.zone ?? prefs.zone;
+                const local = weatherWatchLocalSlot(now, zone);
                 if (!local || (feature === 'morning' && (local.hour !== prefs.hour || local.minute > 9))) continue;
-                for (const sample of prefs.samples) {
+                const samples = position
+                    ? [{
+                        key: 'live:boat',
+                        kind: 'boat' as const,
+                        label: 'Your registered vessel',
+                        lat: position.lat,
+                        lon: position.lon,
+                        sourceAt: position.at,
+                        expiresAt: position.at + WEATHER_POSITION_HOLD_MS,
+                    }, ...prefs.samples.filter((s) => s.kind !== 'boat')]
+                    : prefs.samples;
+                for (const sample of samples) {
                     if (sample.expiresAt <= now || (['morning', 'rain'].includes(feature) && sample.kind !== 'boat')) {
                         continue;
                     }
@@ -92,7 +125,7 @@ export async function runWeatherWatch(feature: WeatherWatchFeature, deps: Weathe
                         const arrival = response && rainArrival(response.body, response.retrievedAt, now);
                         if (arrival) {
                             const when = new Intl.DateTimeFormat('en-GB', {
-                                timeZone: prefs.zone,
+                                timeZone: zone,
                                 hour: '2-digit',
                                 minute: '2-digit',
                                 hourCycle: 'h23',
@@ -103,18 +136,22 @@ export async function runWeatherWatch(feature: WeatherWatchFeature, deps: Weathe
                                 expires: Math.min(arrival.expiresAt, now + 5 * 60_000),
                                 title: 'Forecast: rain arriving',
                                 body:
-                                    `Rain may reach your registered boat position around ${when} (${prefs.zone}). Rainbow nowcast; not lightning detection.`,
+                                    `Rain may reach your registered boat position around ${when} (${zone}). Rainbow nowcast; not lightning detection.`,
                             };
                         }
                     } else {
                         const members = await forecast(sample.lat, sample.lon);
+                        if (deps.now() > deadline) {
+                            complete = false;
+                            break;
+                        }
                         if (!members.length) continue;
                         const source = Math.min(...members.map((m) => m.runAt));
                         const official = await deps.official(row.owner_id, sample.lat, sample.lon);
                         if (feature === 'morning') {
                             const briefing = composeBriefing({
                                 place: sample.label,
-                                zone: prefs.zone,
+                                zone,
                                 now,
                                 forecastAt: source,
                                 official: official.live
@@ -151,7 +188,7 @@ export async function runWeatherWatch(feature: WeatherWatchFeature, deps: Weathe
                             // Quiet hours use the registered boat zone, the same imminent <=3h rule as129-07.
                             if ((local.hour >= 22 || local.hour < 7) && agreed.from > now + 3 * 3_600_000) continue;
                             const start = new Intl.DateTimeFormat('en-GB', {
-                                timeZone: prefs.zone,
+                                timeZone: zone,
                                 weekday: 'short',
                                 hour: '2-digit',
                                 minute: '2-digit',
@@ -172,13 +209,17 @@ export async function runWeatherWatch(feature: WeatherWatchFeature, deps: Weathe
                                     feature === 'storm' ? 'thunderstorm risk' : 'gust threshold crossed'
                                 }`,
                                 body:
-                                    `${agreed.models.length} of 3 models agree (${names}) near ${sample.label}, ${start} (${prefs.zone}). ${
+                                    `${agreed.models.length} of 3 models agree (${names}) near ${sample.label}, ${start} (${zone}). ${
                                         feature === 'storm'
                                             ? 'Thunder forecast, not lightning detection.'
                                             : 'Your gust threshold, not a measured gust.'
                                     } Sampled 0.25° forecast cells; gaps between samples are not checked.`,
                             };
                         }
+                    }
+                    if (deps.now() > deadline) {
+                        complete = false;
+                        break;
                     }
                     if (
                         event &&
@@ -192,6 +233,8 @@ export async function runWeatherWatch(feature: WeatherWatchFeature, deps: Weathe
                             p_expires: new Date(Math.min(event.expires, sample.expiresAt)).toISOString(),
                             p_title: event.title,
                             p_body: event.body,
+                            p_position_revision: sample.key === 'live:boat' ? position!.revision : null,
+                            p_position_at: sample.key === 'live:boat' ? new Date(position!.at).toISOString() : null,
                         })
                     ) queued++;
                 }

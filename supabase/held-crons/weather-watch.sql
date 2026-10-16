@@ -13,7 +13,10 @@ BEGIN
     IF to_regprocedure('public.invoke_edge_function(text,integer,jsonb)') IS NULL THEN
         RAISE EXCEPTION 'Existing Vault invocation helper required';
     END IF;
-    IF EXISTS(SELECT 1 FROM private.weather_watch_health WHERE delivery_version<>1 OR entitlement_until IS NULL OR entitlement_until<=now()) THEN
+    IF to_regprocedure('public.weather_position_telemetry(uuid,text,jsonb,text)') IS NULL THEN
+        RAISE EXCEPTION 'Reviewed vessel-bound position backend required';
+    END IF;
+    IF EXISTS(SELECT 1 FROM private_weather_watch.weather_watch_health WHERE delivery_version<>1 OR entitlement_until IS NULL OR entitlement_until<=now()) THEN
         RAISE EXCEPTION 'Reviewed sender and entitlement proof required';
     END IF;
     FOR item IN SELECT * FROM (VALUES

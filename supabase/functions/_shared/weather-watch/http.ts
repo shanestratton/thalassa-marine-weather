@@ -8,8 +8,14 @@ export interface WatchEnvironment {
 const uuid = (value: unknown): value is string =>
     typeof value === 'string' && /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(value);
 /** Timeout includes streamed response body. All destinations fixed in this module. */
-async function jsonFetch(url: URL, init: RequestInit, fetcher: typeof fetch, maxBytes: number): Promise<unknown> {
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15_000);
+async function jsonFetch(
+    url: URL,
+    init: RequestInit,
+    fetcher: typeof fetch,
+    maxBytes: number,
+    timeoutMs = 5000,
+): Promise<unknown> {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const response = await fetcher(url, { ...init, redirect: 'error', signal: controller.signal });
         if (!response.ok || !/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '')) {
@@ -50,6 +56,9 @@ export function weatherWatchDependencies(env: WatchEnvironment, fetcher = fetch,
         },
         async forecasts(cell) {
             if (!/^-?\d{1,5}_-?\d{1,5}$/.test(cell)) throw new Error('Invalid cell');
+            // Explicitly authorized coarse interests persist while the phone
+            // is closed. Acquisition remains the existing publisher's job.
+            if (await rpc('announce_wx_cell', { p_cell: cell }) !== true) throw new Error('Cell interest unavailable');
             const url = new URL('/rest/v1/wx_point_forecasts', origin);
             url.search = new URLSearchParams({
                 select: 'cell_id,model,run_at,payload',
@@ -69,7 +78,13 @@ export function weatherWatchDependencies(env: WatchEnvironment, fetcher = fetch,
             }
             const url = new URL(`https://api.rainbow.ai/nowcast/v1/precip-global/${lon.toFixed(4)}/${lat.toFixed(4)}`);
             // Current Rainbow docs support this header. Token never enters a URL or log.
-            const body = await jsonFetch(url, { headers: { 'Ocp-Apim-Subscription-Key': token } }, fetcher, 256_000);
+            const body = await jsonFetch(
+                url,
+                { headers: { 'Ocp-Apim-Subscription-Key': token } },
+                fetcher,
+                256_000,
+                15_000,
+            );
             return { body, retrievedAt: now() };
         },
         async official(owner, lat, lon) {

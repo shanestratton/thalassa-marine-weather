@@ -33,6 +33,16 @@ for (const width of [300, 375])
                             schema: 1,
                             profile: { revision, preferences },
                             capabilities: { morning: cap, rain: cap, storm: cap, gust: cap },
+                            position: {
+                                registration: {
+                                    revision,
+                                    relayId: 'fictional_relay_0001',
+                                    selfKey: 'a'.repeat(64),
+                                    sourceKey: 'b'.repeat(64),
+                                    enabled: true,
+                                },
+                                position: { revision, lat: 0, lon: 0, at: Date.now() - 1000, zone: 'UTC' },
+                            },
                         },
                     });
                 }

@@ -12,16 +12,21 @@ send a push, claim a locked-phone test or provision a provider account.
   expiry, a matching active cron command/schedule with a recent successful job,
   and the function's own fresh successful completion heartbeat. A table or key
   alone leaves them hidden. An over-capacity/failed run clears its heartbeat.
-- The initial profile carries at most 16 explicitly authorized point samples.
-  Boat samples preserve the actual instrument position clock and expire after
-  15 minutes; phone position and account-wide Guardian data are not substituted.
+- The profile carries at most 16 explicitly authorized point samples. Overnight
+  boat checks instead require a separate owner-authorized Pi source registration,
+  the authoritative `pi_diary_relays.boat_id` stamp and a fresh matching position
+  proof. Phone position, account-selected telemetry and Guardian are never substituted.
   Route snapshots contain at most eight coordinates, expire after 48 hours and
   say that gaps are unchecked. Saved spots expire after 30 days. A route change
   requires registration again; this packet does not pretend a snapshot is a live
   following service. Only coordinate samples cross the seam: no full encoded
   route, chart objects, depths, marks, grades or licensed chart evidence.
 - Morning/convective checks reuse the existing `wx2:` point publications. No
-  paid Open-Meteo fan-out is added. The strict subset checks original run,
+  paid Open-Meteo fan-out is added. The worker refreshes only the explicitly
+  authorized anonymous 0.25° interests through existing `announce_wx_cell`;
+  the existing wx publisher supplies new cells while the phone is closed.
+  Cache misses stay unknown until that publisher has produced actual data.
+  The strict subset checks original run,
   source domains, model/cell identity, UTC axes and units. A coarse 0.25° sea
   cell is always described as such. Missing CAPE/LI/CIN/gust/code stays unknown.
 - Storm/gust pushes require two distinct ECMWF/ICON/UKMO members in the same
@@ -62,10 +67,11 @@ send a push, claim a locked-phone test or provision a provider account.
 
 ## Actual gaps before activation
 
-1. **Vessel-bound position publisher/registration is still required.** A 15-minute
-   explicit sample cannot honestly provide overnight/closed-phone morning or
-   moving-boat rain coverage. Do not alias account-only Guardian to a vessel.
-   The next packet investigates the existing `pi_diary_relays.boat_id` binding.
+1. **The position closure below is prepared, with no live installation.** Its
+   fixed Pi read must be mounted/classified, included in the reviewed update,
+   deployed with the optional telemetry handler and both held migrations, and
+   verified against an explicitly consenting owned test vessel before claiming
+   actual closed-phone position coverage. No vessel is registered by this packet.
 2. The original 130-08 composer/card did not exist. This adds a deterministic
    foundation accepting already-computed Plan Your Day words, explicit source
    clocks, tides/datum/navigation permission and civil light. The scheduled
@@ -78,7 +84,10 @@ send a push, claim a locked-phone test or provision a provider account.
 4. No live backend deployment or cron activation occurred. Exact bundle readback,
    provider permission proof, sender readback and scheduled heartbeat must all
    precede opt-in exposure. Delivery to a locked phone remains a real-device check.
-5. The initial runner is bounded at 160 profiles/256 cached cells/45 seconds.
+5. The runner is bounded at 160 profiles/256 cached cells/30 seconds of work,
+   reserving the rest of the existing 55-second invocation for bounded in-flight
+   responses and the final heartbeat. Database responses have five-second bounds,
+   Rainbow fifteen. It checks the deadline before any subsequent queue claim.
    Exceeding a bound is explicitly unhealthy. Review rollout size and add sharding
    before exceeding it; never silently omit the tail while reporting readiness.
 6. Isolated SQL behavior is not a PostgreSQL transaction-race proof. Run the
@@ -101,6 +110,9 @@ send a push, claim a locked-phone test or provision a provider account.
   are separate; an enqueued HTTP request alone is not a successful function run.
   The [changelog](https://supabase.com/changelog.md) was checked; no unrelated
   SDK/platform migration is part of this packet.
+- [PostgreSQL17 schema privileges](https://www.postgresql.org/docs/17/ddl-schemas.html):
+  schema usage and per-object privileges are independent. Weather's private
+  functions use a dedicated schema rather than broadening a shared namespace.
 
 ## Validation / activation packet
 
@@ -130,3 +142,92 @@ scheduled operation, PostgreSQL concurrency or locked-phone delivery proof.
 Before any combined sender deployment, merge the root's later wake source and
 preserve its exact guards. This branch started from the frozen 94e15 weather
 isolation base; it must not overwrite newer live wake fixes with an older bundle.
+
+## Vessel-bound position closure
+
+`GET /api/weather-watch/position-source` accepts no query/body. It runs behind
+the existing app gate and independently requires a currently enrolled phone on
+physical boat LAN, including device observe mode. Its callback reads only the
+authenticated Signal K read-session cache. It returns version1, relay identity,
+SHA-256 self/selected-source keys, an original-clock position and the catalogue
+time. No source URL, credential, raw self UUID or arbitrary Signal K path crosses
+the seam. Missing `$source`, a parent-only clock, a future/older-than13s fix,
+unpaired Pi, changed enrollment/pairing, tailnet peer or unavailable cache refuses.
+The fixed schema admits genuine `(0,0)` positions.
+
+The owner explicitly reviews this local source and saves
+`configure_weather_position(boat,expected,relayId,selfKey,sourceKey,enabled)`.
+The server checks the live boat owner and persistent relay hull stamp, takes the
+same boat transaction lock as watch claims and performs CAS. A changed source,
+self or relay needs a new explicit registration. Configured is distinct from
+fresh: every registration starts without a position receipt. Source sharing can
+be allowed while all four forecast opt-ins remain off. A Stop action changes its
+revision and retires existing receipts/queued notices; it never silently retries.
+
+The already-running policy-controlled telemetry POST learns a bounded ten-minute
+`weather_position_request` only when sharing is enabled for that exact relay.
+Its next normal request may include `weather_position_v1` from the authenticated
+cached selected leaf. It adds no WAN request and no telemetry scalar. The
+40-key/4KiB extra contract and16KiB full body remain unchanged: optional proof is
+dropped if it does not fit; an already oversized base body is refused. Response
+JSON is streamed to a2KiB bound and a two-second read timeout. Policy, stop,
+credential or source changes retire cached consent. Legacy gauges are preserved;
+a genuine GPS-only `(0,0)` source can send a minimal original-clock heartbeat
+with unknown legacy coordinates while its separate qualified proof remains valid.
+
+`telemetry-relay` authenticates the existing relay credential and stores the
+legacy reading first. Its optional1.5s receipt RPC uses the persistent hull
+binding, not `user_active_vessels`, and validates source/revision/owner plus the
+original fix clock again. Missing/changed/unqualified proof removes readiness;
+an older valid same-source packet cannot overwrite a newer position. Repeated
+samples keep their original time. Only the registered receipt (up to15minutes
+old) feeds boat work. Timezone comes from the validated point via the existing
+pinned tz-lookup version. This15minute limit is weather-location tolerance,
+not authority for an onboard alarm, navigation, steering or a fresh gauge.
+
+Both held SQL files must be released together **in filename order**, before the
+new telemetry/worker code. The first's claim/work/delivery definitions require
+the second's helpers/columns. All new private objects use dedicated
+`private_weather_watch`, with exact function ACLs, no phone table grants and RLS;
+no shared private-schema privilege is broadened. Claims and every APNs attempt
+check the exact position registration again. A morning handoff carries only its
+registration revision; the card reads the matching owned current position,
+labels its clock and refuses a different/stale registration.
+
+Root integration (no new credentials/environment variables):
+
+```ts
+import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
+// Inside the existing APP_API_ENABLED block:
+app.use(
+    '/api/weather-watch',
+    requireAppApi,
+    createWeatherPositionRoutes({
+        devices: chartDevices,
+        selfDocument, // existing authenticated cache-only callback; no fallback
+        relayId: () => diaryRelayOutbox.lendTelemetryCredentials()?.relayId ?? null,
+    }),
+);
+// piCommandLock's exact read table:
+// ['GET /api/weather-watch/position-source', 'read']
+```
+
+The guarded Pi source bundle needs `src/weatherPosition.ts`,
+`src/weatherPositionWire.ts`, `src/routes/weatherPosition.ts` and the revised
+`src/telemetryPublisher.ts`, besides their existing dependencies. Run
+`node pi-cache/scripts/sync-weather-position.mjs --check` before bundling; the
+canonical app wire is dependency-free and type-checked without Node/Pi files.
+This packet deliberately does not edit server mounts, command classifications,
+stage scripts, native versions or deployed source.
+
+Position follow-up proof:78 focused app checks plus two actual portable-wire
+compile/mirror checks;28 Pi legacy/optional-proof/actual-mounted-router checks;
+22 Deno checks;49 isolated SQL behavior/ACL checks; app and Pi full TypeScript;
+four actual Chrome/WebKit300/375 browser cases with inspected screenshots.
+The separate `supabase/tests/weather-watch-postgres.mjs` is prepared, not run:
+it requires an explicitly opted-in empty localhost `weather137_test` database
+on PostgreSQL17.6 and a supplied outside-repository node-postgres module. It
+checks16 competing transactions per feature, cross-boat account quotas, source
+CAS, a verified blocking old-proof/source-replacement race, newer-clock retention
+and relay/owner retirement. No provider, webhook or sender exists in its fixture.
+Run that real lock proof before backend activation; PGlite is not a substitute.

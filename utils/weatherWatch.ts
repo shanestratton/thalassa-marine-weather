@@ -6,6 +6,7 @@ export interface WeatherWatchNotice {
     boatId: string;
     revision: string;
     expiresAt: number;
+    positionRevision: string | null;
 }
 /** Fixed handoff/expiry contract for phone and APNs delivery; never follows an incoming URL. */
 export function parseWeatherWatchNotice(value: unknown, now: number): WeatherWatchNotice | null {
@@ -18,12 +19,20 @@ export function parseWeatherWatchNotice(value: unknown, now: number): WeatherWat
         !['morning', 'rain', 'storm', 'gust'].includes(String(data.feature)) ||
         !uuid(data.boat_id) ||
         !uuid(data.revision) ||
+        (data.position_revision !== undefined && data.position_revision !== null && !uuid(data.position_revision)) ||
+        (['morning', 'rain'].includes(String(data.feature)) && !uuid(data.position_revision)) ||
         typeof data.expires !== 'string'
     )
         return null;
     const expiresAt = Date.parse(data.expires);
     return Number.isFinite(expiresAt) && expiresAt > now && expiresAt <= now + 3_600_000
-        ? { feature: data.feature as WeatherWatchFeature, boatId: data.boat_id, revision: data.revision, expiresAt }
+        ? {
+              feature: data.feature as WeatherWatchFeature,
+              boatId: data.boat_id,
+              revision: data.revision,
+              expiresAt,
+              positionRevision: typeof data.position_revision === 'string' ? data.position_revision : null,
+          }
         : null;
 }
 export interface WeatherWatchSample {

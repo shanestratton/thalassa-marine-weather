@@ -14,6 +14,7 @@ import {
     type WeatherWatchPreferences,
 } from '../../utils/weatherWatch';
 import { resolveTimeZone } from '../../utils/timezone';
+import { WEATHER_POSITION_HOLD_MS, type WeatherPositionSource } from '../../utils/weatherPosition';
 const subscribe = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 const FEATURES: readonly [WeatherWatchFeature, string][] = [
     ['morning', 'Morning briefing'],
@@ -30,6 +31,7 @@ export default function WeatherWatchSection() {
     const [busy, setBusy] = useState(false),
         [message, setMessage] = useState('');
     const [, setNow] = useState(Date.now);
+    const [reviewedSource, setReviewedSource] = useState<WeatherPositionSource | null>(null);
     const now = Date.now();
     const key = `${scope.key}:${scope.generation}:${boatId}`;
     const reload = async () => {
@@ -50,6 +52,7 @@ export default function WeatherWatchSection() {
         setLoaded(null);
         setDraft(defaultWeatherWatch());
         setMessage('');
+        setReviewedSource(null);
         setBusy(false);
         if (boatId)
             void fetchWeatherWatchStatus(boatId, scope).then((status) => {
@@ -73,7 +76,21 @@ export default function WeatherWatchSection() {
                     if (active && isAuthIdentityScopeCurrent(scope))
                         setLoaded((previous) =>
                             next && previous?.key === key
-                                ? { key, status: { ...previous.status, capabilities: next.capabilities } }
+                                ? {
+                                      key,
+                                      status: {
+                                          ...previous.status,
+                                          capabilities: next.capabilities,
+                                          position:
+                                              previous.status.position?.registration?.revision ===
+                                              next.position?.registration?.revision
+                                                  ? next.position
+                                                  : {
+                                                        registration: previous.status.position?.registration ?? null,
+                                                        position: null,
+                                                    },
+                                      },
+                                  }
                                 : null,
                         );
                 });
@@ -84,9 +101,12 @@ export default function WeatherWatchSection() {
         };
     }, [key, boatId, scope]);
     const status = loaded?.key === key ? loaded.status : null;
-    const ready = (feature: WeatherWatchFeature) =>
+    const deployed = (feature: WeatherWatchFeature) =>
         weatherWatchReady(feature, status?.capabilities[feature] ?? null, now);
-    if (!boatId || !status || !FEATURES.some(([feature]) => ready(feature))) return null;
+    const positionReady = !!status?.position?.position && now - status.position.position.at <= WEATHER_POSITION_HOLD_MS;
+    const ready = (feature: WeatherWatchFeature) =>
+        deployed(feature) && (!['morning', 'rain'].includes(feature) || positionReady);
+    if (!boatId || !status || !FEATURES.some(([feature]) => deployed(feature))) return null;
     const change = (patch: Partial<WeatherWatchPreferences>) => setDraft((d) => ({ ...d, ...patch }));
     const save = async () => {
         if (!isAuthIdentityScopeCurrent(scope) || useSettingsStore.getState().activeVesselId !== boatId) return;
@@ -105,19 +125,60 @@ export default function WeatherWatchSection() {
         }
     };
     const registerBoat = async () => {
-        const { currentBoatWeatherSample } = await import('../../services/weatherWatchSamples');
-        const sample = await currentBoatWeatherSample(Date.now());
-        if (!isAuthIdentityScopeCurrent(scope) || useSettingsStore.getState().activeVesselId !== boatId) return;
-        if (!sample) {
-            setMessage('A fresh boat instrument position is required. Phone position is not substituted.');
-            return;
+        setBusy(true);
+        setReviewedSource(null);
+        try {
+            const { reviewWeatherPositionSource } = await import('../../services/weatherPositionClient');
+            const source = await reviewWeatherPositionSource(scope);
+            if (!isAuthIdentityScopeCurrent(scope) || useSettingsStore.getState().activeVesselId !== boatId) return;
+            setReviewedSource(source);
+            setMessage(
+                source
+                    ? 'Review this source, then explicitly allow position sharing. Forecast opt-ins remain unchanged.'
+                    : 'A fresh original-clock position from the enrolled Pi on the boat’s own Wi-Fi is required. Phone GPS is not substituted.',
+            );
+        } catch {
+            if (isAuthIdentityScopeCurrent(scope)) setMessage('Paired Pi source unavailable.');
+        } finally {
+            if (isAuthIdentityScopeCurrent(scope) && useSettingsStore.getState().activeVesselId === boatId)
+                setBusy(false);
         }
-        const others = draft.samples.filter((s) => s.kind !== 'boat');
-        if (others.length >= 16) {
-            setMessage('Remove a sample before adding the boat position.');
-            return;
+    };
+    const sharePosition = async (enabled: boolean) => {
+        const source = enabled ? reviewedSource : status.position?.registration;
+        if (!source) return;
+        setBusy(true);
+        setMessage('');
+        try {
+            const { saveWeatherPositionSource } = await import('../../services/weatherPositionClient');
+            await saveWeatherPositionSource(
+                boatId,
+                status.position?.registration?.revision ?? null,
+                source,
+                enabled,
+                scope,
+            );
+            if (!isAuthIdentityScopeCurrent(scope) || useSettingsStore.getState().activeVesselId !== boatId) return;
+            setReviewedSource(null);
+            // Re-read state without adopting a competing forecast-profile CAS.
+            const next = await fetchWeatherWatchStatus(boatId, scope);
+            if (!isAuthIdentityScopeCurrent(scope) || useSettingsStore.getState().activeVesselId !== boatId) return;
+            if (next)
+                setLoaded({ key, status: { ...status, position: next.position, capabilities: next.capabilities } });
+            if (enabled && 'position' in source)
+                change({ zone: resolveTimeZone(source.position.lat, source.position.lon) });
+            setMessage(
+                enabled
+                    ? 'Position sharing allowed for this exact vessel/source. Waiting for the Pi’s next qualified telemetry proof.'
+                    : 'Position sharing stopped; overnight boat checks are unavailable.',
+            );
+        } catch (e) {
+            if (isAuthIdentityScopeCurrent(scope))
+                setMessage(e instanceof Error ? e.message : 'Position sharing not confirmed.');
+        } finally {
+            if (isAuthIdentityScopeCurrent(scope) && useSettingsStore.getState().activeVesselId === boatId)
+                setBusy(false);
         }
-        change({ zone: resolveTimeZone(sample.lat, sample.lon), samples: [sample, ...others] });
     };
     const registerRoute = async () => {
         const [{ useFollowRouteStore }, { authorizedRouteSamples }] = await Promise.all([
@@ -156,23 +217,31 @@ export default function WeatherWatchSection() {
         <Section title="Briefings and forecast watch">
             <p className="px-4 py-3 text-xs text-gray-300">
                 Off until you opt in for this vessel. Registering sends only the selected coordinates to your private
-                watch; rain checks also send the boat sample to Rainbow. No chart depths, marks, grades or licensed
-                chart evidence are sent. These are forecast notices, below the boat’s own alarms.
+                watch; rain checks also send the boat sample to Rainbow. Allowing the paired Pi source separately shares
+                its fresh positions while ordinary Pi internet is allowed, including when this phone is closed. No chart
+                depths, marks, grades or licensed chart evidence are sent. These are forecast notices, below the boat’s
+                own alarms.
             </p>
-            {FEATURES.filter(([feature]) => ready(feature)).map(([feature, label]) => (
-                <Row key={feature}>
-                    <span>{label}</span>
-                    <Toggle
-                        label={label}
-                        checked={draft[feature]}
-                        disabled={busy}
-                        onChange={(on) => change({ [feature]: on })}
-                    />
-                </Row>
-            ))}
-            {ready('morning') && (
+            {FEATURES.filter(([feature]) => ready(feature) || (deployed(feature) && draft[feature])).map(
+                ([feature, label]) => (
+                    <Row key={feature}>
+                        <span>{label}</span>
+                        <Toggle
+                            label={label}
+                            checked={draft[feature]}
+                            disabled={busy}
+                            onChange={(on) => {
+                                if (!on || ready(feature)) change({ [feature]: on });
+                            }}
+                        />
+                    </Row>
+                ),
+            )}
+            {deployed('morning') && (
                 <Row>
-                    <label htmlFor="weather-briefing-hour">Briefing hour ({draft.zone})</label>
+                    <label htmlFor="weather-briefing-hour">
+                        Briefing hour ({status.position?.position?.zone ?? draft.zone})
+                    </label>
                     <select
                         id="weather-briefing-hour"
                         className="min-h-11 appearance-none rounded bg-slate-800 px-3 text-white"
@@ -207,8 +276,9 @@ export default function WeatherWatchSection() {
             )}
             <div className="space-y-3 px-4 py-3 text-xs text-gray-300">
                 <p>
-                    Morning and rain need a boat sample less than 15 minutes old. An expired position sends nothing.
-                    Route checks use up to eight sampled 0.25° cells, not continuous route coverage.
+                    Morning and rain need the explicitly registered Pi source and an original position clock less than
+                    15 minutes old. Missing, changed or stale sources send nothing. The current boat timezone sets the
+                    briefing hour. Route checks use up to eight sampled 0.25° cells, not continuous route coverage.
                 </p>
                 <button
                     type="button"
@@ -216,8 +286,39 @@ export default function WeatherWatchSection() {
                     disabled={busy}
                     className="min-h-11 rounded-lg bg-slate-800 px-3"
                 >
-                    Use fresh boat position
+                    Review paired Pi position source
                 </button>{' '}
+                {reviewedSource && (
+                    <div className="rounded-lg border border-slate-700 p-3">
+                        <p>
+                            Paired Pi source {reviewedSource.sourceKey.slice(0, 12)} · measured{' '}
+                            {new Date(reviewedSource.position.at).toISOString().slice(0, 19)} UTC.
+                        </p>
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void sharePosition(true)}
+                            className="min-h-11 px-3 text-sky-300"
+                        >
+                            Allow this vessel’s position sharing
+                        </button>
+                    </div>
+                )}
+                {status.position?.registration?.enabled && (
+                    <p>
+                        {positionReady
+                            ? `Qualified position ${new Date(status.position.position!.at).toISOString().slice(0, 19)} UTC`
+                            : 'Position sharing configured; fresh matching Pi proof unavailable.'}{' '}
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void sharePosition(false)}
+                            className="min-h-11 px-3 text-sky-300"
+                        >
+                            Stop position sharing
+                        </button>
+                    </p>
+                )}
                 <button
                     type="button"
                     onClick={() => void registerRoute()}

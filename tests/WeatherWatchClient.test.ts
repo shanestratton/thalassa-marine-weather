@@ -136,6 +136,7 @@ describe('explicit source-only registrations and briefing handoff', () => {
                 feature: 'morning',
                 boat_id: boat,
                 revision,
+                position_revision: revision,
                 expires: new Date(now + 600_000).toISOString(),
             };
         expect(pinWeatherBriefing({ ...data, feature: 'rain' }, getAuthIdentityScope(), now)).toBe(false);

@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { satelliteModeActive } from './networkPolicy';
 import { withTimeout } from '../utils/deadline';
+import { parseWeatherPositionStatus, type WeatherPositionStatus } from '../utils/weatherPosition';
 import {
     parseWeatherWatchPreferences,
     type WeatherWatchCapability,
@@ -14,6 +15,7 @@ const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 export interface WeatherWatchStatus {
     profile: { revision: string; preferences: WeatherWatchPreferences } | null;
     capabilities: Record<WeatherWatchFeature, WeatherWatchCapability>;
+    position: WeatherPositionStatus;
 }
 export function parseWeatherWatchStatus(value: unknown, now: number): WeatherWatchStatus | null {
     if (!object(value) || value.schema !== 1 || !object(value.capabilities)) return null;
@@ -32,10 +34,15 @@ export function parseWeatherWatchStatus(value: unknown, now: number): WeatherWat
             return null;
         capabilities[feature] = cap as unknown as WeatherWatchCapability;
     }
-    if (value.profile === null) return { profile: null, capabilities };
+    const position =
+        value.position === undefined
+            ? { registration: null, position: null }
+            : parseWeatherPositionStatus(value.position, now);
+    if (!position) return null;
+    if (value.profile === null) return { profile: null, capabilities, position };
     if (!object(value.profile) || !uuid(value.profile.revision)) return null;
     const preferences = parseWeatherWatchPreferences(value.profile.preferences, now);
-    return preferences ? { profile: { revision: value.profile.revision, preferences }, capabilities } : null;
+    return preferences ? { profile: { revision: value.profile.revision, preferences }, capabilities, position } : null;
 }
 export async function fetchWeatherWatchStatus(
     boatId: string,

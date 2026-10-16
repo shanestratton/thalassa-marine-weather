@@ -10,6 +10,7 @@ const now = Date.now(),
         feature: 'rain',
         boat_id: id,
         revision: id,
+        position_revision: id,
         expires: new Date(now + 600_000).toISOString(),
     };
 Deno.test('weather opt-out/owner/CAS guard runs again before each retry; unknown remains retryable', async () => {

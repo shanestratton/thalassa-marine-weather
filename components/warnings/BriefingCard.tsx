@@ -9,6 +9,7 @@ import {
     subscribeAuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { resolveTimeZone } from '../../utils/timezone';
+import { WEATHER_POSITION_HOLD_MS } from '../../utils/weatherPosition';
 const subscribe = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 export default function BriefingCard({
     point,
@@ -30,7 +31,7 @@ export default function BriefingCard({
         const timer = setInterval(() => setNow(Date.now()), 60_000);
         return () => clearInterval(timer);
     }, []);
-    const key = `${scope.key}:${scope.generation}:${point?.lat}:${point?.lon}:${acceptPush ? `${pin?.boatId}:${pin?.revision}` : ''}`;
+    const key = `${scope.key}:${scope.generation}:${point?.lat}:${point?.lon}:${acceptPush ? `${pin?.boatId}:${pin?.revision}:${pin?.positionRevision}` : ''}`;
     useEffect(() => {
         let active = true;
         setAnswer(null);
@@ -48,16 +49,16 @@ export default function BriefingCard({
                         setMessage('This briefing registration changed. Open the current vessel’s forecast watch.');
                     return;
                 }
-                const boat = status.profile.preferences.samples.find((s) => s.kind === 'boat');
-                if (!boat) {
+                const boat = status.position?.position;
+                if (!boat || boat.revision !== pin.positionRevision) {
                     if (active && isAuthIdentityScopeCurrent(scope))
                         setMessage('The registered boat position is unavailable.');
                     return;
                 }
                 at = { lat: boat.lat, lon: boat.lon };
-                label = boat.label;
-                zone = status.profile.preferences.zone;
-                positionAt = boat.sourceAt;
+                label = 'Your registered vessel';
+                zone = boat.zone;
+                positionAt = boat.at;
             }
             if (!at || !scope.userId) {
                 if (active) setAnswer({ key, briefing: null });
@@ -73,6 +74,8 @@ export default function BriefingCard({
         };
     }, [key, scope, lat, lon, place, acceptPush, pin]);
     const briefing = answer?.key === key ? answer.briefing : null;
+    const positionExpired =
+        answer?.key === key && answer.positionAt !== undefined && now - answer.positionAt > WEATHER_POSITION_HOLD_MS;
     if (!scope.userId) return null;
     return (
         <section
@@ -82,6 +85,11 @@ export default function BriefingCard({
             <h2 className="font-bold">Weather briefing{briefing ? ` · ${briefing.place}` : ''}</h2>
             {message ? (
                 <p role="status">{message}</p>
+            ) : positionExpired ? (
+                <p role="status">
+                    The registered boat position expired. Refresh the vessel’s forecast watch; no phone position is
+                    substituted.
+                </p>
             ) : briefing ? (
                 <>
                     <p>{briefing.lines[0]}</p>

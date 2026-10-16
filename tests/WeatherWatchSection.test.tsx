@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     fetch: vi.fn(),
     save: vi.fn(),
+    source: vi.fn(),
+    share: vi.fn(),
     state: {
         activeVesselId: '20000000-0000-4000-8000-000000000001',
         settings: { savedLocations: ['Example spot'], savedLocationCoords: { 'Example spot': { lat: 0, lon: 0 } } },
@@ -19,6 +21,10 @@ vi.mock('../services/weatherWatchClient', () => ({
     saveWeatherWatch: mocks.save,
 }));
 vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../services/weatherPositionClient', () => ({
+    reviewWeatherPositionSource: mocks.source,
+    saveWeatherPositionSource: mocks.share,
+}));
 import WeatherWatchSection from '../components/settings/WeatherWatchSection';
 import { defaultWeatherWatch } from '../utils/weatherWatch';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -34,17 +40,92 @@ const status = () => {
     return {
         profile: { revision, preferences: defaultWeatherWatch() },
         capabilities: { morning: cap, rain: cap, storm: cap, gust: cap },
+        position: {
+            registration: {
+                revision,
+                relayId: 'fictional_relay_0001',
+                selfKey: 'a'.repeat(64),
+                sourceKey: 'b'.repeat(64),
+                enabled: true,
+            },
+            position: { revision, lat: 0, lon: 0, at: Date.now() - 1000, zone: 'UTC' },
+        },
     };
 };
 beforeEach(() => {
     setAuthIdentityScope('fixture-owner');
     mocks.fetch.mockReset();
     mocks.save.mockReset();
+    mocks.source.mockReset();
+    mocks.share.mockReset();
     mocks.state.activeVesselId = '20000000-0000-4000-8000-000000000001';
     mocks.save.mockResolvedValue(revision);
 });
 afterEach(() => vi.useRealTimers());
 describe('capability-gated explicit weather opt-ins', () => {
+    it('a deployed cron alone cannot offer overnight boat opt-ins; source review/sharing is separate and explicit', async () => {
+        const initial = { ...status(), position: { registration: null, position: null } };
+        mocks.fetch.mockResolvedValue(initial);
+        render(<WeatherWatchSection />);
+        await act(async () => {});
+        expect(screen.queryByRole('switch', { name: 'Morning briefing' })).toBeNull();
+        expect(screen.queryByRole('switch', { name: 'Rain arriving' })).toBeNull();
+        expect(mocks.source).not.toHaveBeenCalled();
+        expect(mocks.share).not.toHaveBeenCalled();
+        const source = {
+            schema: 1,
+            relayId: 'fictional_relay_0001',
+            selfKey: 'a'.repeat(64),
+            sourceKey: 'b'.repeat(64),
+            servedAt: Date.now(),
+            position: { lat: 0, lon: 0, at: Date.now() - 1000 },
+        };
+        mocks.source.mockResolvedValue(source);
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Review paired Pi position source' }));
+        });
+        expect(mocks.share).not.toHaveBeenCalled();
+        expect(mocks.save).not.toHaveBeenCalled();
+        mocks.share.mockResolvedValue(revision);
+        mocks.fetch.mockResolvedValue({
+            ...initial,
+            position: {
+                registration: {
+                    revision,
+                    relayId: source.relayId,
+                    selfKey: source.selfKey,
+                    sourceKey: source.sourceKey,
+                    enabled: true,
+                },
+                position: null,
+            },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Allow this vessel’s position sharing' }));
+        });
+        expect(mocks.share.mock.calls[0]).toMatchObject({ 0: mocks.state.activeVesselId, 1: null, 2: source, 3: true });
+        expect(mocks.save).not.toHaveBeenCalled();
+        expect(screen.queryByRole('switch', { name: 'Morning briefing' })).toBeNull();
+        expect(screen.getByText(/fresh matching Pi proof unavailable/)).toBeInTheDocument();
+    });
+    it('stops sharing only after explicit action with the reviewed registration CAS', async () => {
+        const initial = status();
+        mocks.fetch.mockResolvedValue(initial);
+        mocks.share.mockResolvedValue(revision);
+        render(<WeatherWatchSection />);
+        await act(async () => {});
+        expect(mocks.share).not.toHaveBeenCalled();
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Stop position sharing' }));
+        });
+        expect(mocks.share.mock.calls[0]).toMatchObject({
+            0: mocks.state.activeVesselId,
+            1: revision,
+            2: initial.position.registration,
+            3: false,
+        });
+        expect(mocks.save).not.toHaveBeenCalled();
+    });
     it('offers no opt-ins for missing, unscheduled, stale or unentitled capability', async () => {
         const s = status();
         for (const cap of Object.values(s.capabilities)) cap.deliveryVersion = 0;

@@ -65,9 +65,10 @@ function setup() {
             expiresAt: now + 899000,
         }],
     };
+    const position = { revision, lat: 0, lon: 0, at: now - 1000, zone: 'UTC' };
     const deps: WeatherWatchDeps = {
         now: () => now,
-        work: async (_f, after) => after ? [] : [{ boat_id: boat, owner_id: boat, revision, preferences }],
+        work: async (_f, after) => after ? [] : [{ boat_id: boat, owner_id: boat, revision, preferences, position }],
         official: async () => ({ live: false, delivered: [] }),
         forecasts: async (cell) => {
             requests.push(cell);
@@ -94,7 +95,7 @@ function setup() {
             ticks.push(args);
         },
     };
-    return { deps, claims, ticks, requests, preferences };
+    return { deps, claims, ticks, requests, preferences, position };
 }
 Deno.test('cached parser preserves units, raw run and provenance; refuses legacy/source/cell/unit lies', () => {
     const valid = row(CONVECTIVE_MODELS[0]);
@@ -129,25 +130,25 @@ Deno.test('same-window route/spot pushes use cache only, names and no coordinate
 });
 Deno.test('morning uses boat-local hour and one deterministic two-line object', async () => {
     const s = setup();
-    s.preferences.zone = 'Pacific/Auckland';
+    s.position.zone = 'Pacific/Auckland';
     s.preferences.hour = 20;
     await runWeatherWatch('morning', s.deps);
     equal(s.claims.length, 1);
     equal(s.claims[0].p_body.split('\n').length, 2);
     equal(s.claims[0].p_body.startsWith('Official warnings not checked'), true);
     s.claims.length = 0;
-    s.preferences.zone = 'Asia/Kathmandu';
+    s.position.zone = 'Asia/Kathmandu';
     s.preferences.hour = 12;
     await runWeatherWatch('morning', s.deps);
     equal(s.claims.length, 0);
 });
 Deno.test('expired positions, disabled features and missing forecast cache cannot fan out upstream', async () => {
     const s = setup();
-    s.preferences.samples[0].expiresAt = now - 1;
+    s.position.at = now - 900001;
     await runWeatherWatch('rain', s.deps);
     equal(s.claims.length, 0);
     equal(s.requests, []);
-    s.preferences.samples[0].expiresAt = now + 1000;
+    s.position.at = now - 1000;
     s.deps.forecasts = async () => [];
     await runWeatherWatch('storm', s.deps);
     equal(s.claims.length, 0);
@@ -175,6 +176,47 @@ Deno.test('rain uses actual response identity; snow and malformed/other-point pa
     }
     equal(failed, true);
     equal(s.ticks.at(-1), ['rain', false]);
+});
+Deno.test('a late bounded provider response cannot enqueue outside the work deadline', async () => {
+    const s = setup();
+    let clock = now;
+    const rain = s.deps.rain;
+    s.deps.now = () => clock;
+    s.deps.rain = async (lat, lon) => {
+        const answer = await rain(lat, lon);
+        clock = now + 31000;
+        return answer;
+    };
+    equal((await runWeatherWatch('rain', s.deps)).complete, false);
+    equal(s.claims, []);
+    equal(s.ticks.at(-1), ['rain', false]);
+});
+Deno.test('closed-phone cache interest uses existing anonymous coarse RPC; no provider or precise position escapes', async () => {
+    const paths: unknown[] = [];
+    const env = {
+        get: (
+            name: string,
+        ) => ({ SUPABASE_URL: 'https://synthetic.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-test-key' }[name]),
+    };
+    const deps = weatherWatchDependencies(
+        env,
+        ((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = new URL(String(input));
+            paths.push([url.hostname, url.pathname, init?.body]);
+            return Promise.resolve(
+                new Response(url.pathname.endsWith('/announce_wx_cell') ? 'true' : '[]', {
+                    headers: { 'content-type': 'application/json' },
+                }),
+            );
+        }) as typeof fetch,
+        () => now,
+    );
+    equal(await deps.forecasts('0_0'), []);
+    equal(paths, [['synthetic.supabase.co', '/rest/v1/rpc/announce_wx_cell', JSON.stringify({ p_cell: '0_0' })], [
+        'synthetic.supabase.co',
+        '/rest/v1/wx_point_forecasts',
+        undefined,
+    ]]);
 });
 Deno.test('only already-delivered official coverage suppresses a duplicate forecast notice', async () => {
     const s = setup();

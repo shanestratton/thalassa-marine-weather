@@ -10,6 +10,7 @@ interface BriefingPin {
     revision: string;
     scope: AuthIdentityScope;
     expiresAt: number;
+    positionRevision: string;
 }
 let pending: BriefingPin | null = null;
 const listeners = new Set<() => void>();
@@ -20,8 +21,20 @@ export function pinWeatherBriefing(
     now = Date.now(),
 ): boolean {
     const notice = parseWeatherWatchNotice(data, now);
-    if (!scope.userId || !isAuthIdentityScopeCurrent(scope) || notice?.feature !== 'morning') return false;
-    pending = { boatId: notice.boatId, revision: notice.revision, scope, expiresAt: notice.expiresAt };
+    if (
+        !scope.userId ||
+        !isAuthIdentityScopeCurrent(scope) ||
+        notice?.feature !== 'morning' ||
+        !notice.positionRevision
+    )
+        return false;
+    pending = {
+        boatId: notice.boatId,
+        revision: notice.revision,
+        scope,
+        expiresAt: notice.expiresAt,
+        positionRevision: notice.positionRevision,
+    };
     listeners.forEach((notify) => notify());
     return true;
 }

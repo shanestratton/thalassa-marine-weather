@@ -17,6 +17,51 @@ beforeEach(() => {
     takeWeatherBriefingPin();
 });
 describe('briefing card source/account/position identity', () => {
+    it('requires the pushed source-registration revision and uses its qualified position rather than dashboard/old samples', async () => {
+        const now = Date.now();
+        pinWeatherBriefing(
+            {
+                weather_watch: 1,
+                feature: 'morning',
+                boat_id: boat,
+                revision,
+                position_revision: revision,
+                expires: new Date(now + 600000).toISOString(),
+            },
+            getAuthIdentityScope(),
+            now,
+        );
+        const status = {
+            profile: {
+                revision,
+                preferences: {
+                    zone: 'Europe/London',
+                    samples: [{ kind: 'boat', lat: 50, lon: 10, label: 'Old snapshot' }],
+                },
+            },
+            position: {
+                registration: { revision },
+                position: { revision, lat: 0, lon: 0, at: now - 1000, zone: 'UTC' },
+            },
+        };
+        mocks.status.mockResolvedValue(status);
+        mocks.brief.mockResolvedValue(null);
+        const view = render(<BriefingCard acceptPush point={{ lat: 10, lon: 20 }} />);
+        await act(async () => {});
+        expect(mocks.brief).toHaveBeenCalledWith(
+            { lat: 0, lon: 0 },
+            'Your registered vessel',
+            'UTC',
+            expect.any(Number),
+        );
+        view.unmount();
+        mocks.brief.mockClear();
+        status.position.position.revision = '30000000-0000-4000-8000-000000000002';
+        render(<BriefingCard acceptPush point={{ lat: 10, lon: 20 }} />);
+        await act(async () => {});
+        expect(mocks.brief).not.toHaveBeenCalled();
+        expect(screen.getByRole('status')).toHaveTextContent('registered boat position is unavailable');
+    });
     it('shows original run, coarse sampling, unknown tide/datum and explicit model context', async () => {
         const now = Date.now();
         mocks.brief.mockResolvedValue(
@@ -42,6 +87,7 @@ describe('briefing card source/account/position identity', () => {
                 feature: 'morning',
                 boat_id: boat,
                 revision,
+                position_revision: revision,
                 expires: new Date(Date.now() + 600_000).toISOString(),
             },
             getAuthIdentityScope(),
