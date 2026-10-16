@@ -72,6 +72,8 @@ import { NIGHT_SCRIM_Z_INDEX } from '../ui/OverlayPortal';
 import { PiNightWatchStatus, type PiWatchAlarm } from '../../services/piNightWatchStatus';
 import { UnderwayAlarmStore, type UnderwayAlarmCard } from '../../services/underway/underwayAlarmStore';
 import { WakeAlarmStore } from '../../services/alarms/wakeAlarmStore';
+import { RadarAlarmStore } from '../../services/radar/radarAlarmStore';
+import { RadarAlarmCards } from './RadarAlarmCards';
 const WakeAlarmCards = React.lazy(() => import('./WakeAlarmCards').then((m) => ({ default: m.WakeAlarmCards })));
 
 const UnderwayAlarmCards = React.lazy(() =>
@@ -487,6 +489,15 @@ export const AisGuardAlert: React.FC = () => {
         return UnderwayAlarmStore.subscribe(sync);
     }, []);
     const showingUnderway = underway.cards.length > 0 || underway.notices.length > 0;
+    const [radar, setRadar] = useState(RadarAlarmStore.get);
+    useEffect(() => {
+        const sync = () => {
+            setRadar(RadarAlarmStore.get());
+            setNowMs(Date.now());
+        };
+        sync();
+        return RadarAlarmStore.subscribe(sync);
+    }, []);
     const [wake, setWake] = useState(WakeAlarmStore.get);
     useEffect(() => {
         const sync = () => setWake(WakeAlarmStore.get());
@@ -507,12 +518,16 @@ export const AisGuardAlert: React.FC = () => {
         shownDistress.length === 0 &&
         piAlarms.length === 0 &&
         !showingUnderway &&
-        wake.length === 0
+        wake.length === 0 &&
+        radar.cards.length === 0 &&
+        !radar.capacity
     ) {
         return null;
     }
     const alarming =
         piAlarms.length > 0 ||
+        radar.cards.some((c) => !c.cleared) ||
+        !!(radar.capacity && !radar.capacity.acknowledged) ||
         underway.cards.some((c) => c.sounding) ||
         wake.some((c) => !c.quiet && !c.muted) ||
         alerts.some((a) => a.collision && !a.collision.cleared) ||
@@ -586,6 +601,7 @@ export const AisGuardAlert: React.FC = () => {
                 .map((alert) => (
                     <CollisionCard key={`c-${alert.mmsi}`} alert={alert as CollisionAlertCard} />
                 ))}
+            <RadarAlarmCards state={radar} now={nowMs} />
             {/* Shoal water, then off route (126-02a): under the collision cards, above the guard ring. */}
             {wake.some((c) => c.preset === 'depth-below-keel') && (
                 <React.Suspense fallback={null}>

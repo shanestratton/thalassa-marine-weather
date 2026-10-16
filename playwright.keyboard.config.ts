@@ -11,6 +11,7 @@ export default defineConfig({
         'wake-rules137-layout.spec.ts',
         'weather-watch137-layout.spec.ts',
         'radar137-layout.spec.ts',
+        'radar-alarm137-layout.spec.ts',
         'course136-layout.spec.ts',
         'timezone136.spec.ts',
         'ais-fleet-layout.spec.ts',
