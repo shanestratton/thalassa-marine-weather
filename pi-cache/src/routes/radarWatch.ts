@@ -9,7 +9,13 @@ export interface RadarWatchRouteDeps {
 }
 export function createRadarWatchRoutes(deps: RadarWatchRouteDeps): Router {
     const router = Router();
-    router.use(express.json({ limit: '8kb', strict: true }));
+    router.use((req, res, next) => {
+        if (req.method !== 'POST') return next();
+        if (req.body !== undefined || !req.is('application/json'))
+            return res.status(400).setHeader('Cache-Control', 'no-store').json({ error: 'radar_invalid_json' });
+        return next();
+    });
+    router.use(express.json({ limit: '8kb', strict: true, inflate: false }));
     const route = (
         method: 'get' | 'post',
         path: string,

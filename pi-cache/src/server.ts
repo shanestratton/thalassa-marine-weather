@@ -16,7 +16,7 @@ import os from 'node:os';
 import { Agent, setGlobalDispatcher } from 'undici';
 setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
-import express from 'express';
+import express, { type Request } from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import http from 'http';
@@ -32,7 +32,7 @@ import { createTideRoutes } from './routes/tides.js';
 import { createMiscRoutes, purgeGeocodeCache } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes, sweepEncTempLeftovers } from './routes/enc.js';
-import { EncDeviceStore, encNoStore, createEncFrontDoor } from './encDevices.js';
+import { EncDeviceStore, encNoStore, createEncFrontDoor, CHART_DEVICE_HEADER } from './encDevices.js';
 import { PiPolarLearner } from './polarLearner.js';
 import { createPolarRoutes } from './routes/polars.js';
 import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
@@ -61,11 +61,14 @@ import { createSignalKReadRoutes } from './routes/signalKRead.js';
 import { RadarRawReader } from './radar/rawReader.js';
 import { RadarContextSession, radarContextKey } from './radar/contextSession.js';
 import { createRadarRoutes } from './routes/radar.js';
+import { RadarWatch } from './radar/watch.js';
+import { radarServerContext, createRadarControllerVerifier } from './radar/serverContext.js';
+import { createRadarWatchRoutes } from './routes/radarWatch.js';
 import { createAppJsonParser } from './appJson.js';
 import { PiWakeKeeper } from './wakeKeeper/runner.js';
 import { WakeKeeperStore } from './wakeKeeper/store.js';
 import { WakeRelay } from './wakeKeeper/relay.js';
-import { wakePairingId } from './wakeKeeper/contract.js';
+import { wakePairingId, wakeEnrollmentRevision } from './wakeKeeper/contract.js';
 import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
@@ -392,6 +395,44 @@ const wakeKeeper = new PiWakeKeeper({
 });
 if (APP_API_ENABLED)
     void wakeKeeper.start().catch(() => console.warn('[wake] keeper unavailable; review local storage'));
+const currentRadarWatchContext = () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return radarServerContext(
+        config.ownerId,
+        identity.deviceId,
+        config.relayId,
+        signalkRead?.notificationSnapshot() ?? null,
+    );
+};
+const radarWatch = new RadarWatch({
+    readSnapshot: () => radarSession.snapshot(),
+    currentContext: currentRadarWatchContext,
+    aisArmed: () => aisWatch.describe().armed === true,
+    atAnchor: () => anchorWatch.isRunning(),
+    controllerCurrent: createRadarControllerVerifier(currentRadarWatchContext, () => chartDevices.list()),
+});
+let radarWatchFailureLogged = false;
+const radarWatchTimer = APP_API_ENABLED
+    ? setInterval(
+          () =>
+              void radarWatch.tick().catch(() => {
+                  if (!radarWatchFailureLogged) {
+                      radarWatchFailureLogged = true;
+                      console.warn('[radar] watch evaluation unavailable; review local status');
+                  }
+              }),
+          1000,
+      )
+    : null;
+radarWatchTimer?.unref();
+const enrolledRadarController = async (req: Request) => {
+    const token = req.headers[CHART_DEVICE_HEADER],
+        verdict = await chartDevices.verify(typeof token === 'string' ? token : undefined);
+    return verdict.state === 'enrolled'
+        ? { deviceId: verdict.device.id, enrollmentRevision: wakeEnrollmentRevision(verdict.device) }
+        : null;
+};
 // Read access never grants route writes. Only the operator's separately approved
 // token and explicit switch can enable this fixed course/resource surface.
 let courseClient: SignalKClient | null = null;
@@ -660,6 +701,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
         input.allowInternet = (flatPolicy ?? nestedPolicy) as boolean;
     }
 
+    radarWatch.stop();
     radarSession.retire();
     diaryRelayOutbox.configure(input);
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
@@ -1068,6 +1110,7 @@ if (APP_API_ENABLED) {
         '/api/radar',
         requireAppApi,
         createEncFrontDoor({ devices: chartDevices }),
+        createRadarWatchRoutes({ watch: radarWatch, enrolled: enrolledRadarController }),
         createRadarRoutes(radarSession),
     );
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
@@ -1294,6 +1337,8 @@ function shutdown() {
             );
     });
     vaultLink?.stop();
+    if (radarWatchTimer) clearInterval(radarWatchTimer);
+    radarWatch.stop();
     radarSession.stop();
     signalkRead?.stop();
     wakeKeeper.stop();

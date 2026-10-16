@@ -15,6 +15,8 @@ import {
 import { DEFAULT_COLLISION_PREFS } from './collisionRule/collisionRule.js';
 import type { RadarRawSnapshot } from './radar/rawReader.js';
 import { createRadarWatchRoutes } from './routes/radarWatch.js';
+import { createAppJsonParser } from './appJson.js';
+import { gzipSync } from 'node:zlib';
 const fixture = JSON.parse(readFileSync(new URL('../../tests/fixtures/radar-relay137.json', import.meta.url), 'utf8'));
 const T = Date.UTC(2026, 0, 2, 12);
 const controller = {
@@ -297,6 +299,67 @@ test('relay facts contain only fixed scalar original evidence and lose eligibili
     assert.equal(s.passes.at(-1)!.pass.upserts.length, 0);
     s.watch.stop();
     assert.equal(last.current(), false);
+});
+test('root parser assembly enforces the smaller raw radar body cap before a command can arm', async (t) => {
+    const s = setup(),
+        app = express();
+    app.use(createAppJsonParser(false));
+    app.use('/api/radar', createRadarWatchRoutes({ watch: s.watch, enrolled: () => controller }));
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => {
+        server.closeAllConnections();
+        server.close();
+    });
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/radar/watch`;
+    const body = JSON.stringify({ armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS });
+    assert.equal(
+        (
+            await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: ' '.repeat(9000) + body,
+            })
+        ).status,
+        413,
+    );
+    assert.equal((await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body })).status, 400);
+    assert.equal(
+        (
+            await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+                body: new Uint8Array(gzipSync(body)),
+            })
+        ).status,
+        400,
+    );
+    assert.equal(s.events.length, 0);
+    assert.equal((await s.watch.describe()).context, null);
+    assert.equal(
+        (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).status,
+        200,
+    );
+    assert.equal(s.events.filter((e) => e.action === 'bind').length, 1);
+});
+test('an accidentally preconsumed radar body is refused instead of claiming raw-byte admission', async (t) => {
+    const s = setup(),
+        app = express();
+    app.use(express.json());
+    app.use('/api/radar', createRadarWatchRoutes({ watch: s.watch, enrolled: () => controller }));
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => {
+        server.closeAllConnections();
+        server.close();
+    });
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/radar/watch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ armed: true, expected: null, prefs: DEFAULT_COLLISION_PREFS }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(s.events.length, 0);
 });
 test('an unreadable current controller cannot be silently treated as an empty CAS slot', async () => {
     const s = setup(),
