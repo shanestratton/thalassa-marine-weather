@@ -14,6 +14,12 @@ test('mounted radar read independently requires physical boat LAN and current en
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'thalassa-radar-door-'));
     let peer = '192.168.1.22',
         context: string | null = 'a'.repeat(64);
+    const owner = {
+        ownerId: '00000000-0000-4000-8000-000000000001',
+        piDeviceId: '00000000-0000-4000-8000-000000000002',
+        pairingId: 'b'.repeat(64),
+        feedId: 'pi:00000000-0000-4000-8000-000000000002:' + 'c'.repeat(24),
+    };
     const lan: BoatLanView = {
         gateways: ['192.168.1.1'],
         interfaces: {
@@ -34,7 +40,11 @@ test('mounted radar read independently requires physical boat LAN and current en
         phone = await devices.enrol(code.code, 'Fictional radar phone', peer),
         reader = new RadarRawReader(),
         started = t.mock.method(reader, 'start'),
-        session = new RadarContextSession(reader, () => context),
+        session = new RadarContextSession(
+            reader,
+            () => context,
+            () => owner,
+        ),
         app = express();
     app.use(
         '/api/radar',
