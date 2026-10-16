@@ -1,0 +1,47 @@
+name: Thalassa 136 full Pi source validation
+
+# Source-only Linux proof. No deployment credentials or boat connection.
+on:
+    push:
+        branches: ['codex/build-136-pi-validation']
+        paths: ['.github/workflows/validate-pi136.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-136-full-pi-validation
+    cancel-in-progress: false
+jobs:
+    pi:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 846a1b748cdc3fe51a2600506876af0feae7d065
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: pi-cache/package-lock.json
+            - name: Exact integrated source and runtime
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = '846a1b748cdc3fe51a2600506876af0feae7d065'
+                  git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+                  git merge-base --is-ancestor 8da67470b1624b82ca05f97d87ec20444d1b5b67 HEAD
+                  npm ci --prefix pi-cache
+                  npm run build --prefix pi-cache
+            - name: Complete actual Linux Pi suite
+              working-directory: pi-cache
+              run: npm test
+            - name: Frozen updater boundaries and shell plans
+              run: node --test pi-cache/scripts/update5.test.mjs pi-cache/scripts/update6.test.mjs
+            - name: Record source-only completion
+              run: echo 'Complete Pi source, real Unix storage and permissions, enrolled HTTP/WS, SQLite, and update5/update6 staging contracts passed. No boat connection or installation.' >> "$GITHUB_STEP_SUMMARY"
