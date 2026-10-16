@@ -84,3 +84,23 @@ All original cases run without that recorder, so instrumentation cannot be the
 reason their rendering passes. The diagnostic retains the original actual
 curve, axis and visible-space thresholds and adds no artificial draw. Exact
 source Linux proof is still required.
+
+Linux run `38977828070` on exact source `47ac5206f` still has 15 blank
+original WebKit tide cases. Its early Tide/Wake artifact `12079294834` is
+6127128 bytes, SHA256
+`bb5c335e30323b11ef09b7d6e0ae6c774b594440fb3a9e192fc56d691cb6a59c`.
+The original compact 300 px case remains zero throughout 5.3 seconds. The
+separate instrumented case first records zero pixels after two finite complete
+draw passes and only one backing-size write per dimension, then passes after
+its third draw. That instrumentation-sensitive pass is not acceptance, and the
+animation-frame change alone is insufficient.
+
+The next diagnostic records all nontransparent/opaque pixels and paint below
+the caption, independent of the original curve/axis colour thresholds. It also
+records canvas, container and plot CSS rectangles, the full context transform,
+global alpha/compositing/filter state, and save/restore/clip/reset counts in the
+isolated recorder case. That case alone creates a separate unmounted canvas
+with the same backing size and DPR transform, paints a known rectangle into
+that control and immediately reads one pixel. It never paints into the product
+canvas. All original product cases remain uninstrumented and retain their
+existing real-pixel, layout, page-error and no-expansion guards.

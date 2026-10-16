@@ -24,13 +24,29 @@ test.beforeEach(async ({ page }) => {
             return row;
         };
         const proto = CanvasRenderingContext2D.prototype;
-        for (const method of ['clearRect', 'stroke', 'fill', 'fillText', 'moveTo', 'lineTo', 'arc'] as const) {
+        for (const method of [
+            'clearRect',
+            'stroke',
+            'fill',
+            'fillText',
+            'moveTo',
+            'lineTo',
+            'arc',
+            'save',
+            'restore',
+            'clip',
+            'setTransform',
+            'reset',
+        ] as const) {
             const original = Reflect.get(proto, method);
             if (typeof original !== 'function') continue;
             Reflect.set(proto, method, function (this: CanvasRenderingContext2D, ...args: unknown[]) {
                 const row = record(this.canvas);
                 row[method + 'Calls'] = (row[method + 'Calls'] ?? 0) + 1;
                 row.lastCommandMs = performance.now();
+                if (method === 'save') row.saveDepth = (row.saveDepth ?? 0) + 1;
+                if (method === 'restore') row.saveDepth = Math.max(0, (row.saveDepth ?? 0) - 1);
+                if (method === 'reset') row.saveDepth = 0;
                 if (args.some((value) => typeof value === 'number' && !Number.isFinite(value)))
                     row.nonFiniteCommands = (row.nonFiniteCommands ?? 0) + 1;
                 return Reflect.apply(original, this, args);
@@ -46,12 +62,19 @@ test.beforeEach(async ({ page }) => {
                     const row = record(this);
                     row[dimension + 'Writes'] = (row[dimension + 'Writes'] ?? 0) + 1;
                     row.lastResizeMs = performance.now();
+                    row.saveDepth = 0;
                     set.call(this, value);
                 },
             });
         }
         Object.defineProperty(window, '__tideCanvasCommands', {
-            value: (canvas: HTMLCanvasElement) => ({ nonFiniteCommands: 0, ...record(canvas) }),
+            value: (canvas: HTMLCanvasElement) => ({
+                clipCalls: 0,
+                resetCalls: 0,
+                saveDepth: 0,
+                nonFiniteCommands: 0,
+                ...record(canvas),
+            }),
             configurable: true,
         });
     });
@@ -73,7 +96,7 @@ test.afterEach(({ page }) => {
  * visibility. Require the original real-pixel threshold within a bounded paint
  * interval and retain every sample, including a blank first paint on failure. */
 async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
-    const samples: Array<Record<string, number>> = [];
+    const samples: Array<Record<string, unknown>> = [];
     let actual = { curve: 0, axis: 0, visibleHeight: 0 };
     try {
         await expect
@@ -86,10 +109,20 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                         const axisTop = el.height - 14 * devicePixelRatio;
                         const visibleTop = Math.ceil((captionBottom - el.getBoundingClientRect().y) * devicePixelRatio);
                         let curve = 0,
-                            axis = 0;
+                            axis = 0,
+                            nontransparent = 0,
+                            opaque = 0,
+                            belowCaptionPaint = 0,
+                            maxAlpha = 0;
+                        for (let i = 3; i < data.length; i += 4) {
+                            if (data[i] > 0) nontransparent++;
+                            if (data[i] > 128) opaque++;
+                            maxAlpha = Math.max(maxAlpha, data[i]);
+                        }
                         for (let y = Math.max(0, visibleTop); y < el.height; y++)
                             for (let x = 0; x < el.width; x++) {
                                 const i = (y * el.width + x) * 4;
+                                if (data[i + 3] > 0) belowCaptionPaint++;
                                 if (
                                     y < axisTop &&
                                     data[i + 1] > 100 &&
@@ -113,16 +146,63 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                                     __tideCanvasCommands?: (canvas: HTMLCanvasElement) => Record<string, number>;
                                 }
                             ).__tideCanvasCommands?.(el) ?? {};
+                        const rect = (element: Element | null) => {
+                            if (!element) return null;
+                            const box = element.getBoundingClientRect();
+                            const style = getComputedStyle(element);
+                            return {
+                                x: box.x,
+                                y: box.y,
+                                width: box.width,
+                                height: box.height,
+                                opacity: style.opacity,
+                                display: style.display,
+                                visibility: style.visibility,
+                                overflow: style.overflow,
+                                clipPath: style.clipPath,
+                                transform: style.transform,
+                            };
+                        };
+                        // An unmounted fresh surface is a diagnostic control
+                        // only. It never draws into or overlays the product.
+                        let freshSurface: { pixel: number[]; width: number; height: number } | null = null;
+                        if (Object.keys(commands).length > 0) {
+                            const control = document.createElement('canvas');
+                            control.width = el.width;
+                            control.height = el.height;
+                            const controlContext = control.getContext('2d')!;
+                            controlContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+                            controlContext.fillStyle = '#22d3ee';
+                            controlContext.fillRect(0, 0, 12, 12);
+                            const pixel = [...controlContext.getImageData(1, 1, 1, 1).data];
+                            freshSurface = { pixel, width: control.width, height: control.height };
+                        }
                         return {
                             ...commands,
                             atMs: performance.now(),
                             curve: curve / devicePixelRatio ** 2,
                             axis: axis / devicePixelRatio ** 2,
+                            nontransparent: nontransparent / devicePixelRatio ** 2,
+                            opaque: opaque / devicePixelRatio ** 2,
+                            belowCaptionPaint: belowCaptionPaint / devicePixelRatio ** 2,
+                            maxAlpha,
                             visibleHeight: (axisTop - visibleTop) / devicePixelRatio,
                             width: el.width,
                             height: el.height,
                             scaleX: transform.a,
                             scaleY: transform.d,
+                            skewX: transform.c,
+                            skewY: transform.b,
+                            translateX: transform.e,
+                            translateY: transform.f,
+                            globalAlpha: ctx.globalAlpha,
+                            composite: ctx.globalCompositeOperation,
+                            filter: typeof ctx.filter === 'string' ? ctx.filter : 'unavailable',
+                            shadowBlur: ctx.shadowBlur,
+                            canvasRect: rect(el),
+                            containerRect: rect(el.parentElement),
+                            plotRect: rect(el.closest('[data-testid="tide-plot"]')),
+                            freshSurface,
                             contextLost: typeof ctx.isContextLost === 'function' ? Number(ctx.isContextLost()) : -1,
                         };
                     }, captionBox.y + captionBox.height);
