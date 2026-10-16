@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     distanceToReplayLine,
     replayLeg,
+    replayEngineConfig,
     replayWindField,
     validateReplayLeg,
     type ReplayLeg,
@@ -34,6 +35,34 @@ const leg = (): ReplayLeg => ({
     polars: (['generic', 'database-scaled', 'chosen'] as const).map((kind) => ({ kind, label: kind, data: polar })),
 });
 describe('offline passage replay', () => {
+    it('keeps recorded engine-off evidence without relabelling it as sailing or filling unknown engine hours', async () => {
+        const data = leg();
+        data.track[0].mode = 'engine-off';
+        const measured = await replayLeg(data, async () => ({ route: data.track, durationHours: 7, motorHours: 0 }));
+        expect(measured.actualMotorHours).toBe(0);
+        expect(measured.unknownPropulsionHours).toBe(0);
+        data.track[0].mode = 'unknown';
+        const unknown = await replayLeg(data, async () => ({ route: data.track, durationHours: 7, motorHours: 0 }));
+        expect(unknown.actualMotorHours).toBeNull();
+        expect(unknown.unknownPropulsionHours).toBe(6);
+        expect(unknown.variants[0].metrics?.motorErrorHours).toBeNull();
+    });
+    it('can replay the planner step and vessel motor policy without changing the default baseline', () => {
+        expect(replayEngineConfig()).toEqual({ minWindSpeed: 4, motoringSpeed: 5, timeStepHours: 6 });
+        expect(replayEngineConfig({ motoringSpeed: 6.5, timeStepHours: 1 })).toEqual({
+            minWindSpeed: 4,
+            motoringSpeed: 6.5,
+            timeStepHours: 1,
+        });
+        for (const bad of [
+            { timeStepHours: 0 },
+            { timeStepHours: 0.01 },
+            { timeStepHours: 7 },
+            { motoringSpeed: NaN },
+            { minWindSpeed: -1 },
+        ])
+            expect(() => replayEngineConfig(bad)).toThrow(/Invalid replay/);
+    });
     it('measures each separate polar with signed ETA error and dateline-safe track distance', async () => {
         const data = leg();
         const result = await replayLeg(data, async ({ wind }) => {
