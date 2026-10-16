@@ -10,6 +10,7 @@ import zipfile
 import catalogue as c
 import stage
 import publish
+import runtime_policy
 
 def record(cell='US5CA1LK',revision='1.10',coordinates='33 -119',url=None):
     area='' if coordinates is None else '<g:extent><g:EX_Extent><g:geographicElement><g:EX_BoundingPolygon><g:polygon><m:Polygon><m:exterior><m:LinearRing>'+''.join('<m:pos>'+p+'</m:pos>' for p in [coordinates,'33 -118','34 -118',coordinates])+'</m:LinearRing></m:exterior></m:Polygon></g:polygon></g:EX_BoundingPolygon></g:geographicElement></g:EX_Extent></g:extent>'
@@ -32,6 +33,21 @@ class Store:
         self.puts.append(key); self.data[key]=body
 
 class Pipeline(unittest.TestCase):
+    def test_only_exact_proven_stable_runtime_is_authorized_before_provider_fetch(self):
+        runtime_policy.verify_runtime_policy(runtime_policy.IMAGE_ID,runtime_policy.CONVERTER_SHA)
+        for image,converter in [('sha256:'+'9'*64,runtime_policy.CONVERTER_SHA),
+                                (runtime_policy.IMAGE_ID,'a'*64),(None,None)]:
+            with self.assertRaisesRegex(ValueError,'reviewed stable'):
+                runtime_policy.verify_runtime_policy(image,converter)
+        dockerfile=(Path(__file__).parent/'Dockerfile').read_text()
+        self.assertIn('FROM ghcr.io/osgeo/gdal@'+runtime_policy.GDAL_MANIFEST,dockerfile)
+        self.assertIn('org.thalassa.gdal-base-id="'+runtime_policy.GDAL_CONFIG+'"',dockerfile)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); metadata=root/'catalogue.xml'; metadata.write_bytes(xml(record()))
+            with patch.object(stage,'fetch') as fetch,patch.object(stage.subprocess,'run') as docker:
+                with self.assertRaisesRegex(ValueError,'reviewed stable'):
+                    stage.prepare(root,metadata,['US5CA1LK'],True,image='sha256:'+'9'*64,cli_sha=runtime_policy.CONVERTER_SHA)
+                fetch.assert_not_called(); docker.assert_not_called()
     def test_actual_series_title_is_not_a_date_and_exact_generated_index_matches_app_fixture(self):
         fixtures=Path(__file__).resolve().parents[2]/'tests'/'fixtures'/'noaa-publisher'
         raw=(fixtures/'real-metadata.xml').read_bytes()
@@ -109,6 +125,7 @@ class Pipeline(unittest.TestCase):
                 (work/'cell.json').write_bytes(body)
                 return SimpleNamespace(stdout=json.dumps({'sha256':hashlib.sha256(body).hexdigest()}))
             with patch.object(stage,'fetch',side_effect=fetch), patch.object(stage.subprocess,'run',side_effect=docker), \
+                 patch.object(stage,'verify_runtime_policy'), \
                  patch.object(stage,'AGREEMENT_HTML_SHA',hashlib.sha256(agreement).hexdigest()), \
                  patch.object(stage.shutil,'disk_usage',return_value=SimpleNamespace(free=100*1024**3)), \
                  patch.object(stage.os,'getuid',return_value=1000,create=True), patch.object(stage.os,'getgid',return_value=1000,create=True):
