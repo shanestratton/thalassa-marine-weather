@@ -1,3 +1,5 @@
+import './helpers/noPrivateRoutingAreas';
+
 /**
  * Owner decision 11 (Shane, 2026-10-01: "ok avoid water no tide can clear")
  * through the app's own router, tryInshoreRoute.

@@ -1,3 +1,5 @@
+import '../helpers/noPrivateRoutingAreas';
+
 /**
  * Part B (inshore router, 2026-09-30): a charted bridge, overhead cable or
  * overhead pipe (S-57 BRIDGE / CBLOHD / PIPOHD) the vessel's mast cannot

@@ -1,3 +1,5 @@
+import '../helpers/noPrivateRoutingAreas';
+
 /**
  * The lead-graph shadow never changes the route (Phase 3, 2026-10-01).
  *

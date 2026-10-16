@@ -1,3 +1,5 @@
+import './helpers/noPrivateRoutingAreas';
+
 /**
  * Routing off the main thread changes nothing about the route (127-ROUTE-W).
  *

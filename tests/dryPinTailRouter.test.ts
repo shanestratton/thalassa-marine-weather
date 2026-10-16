@@ -1,3 +1,5 @@
+import './helpers/noPrivateRoutingAreas';
+
 /**
  * Package 125-05b through the app's own router, tryInshoreRoute (Shane,
  * 2026-10-08: "tried to do a route from the newport canals to tangalooma, i

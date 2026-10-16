@@ -1,3 +1,5 @@
+import '../helpers/noPrivateRoutingAreas';
+
 /**
  * A solo lateral's inferred keep-out never closes charted deep water, and a
  * pin in a dredged river is never "on charted land" (2026-10-01).
