@@ -6,7 +6,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { build } from 'vite';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { collectClassNames, shareClassNames } from '../scripts/share-class-names.mjs';
+import { classTableSource, collectClassNames, shareClassNames } from '../scripts/share-class-names.mjs';
 
 let root: string;
 const className = 'flex min-h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm';
@@ -32,6 +32,15 @@ it('collects repeated literal production classes without test-only strings or dy
         Array(8).fill('<span className="test-only class must not enter the production pool"/>').join('\n'),
     );
     expect(collectClassNames(root)).toEqual([className]);
+});
+
+it('reconstructs every real pooled class and unusual whitespace losslessly with an immutable table', async () => {
+    const values = [...collectClassNames(process.cwd()), ' a  b\tc ', 'text-["☀️"] \\ escaped', '', ' '.repeat(3)];
+    const source = classTableSource(values);
+    const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+    expect(module.values).toEqual(values);
+    expect(Object.isFrozen(module.values)).toBe(true);
+    expect(source.length).toBeLessThan(JSON.stringify(values).length);
 });
 
 it('preserves real DOM, class values, property order, side effects and handlers after production minification', async () => {

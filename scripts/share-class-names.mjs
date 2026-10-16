@@ -49,9 +49,26 @@ export function collectClassNames(root) {
         visit(source);
     }
     return [...counts]
-        .filter(([value, count]) => count >= 3 && (value.length + 2) * count - (value.length + 30 + 5 * count) >= 24)
+        .filter(([value, count]) => count >= 2 && (value.length + 2) * count - (value.length + 30 + 5 * count) >= 24)
         .map(([value]) => value)
         .sort();
+}
+
+/** Encode repeated CSS words once, reconstructing exact strings at module
+ * initialization. Splitting/joining on the literal space preserves repeated
+ * spaces, tabs, escapes and Unicode; no class is normalized or evaluated. */
+export function classTableSource(values) {
+    const words = [...new Set(values.flatMap((value) => value.split(' ')))].sort();
+    const indexes = new Map(words.map((word, index) => [word, index.toString(36)]));
+    const encoded = values.map((value) =>
+        value
+            .split(' ')
+            .map((word) => indexes.get(word))
+            .join(' '),
+    );
+    const direct = `export const values=/* @__PURE__ */Object.freeze(${JSON.stringify(values)});`;
+    const packed = `const words=${JSON.stringify(words)};export const values=/* @__PURE__ */Object.freeze(${JSON.stringify(encoded)}.map(value=>value.split(' ').map(index=>words[parseInt(index,36)]).join(' ')));`;
+    return packed.length < direct.length ? packed : direct;
 }
 
 /** @param {string} code @param {string} id
@@ -115,9 +132,7 @@ export function shareClassNames(root) {
             return id === MODULE ? RESOLVED : null;
         },
         load(id) {
-            return id === RESOLVED
-                ? `export const values=/* @__PURE__ */Object.freeze(${JSON.stringify(values)});`
-                : null;
+            return id === RESOLVED ? classTableSource(values) : null;
         },
         transform(code, id) {
             if (!enabled || id === RESOLVED) return null;
