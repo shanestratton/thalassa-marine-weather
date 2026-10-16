@@ -47,16 +47,17 @@ async function request(action: Action, options: Options): Promise<PiRadarWatchPr
     if (action.kind !== 'read' && action.proof.source === 'cloud') throw new PiRadarWatchError('unavailable');
     const started = performance.now();
     let expired = false;
-    const identityCurrent = () => {
+    const ownerCurrent = () => {
         const next = getPairing();
         return (
             isAuthIdentityScopeCurrent(scope) &&
-            piCache.lanBaseUrlNow() === base &&
             next?.deviceId === pairing.deviceId &&
             next?.publicKeySpki === pairing.publicKeySpki &&
             next?.pairedAt === pairing.pairedAt
         );
     };
+    // Transport loss makes a pending request unusable, not a held encounter clear.
+    const identityCurrent = () => ownerCurrent() && piCache.lanBaseUrlNow() === base;
     const current = () =>
         !expired &&
         performance.now() - started < 6000 &&
@@ -161,7 +162,7 @@ async function request(action: Action, options: Options): Promise<PiRadarWatchPr
                 return {
                     view,
                     deviceId: device.chartDeviceId,
-                    isCurrent: identityCurrent,
+                    isCurrent: ownerCurrent,
                     source: 'lan' as const,
                     ...(action.kind === 'ack' ? { acknowledgedKeys: [action.key] } : {}),
                 };

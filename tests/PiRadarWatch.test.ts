@@ -11,6 +11,7 @@ const f = vi.hoisted(() => ({
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => ({ generation: f.identity, userId: f.userId }),
     isAuthIdentityScopeCurrent: (v: { generation: number }) => f.identity === v.generation,
+    subscribeAuthIdentityScope: () => () => {},
 }));
 vi.mock('../services/PiPairingService', () => ({
     getPairing: () => f.pair,
@@ -28,7 +29,9 @@ import {
     armPiRadarWatch,
     stopPiRadarWatch,
     acknowledgePiRadarWatch,
+    PiRadarWatchError,
 } from '../services/radar/piRadarWatch';
+import { PiRadarWatchController } from '../services/radar/piRadarWatchState';
 const T = Date.UTC(2026, 0, 2, 12),
     b = fixture.context.binding;
 const controller = { deviceId: b.deviceId, enrollmentRevision: b.enrollmentRevision };
@@ -96,6 +99,34 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('owned enrolled Pi radar watch client against the actual Pi model', () => {
+    it('actual client lifetime proof survives LAN loss and incomplete cloud handoff, while identity retirement hides it', async () => {
+        const proof = await armPiRadarWatch(await readPiRadarWatch(), DEFAULT_COLLISION_PREFS);
+        const read = vi.fn().mockResolvedValue(proof),
+            unused = vi.fn();
+        const state = new PiRadarWatchController({
+            read,
+            arm: unused,
+            off: unused,
+            ack: unused,
+            review: unused,
+            shield: () => true,
+            prefs: () => DEFAULT_COLLISION_PREFS,
+            now: Date.now,
+        });
+        await state.refresh();
+        f.base = '';
+        expect(proof.isCurrent()).toBe(true);
+        expect(state.get().view?.alarms).toHaveLength(1);
+        read.mockRejectedValue(new PiRadarWatchError('unavailable'));
+        await state.refresh();
+        expect(state.get()).toMatchObject({ fresh: false, view: { alarms: [{ sourceAt: T, cleared: null }] } });
+        read.mockResolvedValue({ ...proof, source: 'cloud', view: { ...proof.view, running: false, alarms: [] } });
+        await state.refresh();
+        expect(state.get().view?.alarms).toMatchObject([{ unknown: true, actionable: false, cleared: null }]);
+        f.identity++;
+        expect(proof.isCurrent()).toBe(false);
+        expect(state.get().view).toBeNull();
+    });
     it('does not accept a ready push claim without its own fresh original check clock', async () => {
         const raw = await watch.describe();
         raw.push = { state: 'ready', checkedAt: null };
