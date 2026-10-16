@@ -145,7 +145,7 @@ export function assessBridgeOpening(
         r.intervals.length < 1 ||
         r.intervals.length > 128 ||
         r.intervals.some(
-            (span, i) =>
+            (span: ReviewedBridgeOperations['intervals'][number], i: number) =>
                 !span ||
                 !finite(span.openMs) ||
                 !finite(span.closeMs) ||
@@ -156,7 +156,10 @@ export function assessBridgeOpening(
         )
     )
         return unknown('Complete explicit UTC opening intervals unavailable.');
-    const interval = r.intervals.find((s) => s.openMs <= request.fromMs && s.closeMs >= request.untilMs);
+    const interval = r.intervals.find(
+        (s: ReviewedBridgeOperations['intervals'][number]) =>
+            s.openMs <= request.fromMs && s.closeMs >= request.untilMs,
+    );
     if (!interval) return { kind: 'closed', reason: 'No reviewed opening covers the complete proposed crossing.' };
     if (
         r.noticeMs > 0 &&

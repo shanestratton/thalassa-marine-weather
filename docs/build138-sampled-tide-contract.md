@@ -186,3 +186,11 @@ transport/chart data through actual client adapters. They check explicit source
 actions, no default network, unchanged report cap/page extent, private summary
 absence from storage, queued draft refusal and late boat retirement. Artifacts
 are in `work/passage-tide138-browser-proof/`. No live navigation proof is implied.
+
+The first whole-app compiler run on 8723e52ce exited 2 with three narrow
+contract issues: DEPARE polygon narrowing, optional bridge estimated flag and
+operating-interval callback types after array validation. They were corrected
+with a real non-area-depth refusal regression; the first log is retained at
+`work/validation138-tide-review-checkpoint-tsc.log` and its SHA/timestamps/exit at
+`work/validation138-tide-review-tsc-receipt.txt`. No repaired compiler success or
+configured production bundle result is claimed at this checkpoint.

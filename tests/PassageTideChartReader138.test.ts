@@ -158,6 +158,13 @@ describe('actual leased passage tide chart disclosures', () => {
         m.cells = [cell()];
         m.raw.mockResolvedValue(source);
         expect((await readPassageTideContext(point, route(), () => {})).pointDepthM).toBeNull();
+        const nonArea = blob();
+        nonArea.layers.DEPARE!.features[0].geometry = { type: 'Point', coordinates: [point.lon, point.lat] };
+        m.raw.mockResolvedValue(nonArea);
+        const refused = await readPassageTideContext(point, route(), () => {});
+        expect(refused.pointDepthM).toBeNull();
+        expect(refused.completeInventory).toBe(false);
+        expect(refused.notes.join(' ')).toContain('non-area geometry');
     });
     it('enforces complete cohort and vertex bounds, and aborts on actual owner/revision changes', async () => {
         m.cells = Array.from({ length: 15 }, (_, i) => ({ ...cell(), id: `US${i}` }));
