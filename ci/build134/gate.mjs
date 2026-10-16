@@ -4,13 +4,13 @@ import {fileURLToPath} from 'node:url';
 
 export const TARGET = Object.freeze({
     repo: 'shanestratton/thalassa-marine-weather',
-    source: '2ed617013ef9aca392c1080ca2abd28cb5068ce6',
+    source: '4d22c003bb5493b3573b1d0f394a5a3dc74f4b07',
     sourceBranch: 'codex/build-134-routing',
     originalB132: 'a9372b33c967d79d8676e9bb3564b68c794cc33b',
     originalB133: '9c0d9f2f2e5ca3a00226bc023b44a850e3666225',
     master: 'c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11',
-    validationRun: Number('38877274105'),
-    validationDefinition: '2f840a40154334e435c8f8321ab538927f850d94',
+    validationRun: Number('38884377597'),
+    validationDefinition: '603a67b564da16cdc440472bcc0d0751fd6955ce',
     validationPath: '.github/workflows/validate-testflight-134.yml',
     validationBranch: 'codex/build-134-full-validation',
 });
