@@ -63,6 +63,9 @@ import { PiAlarmRelay, canonicalPiAlarmRelayEndpoint } from './piAlarmRelay.js';
 import { PiUnderwayAlarmRelay } from './piUnderwayAlarmRelay.js';
 import { PiUnderwayWatch } from './underwayWatch.js';
 import { createUnderwayWatchRoutes } from './routes/underwayWatch.js';
+import { createCourseRoutes, coursePilotState } from './routes/course.js';
+import { CourseOwnershipFile } from './courseOwnership.js';
+import { createSignalKClient, type SignalKClient } from './signalKClient.js';
 import { updateMaintenanceActive, updateMaintenanceStatus } from './updateMaintenance.js';
 import { OfflineWeatherStore } from './offlineWeather.js';
 import { createOfflineWeatherRoutes } from './routes/offlineWeather.js';
@@ -308,6 +311,20 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+// Read access never grants route writes. Only the operator's separately approved
+// token and explicit switch can enable this fixed course/resource surface.
+let courseClient: SignalKClient | null = null;
+if (process.env.THALASSA_SIGNALK_COURSE_WRITES === '1' && process.env.SIGNALK_ACCESS_TOKEN) {
+    try {
+        courseClient = createSignalKClient({
+            origin: SIGNALK_ORIGIN,
+            accessToken: process.env.SIGNALK_ACCESS_TOKEN,
+            allowInsecureLan: true,
+        });
+    } catch {
+        console.warn('[course] route sending unavailable: review the operator configuration');
+    }
+}
 const underwayRelay = new PiUnderwayAlarmRelay({
     fetchImpl: fetch,
     endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
@@ -967,6 +984,24 @@ if (APP_API_ENABLED) {
     app.use('/api/offline-weather', createOfflineWeatherRoutes(new OfflineWeatherStore(cache)));
     app.use('/api/polars', createEncFrontDoor({ devices: chartDevices }), createPolarRoutes(polarLearner));
     app.use('/api/underway-watch', createUnderwayWatchRoutes(underwayWatch, chartDevices));
+    app.use(
+        '/api/course',
+        createCourseRoutes({
+            devices: chartDevices,
+            enabled: () => courseClient !== null,
+            store: new CourseOwnershipFile(CACHE_DIR, identity.deviceId),
+            transport: {
+                requestCourse: async (request) => {
+                    if (!courseClient) throw new Error('Course writes disabled.');
+                    return (await courseClient.requestCourse(request)).body;
+                },
+            },
+            pilotState: async () => {
+                if (!courseClient) return 'unknown';
+                return coursePilotState((await courseClient.getSelf()).body);
+            },
+        }),
+    );
     app.use('/api/enc', createEncRoutes(identity, { vault: chartVault, devices: chartDevices }));
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
@@ -980,6 +1015,7 @@ if (APP_API_ENABLED) {
         '/api/diary',
         '/api/track',
         '/api/underway-watch',
+        '/api/course',
         '/api/polars',
         '/api/offline-weather',
     ]) {

@@ -74,6 +74,7 @@ import { createSeabedRoutes } from './routes/seabed.js';
 import { createRemoteAccessRoutes } from './routes/remoteAccess.js';
 import type { VaultClient } from './vaultClient.js';
 import { createUnderwayWatchRoutes } from './routes/underwayWatch.js';
+import { createCourseRoutes } from './routes/course.js';
 import { createPolarRoutes } from './routes/polars.js';
 import { createOfflineWeatherRoutes } from './routes/offlineWeather.js';
 
@@ -275,6 +276,13 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createRemoteAccessRoutes: createRemoteAccessRoutes(),
         createAisWatchRoutes: createAisWatchRoutes(watch),
         createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
+        createCourseRoutes: createCourseRoutes({
+            devices,
+            transport: stub,
+            store: stub,
+            enabled: () => false,
+            pilotState: async () => 'unknown',
+        }),
         createPolarRoutes: createPolarRoutes(stub),
         createOfflineWeatherRoutes: createOfflineWeatherRoutes(stub),
         createPiLockRoutes: createPiLockRoutes({

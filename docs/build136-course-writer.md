@@ -1,4 +1,4 @@
-# Confirmed followed-route handoff: core checkpoint
+# Confirmed followed-route handoff: Pi HTTP checkpoint
 
 The Pi core uses Signal K's fixed v2 [Resources API](https://github.com/SignalK/signalk-server/blob/master/docs/develop/rest-api/resources_api.md) and [Course API](https://github.com/SignalK/signalk-server/blob/master/docs/develop/rest-api/course_api.md). It saves and reads back the exact followed line before activating its own generated UUID resource. Coordinates are not simplified, rounded or thinned. It does not call autopilot engagement, steering or Course API configuration endpoints.
 
@@ -12,4 +12,8 @@ The private ownership file is bounded to16KiB and tied to this Pi. Writes use a0
 
 Authority can be checked asynchronously against the current enrolled-device list between network operations. Unfollow invalidates an in-progress confirmation before waiting for the writer. If activation has already reached the server, clearing waits for that result and reconciles its retained claim; no activation request is replayed.
 
-This checkpoint has26 passing state-machine, real-file and bounded HTTP client tests, including unfollow during verification and activation, device removal, a lost reply and redirect credential isolation. Pi TypeScript and owned lint checks pass. Enrolled HTTP endpoints, the final phone confirmation/follow-state wiring and their combined native/boat checks remain pending. Nothing is installed aboard, activated or released by this checkpoint.
+The four fixed `/api/course` endpoints are capability, preview, activate and clear. Every endpoint requires a currently enrolled device on the boat's own Wi-Fi, including while the legacy command lock observes or has no devices. A routed tailnet, router or loopback peer cannot claim helm access. Activation and clearing are command-class routes; preview only reads. No caller can supply a Signal K origin, access token or arbitrary API path.
+
+Route sending defaults off. The operator must configure `SIGNALK_ACCESS_TOKEN` with approved write access and separately set `THALASSA_SIGNALK_COURSE_WRITES=1`; read access never turns this on. The token stays on the Pi. Fresh `steering.autopilot.state` values use the [Signal K steering schema](https://github.com/SignalK/specification/blob/master/schemas/groups/steering.json) and their own timestamps. An active mode blocks activation. Missing/stale state is explicitly unknown, requiring the skipper's direct standby confirmation rather than being labelled standby.
+
+This checkpoint has32 passing state-machine, real-file and real loopback HTTP tests, including enrollment at the HTTP door, exact route readback, unfollow during verification and activation, device removal during save, an actual lost HTTP reply and redirect credential isolation. Pi TypeScript and owned lint checks pass. The complete command-lock route table also passes locally; two existing Unix0600 file-mode assertions need the Mac/Linux runner because Windows reports0666. The final phone confirmation/follow-state wiring and combined native/boat checks remain pending. Nothing is installed aboard, activated or released by this checkpoint.

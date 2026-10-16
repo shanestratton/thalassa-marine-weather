@@ -26,6 +26,8 @@ export interface CourseOwnershipStore {
     read(): OwnedCourse[];
     write(value: OwnedCourse[]): void;
 }
+/** Fixed, skipper-readable refusals; provider/storage errors are never forwarded. */
+export class CourseWriterError extends Error {}
 type Challenge = {
     token: string;
     device: string;
@@ -75,7 +77,7 @@ function routeCopy(raw: FollowedCourse): FollowedCourse {
                 Math.abs(p.lon) <= 180,
         )
     )
-        throw Error('A followed route of 2–1000 valid points is required.');
+        throw new CourseWriterError('A followed route of 2–1000 valid points is required.');
     return { key: raw.key, name: raw.name, points: raw.points.map((p) => ({ lat: p.lat, lon: p.lon })) };
 }
 const digestOf = (route: FollowedCourse) => createHash('sha256').update(JSON.stringify(route)).digest('hex');
@@ -86,25 +88,27 @@ function course(raw: unknown): {
     hasDestination: boolean;
 } {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-        throw Error('The boat’s current course could not be verified.');
+        throw new CourseWriterError('The boat’s current course could not be verified.');
     const row = raw as Record<string, unknown>;
-    if (!('activeRoute' in row) || !('nextPoint' in row)) throw Error('The boat’s current course is incomplete.');
+    if (!('activeRoute' in row) || !('nextPoint' in row))
+        throw new CourseWriterError('The boat’s current course is incomplete.');
     const active = row.activeRoute;
     let activeId: string | null = null;
     if (active !== null) {
-        if (!active || typeof active !== 'object' || Array.isArray(active)) throw Error('Invalid active course.');
+        if (!active || typeof active !== 'object' || Array.isArray(active))
+            throw new CourseWriterError('Invalid active course.');
         const href = (active as { href?: unknown }).href;
         if (
             typeof href !== 'string' ||
             !href.startsWith('/resources/routes/') ||
             !UUID.test(href.slice('/resources/routes/'.length))
         )
-            throw Error('Unrecognised active route resource.');
+            throw new CourseWriterError('Unrecognised active route resource.');
         activeId = href.slice('/resources/routes/'.length);
     }
     const startTime = row.startTime === null || row.startTime === undefined ? null : row.startTime;
     if (startTime !== null && (!text(startTime, 64) || !Number.isFinite(Date.parse(startTime))))
-        throw Error('Invalid course start time.');
+        throw new CourseWriterError('Invalid course start time.');
     const fingerprint = createHash('sha256')
         .update(JSON.stringify([startTime, active, row.nextPoint, row.previousPoint ?? null]))
         .digest('hex');
@@ -117,7 +121,7 @@ export function createCourseWriter(options: {
     store: CourseOwnershipStore;
     now?: () => number;
     allowed: (device: string) => boolean | Promise<boolean>;
-    pilotEngaged: () => boolean;
+    pilotEngaged: () => boolean | Promise<boolean>;
 }) {
     const now = options.now ?? Date.now;
     const pending = new Map<string, Challenge>();
@@ -126,15 +130,15 @@ export function createCourseWriter(options: {
     let settled: Promise<void> = Promise.resolve();
     const claims = () => {
         const rows = options.store.read();
-        if (!validCourseOwnership(rows)) throw Error('The saved course ownership needs review.');
+        if (!validCourseOwnership(rows)) throw new CourseWriterError('The saved course ownership needs review.');
         return rows;
     };
     const authority = async (device: string) => {
         if (!text(device, 128) || !(await options.allowed(device)))
-            throw Error('This device is no longer authorised for the boat.');
+            throw new CourseWriterError('This device is no longer authorised for the boat.');
     };
     const exclusive = async <T>(work: () => Promise<T>): Promise<T> => {
-        if (busy) throw Error('Another course operation is in progress.');
+        if (busy) throw new CourseWriterError('Another course operation is in progress.');
         busy = true;
         let release!: () => void;
         settled = new Promise<void>((resolve) => {
@@ -156,7 +160,8 @@ export function createCourseWriter(options: {
             const previous = course(await options.transport.requestCourse({ method: 'GET', target: 'course' }));
             await authority(device);
             for (const [key, value] of pending) if (value.expiresAt < now()) pending.delete(key);
-            if (pending.size >= 8) throw Error('Close an older route confirmation before opening another.');
+            if (pending.size >= 8)
+                throw new CourseWriterError('Close an older route confirmation before opening another.');
             const token = randomBytes(16).toString('hex'),
                 expiresAt = now() + 30_000;
             pending.set(token, {
@@ -184,23 +189,29 @@ export function createCourseWriter(options: {
                 await authority(device);
                 const choice = pending.get(intent.token);
                 if (!choice || choice.device !== device || choice.digest !== intent.digest || now() > choice.expiresAt)
-                    throw Error('Review this exact followed route again.');
-                if (intent.pilotInStandby !== true || options.pilotEngaged())
-                    throw Error('Put the pilot in standby and confirm at the helm.');
+                    throw new CourseWriterError('Review this exact followed route again.');
+                if (intent.pilotInStandby !== true || (await options.pilotEngaged()))
+                    throw new CourseWriterError('Put the pilot in standby and confirm at the helm.');
                 const fresh = async () => {
                     await authority(device);
-                    if (choice.cancelled) throw Error('This route is no longer followed.');
-                    if (now() > choice.expiresAt) throw Error('The route confirmation expired. Review it again.');
-                    if (options.pilotEngaged()) throw Error('The pilot became engaged. Check it at the helm.');
+                    if (choice.cancelled) throw new CourseWriterError('This route is no longer followed.');
+                    if (await options.pilotEngaged())
+                        throw new CourseWriterError('The pilot became engaged. Check it at the helm.');
+                    await authority(device);
+                    if (choice.cancelled) throw new CourseWriterError('This route is no longer followed.');
+                    if (now() > choice.expiresAt)
+                        throw new CourseWriterError('The route confirmation expired. Review it again.');
                 };
-                if (claims().length >= 8) throw Error('Review and clear an earlier unconfirmed course first.');
+                if (claims().length >= 8)
+                    throw new CourseWriterError('Review and clear an earlier unconfirmed course first.');
                 pending.delete(intent.token); // no automatic replay of a possibly completed write
                 activeChoice = choice;
                 const current = course(await options.transport.requestCourse({ method: 'GET', target: 'course' }));
                 await authority(device);
-                if (current.fingerprint !== choice.prior) throw Error('The boat’s course changed. Review it again.');
+                if (current.fingerprint !== choice.prior)
+                    throw new CourseWriterError('The boat’s course changed. Review it again.');
                 if (current.hasDestination && intent.replaceExisting !== true)
-                    throw Error('Confirm replacement of the boat’s current destination.');
+                    throw new CourseWriterError('Confirm replacement of the boat’s current destination.');
                 const coordinates = choice.route.points.map((p) => [p.lon, p.lat]);
                 await fresh();
                 await options.transport.requestCourse({
@@ -224,13 +235,13 @@ export function createCourseWriter(options: {
                     saved.feature?.geometry?.type !== 'LineString' ||
                     JSON.stringify(saved.feature.geometry.coordinates) !== JSON.stringify(coordinates)
                 )
-                    throw Error('The boat did not retain the exact route geometry.');
-                if (options.pilotEngaged())
-                    throw Error('The pilot became engaged. The route was saved but not activated.');
+                    throw new CourseWriterError('The boat did not retain the exact route geometry.');
+                if (await options.pilotEngaged())
+                    throw new CourseWriterError('The pilot became engaged. The route was saved but not activated.');
                 const latest = course(await options.transport.requestCourse({ method: 'GET', target: 'course' }));
                 await authority(device);
                 if (latest.fingerprint !== choice.prior)
-                    throw Error('The boat’s course changed while the route was being saved.');
+                    throw new CourseWriterError('The boat’s course changed while the route was being saved.');
                 await fresh();
                 const owned: OwnedCourse = {
                     device,
@@ -250,7 +261,9 @@ export function createCourseWriter(options: {
                 await authority(device);
                 const confirmed = course(await options.transport.requestCourse({ method: 'GET', target: 'course' }));
                 if (confirmed.activeId !== choice.resourceId || !confirmed.startTime)
-                    throw Error('Activation is unconfirmed. Check the plotter; do not send again automatically.');
+                    throw new CourseWriterError(
+                        'Activation is unconfirmed. Check the plotter; do not send again automatically.',
+                    );
                 options.store.write(
                     claims()
                         .filter((row) => row.phase === 'activating' && row.resourceId !== owned.resourceId)
@@ -261,11 +274,14 @@ export function createCourseWriter(options: {
         },
         async clear(device: string, routeKey: string) {
             await authority(device);
-            if (!text(routeKey, 200)) throw Error('A followed route is required.');
+            if (!text(routeKey, 200)) throw new CourseWriterError('A followed route is required.');
             // An unfollow can arrive while an activation request is in flight. Invalidate
             // first, then reconcile its uncertain result; never race two course mutations.
             for (const [key, choice] of pending) {
-                if (choice.device === device && choice.route.key === routeKey) pending.delete(key);
+                if (choice.device === device && choice.route.key === routeKey) {
+                    choice.cancelled = true;
+                    pending.delete(key);
+                }
             }
             if (activeChoice?.device === device && activeChoice.route.key === routeKey) activeChoice.cancelled = true;
             await settled;
@@ -291,7 +307,7 @@ export function createCourseWriter(options: {
                 await authority(device);
                 const after = course(await options.transport.requestCourse({ method: 'GET', target: 'course' }));
                 if (after.activeId === owned.resourceId)
-                    throw Error('The boat still reports this route. Clear it at the plotter.');
+                    throw new CourseWriterError('The boat still reports this route. Clear it at the plotter.');
                 options.store.write(claims().filter((row) => row.resourceId !== owned.resourceId));
                 return { cleared: true, otherDestinationPresent: after.hasDestination };
             });

@@ -40,6 +40,11 @@ same kind of token for `git pull`: see `docs/GOING_PRIVATE.md`.
 
 ## Runtime
 
+The optional Signal K course writer is separately disabled by default. It needs an operator-approved
+`SIGNALK_ACCESS_TOKEN` and `THALASSA_SIGNALK_COURSE_WRITES=1`, plus an enrolled phone on the boat's own Wi-Fi and
+the phone's helm confirmation. Read-only Signal K access cannot enable it. See
+[the bounded course-writer contract](../docs/build136-course-writer.md) before configuring it.
+
 Node.js `>=20.18.1` is required by the pinned HTTP transport. `install.sh` upgrades an older Pi runtime through the
 NodeSource 22.x repository and aborts before dependency installation or service restart if that minimum is not met.
 
