@@ -138,6 +138,9 @@ export default function EngineHoursReviewSheet({ offer, onClose }: { offer: Engi
                     {summary.loggedSeconds ? `${duration(summary.loggedSeconds)} from your Log declarations.` : ''}
                 </p>
                 {summary.unknownSeconds > 0 && <p>{duration(summary.unknownSeconds)} is unknown and won’t be added.</p>}
+                {summary.measuredSeconds > 0 && offer.counter.rpmEngineId && (
+                    <p>RPM engine: {offer.counter.rpmEngineId}</p>
+                )}
                 {summary.clockUncertain && (
                     <p>The clock changed during this record. Check the hour meter in Maintenance.</p>
                 )}

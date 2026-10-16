@@ -2,7 +2,12 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { declareEngineRunning, endEngineRunCounter, newEngineRunCounter } from '../services/shiplog/engineRunCounter';
+import {
+    declareEngineRunning,
+    endEngineRunCounter,
+    newEngineRunCounter,
+    observeQualifiedEngineRpm,
+} from '../services/shiplog/engineRunCounter';
 import type { EngineHoursOffer } from '../services/shiplog/engineHoursOffer';
 
 const api = vi.hoisted(() => ({ load: vi.fn(), confirm: vi.fn() }));
@@ -33,6 +38,20 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 describe('voyage engine review sheet', () => {
+    it('shows the measured engine identity beside the time being offered for its meter', async () => {
+        const candidate = offer();
+        candidate.counter = endEngineRunCounter(
+            observeQualifiedEngineRpm(
+                newEngineRunCounter('measured', T),
+                { value: 900, at: T, unit: 'rpm', engineId: 'port', engineCount: 1 },
+                T,
+            ),
+            T + 10_000,
+        );
+        render(<EngineHoursReviewSheet offer={candidate} onClose={() => undefined} />);
+        expect(await screen.findByText('RPM engine: port')).toBeInTheDocument();
+        expect(api.confirm).not.toHaveBeenCalled();
+    });
     it('requires the boat/meter check before a single explicit addition', async () => {
         const candidate = offer();
         render(<EngineHoursReviewSheet offer={candidate} onClose={() => undefined} />);

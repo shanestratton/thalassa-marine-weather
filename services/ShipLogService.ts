@@ -41,7 +41,7 @@ import {
     declareEngineRunning,
     endEngineRunCounter,
     newEngineRunCounter,
-    observeEngineRpm,
+    observeQualifiedEngineRpm,
     suspendEngineRunCounter,
     validEngineRunCounter,
 } from './shiplog/engineRunCounter';
@@ -366,19 +366,11 @@ class ShipLogServiceClass {
                     )
                         return;
                     const now = Date.now();
-                    // Legacy remote gauges use receipt clocks. They cannot qualify an engine-hours sample.
-                    const qualified = snapshot as typeof snapshot & {
-                        instrumentEvidence?: {
-                            readings?: { rpm?: { value: number | null; at: number; unit: string } };
-                        };
-                    };
-                    const reading = qualified.instrumentEvidence?.readings?.rpm;
-                    const at = snapshot.remote ? reading?.at : snapshot.rpm.lastUpdated;
-                    const rpm = snapshot.remote ? (reading?.unit === 'rpm' ? reading.value : null) : snapshot.rpm.value;
-                    state.engineRun =
-                        typeof at === 'number' && rpm !== null && rpm !== undefined
-                            ? observeEngineRpm(state.engineRun, rpm, at, now)
-                            : advanceEngineRunCounter(state.engineRun, now);
+                    state.engineRun = observeQualifiedEngineRpm(
+                        state.engineRun,
+                        snapshot.instrumentEvidence?.readings?.rpm,
+                        now,
+                    );
                     if (now - this.engineCounterPersistedAt >= 30_000) {
                         this.engineCounterPersistedAt = now;
                         void this.saveTrackingState(scope).catch((error) =>

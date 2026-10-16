@@ -6,12 +6,41 @@ import {
     engineRunSummary,
     newEngineRunCounter,
     observeEngineRpm,
+    observeQualifiedEngineRpm,
     suspendEngineRunCounter,
     validEngineRunCounter,
 } from '../services/shiplog/engineRunCounter';
 
 const T = 1_800_000_000_000;
 describe('voyage engine time evidence', () => {
+    it('requires one identified engine and refuses to combine another engine into its maintenance meter', () => {
+        const reading = (engineId: string, engineCount = 1) => ({
+            value: 900,
+            at: T,
+            unit: 'rpm',
+            engineId,
+            engineCount,
+        });
+        let c = observeQualifiedEngineRpm(newEngineRunCounter('engines', T), reading('port', 2), T);
+        c = observeQualifiedEngineRpm(c, { ...reading('port'), at: T + 10_000 }, T + 10_000);
+        c = observeQualifiedEngineRpm(c, { ...reading('starboard'), at: T + 20_000 }, T + 20_000);
+        c = endEngineRunCounter(c, T + 30_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 10, unknownSeconds: 20 });
+        expect(c.rpmEngineId).toBe('port');
+    });
+    it('never assigns an engine identity from missing metadata, future samples or legacy gauge state', () => {
+        let c = observeEngineRpm(newEngineRunCounter('unqualified', T), 900, T, T);
+        c = observeQualifiedEngineRpm(c, undefined, T + 1000);
+        c = observeQualifiedEngineRpm(c, { value: 900, at: T + 1000, unit: 'rpm' }, T + 1000);
+        c = observeQualifiedEngineRpm(
+            c,
+            { value: 900, at: T + 30_000, unit: 'rpm', engineId: 'port', engineCount: 1 },
+            T + 2000,
+        );
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 0, unknownSeconds: 10 });
+        expect(c.rpmEngineId).toBeUndefined();
+    });
     it('keeps a pause or different-account interval unknown rather than carrying a declaration across it', () => {
         let c = declareEngineRunning(newEngineRunCounter('pause', T), true, T);
         c = suspendEngineRunCounter(c, T + 60_000);

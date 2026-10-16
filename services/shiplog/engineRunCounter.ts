@@ -9,6 +9,7 @@ export interface EngineRunCounter {
     atMs: number;
     declared: boolean | null;
     rpm: { running: boolean; atMs: number } | null;
+    rpmEngineId?: string;
     logOnMs: number;
     rpmOnMs: number;
     offMs: number;
@@ -56,6 +57,11 @@ export function validEngineRunCounter(raw: unknown, voyageId: string): raw is En
     )
         return false;
     if (c.rpm !== null && (!c.rpm || typeof c.rpm.running !== 'boolean' || !time(c.rpm.atMs) || c.rpm.atMs > c.atMs))
+        return false;
+    if (
+        c.rpmEngineId !== undefined &&
+        (typeof c.rpmEngineId !== 'string' || !c.rpmEngineId.trim() || c.rpmEngineId.length > 120)
+    )
         return false;
     const totals = [c.logOnMs, c.rpmOnMs, c.offMs, c.unknownMs];
     return (
@@ -117,6 +123,37 @@ export function observeEngineRpm(
         return next;
     // No back-filling before receipt: that time has already been classified, and cannot be counted twice.
     return { ...next, rpm: { running: rpm > 0, atMs: sourceAtMs } };
+}
+
+/** A maintenance meter needs one identified engine; a multi-engine aggregate cannot qualify it. */
+export function observeQualifiedEngineRpm(
+    counter: EngineRunCounter,
+    reading: { value: number | null; at: number; unit: string; engineId?: string; engineCount?: number } | undefined,
+    receivedAtMs: number,
+): EngineRunCounter {
+    const identified =
+        typeof reading?.engineId === 'string' && reading.engineId.trim().length > 0 && reading.engineId.length <= 120;
+    const sameEngine = !counter.rpmEngineId || counter.rpmEngineId === reading?.engineId;
+    const unqualified = reading && (reading.unit !== 'rpm' || reading.engineCount !== 1 || !identified || !sameEngine);
+    // Old, unqualified gauge state must never gain a source identity retroactively.
+    const prior = counter.rpmEngineId ? counter : { ...counter, rpm: null };
+    const next = advanceEngineRunCounter(prior, receivedAtMs);
+    if (next.ended) return next;
+    if (unqualified) return { ...next, rpm: null };
+    if (
+        !reading ||
+        reading.value === null ||
+        !Number.isFinite(reading.value) ||
+        reading.value < 0 ||
+        reading.value > 20_000 ||
+        !time(reading.at) ||
+        reading.at > receivedAtMs ||
+        receivedAtMs - reading.at > ENGINE_RPM_VALID_MS ||
+        (prior.rpm !== null && reading.at <= prior.rpm.atMs) ||
+        next.clockUncertain
+    )
+        return next;
+    return { ...observeEngineRpm(next, reading.value, reading.at, receivedAtMs), rpmEngineId: reading.engineId };
 }
 
 export function endEngineRunCounter(counter: EngineRunCounter, atMs: number): EngineRunCounter {
