@@ -210,8 +210,26 @@ try {
     await db.exec('UPDATE private_shore.contacts SET invited_at=NULL');
     await invite(row);
     eq(await consent(), false, 'Telegram link holder must use verified private chat');
+    eq(await command('confirm', 98, '123', hash), null, 'callback without private policy preview refuses');
+    eq(await command('preview', 98, '123', 'c'.repeat(64)), null, 'unknown preview nonce refuses');
+    eq(
+        await command('preview', 99, '123', hash),
+        { invitation: { sharePosition: false } },
+        'Start previews exact current policy',
+    );
+    eq((await contact()).consent, 'pending', 'preview is not recipient consent');
+    eq(
+        await scalar('SELECT used_at FROM private_shore.nonces WHERE hash=$1', [hash]),
+        null,
+        'preview does not consume nonce',
+    );
+    eq(await command('preview', 99, '124', hash), null, 'another private chat cannot replace preview binding');
+    eq(await command('confirm', 100, '124', hash), null, 'another private chat cannot consume preview');
+    await db.exec("UPDATE private_shore.nonces SET preview_at=now()-interval '6 minutes' WHERE kind='confirm'");
+    eq(await command('confirm', 100, '123', hash), null, 'expired preview cannot consent');
+    await db.exec("UPDATE private_shore.nonces SET preview_at=now() WHERE kind='confirm'");
     const confirmed = await command('confirm', 100, '123', hash);
-    eq(typeof confirmed.text, 'string', 'private Start confirms fixed recipient');
+    eq(typeof confirmed.text, 'string', 'explicit callback consumes same private recipient invitation');
     eq(await command('confirm', 100, '123', hash), null, 'replayed webhook ignored');
     row = await contact();
     await save(row.id, row.revision, configuration({ channel: 'telegram', address: null, enabled: true }));
@@ -273,7 +291,13 @@ try {
     row = await contact();
     await db.exec('UPDATE private_shore.contacts SET invited_at=NULL');
     await invite(row, 'd'.repeat(64), 'e'.repeat(64));
-    await command('confirm', 105, '123', 'd'.repeat(64));
+    await db.exec('UPDATE private_shore.telegram_updates SET replied_at=NULL');
+    eq(
+        await command('preview', 105, '123', 'd'.repeat(64)),
+        { invitation: { sharePosition: true } },
+        'position permission is previewed explicitly',
+    );
+    await command('confirm', 106, '123', 'd'.repeat(64));
     row = await contact();
     await save(
         row.id,
@@ -281,12 +305,12 @@ try {
         configuration({ channel: 'telegram', address: null, sharePosition: true, enabled: true }),
     );
     await db.exec('UPDATE private_shore.telegram_updates SET replied_at=NULL');
-    eq((await command('where', 106)).position.lat, 0, 'fresh exact registered position at 0,0 is valid');
+    eq((await command('where', 107)).position.lat, 0, 'fresh exact registered position at 0,0 is valid');
     await db.exec(
         'UPDATE private_shore.telegram_updates SET replied_at=NULL;UPDATE private_weather_watch.test_position SET revision=gen_random_uuid()',
     );
     eq(
-        (await command('where', 107)).text.includes('no fresh receipt'),
+        (await command('where', 108)).text.includes('no fresh receipt'),
         true,
         'changed source cannot inherit position consent',
     );
@@ -298,7 +322,7 @@ try {
             "'",
     );
     eq(
-        (await command('where', 108)).text.includes('no single'),
+        (await command('where', 109)).text.includes('no single'),
         true,
         'transferred hull cannot disclose to old contact',
     );

@@ -59,6 +59,7 @@ export function privateTelegramSender(
         !Number.isSafeInteger(value.update_id) ||
         typeof value.update_id !== 'number' ||
         value.update_id < 0 ||
+        Object.hasOwn(value, 'callback_query') ||
         !shoreRecord(value.message)
     )
         return null;
@@ -91,10 +92,84 @@ export function privateTelegramSender(
         at: message.date * 1000,
     };
 }
-export type ShoreBotCommand = { kind: 'confirm'; nonce: string } | { kind: 'where' } | { kind: 'stop' };
+/** 32 nonce bytes encode to 43 characters; the fixed callback stays below Telegram's 64-byte cap. */
+export function shoreConfirmationData(nonce: string): string {
+    if (!shoreNonce(nonce)) throw new Error('Invalid consent nonce');
+    return (
+        'shore-confirm:' +
+        btoa(String.fromCharCode(...Uint8Array.from(nonce.match(/../g)!, (b) => parseInt(b, 16))))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '')
+    );
+}
+/** A callback is authority only in the same private recipient chat, on our own bot's message. */
+export function privateTelegramConfirmation(
+    value: unknown,
+    botId: string | undefined,
+): {
+    chatId: string;
+    userId: string;
+    updateId: number;
+    nonce: string;
+    at: number;
+    callbackId: string;
+} | null {
+    if (
+        !shoreRecord(value) ||
+        typeof value.update_id !== 'number' ||
+        !Number.isSafeInteger(value.update_id) ||
+        value.update_id < 0 ||
+        !shoreRecord(value.callback_query) ||
+        Object.hasOwn(value, 'message')
+    )
+        return null;
+    const callback = value.callback_query,
+        from = shoreRecord(callback.from) ? callback.from : null,
+        message = shoreRecord(callback.message) ? callback.message : null,
+        chat = message && shoreRecord(message.chat) ? message.chat : null,
+        author = message && shoreRecord(message.from) ? message.from : null;
+    if (
+        !from ||
+        from.is_bot !== false ||
+        typeof from.id !== 'number' ||
+        !Number.isSafeInteger(from.id) ||
+        from.id <= 0 ||
+        chat?.type !== 'private' ||
+        chat.id !== from.id ||
+        author?.is_bot !== true ||
+        typeof author.id !== 'number' ||
+        !Number.isSafeInteger(author.id) ||
+        String(author.id) !== botId ||
+        !message ||
+        typeof message.date !== 'number' ||
+        !Number.isSafeInteger(message.date) ||
+        message.date <= 0 ||
+        typeof callback.id !== 'string' ||
+        !/^[A-Za-z\d_-]{1,128}$/.test(callback.id) ||
+        typeof callback.data !== 'string' ||
+        !/^shore-confirm:[A-Za-z\d_-]{43}$/.test(callback.data) ||
+        Object.hasOwn(callback, 'inline_message_id')
+    )
+        return null;
+    const encoded = callback.data.slice('shore-confirm:'.length);
+    const nonce = [...atob(encoded.replace(/-/g, '+').replace(/_/g, '/') + '=')]
+        .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join('');
+    if (!shoreNonce(nonce) || shoreConfirmationData(nonce) !== callback.data) return null;
+    return {
+        chatId: String(chat.id),
+        userId: String(from.id),
+        updateId: value.update_id,
+        nonce,
+        at: message.date * 1000,
+        callbackId: callback.id,
+    };
+}
+export type ShoreBotCommand = { kind: 'preview'; nonce: string } | { kind: 'where' } | { kind: 'stop' };
 export function shoreBotCommand(text: string): ShoreBotCommand | null {
     if (text === '/where') return { kind: 'where' };
     if (text === '/stop') return { kind: 'stop' };
     const match = /^\/start ([a-f\d]{64})$/.exec(text);
-    return match ? { kind: 'confirm', nonce: match[1] } : null;
+    return match ? { kind: 'preview', nonce: match[1] } : null;
 }
