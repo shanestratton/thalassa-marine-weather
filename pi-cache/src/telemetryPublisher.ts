@@ -37,6 +37,7 @@ type FetchLike = BroadcastDeps['fetchImpl'];
 export interface TelemetryPublisherDeps {
     fetchImpl: FetchLike;
     signalkOrigin: string;
+    selfDocument?: BroadcastDeps['selfDocument'];
     /** Full URL of the telemetry-relay function, built from the trusted Supabase origin. */
     endpoint: string;
     /** The public anon key the gateway checks; read live because /api/configure can change it. */
@@ -220,7 +221,11 @@ export class TelemetryPublisher {
         if (!anonKey) return 'no-anon-key';
 
         const now = this.deps.now ?? Date.now;
-        const doc = await fetchSelfDocument({ fetchImpl: this.deps.fetchImpl, signalkOrigin: this.deps.signalkOrigin });
+        const doc = await fetchSelfDocument({
+            fetchImpl: this.deps.fetchImpl,
+            signalkOrigin: this.deps.signalkOrigin,
+            selfDocument: this.deps.selfDocument,
+        });
         const read = doc === null ? null : readTelemetrySnapshot(doc, now);
         if (read) this.lastBus = read;
         // Signal K not answering, or restarted with nothing: the bus as last

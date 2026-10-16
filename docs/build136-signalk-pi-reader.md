@@ -7,7 +7,9 @@ receives allowlisted WebSocket deltas with their original source clocks. The ful
 readers; validated delta leaves overlay it only when at least as new. A newer
 source-dated null survives a delayed REST refresh. Self refresh is every 30 seconds;
 the separate existing AIS vessels collection is refreshed every five seconds,
-bounded to 4 MiB. Reads by phones, track recorder and watches are cache-only.
+bounded to 4 MiB. Shared-reader calls by phones and the AIS watch are cache-only.
+The additive `BroadcastDeps.selfDocument` callback supplies that same authenticated
+cache to the track recorder, anchor readers, wind history and telemetry publisher.
 
 The self subscription also carries magnetic COG, GNSS time/quality/satellites/HDOP
 and up to eight battery voltage instances. These retain original envelopes and SI
@@ -25,7 +27,8 @@ their previous REST behavior.
 
 Required source files for the stage-six updater: `signalKClient.ts`,
 `signalkProtocol.ts`, `signalKReadStream.ts`, `signalKReadSession.ts`,
-`lanTelemetry.ts`, and `routes/signalKRead.ts`. Keep the existing pinned `undici`
+`lanTelemetry.ts`, `anchorBroadcaster.ts`, `telemetryPublisher.ts`, and
+`routes/signalKRead.ts`. Keep the existing pinned `undici`
 dependency and lockfile. No native version or live installation is included.
 
 ```ts
@@ -42,6 +45,9 @@ void signalkRead.start();
 const signalkDocuments = new SharedSignalkReader({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN }, 1500, () =>
     signalkRead.readDocuments(),
 );
+const selfDocument = async () => (await signalkRead.readDocuments()).selfDoc;
+// Include selfDocument in EVERY server-created BroadcastDeps literal, and in
+// WindHistory, TrackRecorderRunner, AnchorWatchRunner and TelemetryPublisher deps.
 app.use('/api/signalk', requireAppApi, createSignalKReadRoutes(signalkRead, chartDevices));
 // Add signalkRead.stop() to the existing shutdown path.
 ```
@@ -52,6 +58,15 @@ including in observe mode. It accepts no query parameters, writes or configurati
 It is `no-store`, has schema 1, a random session ID, source/receipt clocks and a
 16 KiB UTF-8 response ceiling with explicit `truncated`. It exposes neither the
 server token/origin nor vessel UUID. Route reads trigger no upstream operation.
+
+The cache callback returns null during bootstrap or retirement. `fetchSelfDocument`
+does not downgrade to discovery/REST when the callback returns null or throws, and
+checks cancellation/current-source fences before and after it. WindHistory already
+preserves this optional dependency through its existing spread; TelemetryPublisher
+now forwards it explicitly. Legacy callers without the callback retain their prior
+REST behavior. The publisher also retains its prior last-bus behavior, preserving
+that earlier bus's original clocks rather than dating stale values as fresh. Its
+existing cloud internet/pairing policy is unchanged.
 
 `SIGNALK_ORIGIN` and `SIGNALK_ACCESS_TOKEN` are shared operator-owned settings;
 absence of a token permits only whatever anonymous reads that server supports.
@@ -78,6 +93,15 @@ actual WebSocket payload/redirect tests remain required.
 Checkpoint checks: 54 Node tests (session/router/client/stream and existing
 AIS/track readers), eight portable protocol tests, Pi TypeScript and scoped ESLint
 passed. The final combined app/native checks remain with release integration.
+
+The follow-up shared-self-source seam adds five passing regressions for anchor,
+publisher, track and wind consumers, including no REST downgrade, original clocks,
+cancellation/source retirement and repeated-reading deduplication. The 99-case
+combined local run passed 97; its unchanged POSIX file-mode assertion and symlink
+creation test cannot pass on this Windows filesystem. Pi TypeScript and scoped
+lint pass; Linux keeps both security assertions. Initialize the read session
+before starting any reader whose callback closes over it, and wire every server
+dependency literal, not only the named constructors.
 
 The installation, approved Signal K token, physical Pi and phone LAN transport
 still require release/device validation. Tests use loopback fictional fixtures.
