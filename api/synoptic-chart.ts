@@ -2,14 +2,15 @@
  * credentials, redirects, PDF/SVG, or access to the private release proxy. */
 import { synopticChart } from '../services/weather/synopticCharts';
 import { readChartBytes } from '../services/weather/synopticChartBytes';
-export const config = { runtime: 'edge' };
+// Vercel's documented Web fetch entry point uses the default Node.js runtime.
+// Keep the fixed-source request/byte limits independent of Edge fetch quirks.
 const headers = {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, OPTIONS',
     'x-content-type-options': 'nosniff',
     'cross-origin-resource-policy': 'cross-origin',
 };
-export default async function handler(request: Request): Promise<Response> {
+export async function handler(request: Request): Promise<Response> {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const ids = url.searchParams.getAll('id');
@@ -58,3 +59,5 @@ export default async function handler(request: Request): Promise<Response> {
         clearTimeout(timer);
     }
 }
+
+export default { fetch: handler };

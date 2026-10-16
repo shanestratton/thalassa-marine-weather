@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chartsForPoint, jmaChartUrl, synopticChart, chartCredit } from '../services/weather/synopticCharts';
 import { readChartBytes, SYNOPTIC_MAX_ASSET_BYTES } from '../services/weather/synopticChartBytes';
-import handler from '../api/synoptic-chart';
+import endpoint, { handler } from '../api/synoptic-chart';
 const state = vi.hoisted(() => ({ disk: null as unknown, satellite: false, pi: null as unknown }));
 vi.mock('../services/PiOfflineWeatherService', () => ({ readPiAnalysis: vi.fn(async () => state.pi) }));
 vi.mock('../services/nativeStorage', () => ({
@@ -68,6 +68,9 @@ describe('reviewed official chart registry', () => {
 });
 
 describe('bounded official chart bytes and proxy', () => {
+    it('exposes the documented Node Web fetch entry point', () => {
+        expect(endpoint.fetch).toBe(handler);
+    });
     it('checks MIME and magic bytes, rejects HTML/SVG and enforces the streamed byte cap', async () => {
         expect(Array.from(await readChartBytes(response(), 'image/gif'))).toEqual(Array.from(gif));
         await expect(readChartBytes(response(gif, 'text/html'), 'image/gif')).rejects.toThrow();
