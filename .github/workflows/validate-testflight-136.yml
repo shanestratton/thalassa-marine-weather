@@ -18,7 +18,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    CANDIDATE_SHA: '25d7ec215acbe48e97560dd0b5e44a5c894e576b'
+    CANDIDATE_SHA: 'b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c'
     PREVIOUS135_SHA: '08ede95ed8399e476ed1e7285ebe1f3e8775e0c5'
     CI: 'true'
     HUSKY: '0'
@@ -46,7 +46,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '25d7ec215acbe48e97560dd0b5e44a5c894e576b'
+                  ref: 'b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -163,7 +163,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '25d7ec215acbe48e97560dd0b5e44a5c894e576b'
+                  ref: 'b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -238,7 +238,7 @@ jobs:
                   set -euo pipefail
                   mkdir -p "$RUNNER_TEMP/engine-sql-replay"
                   git rev-parse HEAD > "$RUNNER_TEMP/engine-sql-replay/SOURCE_SHA.txt"
-                  sha256sum tests/sql/engine-hours-confirmation.sql tests/sql/engine-hours-race.py supabase/migrations/20261016102500_confirmed_voyage_engine_hours.sql > "$RUNNER_TEMP/engine-sql-replay/SHA256SUMS"
+                  sha256sum tests/sql/engine-hours-confirmation.sql tests/sql/engine-hours-race.py supabase/migrations/20261016175740_confirmed_voyage_engine_hours.sql > "$RUNNER_TEMP/engine-sql-replay/SHA256SUMS"
                   psql -X -v ON_ERROR_STOP=1 -f tests/sql/engine-hours-confirmation.sql 2>&1 | tee "$RUNNER_TEMP/engine-sql-replay/REPLAY.txt"
                   python3 tests/sql/engine-hours-race.py 2>&1 | tee "$RUNNER_TEMP/engine-sql-replay/CONCURRENCY.txt"
             - name: Preserve ephemeral engine-hour replay evidence
@@ -352,7 +352,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '25d7ec215acbe48e97560dd0b5e44a5c894e576b'
+                  ref: 'b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
