@@ -688,6 +688,65 @@ const inflightFrames = new Map<string, InflightFrameEntry>();
 const releaseEpochs = new Map<CmemsDatasetKey, number>();
 const activeAssetControllers = new Map<CmemsDatasetKey, Set<AbortController>>();
 let loadQueue: Promise<void> = Promise.resolve();
+let readEpoch = 0;
+const readListeners = new Set<() => void>();
+const changedReadOwnership = () => {
+    ++readEpoch;
+    for (const fn of readListeners) {
+        try {
+            fn();
+        } catch {
+            /* A viewer cannot break map ownership. */
+        }
+    }
+};
+export const getCmemsReadEpoch = () => readEpoch;
+/** Earliest end of currently usable holding products; stale/unretained
+ * products already contribute only unknown facts, not a renewed deadline. */
+export function getCmemsHoldingReadDeadline(nowMs = Date.now()): number {
+    let end = Infinity;
+    for (const dataset of ['waves', 'currents'] as const) {
+        const entry = manifestCache.get(dataset);
+        if (
+            entry &&
+            nowMs >= entry.checkedAt &&
+            nowMs < entry.checkedAt + CMEMS_CACHE_TTL_MS &&
+            nowMs <= entry.dataEnd &&
+            [...frameCache.values()].some((f) => f.dataset === dataset && f.generation === entry.generation)
+        )
+            end = Math.min(end, entry.checkedAt + CMEMS_CACHE_TTL_MS, entry.dataEnd);
+    }
+    return end;
+}
+export function subscribeCmemsReadEpoch(fn: () => void): () => void {
+    readListeners.add(fn);
+    return () => readListeners.delete(fn);
+}
+/** Synchronous borrowed view of ALREADY retained frames. No fetch, LRU touch,
+ * verification renewal, extra cache or long-lived array ownership. The trusted
+ * reader must return primitive summaries and finish before this call returns. */
+export function readCachedCmemsFrames<T>(
+    dataset: CmemsDatasetKey,
+    nowMs: number,
+    read: (
+        manifest: Readonly<CmemsManifest>,
+        frames: readonly Readonly<{ step: number; grid: WindGrid }>[],
+        checkedAtMs: number,
+    ) => T,
+): T | null {
+    const entry = manifestCache.get(dataset);
+    if (
+        !entry ||
+        !Number.isFinite(nowMs) ||
+        nowMs < entry.checkedAt ||
+        nowMs - entry.checkedAt >= CMEMS_CACHE_TTL_MS ||
+        nowMs > entry.dataEnd
+    )
+        return null;
+    const frames = [...frameCache.values()].filter((f) => f.dataset === dataset && f.generation === entry.generation);
+    if (!frames.length) return null;
+    return read(entry.manifest, frames, entry.checkedAt);
+}
 
 function frameCacheKey(dataset: CmemsDatasetKey, generation: string, step: number): string {
     return `${dataset}:${generation}:${step}`;
@@ -708,6 +767,7 @@ function evictDecodedFrames(dataset: CmemsDatasetKey, bumpEpoch: boolean): void 
         for (const controller of controllers) controller.abort(new Error(`${dataset} frame was released`));
         activeAssetControllers.delete(dataset);
     }
+    changedReadOwnership();
 }
 
 /** Release all decoded map-frame ownership for one product. Safe to call repeatedly. */
@@ -756,6 +816,7 @@ async function verifiedManifest(dataset: CmemsDatasetKey, nowMs: number): Promis
             checkedAt: nowMs,
             dataEnd: Date.parse(manifest.data_end),
         });
+        changedReadOwnership();
         return manifest;
     })();
     manifestInflight.set(dataset, operation);
@@ -867,6 +928,7 @@ function deleteFrameAndOrphanMask(key: string): void {
     if (!datasetStillRetained && maskCache.get(entry.dataset)?.generation === entry.generation) {
         maskCache.delete(entry.dataset);
     }
+    changedReadOwnership();
 }
 
 function enforceFrameCacheBounds(): void {
@@ -978,6 +1040,7 @@ async function fetchAndValidateFrame(
             decodedBytes: decoded.u.byteLength + (decoded.v?.byteLength ?? 0),
         };
         frameCache.set(key, entry);
+        changedReadOwnership();
         enforceFrameCacheBounds();
         log.info(`Loaded verified ${dataset} generation ${manifest.generation} frame ${requestedStep}`);
         return grid;

@@ -56,6 +56,7 @@ vi.mock('../stores/WindStore', () => ({
 }));
 import { loadPassageTideReview } from '../services/routing/passageTideReview';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { releaseCmemsGrid } from '../services/weather/api/cmemsGridTrust';
 const input = () => ({
     points: [
         { lat: 0, lon: 0 },
@@ -122,6 +123,7 @@ describe('actual passage review lifetime coordinator', () => {
             maxWindKts: 15,
             maxGustKts: 20,
             maxWaveM: 1,
+            maxCurrentKts: 1,
         });
         expect(wait).toMatchObject({ kind: 'unavailable' });
         expect(wait.kind === 'unavailable' && wait.reason).toContain('station-to-cell datum/epoch tie');
@@ -142,7 +144,7 @@ describe('actual passage review lifetime coordinator', () => {
                 mocks.windListeners.size,
         ).toBe(0);
     });
-    it.each(['boat', 'chart', 'saved-source', 'weather', 'owner'] as const)(
+    it.each(['boat', 'chart', 'saved-source', 'weather', 'owner', 'marine'] as const)(
         'retires immediately on %s transition, including A/B/A',
         async (kind) => {
             const session = await loadPassageTideReview(input(), {
@@ -171,6 +173,7 @@ describe('actual passage review lifetime coordinator', () => {
                 setAuthIdentityScope('other');
                 setAuthIdentityScope('review-owner');
             }
+            if (kind === 'marine') releaseCmemsGrid('currents');
             expect(session.isCurrent()).toBe(false);
         },
     );

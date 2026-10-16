@@ -183,7 +183,7 @@ describe('independently reviewed sampled navigation authority', () => {
         reviews.ties = reviews.ties.map((r) => ({ ...r, use: 'holding' }));
         const options = { signal: new AbortController().signal, assertCurrent: () => {}, now: () => T };
         const water = await reviewWaterInterval([source()], c, options, reviews);
-        const limits = { draftM: 1, ukcM: 0.5, maxWindKts: 15, maxGustKts: 20, maxWaveM: 1 };
+        const limits = { draftM: 1, ukcM: 0.5, maxWindKts: 15, maxGustKts: 20, maxWaveM: 1, maxCurrentKts: 1 };
         const facts: CompleteHoldingFacts = {
             lifetimeKey: c.lifetimeKey,
             chartContentKey: c.chartContentKey,
@@ -210,6 +210,8 @@ describe('independently reviewed sampled navigation authority', () => {
                 maxWindKts: 5,
                 maxGustKts: 7,
                 maxWaveM: 0.2,
+                maxCurrentKts: 0.5,
+                includesTidalStreams: true,
             },
         };
         let reads = 0;
@@ -272,6 +274,9 @@ describe('independently reviewed sampled navigation authority', () => {
             { ...facts, permission: 'unknown' as const },
             { ...facts, bottom: 'unknown' as const },
             { ...facts, weather: null },
+            { ...facts, weather: { ...facts.weather!, includesTidalStreams: false } },
+            { ...facts, weather: { ...facts.weather!, maxCurrentKts: null } },
+            { ...facts, weather: { ...facts.weather!, maxCurrentKts: 2 } },
             { ...facts, minimumChartedDepthM: 1 },
         ]) {
             expect((await reviewTideWait(c, limits, water, options, async () => partial)).kind).toBe('unavailable');

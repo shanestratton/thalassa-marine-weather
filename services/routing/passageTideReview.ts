@@ -27,6 +27,8 @@ import {
 } from './tideWaitReview';
 import { preparePointOnlyWaitIntent, type PointOnlyWaitIntent } from './passageTideWaitAcceptance';
 import type { TraceRoutePoint } from './traceRoutePoint';
+import { readCompleteHoldingFacts } from './completeHoldingReader';
+import { getCmemsReadEpoch, subscribeCmemsReadEpoch, getCmemsHoldingReadDeadline } from '../weather/api/cmemsGridTrust';
 
 export interface PassageTideReviewInput {
     points: readonly { lat: number; lon: number }[];
@@ -81,6 +83,8 @@ export async function loadPassageTideReview(
     const scope = getAuthIdentityScope(),
         chartVersion = getVersion(),
         sourceEpoch = savedTideTablesEpoch(),
+        marineEpoch = getCmemsReadEpoch(),
+        marineDeadline = getCmemsHoldingReadDeadline(),
         settingsKey = policy(),
         wind = { ...WindStore.getState() },
         controller = new AbortController(),
@@ -105,9 +109,11 @@ export async function loadPassageTideReview(
         !options.signal.aborted &&
         Date.now() >= loadedAtMs &&
         Date.now() < expiresAtMs &&
+        Date.now() < marineDeadline &&
         isAuthIdentityScopeCurrent(scope) &&
         getVersion() === chartVersion &&
         savedTideTablesEpoch() === sourceEpoch &&
+        getCmemsReadEpoch() === marineEpoch &&
         policy() === settingsKey &&
         options.isCurrent() &&
         WindStore.getState().grid === wind.grid &&
@@ -139,6 +145,7 @@ export async function loadPassageTideReview(
         subscribeSavedTideTables(dispose),
         useSettingsStore.subscribe(changed),
         WindStore.subscribe(changed),
+        subscribeCmemsReadEpoch(changed),
     );
     options.signal.addEventListener('abort', dispose, { once: true });
     let stoppedListener: (() => void) | undefined;
@@ -174,6 +181,7 @@ export async function loadPassageTideReview(
         guard();
         expiresAtMs = Math.min(
             Date.now() + 300000,
+            marineDeadline,
             ...sources.stations.map((s) =>
                 s.kind === 'sampled-prediction' && s.receivedAtMs !== null ? s.receivedAtMs + 6 * 3600000 : Infinity,
             ),
@@ -194,17 +202,30 @@ export async function loadPassageTideReview(
         });
         const waits = new WeakMap<
             object,
-            { request: TideWaitRequest; limits: HoldingLimits; water: unknown; holdingIndex: number }
+            {
+                request: TideWaitRequest;
+                limits: HoldingLimits;
+                water: unknown;
+                holdingIndex: number;
+                reader: CompleteHoldingReader;
+            }
         >();
-        // Actual complete circle/approach and interval exposure evidence does
-        // not exist in the point reader. Never promote its advisory fields.
-        const holdingReader: CompleteHoldingReader = async () => null;
         return {
             report,
             isCurrent: current,
             dispose,
             reviewWait: async (holdingIndex, minutes, radiusM, limits) => {
                 guard();
+                const startedAt = Date.now(),
+                    stableLimits = { ...limits };
+                const waitGuard = () => {
+                    guard();
+                    if (Date.now() < startedAt || Date.now() - startedAt > 30000)
+                        throw new DOMException(
+                            'Holding review exceeded 30 seconds or its clock changed.',
+                            'AbortError',
+                        );
+                };
                 if (
                     !Number.isSafeInteger(holdingIndex) ||
                     holdingIndex < 0 ||
@@ -220,8 +241,7 @@ export async function loadPassageTideReview(
                         kind: 'unavailable',
                         reason: 'Choose an earlier route point, a 1–1440 minute wait and a 10–500 m holding radius.',
                     };
-                const holding = points[holdingIndex],
-                    holdingChart = await chartAt(holding, route);
+                const holding = points[holdingIndex];
                 guard();
                 let holdingAlongNm = 0;
                 for (let i = 1; i <= holdingIndex; i++)
@@ -234,21 +254,15 @@ export async function loadPassageTideReview(
                     fromMs,
                     untilMs: fromMs + minutes * 60000,
                     nowMs: Date.now(),
-                    chartContentKey: holdingChart.contentKey ?? '',
-                    targetDatumId: holdingChart.soundingDatum ?? '',
-                    targetDatumEpoch: holdingChart.soundingDatumEpoch ?? '',
+                    chartContentKey: '',
+                    targetDatumId: '',
+                    targetDatumEpoch: '',
                     use: 'holding' as const,
-                    protectedChart: holdingChart.aboardOnly,
+                    protectedChart: true,
                 };
-                // Existing official/saved inputs are events; WorldTides has no
-                // navigation permission. No current adapter supplies a bound
-                // reviewed original sample product or station-to-cell epoch tie.
-                const water = await reviewWaterInterval(sources.navigationSeries, context, {
-                    signal: controller.signal,
-                    assertCurrent: guard,
-                });
-                guard();
-                const request = {
+                const holdingReader: CompleteHoldingReader = (r, readOptions) =>
+                    readCompleteHoldingFacts(r, holdingIndex > 0 ? points[holdingIndex - 1] : null, readOptions);
+                let request: TideWaitRequest = {
                     ...context,
                     boatId: useSettingsStore.getState().activeVesselId ?? '',
                     routeIdentity: route.identity,
@@ -256,25 +270,52 @@ export async function loadPassageTideReview(
                     gateAlongNm: alongNm,
                     radiusM,
                 };
+                const facts = await readCompleteHoldingFacts(
+                    request,
+                    holdingIndex > 0 ? points[holdingIndex - 1] : null,
+                    { signal: controller.signal, assertCurrent: waitGuard },
+                );
+                guard();
+                request = {
+                    ...request,
+                    nowMs: Date.now(),
+                    chartContentKey: facts.chartContentKey,
+                    targetDatumId: facts.datumId,
+                    targetDatumEpoch: facts.datumEpoch,
+                    protectedChart: facts.aboardOnly,
+                };
+                // Existing official/saved inputs are events; WorldTides has no
+                // navigation permission. No current adapter supplies a bound
+                // reviewed original sample product or station-to-cell epoch tie.
+                const water = await reviewWaterInterval(sources.navigationSeries, request, {
+                    signal: controller.signal,
+                    assertCurrent: waitGuard,
+                });
+                guard();
                 const review = await reviewTideWait(
                     request,
-                    limits,
+                    stableLimits,
                     water,
-                    { signal: controller.signal, assertCurrent: guard },
-                    holdingReader,
+                    { signal: controller.signal, assertCurrent: waitGuard },
+                    async (_r, readOptions) => {
+                        readOptions.signal.throwIfAborted();
+                        readOptions.assertCurrent();
+                        return facts;
+                    },
                 );
                 guard();
                 if (review.kind === 'proposed-wait')
-                    waits.set(review, { request, limits: { ...limits }, water, holdingIndex });
+                    waits.set(review, { request, limits: stableLimits, water, holdingIndex, reader: holdingReader });
                 return review.kind === 'unavailable'
                     ? {
                           kind: 'unavailable',
                           reason: [
-                              'Checked wait unavailable: no navigation-qualified original tide interval and station-to-cell datum/epoch tie.',
-                              holdingChart.holdingText,
-                              'Complete circle/approach depth, anchoring permission and full-interval weather/exposure are not proved by these chart samples.',
-                              'The route and its existing checks have not changed.',
+                              water
+                                  ? `Checked wait unavailable: ${review.reason}`
+                                  : 'Checked wait unavailable: tide navigation rights, original interval and station-to-cell datum/epoch tie are unverified.',
+                              'Route unchanged.',
                           ].join(' '),
+                          evidence: facts.evidence,
                       }
                     : review;
             },
@@ -296,7 +337,7 @@ export async function loadPassageTideReview(
                     checked.limits,
                     checked.water,
                     { signal: controller.signal, assertCurrent: guard },
-                    holdingReader,
+                    checked.reader,
                     target,
                 );
             },

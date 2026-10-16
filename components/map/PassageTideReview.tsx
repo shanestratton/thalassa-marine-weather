@@ -39,7 +39,8 @@ export default function PassageTideReview({
     const [ukc, setUkc] = React.useState('0.5'),
         [wind, setWind] = React.useState('15'),
         [gust, setGust] = React.useState('20'),
-        [wave, setWave] = React.useState('1');
+        [wave, setWave] = React.useState('1'),
+        [currentLimit, setCurrentLimit] = React.useState('1');
     const [session, setSession] = React.useState<PassageTideReviewSession | null>(null),
         [busy, setBusy] = React.useState(false),
         [message, setMessage] = React.useState('');
@@ -48,7 +49,7 @@ export default function PassageTideReview({
         request = React.useRef<AbortController | null>(null),
         turn = React.useRef(0);
     const key = JSON.stringify([identity, pins, pointIndex, speed, departureAt, editEpoch]);
-    const waitKey = JSON.stringify([key, holdingIndex, minutes, radius, ukc, wind, gust, wave]);
+    const waitKey = JSON.stringify([key, holdingIndex, minutes, radius, ukc, wind, gust, wave, currentLimit]);
     const waitKeyRef = React.useRef(waitKey);
     waitKeyRef.current = waitKey;
     const keyRef = React.useRef(key);
@@ -128,6 +129,7 @@ export default function PassageTideReview({
                 maxWindKts: Number(wind),
                 maxGustKts: Number(gust),
                 maxWaveM: Number(wave),
+                maxCurrentKts: Number(currentLimit),
             });
             if (session.isCurrent() && waitKeyRef.current === mineWait) setWait(result);
         } catch (error) {
@@ -386,6 +388,7 @@ export default function PassageTideReview({
                                 ['Wind limit (kt)', wind, setWind],
                                 ['Gust limit (kt)', gust, setGust],
                                 ['Wave limit (m)', wave, setWave],
+                                ['Current limit (kt)', currentLimit, setCurrentLimit],
                             ].map(([label, value, setter]) => (
                                 <label key={String(label)} className="min-w-0">
                                     {String(label)}
@@ -422,6 +425,48 @@ export default function PassageTideReview({
                             <p role="status" className="break-words text-amber-200">
                                 {wait.reason}
                             </p>
+                        )}
+                        {wait?.kind === 'unavailable' && wait.evidence && (
+                            <details data-testid="holding-evidence" className="min-w-0 break-words">
+                                <summary className="min-h-11 cursor-pointer py-2 text-sky-200">
+                                    Aboard holding evidence and missing coverage
+                                </summary>
+                                <p>
+                                    Whole circle / incoming approach:{' '}
+                                    {wait.evidence.chart.completeCircleAndApproach
+                                        ? 'charted coverage read'
+                                        : 'incomplete'}
+                                    . Minimum charted depth {metres(wait.evidence.chart.minimumChartedDepthM)}. Bottom{' '}
+                                    {wait.evidence.chart.bottom}; hazards {wait.evidence.chart.hazards}; current
+                                    anchoring permission {wait.evidence.chart.permission}. Sounding datum{' '}
+                                    {wait.evidence.chart.datumId || 'unknown'}; epoch{' '}
+                                    {wait.evidence.chart.datumEpoch || 'unknown'}.
+                                </p>
+                                {wait.evidence.chart.notes.map((n) => (
+                                    <p key={n}>{n}</p>
+                                ))}
+                                {(['wind', 'gust', 'waves', 'currents'] as const).map((label) => {
+                                    const f = wait.evidence!.environment[label];
+                                    return (
+                                        <div key={label} className="my-2 rounded-lg border border-white/10 p-2">
+                                            <p>
+                                                {label}:{' '}
+                                                {f.maximum === null ? 'unknown' : `${f.maximum.toFixed(2)} ${f.unit}`}.
+                                                Whole area / interval{' '}
+                                                {f.completeAreaAndInterval ? 'bounded in this grid' : 'unproved'}.
+                                            </p>
+                                            <p>
+                                                {f.source}. Original issue {utc(f.originalIssueMs)}; verified{' '}
+                                                {utc(f.verifiedAtMs)}. Valid {utc(f.validFromMs)} to{' '}
+                                                {utc(f.validUntilMs)}.
+                                            </p>
+                                        </div>
+                                    );
+                                })}
+                                {wait.evidence.environment.notes.map((n) => (
+                                    <p key={n}>{n}</p>
+                                ))}
+                            </details>
                         )}
                         {wait?.kind === 'proposed-wait' && (
                             <>
