@@ -12,6 +12,7 @@ import {
     assessCollision,
     collisionOpening,
     collisionSettled,
+    collisionOwnStill,
     ownMotionState,
     DEFAULT_COLLISION_PREFS,
     type CollisionAssessment,
@@ -21,6 +22,8 @@ import {
 } from '../collisionRule/collisionRule.js';
 export interface RadarCollisionCandidate {
     contactKey: string;
+    /** Earliest original dependency actually used by this CPA; never a poll/response timestamp. */
+    sourceAt: number | null;
     contact: RadarContact;
     assessment: CollisionAssessment;
     opening: boolean;
@@ -91,8 +94,16 @@ export function gradeRadarContact(
     };
     const assessment = assessCollision(ownship, target, prefs);
     if (!assessment) return null;
+    const clocks = [aged.at, aged.qualifiedAt, own!.position!.at];
+    if (ownship.sogKn !== null && own!.motion) {
+        clocks.push(own!.motion.sogAt);
+        // At anchor, swing at <=2kn is graded as zero ground velocity and requires no course.
+        if (ownship.sogKn > 0 && !(atAnchor && collisionOwnStill(ownship.sogKn, true))) clocks.push(own!.motion.cogAt);
+    }
+    const sourceAt = assessment.rangeOnly ? null : Math.min(...clocks.filter((at): at is number => at !== null));
     return {
         contactKey: aged.contactKey,
+        sourceAt,
         contact: aged,
         assessment,
         opening: collisionOpening(assessment, prefs),
