@@ -148,7 +148,7 @@ export const SightingsMap: React.FC<{
         const bounds = logMapBounds(coordinates);
         if (coordinates.length === 1) m.jumpTo({ center: coordinates[0], zoom: 11 });
         else if (bounds) m.fitBounds(bounds, { padding: 28, maxZoom: 12, animate: false, retainPadding: false });
-        else m.jumpTo(LOG_MAP_WORLD_VIEW);
+        else m.jumpTo({ center: LOG_MAP_WORLD_VIEW.center, zoom: LOG_MAP_WORLD_VIEW.zoom, retainPadding: false });
     }, [points, myUserId, onScreen, isOffline]);
 
     return (

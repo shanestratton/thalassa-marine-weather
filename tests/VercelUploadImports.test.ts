@@ -84,6 +84,8 @@ describe('the Vercel upload builds on its own', () => {
         expect(uploaded('supabase/functions/proxy-openmeteo/index.ts', rules)).toBe(false);
         expect(uploaded('components/map/MapHub.tsx', rules)).toBe(true);
         expect(uploaded('components/map/MapHub.test.tsx', rules)).toBe(false);
+        expect(uploaded('scripts/noaa-enc/convert-cli.ts', rules)).toBe(false);
+        expect(uploaded('scripts/noaa-enc/convert-package-cli.ts', rules)).toBe(false);
     });
 
     it('no uploaded file imports a path Vercel does not upload', () => {

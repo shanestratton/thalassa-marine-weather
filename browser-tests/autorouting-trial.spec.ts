@@ -1114,9 +1114,15 @@ for (const size of sizes)
                     page.evaluate(() => {
                         const map = (
                             window as unknown as {
-                                __trialFixture: { map: { getStyle: () => { layers: { id: string }[] } } };
+                                __trialFixture: {
+                                    map: {
+                                        isStyleLoaded(): boolean;
+                                        getStyle: () => { layers: { id: string }[] };
+                                    };
+                                };
                             }
                         ).__trialFixture.map;
+                        if (!map.isStyleLoaded()) return false;
                         const layers = map.getStyle().layers;
                         const enc = layers.findIndex((layer) => layer.id === 'enc-vec-depare-fill');
                         const route = layers.findIndex((layer) => layer.id === 'trial-route');

@@ -12,6 +12,7 @@
  * harness's mocks.
  */
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 
@@ -240,8 +241,45 @@ describe('lead-graph shadow wiring', { timeout: 120_000 }, () => {
         const router = readFileSync('services/InshoreRouter.ts', 'utf8');
         const jobAt = router.indexOf('const job: RouteJob = {');
         expect(jobAt).toBeGreaterThan(0);
-        const job = router.slice(jobAt, router.indexOf('stillWanted();', jobAt));
-        expect(job).toContain('leadGraph: peekLeadGraphForView(');
+        const ast = ts.createSourceFile('InshoreRouter.ts', router, ts.ScriptTarget.Latest, true);
+        const peeks: ts.VariableDeclaration[] = [];
+        const retained: ts.BinaryExpression[] = [];
+        const jobs: ts.VariableDeclaration[] = [];
+        const visit = (node: ts.Node): void => {
+            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+                if (
+                    node.name.text === 'leadGraph' &&
+                    node.initializer &&
+                    ts.isCallExpression(node.initializer) &&
+                    ts.isIdentifier(node.initializer.expression) &&
+                    node.initializer.expression.text === 'peekLeadGraphForView'
+                )
+                    peeks.push(node);
+                if (node.name.text === 'job' && node.initializer && ts.isObjectLiteralExpression(node.initializer))
+                    jobs.push(node);
+            }
+            if (
+                ts.isBinaryExpression(node) &&
+                node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+                node.left.getText(ast) === 'run.leadRelease' &&
+                ts.isCallExpression(node.right) &&
+                node.right.expression.getText(ast) === 'retainLeadGraph'
+            )
+                retained.push(node);
+            ts.forEachChild(node, visit);
+        };
+        visit(ast);
+        expect(peeks).toHaveLength(1);
+        expect(retained).toHaveLength(1);
+        expect(jobs).toHaveLength(1);
+        expect(retained[0].right.getText(ast)).toBe('retainLeadGraph(leadGraph)');
+        expect(peeks[0].getStart(ast)).toBeLessThan(retained[0].getStart(ast));
+        expect(retained[0].getStart(ast)).toBeLessThan(jobs[0].getStart(ast));
+        const fields = (jobs[0].initializer as ts.ObjectLiteralExpression).properties;
+        expect(fields.some((field) => ts.isShorthandPropertyAssignment(field) && field.name.text === 'leadGraph')).toBe(
+            true,
+        );
+        const job = router.slice(peeks[0].getStart(ast), router.indexOf('stillWanted();', jobAt));
         expect(job).not.toMatch(/(?<!peek)leadGraphForView\(/);
         expect(job.replace(/\/\/.*$/gm, '')).not.toMatch(/\bawait\b/);
     });
