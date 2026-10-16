@@ -1,12 +1,52 @@
-/** Disposable PGlite ACL/CAS/quota proof. No real AIS/provider/push connection.
- * Spatial adapter requires separate real PostGIS proof before activation. */
+/** Disposable ACL/CAS/quota proof. No real AIS/provider/push connection.
+ * Explicit localhost PostgreSQL mode also exercises PostGIS and real races. */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { evaluateBuddy, emptyBuddyState } from '../../utils/buddyWatch.ts';
-if (!process.env.PGLITE_MODULE_PATH) throw new Error('Outside-repository isolated PGlite required');
-const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href),
+const postgres = process.env.THALASSA_DISPOSABLE_BUDDY_TEST === '1';
+let pool, db;
+if (postgres) {
+    const url = new URL(process.env.BUDDY_TEST_DATABASE_URL ?? 'http://invalid');
+    if (
+        !['postgres:', 'postgresql:'].includes(url.protocol) ||
+        !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
+        url.pathname !== '/buddy137_test' ||
+        !process.env.PG_MODULE_PATH
+    ) {
+        throw new Error('Only an explicit empty localhost buddy137_test database is allowed');
+    }
+    const pg = await import(pathToFileURL(process.env.PG_MODULE_PATH).href);
+    const Pool = pg.Pool ?? pg.default.Pool;
+    pool = new Pool({ connectionString: url.href, max: 18, connectionTimeoutMillis: 5000, statement_timeout: 15000 });
+    const client = await pool.connect();
+    db = {
+        exec: (sql) => client.query(sql),
+        query: (sql, args) => client.query(sql, args),
+        close: async () => {
+            client.release();
+            await pool.end();
+        },
+    };
+    const existing = await client.query(
+        "SELECT count(*)::integer n FROM pg_tables WHERE schemaname !~ '^pg_' AND schemaname <> 'information_schema'",
+    );
+    if (existing.rows[0].n !== 0) {
+        await db.close();
+        throw new Error('Refusing a nonempty fixture database');
+    }
+    await db.exec(
+        'CREATE SCHEMA extensions;CREATE EXTENSION postgis WITH SCHEMA extensions;GRANT USAGE ON SCHEMA extensions TO PUBLIC',
+    );
+} else {
+    if (!process.env.PGLITE_MODULE_PATH) throw new Error('Outside-repository isolated PGlite required');
+    const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href);
     db = new PGlite();
+}
+const locationType = postgres ? 'extensions.geography(Point,4326)' : 'point';
+const origin = postgres
+    ? 'extensions.ST_SetSRID(extensions.ST_MakePoint(0,0),4326)::extensions.geography'
+    : 'point(0,0)';
 const owner = '10000000-0000-4000-8000-000000000001',
     other = '10000000-0000-4000-8000-000000000002',
     boat = '20000000-0000-4000-8000-000000000001',
@@ -47,7 +87,7 @@ async function enabled() {
 }
 async function assess(id, at, sog = 0, nav = 0) {
     await db.query(
-        "INSERT INTO public.vessels(mmsi,data_source,position_at,location,sog,nav_status) VALUES(234567890,'aishub',to_timestamp($1::double precision/1000),point(0,0),$2,$3) ON CONFLICT(mmsi) DO UPDATE SET position_at=excluded.position_at,sog=excluded.sog,nav_status=excluded.nav_status",
+        `INSERT INTO public.vessels(mmsi,data_source,position_at,location,sog,nav_status) VALUES(234567890,'aishub',to_timestamp($1::double precision/1000),${origin},$2,$3) ON CONFLICT(mmsi) DO UPDATE SET position_at=excluded.position_at,sog=excluded.sog,nav_status=excluded.nav_status`,
         [at, sog, nav],
     );
     const rows = await service('SELECT public.buddy_watch_work(NULL,32)'),
@@ -65,7 +105,7 @@ async function assess(id, at, sog = 0, nav = 0) {
 try {
     await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;CREATE SCHEMA auth;CREATE TABLE auth.users(id uuid PRIMARY KEY);CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated,service_role;
  CREATE TABLE public.boats(id uuid PRIMARY KEY,owner_id uuid REFERENCES auth.users,archived_at timestamptz);ALTER TABLE public.boats ENABLE ROW LEVEL SECURITY;GRANT SELECT ON public.boats TO authenticated;CREATE POLICY own_boat ON public.boats FOR SELECT TO authenticated USING(owner_id=auth.uid());
- CREATE TABLE public.vessels(mmsi bigint PRIMARY KEY,data_source text,position_at timestamptz,location point,sog double precision,nav_status integer);
+ CREATE TABLE public.vessels(mmsi bigint PRIMARY KEY,data_source text,position_at timestamptz,location ${locationType},sog double precision,nav_status integer);
  CREATE TABLE public.ais_fleet_control(singleton boolean PRIMARY KEY,enabled boolean,licence_reference text);INSERT INTO public.ais_fleet_control VALUES(true,false,NULL);
  CREATE TABLE public.push_device_tokens(user_id uuid);CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid,notification_type text,title text,body text,data jsonb,created_at timestamptz DEFAULT now());
  CREATE SCHEMA cron;CREATE TABLE cron.job(jobname text,schedule text,command text,active boolean);INSERT INTO cron.job VALUES('buddy-watch','*/5 * * * *','SELECT public.invoke_edge_function(''buddy-watch'', 25000)',true);
