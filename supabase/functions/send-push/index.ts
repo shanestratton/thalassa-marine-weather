@@ -50,6 +50,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createWakeDeliveryGuard, type WakeDeliveryDecision } from './wake-delivery.ts';
+import { createWeatherWatchDeliveryGuard } from './weather-watch-delivery.ts';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 import {
@@ -356,6 +357,31 @@ serve(async (req: Request) => {
                 });
             }
         }
+        const weatherGuard = notification_type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')
+            ? createWeatherWatchDeliveryGuard(id, data, async (queueId) => {
+                const result = await supabase.rpc('weather_watch_delivery_current', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            })
+            : undefined;
+        if (weatherGuard) {
+            const decision = await weatherGuard();
+            if (decision === 'unavailable') {
+                await releaseClaim('Weather watch delivery check unavailable');
+                return new Response(JSON.stringify({ error: 'Weather watch delivery check unavailable' }), {
+                    status: 503,
+                });
+            }
+            if (decision === 'retire') {
+                await supabase.from('push_notification_queue').update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'Weather watch no longer current',
+                }).eq('id', id);
+                return new Response(JSON.stringify({ sent: 0, message: 'Weather watch no longer current' }), {
+                    status: 200,
+                });
+            }
+        }
 
         // ── Look up device tokens for the recipient ──
         const { data: tokens, error } = await supabase
@@ -403,7 +429,7 @@ serve(async (req: Request) => {
             threadId: getThreadId(notification_type),
             collapseId: getCollapseId(notification_type, data || {}),
             badge: (badgeCount ?? 0) + 1,
-            ...(wakeGuard ? { beforeAttempt: wakeGuard } : {}),
+            ...(wakeGuard || weatherGuard ? { beforeAttempt: wakeGuard ?? weatherGuard } : {}),
         };
 
         // ── Send push to all registered devices ──

@@ -18,9 +18,10 @@ import { useUIStore } from '../stores/uiStore';
 import { queryModelSpread } from '../services/weather/ModelSpreadService';
 import { verdictAt, windAgreementByDay, type WindDayVerdict } from '../services/weather/dayAgreement';
 import { resolveTimeZone } from '../utils/timezone';
+import { gustSpread } from '../services/weather/gustSpread';
 
 /** A day's verdict, with every provider whose wind it compared (for the reader's credit). */
-export type WindVerdictAt = WindDayVerdict & { providers: string[] };
+export type WindVerdictAt = WindDayVerdict & { providers: string[]; gustRangeKts?: readonly [number, number] | null };
 
 /** One verdict list per spread answer, however many readers read it. */
 const verdictsBySpread = new WeakMap<object, WindVerdictAt[]>();
@@ -67,9 +68,17 @@ export function useWindAgreementAt(
                 let verdicts = atmos ? verdictsBySpread.get(atmos) : undefined;
                 if (atmos && !verdicts) {
                     const providers = atmos.models
-                        .filter((m) => m.values.wind_speed_10m.some((v) => v != null))
+                        .filter(
+                            (m) =>
+                                m.values.wind_speed_10m.some((v) => v != null) ||
+                                m.values.wind_gusts_10m.some((v) => v != null),
+                        )
                         .map((m) => m.provider);
-                    verdicts = windAgreementByDay(atmos, resolveTimeZone(lat, lon)).map((v) => ({ ...v, providers }));
+                    verdicts = windAgreementByDay(atmos, resolveTimeZone(lat, lon)).map((v) => ({
+                        ...v,
+                        providers,
+                        gustRangeKts: gustSpread(atmos, v.startMs, v.endMs),
+                    }));
                     verdictsBySpread.set(atmos, verdicts);
                 }
                 setAnswer({ key, verdict: verdicts ? (verdictAt(verdicts, ms) as WindVerdictAt | null) : null });

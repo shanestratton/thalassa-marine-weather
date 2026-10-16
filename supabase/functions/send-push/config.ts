@@ -48,6 +48,7 @@
  * 16-hex key the watchdog derives from the owner) in a thread of their own.
  */
 
+import { parseWeatherWatchNotice } from '../../../utils/weatherWatch.ts';
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
 export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
 export const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
@@ -137,6 +138,10 @@ const officialExpiry = (data: Record<string, unknown> | undefined): number =>
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
+    if (type === 'weather_alert' && Object.hasOwn(data, 'weather_watch')) {
+        const notice = parseWeatherWatchNotice(data, Date.now());
+        return notice ? `wx-${notice.feature}-${notice.boatId}` : null;
+    }
     // Collapse repeated BOLO alerts for the same vessel
     if (type === 'bolo_alert' && data?.mmsi) return `bolo-${data.mmsi}`;
     // Collapse geofence alerts for the same vessel
@@ -187,6 +192,10 @@ export function getApnsExpiration(
     data?: Record<string, unknown>,
 ): string {
     const nowSeconds = Math.floor(nowMs / 1000);
+    if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
+        const notice = parseWeatherWatchNotice(data, nowMs);
+        return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
+    }
     if (type === 'wake_alarm') return '0'; // Never store a stale instrument alarm at APNs.
     // An official warning is news until it expires (129-06).
     if (type === 'official_warning') {
@@ -225,6 +234,9 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')) {
+        return !parseWeatherWatchNotice(data, nowMs);
+    }
     if (type === 'wake_alarm') {
         const age = data?.kind === 'wake-pressure' ? 120_000 : data?.kind === 'wake-battery' ? 180_000 : 13_000;
         if (

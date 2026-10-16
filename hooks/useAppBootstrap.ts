@@ -22,6 +22,7 @@ import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
 import { sightingsOutboxFlagged } from '../services/sightings/outboxFlag';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { pinOfficialPush } from '../services/officialPushPin';
+import { pinWeatherBriefing } from '../services/briefing/briefingPin';
 import type { PushTapNotice } from '../services/PushNotificationService';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -638,7 +639,7 @@ export function useAppBootstrap() {
                     setPage('chat');
                     break;
                 case 'weather_alert':
-                    setPage('dashboard');
+                    setPage(pinWeatherBriefing(data, actionScope) ? 'briefing' : 'dashboard');
                     break;
                 case 'anchor_alarm':
                     // 'compass' = the anchor-watch page — the surface with the

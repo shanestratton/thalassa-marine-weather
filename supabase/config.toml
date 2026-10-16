@@ -299,3 +299,12 @@ verify_jwt = false
 # SHA256 verifier before any privileged database access. No service-role key
 # leaves the Edge runtime; a Supabase user JWT is not this producer's identity.
 verify_jwt = false
+
+# Held137 weather cron sources retain the gateway JWT check AND an exact
+# service-role POST check. No caller can request a coordinate/provider URL.
+[functions.morning-briefing]
+verify_jwt = true
+[functions.nowcast-watch]
+verify_jwt = true
+[functions.convective-watch]
+verify_jwt = true

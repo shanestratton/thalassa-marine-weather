@@ -1,0 +1,65 @@
+/** Disposable PGlite syntax/ACL/behavior proof. No product DB or notifications.
+ * PGLITE_MODULE_PATH=<outside-repo>/.../dist/index.js node supabase/tests/weather-watch-db.mjs
+ * Transaction races require the separate real PostgreSQL proof before activation. */
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+process.on('uncaughtException', error=>{console.error(JSON.stringify({error:error.message,code:error.code,position:error.position}));process.exit(1);});
+if(!process.env.PGLITE_MODULE_PATH)throw new Error('Isolated PGlite module required');
+const {PGlite}=await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href),db=new PGlite();
+const owner='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002',boat='20000000-0000-4000-8000-000000000001';
+let checks=0;
+const eq=(a,b,message)=>{assert.deepEqual(a,b,message);checks++;};
+const scalar=async(sql,args=[])=>Object.values((await db.query(sql,args)).rows[0]??{})[0];
+const as=async(role,who,sql,args=[])=>{
+    await db.exec(`RESET ROLE; SELECT set_config('request.jwt.claim.sub','${who??''}',false),set_config('request.jwt.claim.role','${role}',false);SET ROLE ${role};`);
+    try{return await scalar(sql,args);}finally{await db.exec('RESET ROLE');}
+};
+await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;CREATE SCHEMA auth;
+CREATE TABLE auth.users(id uuid PRIMARY KEY);CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+GRANT USAGE ON SCHEMA auth TO authenticated,service_role;GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated,service_role;
+CREATE TABLE public.boats(id uuid PRIMARY KEY,owner_id uuid REFERENCES auth.users(id),archived_at timestamptz);
+ALTER TABLE public.boats ENABLE ROW LEVEL SECURITY;CREATE POLICY own ON public.boats FOR SELECT TO authenticated USING(owner_id=auth.uid());GRANT SELECT ON public.boats TO authenticated;
+CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid,notification_type text,title text,body text,data jsonb);
+CREATE SCHEMA cron;CREATE TABLE cron.job(jobid bigint PRIMARY KEY,jobname text,active boolean,schedule text,command text);CREATE TABLE cron.job_run_details(jobid bigint,status text,end_time timestamptz);
+INSERT INTO auth.users VALUES('${owner}'),('${other}');INSERT INTO public.boats VALUES('${boat}','${owner}',null);
+`);
+const migration=await readFile(new URL('../held-migrations/20261016152301_weather_watch_optins.sql',import.meta.url),'utf8');
+await db.exec(migration);await db.exec(migration);
+const now=Date.now(),p={morning:true,rain:true,storm:true,gust:true,hour:new Date(now).getUTCHours(),zone:'UTC',gustKts:25,samples:[{key:'boat:here',kind:'boat',label:'Fictional boat',lat:0,lon:0,sourceAt:now,expiresAt:now+900000}]};
+const save=(who,revision,prefs=p)=>as('authenticated',who,'SELECT public.configure_weather_watch($1,$2,$3::jsonb)',[boat,revision,JSON.stringify(prefs)]);
+const reject=async(action,code)=>{await assert.rejects(action,e=>e.code===code);checks++;};
+await reject(()=>save(other,null),'42501');
+await reject(()=>as('anon',null,'SELECT public.configure_weather_watch($1,NULL,$2::jsonb)',[boat,JSON.stringify(p)]),'42501');
+await reject(()=>save(owner,null,{...p,rawSignalK:{path:'bad'}}),'22023');
+await reject(()=>save(owner,null,{...p,samples:[...p.samples,...p.samples]}),'22023');
+await reject(()=>save(owner,null,{...p,gustKts:''}),'22023');
+const first=await save(owner,null);eq(first.preferences,p,'owned explicit registration');
+await reject(()=>save(owner,null),'40001');
+eq(await as('authenticated',other,'SELECT count(*)::integer FROM public.weather_watch_profiles'),0,'cross-account RLS');
+eq(await as('authenticated',other,'SELECT public.weather_watch_status($1)',[boat]),null,'cross-account status');
+await reject(()=>as('authenticated',owner,"UPDATE public.weather_watch_profiles SET owner_id=$1 WHERE boat_id=$2 RETURNING true",[other,boat]),'42501');
+const initial=await as('authenticated',owner,'SELECT public.weather_watch_status($1)',[boat]);
+eq(initial.capabilities.rain,{functionVersion:0,deliveryVersion:0,scheduled:false,entitlementUntil:null,succeededAt:null},'SQL presence is not capability');
+eq(await as('service_role',null,"SELECT public.weather_watch_work('rain',NULL,16)"),[],'no entitlement no provider work');
+await db.exec("INSERT INTO cron.job VALUES(1,'morning-briefing',true,'*/15 * * * *',format('SELECT public.invoke_edge_function(%L, 55000)','morning-briefing')),(2,'nowcast-watch',true,'*/5 * * * *',format('SELECT public.invoke_edge_function(%L, 55000)','nowcast-watch')),(3,'convective-watch',true,'*/30 * * * *',format('SELECT public.invoke_edge_function(%L, 55000)','convective-watch'));INSERT INTO cron.job_run_details SELECT jobid,'succeeded',now() FROM cron.job;UPDATE private.weather_watch_health SET function_version=1,delivery_version=1,entitlement_until=now()+interval '1 day',succeeded_at=now();");
+await db.exec("UPDATE cron.job SET command='SELECT 1' WHERE jobname='nowcast-watch'");
+eq((await as('authenticated',owner,'SELECT public.weather_watch_status($1)',[boat])).capabilities.rain.scheduled,false,'unrelated cron command is not readiness');
+await db.exec("UPDATE cron.job SET command=format('SELECT public.invoke_edge_function(%L, 55000)','nowcast-watch') WHERE jobname='nowcast-watch'");
+eq((await as('service_role',null,"SELECT public.weather_watch_work('rain',NULL,16)")).length,1,'entitled work scoped');
+const claim=(feature,event=feature==='morning'?new Date(now).toISOString().slice(0,10):feature,rev=first.revision)=>as('service_role',null,'SELECT public.weather_watch_claim($1,$2,$3,$4,$5,$6,$7,$8,$9)',[boat,rev,feature,'boat:here',event,new Date(now).toISOString(),new Date(now+600000).toISOString(),'Forecast','Fictional test']);
+eq(await claim('rain'),true,'one atomic queue insert');eq(await claim('rain'),false,'dedupe');eq(await claim('rain','other'),false,'independent rain interval quota');
+eq(await claim('storm'),true,'storm quota independent');eq(await claim('gust'),true,'gust quota independent');eq(await claim('morning'),true,'morning quota independent');
+const queue=await scalar("SELECT queue_id FROM private.weather_watch_deliveries WHERE feature='rain'");
+eq(await as('service_role',null,'SELECT public.weather_watch_delivery_current($1)',[queue]),true,'delivery currently authorized');
+const second=await save(owner,first.revision,{...p,rain:false});
+eq(await as('service_role',null,'SELECT public.weather_watch_delivery_current($1)',[queue]),false,'opt-out/revision retires queued delivery');
+eq(await claim('rain','late-old',first.revision),false,'old run cannot commit');
+await reject(()=>as('authenticated',owner,"SELECT public.weather_watch_tick('rain',true)"),'42501');
+await reject(()=>as('authenticated',owner,'SELECT public.weather_watch_delivery_current($1)',[queue]),'42501');
+await db.exec(`UPDATE public.boats SET owner_id='${other}' WHERE id='${boat}'`);
+eq(await as('service_role',null,"SELECT public.weather_watch_work('storm',NULL,16)"),[],'owner transfer stops work');
+eq(await claim('storm','transferred',second.revision),false,'owner transfer stops old commits');
+eq(await as('authenticated',owner,'SELECT public.weather_watch_status($1)',[boat]),null,'former owner loses status');
+console.log(JSON.stringify({checks,isolated:true,concurrency:false,productWrites:0,notifications:0}));
+await db.close();

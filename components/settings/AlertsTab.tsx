@@ -42,6 +42,7 @@ import {
     celsiusToFahrenheit,
     fahrenheitToCelsius,
 } from '../../utils/units';
+const WeatherWatchSection = React.lazy(() => import('./WeatherWatchSection'));
 
 type ThresholdKey = Exclude<keyof NotificationPreferences, 'precipitation'>;
 
@@ -799,6 +800,9 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                 positioned={hasSavedPosition(settings)}
                 onChange={(on) => onSave({ cycloneWarnings: on })}
             />
+            <React.Suspense fallback={null}>
+                <WeatherWatchSection />
+            </React.Suspense>
         </div>
     );
 };
