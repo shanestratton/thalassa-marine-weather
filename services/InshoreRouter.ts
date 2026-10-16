@@ -45,6 +45,7 @@ import { readS57 } from './enc/types';
 import { hasCellGeoJSON, loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { collectTrackRoutingPriors, trackPriorContextKey } from './routing/trackRoutingPriors';
+import { auditFinishedRouteExclusions } from './engine/exclusionField';
 import type { SurveyUncheckedCell, TideCeiling } from './engine/types';
 import { tideCeilingLookup } from './engine/tideCeiling';
 import { pinTailTideWindows, routeAreaTideCeilings } from './routing/tideCeilings';
@@ -893,6 +894,8 @@ async function tryInshoreRouteInner(
     // we now do it on the device since iPhone CPU outpaces a Pi 5 several-
     // fold and the cell GeoJSON is already cached in the local Filesystem.
     const merged: InshoreLayers = {
+        RESARE: { type: 'FeatureCollection', features: [] },
+        TSEZNE: { type: 'FeatureCollection', features: [] },
         LNDARE: { type: 'FeatureCollection', features: [] },
         DEPARE: { type: 'FeatureCollection', features: [] },
         OBSTRN: { type: 'FeatureCollection', features: [] },
@@ -928,6 +931,7 @@ async function tryInshoreRouteInner(
     // crosses, not every cell merged for its window (fix-up, 2026-09-30;
     // the route job reads it).
     const structuresUnknownBbox = new Map<string, [number, number, number, number]>();
+    const exclusionsUnknownBboxes: [number, number, number, number][] = [];
     // Chart bridges, overhead cables and overhead pipes (Part B): each one this
     // vessel's mast cannot clear — too low, no charted clearance, or no air
     // draft set — becomes a low-clearance bar below (overheadClearance.ts).
@@ -1078,6 +1082,14 @@ async function tryInshoreRouteInner(
         if (seaare?.features && Array.isArray(seaare.features)) {
             (merged.SEAARE!.features as unknown[]).push(...seaare.features);
         }
+        let areasExtracted = true;
+        for (const name of ['RESARE', 'TSEZNE'] as const) {
+            const original = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[name];
+            if (original?.type === 'FeatureCollection' && Array.isArray(original.features))
+                merged[name]!.features.push(...original.features);
+            else areasExtracted = false;
+        }
+        if (!areasExtracted) exclusionsUnknownBboxes.push([...cell.bbox]);
         cellsUsed.push(cell.id);
     }
     if (cellsUsed.length === 0) {
@@ -2010,6 +2022,7 @@ async function tryInshoreRouteInner(
         cellsUsed,
         structuresUnknownCells,
         structuresUnknownBboxes: [...structuresUnknownBbox],
+        exclusionsUnknownBboxes,
         regionalPairs: regionalPairsForShadow,
         leadGraph,
         tideCeilings,
@@ -2031,6 +2044,10 @@ async function tryInshoreRouteInner(
         where: hosted.where,
     });
     const res = hosted.output.result;
+    if (res && 'polyline' in res) {
+        const failure = auditFinishedRouteExclusions(merged, res.polyline, stillWanted);
+        if (failure) return { ...failure, cellsUsed };
+    }
     // A pin's dry tail with when the boat floats over it (125-05b), from the
     // tide curves this thread loaded.
     return res && 'polyline' in res && res.dryRuns?.length
@@ -2079,6 +2096,7 @@ export function inshoreRouteToGeoJSON(
             // pin off the water) — kept WITH the saved route, not only in a
             // transient banner (fix-up, 2026-09-30).
             ...(result.structuresUnknownCells?.length ? { structuresUnknownCells: result.structuresUnknownCells } : {}),
+            ...(result.exclusionsUnchecked ? { exclusionsUnchecked: true } : {}),
             ...(result.pinOffWater ? { pinOffWater: result.pinOffWater } : {}),
             // …and a shallow pin whose tail is not direct (Shane, 2026-10-03).
             ...(result.pinTail ? { pinTail: result.pinTail } : {}),

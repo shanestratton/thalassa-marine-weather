@@ -30,6 +30,7 @@
  */
 import type { FeatureCollection } from 'geojson';
 import { routeInshore, type InshoreLayers } from '../inshoreRouterEngine';
+import { auditFinishedRouteExclusions } from '../engine/exclusionField';
 import type {
     CautionNearShallow,
     ChartedShallowSpan,
@@ -396,6 +397,8 @@ export interface InshoreRouteResult {
     /** RAM worker hint only; source/clock admission is checked on main. */
     _tideCandidatePath?: import('../engine/tideGatedSearch').TideGridPath;
     polyline: [number, number][]; // [lon, lat]
+    /** At least one intersected chart did not extract the area-restriction classes. */
+    exclusionsUnchecked?: boolean;
     /**
      * Per-segment caution flag, length `polyline.length - 1`.
      * true = the segment crosses water that reads too shallow for this
@@ -596,6 +599,8 @@ export interface RouteJob {
     /** Cells with no bridge / overhead layers, and each one's extent (as entries, not a Map). */
     structuresUnknownCells: string[];
     structuresUnknownBboxes: [string, [number, number, number, number]][];
+    /** Missing classes are unknown, distinct from an extracted empty collection. */
+    exclusionsUnknownBboxes?: [number, number, number, number][];
     /** The regional marker file's accepted port/starboard pairs (the Seaway graph's tier 2). */
     regionalPairs: RegionalPair[];
     /** The chart overlay's compiled lead graph for the route's corridor, or null (telemetry only). */
@@ -694,6 +699,13 @@ export function runRouteJob(job: RouteJob): RouteJobOutput {
     const output: RouteJobOutput = { result: null, timings };
     try {
         output.result = routeJobResult(job, timings);
+        if (output.result && 'polyline' in output.result) {
+            const finished = output.result;
+            const failure = auditFinishedRouteExclusions(job.layers, finished.polyline);
+            if (failure) output.result = { ...failure, cellsUsed: job.cellsUsed };
+            else if (job.exclusionsUnknownBboxes?.some((bbox) => polylineTouchesBbox(finished.polyline, bbox)))
+                output.result = { ...finished, exclusionsUnchecked: true };
+        }
     } catch (err) {
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
         if (err instanceof RangeError && /stack/i.test(err.message)) output.outOfStack = true;

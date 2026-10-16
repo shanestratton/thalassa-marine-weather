@@ -3072,6 +3072,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // legs then carry the bridge caveat themselves (routeTracer).
                     const caveats = inshoreRouteCaveats({
                         structuresUnknownCells: res.structuresUnknownCells,
+                        exclusionsUnchecked: res.exclusionsUnchecked,
                         pinOffWater: res.pinOffWater,
                         pinTail: res.pinTail,
                         depthBend: res.depthBend,
