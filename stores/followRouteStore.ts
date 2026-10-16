@@ -394,8 +394,15 @@ useFollowRouteStore.subscribe((state, previous) => {
         const scope = getAuthIdentityScope();
         // Clearing uses only this account/Pi's retained send receipt, never a
         // guessed destination. The Pi reconciles a send already in flight.
+        const oldFollow = {
+            ...previous,
+            routeCoords:
+                previous.routeCoords.length <= 1000
+                    ? previous.routeCoords.map((point) => ({ lat: point.lat, lon: point.lon }))
+                    : [],
+        };
         void import('../services/piCourse')
-            .then(({ clearUnfollowedCourse }) => clearUnfollowedCourse(previous, scope))
+            .then(({ clearUnfollowedCourse }) => clearUnfollowedCourse(oldFollow, scope))
             .catch(async () => {
                 if (!isAuthIdentityScopeCurrent(scope)) return;
                 const { toast } = await import('../components/Toast');

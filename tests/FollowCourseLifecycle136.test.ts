@@ -56,7 +56,8 @@ describe('real Follow store course lifecycle', () => {
         useFollowRouteStore.setState({ routeCoords: [{ ...points[0] }, { lat: 30.2, lon: -179.7 }] });
         await settled();
         expect(bridge.clear).toHaveBeenCalledTimes(1);
-        expect(bridge.clear.mock.calls[0][0]).toBe(old);
+        expect(bridge.clear.mock.calls[0][0]).toEqual(old);
+        expect(bridge.clear.mock.calls[0][0].routeCoords).not.toBe(old.routeCoords);
     });
     it('a failed clear reports an unconfirmed plotter only while its owning identity is still current', async () => {
         bridge.clear.mockRejectedValueOnce(Error('Offline'));
@@ -71,5 +72,14 @@ describe('real Follow store course lifecycle', () => {
         setAuthIdentityScope('fictional-owner-b');
         await settled();
         expect(bridge.toast).not.toHaveBeenCalled();
+    });
+    it('captures immutable old coordinates before the lazy clear module can finish loading', async () => {
+        useFollowRouteStore.getState().startFollowing(plan, 'voyage-a', points);
+        const old = useFollowRouteStore.getState(),
+            expected = old.routeCoords.map((point) => ({ ...point }));
+        useFollowRouteStore.getState().stopFollowing();
+        old.routeCoords[0].lat = 33;
+        await settled();
+        expect(bridge.clear.mock.calls[0][0].routeCoords).toEqual(expected);
     });
 });

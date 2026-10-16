@@ -48,9 +48,27 @@ function targetFor(scope: AuthIdentityScope): Target | null {
         ? { base, pi: paired.deviceId, key: paired.publicKeySpki, pairedAt: paired.pairedAt, scope }
         : null;
 }
-function routeKey(follow: Follow): string | null {
-    const key = `follow:${follow.startedAt}:${follow.voyageId ?? ''}`;
-    return follow.isFollowing && follow.startedAt && key.length <= 200 && !/\p{Cc}/u.test(key) ? key : null;
+async function routeKey(follow: Follow): Promise<string | null> {
+    if (
+        !follow.isFollowing ||
+        !follow.startedAt ||
+        follow.startedAt.length > 64 ||
+        (follow.voyageId?.length ?? 0) > 128 ||
+        follow.routeCoords.length < 2 ||
+        follow.routeCoords.length > 1000
+    )
+        return null;
+    try {
+        const exact = JSON.stringify([
+            follow.startedAt,
+            follow.voyageId,
+            follow.routeCoords.map((point) => [point.lat, point.lon]),
+        ]);
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(exact));
+        return 'follow-v1:' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    } catch {
+        throw new PiCourseError('This phone could not bind the exact route. Nothing was sent.');
+    }
 }
 function receipts(scope: AuthIdentityScope): Receipt[] {
     try {
@@ -148,7 +166,7 @@ export async function previewFollowedCourse(): Promise<CoursePreview> {
         target = targetFor(scope);
     const state = useFollowRouteStore.getState();
     const follow: Follow = { ...state, routeCoords: state.routeCoords.map((p) => ({ ...p })) };
-    const key = routeKey(follow);
+    const key = await routeKey(follow);
     if (!target) throw new PiCourseError('Connect this enrolled phone to the boat’s Pi on her own Wi-Fi.');
     if (
         !key ||
@@ -225,7 +243,7 @@ const clearing = new Map<string, Promise<void>>();
 /** Called on every follow replacement/unfollow, including after a cold start.
  * The Pi matches its durable ownership; a route this phone never sent is a no-op. */
 export async function clearUnfollowedCourse(follow: Follow, scope: AuthIdentityScope): Promise<void> {
-    const key = routeKey(follow),
+    const key = await routeKey(follow),
         target = targetFor(scope);
     if (!key || !isAuthIdentityScopeCurrent(scope)) return;
     const rows = receipts(scope);

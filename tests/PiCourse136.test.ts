@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
 const fixture = vi.hoisted(() => ({
     scope: { key: 'user:fictional-a', userId: 'fictional-a' as string | null, generation: 1 },
     pair: { deviceId: 'fictional-pi', publicKeySpki: 'fictional-public-key', pairedAt: '2026-10-16' },
@@ -41,6 +42,7 @@ const digest = 'a'.repeat(64),
     token = 'b'.repeat(32);
 const resourceId = '11111111-1111-4111-8111-111111111111';
 beforeEach(() => {
+    vi.stubGlobal('crypto', webcrypto);
     localStorage.clear();
     vi.clearAllMocks();
     fixture.scope = { key: 'user:fictional-a', userId: 'fictional-a', generation: 1 };
@@ -76,6 +78,7 @@ beforeEach(() => {
         return { status: 200, data: JSON.stringify(body) };
     });
 });
+afterEach(() => vi.unstubAllGlobals());
 describe('explicit followed-course phone lane', () => {
     it('sends the exact dateline geometry, keeps only an owned receipt and clears it on unfollow', async () => {
         const original = structuredClone(fixture.follow);
@@ -243,5 +246,40 @@ describe('explicit followed-course phone lane', () => {
         fixture.request.mockResolvedValueOnce({ status: 200, data: JSON.stringify({ schema: 1, cleared: 'maybe' }) });
         await expect(clearSavedCourseReceipts()).rejects.toThrow(/unconfirmed/);
         expect(localStorage.getItem('thalassa_course_claims_v1::user:fictional-a')).toContain(preview.routeKey);
+    });
+    it('an old geometry clear cannot own a newly activated revision with the same voyage and start time', async () => {
+        const previous = structuredClone(fixture.follow),
+            scope = { ...fixture.scope };
+        const oldPreview = await previewFollowedCourse();
+        await activateFollowedCourse(oldPreview, true, false);
+        let release!: () => void, entered!: () => void;
+        const started = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        const delayed = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        fixture.request.mockImplementationOnce(async (options) => {
+            expect(options.url).toMatch(/\/clear$/);
+            expect(options.data.routeKey).toBe(oldPreview.routeKey);
+            entered();
+            await delayed;
+            return { status: 200, data: JSON.stringify({ schema: 1, cleared: false, reason: 'course-changed' }) };
+        });
+        const oldClear = clearUnfollowedCourse(previous as never, scope);
+        await started;
+        fixture.follow.routeCoords = [{ ...previous.routeCoords[0] }, { lat: 30.2, lon: -179.7 }];
+        const nextPreview = await previewFollowedCourse();
+        expect(nextPreview.routeKey).not.toBe(oldPreview.routeKey);
+        await activateFollowedCourse(nextPreview, true, false);
+        release();
+        await oldClear;
+        const retained = JSON.parse(localStorage.getItem('thalassa_course_claims_v1::user:fictional-a')!);
+        expect(retained).toEqual([
+            { pi: fixture.pair.deviceId, key: fixture.pair.publicKeySpki, routeKey: nextPreview.routeKey },
+        ]);
+        expect(
+            fixture.request.mock.calls.filter((c) => c[0].url.endsWith('/clear')).map((c) => c[0].data.routeKey),
+        ).toEqual([oldPreview.routeKey]);
     });
 });
