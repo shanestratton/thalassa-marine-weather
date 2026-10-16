@@ -1,0 +1,61 @@
+name: Build136 engine-hours transaction proof
+on:
+    push:
+        branches: ['codex/build-136-engine-db-validation']
+        paths: ['.github/workflows/validate-engine-hours-136.yml']
+permissions:
+    contents: read
+concurrency:
+    group: engine-hours-136-transaction-proof
+    cancel-in-progress: false
+jobs:
+    transaction:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        services:
+            postgres:
+                image: postgres:17.6
+                env:
+                    POSTGRES_PASSWORD: fixture-only-password
+                    POSTGRES_DB: engine_fixture
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        env:
+            PGHOST: 127.0.0.1
+            PGPORT: 5432
+            PGUSER: postgres
+            PGDATABASE: engine_fixture
+            PGPASSWORD: fixture-only-password
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 228b3c83ca4bfb34f6511aae856ed136d653128d
+                  persist-credentials: false
+            - name: Verify frozen source and preserve test identities
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = 228b3c83ca4bfb34f6511aae856ed136d653128d
+                  mkdir -p "$RUNNER_TEMP/engine-hours-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/engine-hours-proof/SOURCE_SHA.txt"
+                  sha256sum tests/sql/engine-hours-confirmation.sql tests/sql/engine-hours-race.py supabase/migrations/20261016102500_confirmed_voyage_engine_hours.sql > "$RUNNER_TEMP/engine-hours-proof/SHA256SUMS"
+            - name: Replay confirmation, fractional carry, privacy and failure transactions
+              run: |
+                  set -euo pipefail
+                  psql -X -v ON_ERROR_STOP=1 -f tests/sql/engine-hours-confirmation.sql 2>&1 | tee "$RUNNER_TEMP/engine-hours-proof/TRANSACTIONS.txt"
+            - name: Sixteen real concurrent sessions confirm one voyage exactly once
+              run: |
+                  set -euo pipefail
+                  python3 tests/sql/engine-hours-race.py | tee "$RUNNER_TEMP/engine-hours-proof/CONCURRENCY.txt"
+            - name: Preserve isolated proof
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build136-engine-hours-proof
+                  path: ${{ runner.temp }}/engine-hours-proof/
+                  retention-days: 7
+                  if-no-files-found: error
