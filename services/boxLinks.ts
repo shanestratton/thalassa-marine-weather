@@ -36,6 +36,7 @@ let pending: { id: string; identity: AuthIdentityScope } | null = null;
 let installed = false;
 let lastFile: { url: string; scope: AuthIdentityScope; at: number } | null = null;
 let gribModule: Promise<typeof import('./weather/localGribImport')> | undefined;
+let gpxModule: Promise<typeof import('./nativeOpenedGpx')> | undefined;
 const loadGribImports = () => (gribModule ??= import('./weather/localGribImport'));
 /**
  * The last box link taken on this phone. iOS keeps reporting it from
@@ -49,7 +50,7 @@ function take(url: string): void {
     if (url.startsWith('file:')) {
         const scope = getAuthIdentityScope();
         if (url.length > 8192) {
-            toast.error('The GRIB attachment URL is too long.');
+            toast.error('The attachment URL is too long.');
             return;
         }
         const now = Date.now();
@@ -62,6 +63,18 @@ function take(url: string): void {
         )
             return;
         lastFile = { url, scope, at: now };
+        if (/\.gpx$/i.test(url)) {
+            void (gpxModule ??= import('./nativeOpenedGpx'))
+                .then(async (gpx) => {
+                    await gpx.openNativeGpx(url, scope);
+                    if (isAuthIdentityScopeCurrent(scope)) useUIStore.getState().setPage('gpx-import');
+                })
+                .catch((error: unknown) => {
+                    if (isAuthIdentityScopeCurrent(scope))
+                        toast.error(error instanceof Error ? error.message : 'GPX import failed.');
+                });
+            return;
+        }
         void loadGribImports()
             .then(async (grib) => {
                 if (!grib.isLocalGribUrl(url)) return;

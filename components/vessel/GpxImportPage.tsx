@@ -9,7 +9,7 @@
  *   - Re-export as Thalassa GPX with weather extensions
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('GpxImport');
@@ -29,7 +29,13 @@ import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } fr
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { AlertTriangleIcon, ClockIcon, FlagIcon, InfoIcon, MapIcon, MapPinIcon, RouteIcon, WaveIcon } from '../Icons';
-import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { peekOpenedGpx, finishOpenedGpx, OPEN_GPX_EVENT } from '../../services/openedGpxQueue';
 import { openedFromBinder } from '../vesselHub/binderReturn';
 import {
     classifyImportSaveFailure,
@@ -110,6 +116,7 @@ const IMPORTED_ITEMS: { Icon: React.FC<{ className?: string }>; label: string; d
  */
 function readErrorMessage(err: unknown): string {
     const raw = err instanceof Error ? err.message : '';
+    if (raw.startsWith('GPX file exceeds')) return 'This GPX is larger than 8 MiB. Export a shorter track or route.';
     if (raw.startsWith('Invalid file type')) return "That isn't a GPX file. Choose a file ending in .gpx or .xml.";
     if (raw.startsWith('Invalid GPX file'))
         return "This file couldn't be read as GPX. It may be damaged, or saved in another format. Export it again as GPX and try once more.";
@@ -160,6 +167,8 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     // instead, so they are not said twice.
     const [announcement, setAnnouncement] = useState('');
     const announcedQuarterRef = useRef(0);
+    const readGeneration = useRef(0);
+    const previewOwner = useRef<AuthIdentityScope | null>(null);
 
     // ── Parse GPX metadata from raw XML ──
     const parseMetadata = useCallback((xml: string) => {
@@ -187,6 +196,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     // ── Handle file selection ──
     const handleFileSelect = useCallback(
         async (file: File) => {
+            const scope = getAuthIdentityScope(),
+                token = ++readGeneration.current;
+            previewOwner.current = null;
+            importAbortRef.current?.abort();
+            setPreview(null);
+            setRouteData(null);
             try {
                 setState('reading');
                 setError(null);
@@ -196,6 +211,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 triggerHaptic('light');
 
                 const rawXml = await readGPXFile(file);
+                if (token !== readGeneration.current || !isAuthIdentityScopeCurrent(scope)) return;
                 // True times, segment-by-segment distance through the voyage
                 // gate, and a long track thinned after its distance is known
                 // (132-B21).
@@ -232,6 +248,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 const totalDistanceNM = Math.round(parsed.totalDistanceNM * 10) / 10;
                 const notes = gpxImportNotes(parsed);
 
+                previewOwner.current = scope;
                 setPreview({
                     filename: file.name,
                     entries,
@@ -268,6 +285,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                     `[Import] Parsed ${file.name}: ${trackPoints} track points (${parsed.savedTrackPoints} kept), ${waypoints} waypoints, ${totalDistanceNM.toFixed(1)} NM`,
                 );
             } catch (err) {
+                if (token !== readGeneration.current || !isAuthIdentityScopeCurrent(scope)) return;
                 setError(readErrorMessage(err));
                 setState('error');
                 setAnnouncement('');
@@ -277,13 +295,57 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         },
         [parseMetadata],
     );
+    useEffect(() => {
+        let live = true;
+        const retire = () => {
+            readGeneration.current++;
+            previewOwner.current = null;
+            importAbortRef.current?.abort();
+        };
+        const take = () => {
+            const file = peekOpenedGpx();
+            if (file)
+                void handleFileSelect(file).finally(() => {
+                    if (live) finishOpenedGpx(file);
+                });
+        };
+        window.addEventListener(OPEN_GPX_EVENT, take);
+        const unsubscribe = subscribeAuthIdentityScope(() => {
+            retire();
+            setPreview(null);
+            setRouteData(null);
+            setState('idle');
+            setError(null);
+            setSaveError(null);
+            setNotice(null);
+            setAnnouncement('');
+            setImportResult(null);
+            setCancelling(false);
+        });
+        take();
+        return () => {
+            live = false;
+            retire();
+            window.removeEventListener(OPEN_GPX_EVENT, take);
+            unsubscribe();
+        };
+    }, [handleFileSelect]);
 
     // ── Import into Ship's Log ──
     // Progress after every chunk, a Cancel that stops it, and a failure that
     // keeps the preview with the reason and a Retry (132-B21). The same
     // voyage id every attempt, so a retry never doubles the voyage.
     const handleImport = useCallback(async () => {
-        if (!preview || preview.entries.length === 0) return;
+        if (
+            !preview ||
+            preview.entries.length === 0 ||
+            !previewOwner.current ||
+            !isAuthIdentityScopeCurrent(previewOwner.current)
+        )
+            return;
+        const scope = previewOwner.current,
+            token = ++readGeneration.current;
+        const live = () => token === readGeneration.current && isAuthIdentityScopeCurrent(scope);
         const controller = new AbortController();
         importAbortRef.current = controller;
         announcedQuarterRef.current = 0;
@@ -302,6 +364,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 voyageId: preview.voyageId,
                 signal: controller.signal,
                 onProgress: (saved, of) => {
+                    if (!live()) return;
                     setProgress({ saved, total: of });
                     // A quarter at a time, so VoiceOver isn't talking over every chunk.
                     const quarter = Math.floor((saved / of) * 4);
@@ -311,12 +374,14 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                     }
                 },
             });
+            if (!live()) return;
             setImportResult(result);
             setState('success');
             setAnnouncement(`Import complete. ${result.savedCount.toLocaleString()} entries saved.`);
             triggerHaptic('light');
             log.info(`[Import] ✓ Imported ${result.savedCount} entries as voyage ${result.voyageId}`);
         } catch (err) {
+            if (!live()) return;
             if (controller.signal.aborted) {
                 const message = "Import cancelled. Nothing was added to the Ship's Log.";
                 setNotice(message);
@@ -332,7 +397,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
             log.error('[Import] Import error:', err);
         } finally {
             if (importAbortRef.current === controller) importAbortRef.current = null;
-            setCancelling(false);
+            if (live()) setCancelling(false);
         }
     }, [preview]);
 
@@ -349,6 +414,8 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
     // ── Reset state ──
     const handleReset = useCallback(() => {
+        readGeneration.current++;
+        previewOwner.current = null;
         setState('idle');
         setPreview(null);
         setRouteData(null);
@@ -362,7 +429,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
     // ── Route to Passage Planner ──
     const handleRouteToPlanner = useCallback(() => {
-        if (!routeData) return;
+        if (!routeData || !previewOwner.current || !isAuthIdentityScopeCurrent(previewOwner.current)) return;
         triggerHaptic('medium');
 
         // Build the passage-mode event detail

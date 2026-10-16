@@ -149,6 +149,7 @@ ${trackpoints}
  * many, AFTER its distance and times are worked out from every point.
  */
 export const GPX_IMPORT_MAX_TRACK_POINTS = 5_000;
+export const GPX_IMPORT_MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 /** The area a file covers. When it crosses the 180° line the west edge (minLon) is east of the east edge. */
 export interface GpxBounds {
@@ -381,6 +382,8 @@ export function parseGPXTrack(
     gpxXml: string,
     options: { maxTrackPoints?: number; nowMs?: number } = {},
 ): GpxTrackImport {
+    if (gpxXml.length > GPX_IMPORT_MAX_FILE_BYTES || /<!DOCTYPE|<!ENTITY/i.test(gpxXml))
+        throw new Error('Invalid GPX file: exceeds 8 MiB or uses unsupported XML declarations.');
     const parser = new DOMParser();
     const doc = parser.parseFromString(gpxXml, 'application/xml');
 
@@ -945,6 +948,10 @@ function browserDownloadGPX(gpxXml: string, filename: string): void {
  */
 export function readGPXFile(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
+        if (file.size > GPX_IMPORT_MAX_FILE_BYTES) {
+            reject(new Error('GPX file exceeds 8 MiB. Export a shorter track or route.'));
+            return;
+        }
         if (!file.name.toLowerCase().endsWith('.gpx') && !file.name.toLowerCase().endsWith('.xml')) {
             reject(new Error('Invalid file type. Please select a .gpx file.'));
             return;

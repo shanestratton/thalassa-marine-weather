@@ -35,6 +35,8 @@ vi.mock('@capacitor/app', () => ({
 
 const toastError = vi.hoisted(() => vi.fn());
 const grib = vi.hoisted(() => ({ install: vi.fn(), import: vi.fn(), isUrl: vi.fn() }));
+const gpx = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('../services/nativeOpenedGpx', () => ({ openNativeGpx: gpx.open }));
 vi.mock('../services/weather/localGribImport', () => ({
     installLocalGribImports: grib.install,
     importLocalGribUrl: grib.import,
@@ -77,6 +79,7 @@ beforeEach(() => {
     localStorage.clear();
     toastError.mockReset();
     grib.install.mockReset();
+    gpx.open.mockReset().mockResolvedValue(undefined);
     grib.import.mockReset().mockResolvedValue({});
     grib.isUrl.mockReset().mockImplementation((url: string) => url.endsWith('.grb'));
     app.listeners = [];
@@ -326,5 +329,36 @@ describe('a box link from iOS', () => {
         expect(() => links.installBoxLinks()).not.toThrow();
         await settle();
         expect(links.consumePendingBox()).toBeNull();
+    });
+    it('hands a cold-start GPX attachment to its preview once without selecting weather or opening a box', async () => {
+        const { links, ui } = await load();
+        app.launchUrl = 'file:///private/Inbox/example.gpx';
+        links.installBoxLinks();
+        await settle();
+        await settle();
+        app.listeners.forEach((listener) => listener({ url: app.launchUrl! }));
+        await settle();
+        expect(gpx.open).toHaveBeenCalledTimes(1);
+        expect(grib.import).not.toHaveBeenCalled();
+        expect(links.consumePendingBox()).toBeNull();
+        expect(ui.useUIStore.getState().currentView).toBe('gpx-import');
+    });
+    it('does not navigate the next account when an old GPX attachment finishes late', async () => {
+        const { links, ui, scope } = await load();
+        let finish!: () => void;
+        gpx.open.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        links.installBoxLinks();
+        await settle();
+        app.listeners.forEach((listener) => listener({ url: 'file:///private/Inbox/example.gpx' }));
+        await settle();
+        scope.setAuthIdentityScope(OTHER);
+        finish();
+        await settle();
+        expect(ui.useUIStore.getState().currentView).toBe('dashboard');
     });
 });

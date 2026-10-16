@@ -64,6 +64,8 @@ vi.mock('../services/passageHandoff', () => ({
 }));
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => mocks.scope,
+    isAuthIdentityScopeCurrent: () => true,
+    subscribeAuthIdentityScope: () => () => undefined,
 }));
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
