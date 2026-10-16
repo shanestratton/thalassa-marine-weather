@@ -1,7 +1,9 @@
 # Build 138: reviewed underway re-plan
 
-This first checkpoint supports a followed saved route on the selected boat's
-active Cast Off passage, with no remaining intermediate constraints. An ad hoc
+The initial checkpoint supported a followed saved route without intermediate
+constraints. The 138-08 integration now retains represented remaining
+must-pass and fixed leave-side marks through the shared verified leg chain.
+It still requires the selected boat's active Cast Off passage. An ad hoc
 text-ID track without the server's active passage stays unchanged. The HUD offers one
 explicit re-plan action. An actual new forecast generation, a live ETA slip of
 at least 30 minutes, or the existing conservative inshore XTE limit may suggest
@@ -62,7 +64,7 @@ is performed by this feature's tests.
 
 ## Remaining gates
 
-At this checkpoint, the focused policy/service/preview/source-boundary checks
+At the initial re-plan checkpoint, the focused policy/service/preview/source-boundary checks
 pass (34 tests), as do three suggestion-control tests and 30 sequential PGlite
 checks. Four actual Chrome/WebKit comparison checks pass at 300/375 px with
 130% text and no remote requests. Those browser checks exercise the comparison
@@ -86,11 +88,14 @@ database acceptance, a native device or the map reference's framebuffer.
   observed blocked behind a coordinator-held row lock before release.
   Its minimal schema includes the actual existing author-stamp migration, but
   does not replace live schema/role/trigger preflight.
-- The current planner stores/display vias without using them in computation.
-  This checkpoint refuses every remaining accepted via and ambiguous repeated
-  visit. A saved manual curve without represented constraints is also held.
-  Build 138-08 must add shared verified waypoint/leave-side chaining,
-  then integrate it here before claiming full 138-04 route coverage.
+- The 138-08 integration sends all represented remaining marks through the
+  shared actual inshore/offshore calculator before direct shortcuts. It
+  verifies precise per-leg clocks and final ordered retention, preserves the
+  original mark's fixed bearing and saves accepted choices. An ambiguous
+  repeated visit, corrupt mark, or legacy manual curve without represented
+  constraints remains held. The cold Tracer/Auto checks are described in
+  `build138-constraint-chaining.md`; they do not add a new navigation tide
+  source or change the held CAS SQL bytes.
 - Final combined 137/138 native, bundle, full-suite, source and device gates
   remain required. This is an isolated 136-based foundation, not full 138 ship.
 
