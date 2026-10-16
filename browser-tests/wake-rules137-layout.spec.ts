@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 const presets = [
     'depth-below-keel',
     'wind-above',
@@ -175,6 +176,7 @@ for (const width of [300, 375])
                 )
                 .toBe(true);
         } finally {
+            await writeFile(info.outputPath('keyboard-field-readiness.json'), JSON.stringify(keyboardSamples));
             await info.attach('keyboard-field-readiness', {
                 body: JSON.stringify(keyboardSamples),
                 contentType: 'application/json',

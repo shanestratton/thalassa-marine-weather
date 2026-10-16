@@ -82,6 +82,7 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
             .toBeGreaterThan(100);
         return actual;
     } finally {
+        await writeFile(info.outputPath('canvas-paint-readiness.json'), JSON.stringify(samples));
         await info.attach('canvas-paint-readiness', { body: JSON.stringify(samples), contentType: 'application/json' });
     }
 }
