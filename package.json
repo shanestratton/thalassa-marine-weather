@@ -112,6 +112,7 @@
         "@vitejs/plugin-react": "^4.2.1",
         "@vitest/coverage-v8": "4.1.11",
         "@vitest/ui": "4.1.11",
+        "esbuild": "0.28.1",
         "eslint": "^9.39.5",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-react-hooks": "^7.0.1",
