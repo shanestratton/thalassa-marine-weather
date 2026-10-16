@@ -5680,7 +5680,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 if (!map) return;
                                 const [lon, lat] = feature.geometry.coordinates;
                                 setShowAisTargets(false);
-                                map.flyTo({ center: [lon, lat], zoom: 14, essential: true });
+                                // This sheet is on Obs: clear any earlier camera padding for this flight.
+                                map.flyTo({
+                                    center: [lon, lat],
+                                    zoom: 14,
+                                    essential: true,
+                                    padding: 0,
+                                    retainPadding: false,
+                                });
                                 window.dispatchEvent(
                                     new CustomEvent('thalassa:select-ais-target', {
                                         detail: { mmsi: Number(feature.properties?.mmsi) },
