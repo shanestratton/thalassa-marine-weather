@@ -14,7 +14,9 @@ The passage report now calls a real installed-chart and aboard-environment reade
 
 The reader examines original bottom NATSUR/CATWED, DEPARE/DRGARE, survey/datum areas, land/coastline, soundings, rocks/wrecks/obstructions, shoreline structures, bridges/pontoons/overhead cables/pipes/conveyors, anchorage/cable/pipeline/restricted/caution areas, marine farms and all current traffic-area classes. An absent extracted class is reported as missing, never as an empty hazard inventory.
 
-Intersecting physical or overhead objects conservatively hold clearance. Original RESTRN prohibiting anchoring is read even on ACHARE. A designated anchorage alone does not establish current permission. Point bottom observations do not establish full-area holding. Known poor bottom and unknown original attributes remain distinct. The reader does not infer a sounding epoch, bridge height tie, tide allowance or opening permission.
+Intersecting physical or overhead objects conservatively hold clearance. SOUNDG is a depth observation, not an allision object: original numeric per-point depth planes, Z or single-point VALSOU/DEPTH retain their sign and precision and can only lower the covering depth-band bound. Missing, malformed or misaligned sounding depths stay unknown; a MultiPoint cloud never borrows one feature-wide depth.
+
+The shared S-57 RESTRN parser/table supplies actual restriction meanings, including original numeric, array and zero-padded values. Anchoring prohibited (1), entry prohibited (7) and stopping prohibited (25) prohibit the proposed holding visit, including on ACHARE. Anchoring/entry restricted (2/8) remain unresolved. A designated anchorage alone does not establish current permission. Point bottom observations do not establish full-area holding. Known poor bottom and unknown original attributes remain distinct. The reader does not infer a sounding epoch, bridge height tie, tide allowance or opening permission. A clear hazard summary requires the whole coverage proof; partial reads cannot display clear. The privacy flag covers the entire selected cohort even if reading stops before a protected member.
 
 ## Aboard forecasts actually read
 

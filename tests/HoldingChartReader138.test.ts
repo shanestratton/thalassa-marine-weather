@@ -87,6 +87,68 @@ describe('real complete leased holding chart reader', () => {
         m.raw.mockResolvedValue(b);
         expect((await read()).hazards).toBe('blocked');
     });
+    it.each([30, 1.234567, -0.25])(
+        'retains original signed sounding %s without allision or optimistic rounding',
+        async (depth) => {
+            const b = blob();
+            b.layers.SOUNDG!.features = [
+                { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0, depth] }, properties: {} },
+            ];
+            m.raw.mockResolvedValue(b);
+            const r = await read();
+            expect(r.hazards).toBe('clear');
+            expect(r.minimumChartedDepthM).toBe(Math.min(5, depth));
+        },
+    );
+    it('reads exact per-point planes and single-point attribute depths without raising a band lower bound', async () => {
+        const b = blob();
+        b.layers.SOUNDG!.features = [
+            {
+                type: 'Feature',
+                geometry: {
+                    type: 'MultiPoint',
+                    coordinates: [
+                        [0, 0],
+                        [0.005, 0],
+                    ],
+                },
+                properties: { depths: [30, 1.21] },
+            },
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { valsou: -0.13 } },
+        ];
+        m.raw.mockResolvedValue(b);
+        expect((await read()).minimumChartedDepthM).toBe(-0.13);
+    });
+    it.each(['missing', 'short-plane', 'bad-plane', 'feature-cloud-fallback'] as const)(
+        'holds %s sounding depth unknown',
+        async (kind) => {
+            const b = blob();
+            b.layers.SOUNDG!.features = [
+                kind === 'missing'
+                    ? { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }
+                    : {
+                          type: 'Feature',
+                          geometry: {
+                              type: 'MultiPoint',
+                              coordinates: [
+                                  [0, 0],
+                                  [0.005, 0],
+                              ],
+                          },
+                          properties:
+                              kind === 'short-plane'
+                                  ? { depths: [30] }
+                                  : kind === 'bad-plane'
+                                    ? { depths: [30, ''] }
+                                    : { VALSOU: 30 },
+                      },
+            ];
+            m.raw.mockResolvedValue(b);
+            const r = await read();
+            expect(r.minimumChartedDepthM).toBeNull();
+            expect(r.hazards).toBe('unknown');
+        },
+    );
     it.each(['missing', 'point', 'hole', 'poor', 'quality', 'unknown-depth'] as const)(
         'does not promote %s coverage',
         async (kind) => {
@@ -113,6 +175,7 @@ describe('real complete leased holding chart reader', () => {
             else if (kind === 'unknown-depth') expect(r.minimumChartedDepthM).toBeNull();
             else expect(r.completeCircleAndApproach).toBe(false);
             expect(r.permission).toBe('unknown');
+            expect(r.hazards).toBe('unknown');
         },
     );
     it('reads original restrictions and overhead structures without applying tide or opening credit', async () => {
@@ -121,8 +184,48 @@ describe('real complete leased holding chart reader', () => {
         b.layers.BRIDGE!.features = [area({ VERCCL: 100 })];
         m.raw.mockResolvedValue(b);
         expect(await read()).toMatchObject({ hazards: 'blocked', permission: 'prohibited' });
-        const a=blob();a.layers.ACHARE!.features=[area({RESTRN:7})];m.raw.mockResolvedValue(a);
+        const a = blob();
+        a.layers.ACHARE!.features = [area({ RESTRN: 7 })];
+        m.raw.mockResolvedValue(a);
         expect((await read()).permission).toBe('prohibited');
+    });
+    it.each([
+        ['ACHARE', 1, 'anchoring prohibited'],
+        ['RESARE', 1, 'anchoring prohibited'],
+        ['ACHARE', '01', 'anchoring prohibited'],
+        ['RESARE', [1, 3], 'anchoring prohibited'],
+        ['ACHARE', '07', 'entry prohibited'],
+        ['RESARE', [7], 'entry prohibited'],
+        ['ACHARE', 25, 'stopping prohibited'],
+        ['RESARE', '025', 'stopping prohibited'],
+    ] as const)('uses the canonical %s restriction %s meaning', async (cls, code, meaning) => {
+        const b = blob();
+        b.layers[cls]!.features = [area({ RESTRN: code })];
+        m.raw.mockResolvedValue(b);
+        const r = await read();
+        expect(r.permission).toBe('prohibited');
+        expect(r.notes.join(' ')).toContain(meaning);
+        if (meaning !== 'anchoring prohibited') expect(r.notes.join(' ')).not.toContain('RESTRN prohibits anchoring');
+    });
+    it.each([2, '02', 8, '08', [2, 8]])('keeps restricted permission %s unknown', async (code) => {
+        const b = blob();
+        b.layers.ACHARE!.features = [area({ RESTRN: code })];
+        m.raw.mockResolvedValue(b);
+        const r = await read();
+        expect(r.permission).toBe('unknown');
+        expect(r.completeCircleAndApproach).toBe(false);
+        expect(r.notes.join(' ')).toMatch(/anchoring restricted|entry restricted/);
+    });
+    it('marks the entire selected mixed cohort private even if reading stops before its protected member', async () => {
+        m.cells = [
+            { ...cell(), licence: 'open' },
+            { ...cell(), id: 'AU5FICT1', sourceHO: 'AU', licence: 'protected' },
+        ];
+        m.raw.mockRejectedValue(new Error('First public chart read failed.'));
+        const r = await read();
+        expect(r).toMatchObject({ aboardOnly: true, hazards: 'unknown', minimumChartedDepthM: null, datumId: '' });
+        expect(r.chartContentKey).toContain('AU5FICT1');
+        expect(m.raw).toHaveBeenCalledTimes(1);
     });
     it('rejects stale revisions and always releases a package after retirement or malformed geometry', async () => {
         m.raw.mockResolvedValue({ ...blob(), updateNumber: 1 });

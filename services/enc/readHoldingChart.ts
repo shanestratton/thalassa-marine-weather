@@ -7,6 +7,7 @@ import { encCellContentIdentity } from './cellContentIdentity';
 import { cellSoundingDatum } from './chartDatum';
 import { isProtectedChart } from './chartLicence';
 import { chartBottomNature } from './seabed';
+import { restrnCodes, restrnMeaning } from './s57Restrn';
 import { holdingFootprint, holdingGeometryRelation, type HoldingBounds } from './holdingFootprint';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import type { EncConversionResult } from './types';
@@ -126,17 +127,16 @@ export async function readHoldingChart(
     };
     const depths: number[] = [],
         datums = new Set<string>(),
-        keys: string[] = [];
+        keys = cells.map(encCellContentIdentity);
     const missing = new Set<string>();
     const vertex = () => {
         if (++vertices > 65536) throw Error('Holding chart review exceeds 65,536 vertices.');
         if (vertices % 256 === 0) check();
     };
     try {
-        result.aboardOnly = false;
+        result.aboardOnly = cells.some(isProtectedChart);
         for (const cell of cells) {
             check();
-            result.aboardOnly ||= isProtectedChart(cell);
             const blob = cell.noaaPackage ? cohort.blobs.get(cell.id) : await loadCellGeoJSON(cell.id, false);
             check();
             if (
@@ -147,10 +147,11 @@ export async function readHoldingChart(
                 blob.updateNumber !== cell.updateNumber
             ) {
                 complete = false;
+                unknownDepth = true;
+                unknownDatum = true;
                 notes.add('A required chart revision could not be read; the whole cohort remains incomplete.');
                 continue;
             }
-            keys.push(encCellContentIdentity(cell));
             const datum = cellSoundingDatum(blob);
             if (datum) datums.add(datum);
             else {
@@ -185,19 +186,60 @@ export async function readHoldingChart(
                     const relation = holdingGeometryRelation(f.geometry, bounds, vertex, compare),
                         p = f.properties;
                     if (!relation.intersects) continue;
-                    const restrictions = String(p.RESTRN ?? p.restrn ?? '')
-                        .split(/[,/]/)
-                        .map((s) => s.trim());
-                    if (restrictions.includes('7')) {
-                        prohibited = true;
-                        notes.add(`Original ${cls} RESTRN prohibits anchoring in the envelope.`);
-                    }
+                    const restrictions = restrnCodes(p.RESTRN ?? p.restrn);
+                    for (const code of restrictions)
+                        if (['1', '7', '25', '2', '8'].includes(code)) {
+                            notes.add(`Original ${cls}: ${restrnMeaning(code)} in the envelope.`);
+                            if (['1', '7', '25'].includes(code)) prohibited = true;
+                            else complete = false;
+                        }
                     const depth = p.DRVAL1 ?? p.drval1;
                     if (cls === 'DEPARE' || cls === 'DRGARE') {
                         if (typeof depth === 'number' && Number.isFinite(depth)) {
                             depths.push(depth);
                             depthCover ||= relation.covers;
-                        } else unknownDepth = true;
+                        } else {
+                            unknownDepth = true;
+                            complete = false;
+                        }
+                    } else if (cls === 'SOUNDG') {
+                        const coordinates =
+                            f.geometry.type === 'Point'
+                                ? [f.geometry.coordinates]
+                                : f.geometry.type === 'MultiPoint'
+                                  ? f.geometry.coordinates
+                                  : null;
+                        const sourcePlane = p.depths ?? p.DEPTHS;
+                        const plane = Array.isArray(sourcePlane) ? sourcePlane : null;
+                        if (
+                            !coordinates ||
+                            (sourcePlane !== undefined && (!plane || plane.length !== coordinates.length))
+                        ) {
+                            unknownDepth = true;
+                            complete = false;
+                            notes.add(
+                                'Original SOUNDG geometry/depth plane is missing or misaligned; full depth is unknown.',
+                            );
+                        }
+                        for (let i = 0; i < (coordinates?.length ?? 0); i++) {
+                            if (i % 256 === 0) check();
+                            const c = coordinates![i];
+                            if (c[0] < bounds[0] || c[0] > bounds[2] || c[1] < bounds[1] || c[1] > bounds[3]) continue;
+                            const depth = plane
+                                ? plane[i]
+                                : (c[2] ??
+                                  (f.geometry.type === 'Point'
+                                      ? (p.VALSOU ?? p.valsou ?? p.DEPTH ?? p.depth)
+                                      : undefined));
+                            if (typeof depth === 'number' && Number.isFinite(depth)) depths.push(depth);
+                            else {
+                                unknownDepth = true;
+                                complete = false;
+                                notes.add(
+                                    'An original sounding in the footprint has no numeric per-point depth; no clearance is inferred.',
+                                );
+                            }
+                        }
                     } else if (cls === 'SBDARE' || cls === 'WEDKLP') {
                         const nature = chartBottomNature({ ...p, _caution: cls });
                         if (nature.poor) poor = true;
@@ -238,7 +280,7 @@ export async function readHoldingChart(
                             `The footprint intersects ${cls}; current restrictions/permission require verification.`,
                         );
                     } else {
-                        // All intersecting physical objects, soundings, land, coastline and
+                        // All intersecting physical objects, land, coastline and
                         // overhead structures are conservative holds; never assign tide credit.
                         blocked = true;
                         notes.add(`The footprint intersects ${cls}; physical/underwater/overhead clearance is held.`);
@@ -250,6 +292,8 @@ export async function readHoldingChart(
     } catch (error) {
         check(); // Never convert retirement/cancellation into a usable partial read.
         complete = false;
+        unknownDepth = true;
+        unknownDatum = true;
         notes.add(error instanceof Error ? error.message : 'Holding chart read failed.');
     } finally {
         cohort.release();
@@ -268,13 +312,14 @@ export async function readHoldingChart(
     notes.add(
         'The envelope includes the whole incoming leg and holding circle; conservative over-coverage may hold a usable site.',
     );
+    const wholeCoverage = complete && depthCover && bottomCover && qualityCover;
     return {
         ...result,
         chartContentKey: keys.sort().join('|'),
-        completeCircleAndApproach: complete && depthCover && bottomCover && qualityCover,
+        completeCircleAndApproach: wholeCoverage,
         minimumChartedDepthM: !unknownDepth && depthCover && depths.length ? Math.min(...depths) : null,
         datumId: !unknownDatum && datums.size === 1 ? [...datums][0] : '',
-        hazards: blocked ? 'blocked' : complete ? 'clear' : 'unknown',
+        hazards: blocked ? 'blocked' : wholeCoverage && !unknownDepth ? 'clear' : 'unknown',
         permission: prohibited ? 'prohibited' : 'unknown',
         bottom: poor ? 'poor' : bottomCover ? 'charted' : 'unknown',
         notes: [...notes],
