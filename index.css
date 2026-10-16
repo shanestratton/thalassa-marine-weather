@@ -4228,6 +4228,13 @@ html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
    chart's Back chevron went in Release 118, and the one-handed zoom buttons
    now sit on the right at this height (UX scorecard run 7). */
 @media (orientation: portrait) and (max-width: 360px) {
+    .thalassa-offline-area-download {
+        /* The compact right rail contains MOB at this height. This left
+           slot clears the tide controls above and the coverage notice below. */
+        top: 200px;
+        left: max(12px, env(safe-area-inset-left));
+        right: auto;
+    }
     .thalassa-enc-tide-badge {
         left: 12px;
         max-width: calc(100% - 100px);
