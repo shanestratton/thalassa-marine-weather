@@ -1,4 +1,6 @@
-// Sentry must be imported FIRST — before any other app code
+// Remove recipient bearer fragments before telemetry/import-time diagnostics.
+import './services/shoreConsentLink';
+// Sentry is next, before the rest of the app boot code.
 import { captureException } from './services/sentry';
 import { crumb, startFlightRecorder } from './utils/flightRecorder';
 import { installCanvasProbe } from './utils/canvasProbe';
