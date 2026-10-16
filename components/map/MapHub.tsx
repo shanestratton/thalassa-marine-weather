@@ -282,6 +282,7 @@ import { ConnectivityChip } from './ConnectivityChip';
 import { PerfOverlay } from './PerfOverlay';
 import { PerfDowntierToast } from './PerfDowntierToast';
 import { TracerInputRows } from './tracer/TracerInputRows';
+import { commitPointOnlyWaitIntent } from '../../services/routing/passageTideWaitAcceptance';
 import { TracerWaypointList } from './tracer/TracerWaypointList';
 import { TracerSavedRoutePicker } from './tracer/TracerSavedRoutePicker';
 import { TracerPinEditor } from './tracer/TracerPinEditor';
@@ -437,6 +438,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const {
         capturedCoords,
         setCapturedCoords,
+        getTraceEditEpoch,
+        commitCheckedTracePoints,
         departureMs,
         setDepartureMs,
         traceName,
@@ -5395,6 +5398,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             draftM={vesselDraftMetres(settings.vessel)}
                             cruisingSpeedKts={settings.vessel?.cruisingSpeed}
                             departureMs={departureMs}
+                            traceEditEpoch={getTraceEditEpoch()}
+                            onCommitTideWait={(intent) => commitPointOnlyWaitIntent(intent, commitCheckedTracePoints)}
                             onFlyTo={(pt) => {
                                 setShowReport(false);
                                 if (mapRef.current) tracerFlyTo(mapRef.current, pt, 15, 800);

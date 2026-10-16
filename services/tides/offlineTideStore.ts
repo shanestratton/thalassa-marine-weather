@@ -218,6 +218,25 @@ async function read(scope: AuthIdentityScope): Promise<SavedTideTable[]> {
     return raw.tables.filter((t) => validSavedTideTable(t));
 }
 let writes: Promise<unknown> = Promise.resolve();
+let sourceEpoch = 0;
+const sourceListeners = new Set<() => void>();
+export const savedTideTablesEpoch = () => sourceEpoch;
+export function subscribeSavedTideTables(listener: () => void): () => void {
+    sourceListeners.add(listener);
+    return () => {
+        sourceListeners.delete(listener);
+    };
+}
+function changedSavedTides() {
+    sourceEpoch++;
+    for (const listener of sourceListeners) {
+        try {
+            listener();
+        } catch {
+            /* A subscriber cannot undo a completed source write. */
+        }
+    }
+}
 export async function listSavedTideTables(): Promise<SavedTideTable[]> {
     return read(getAuthIdentityScope());
 }
@@ -234,6 +253,7 @@ export async function saveTideTable(table: SavedTideTable): Promise<boolean> {
         try {
             await saveLargeDataImmediate(authScopedStorageKey(OFFLINE_TIDE_KEY, scope), envelope);
             if (!isAuthIdentityScopeCurrent(scope)) return false;
+            changedSavedTides();
             return (await read(scope)).some((t) => t.id === table.id && t.savedAtMs === table.savedAtMs);
         } catch {
             return false;
@@ -247,12 +267,14 @@ export async function removeSavedTideTable(id: string): Promise<void> {
     const scope = getAuthIdentityScope();
     const work = async () => {
         const tables = (await read(scope)).filter((t) => t.id !== id);
-        if (isAuthIdentityScopeCurrent(scope))
+        if (isAuthIdentityScopeCurrent(scope)) {
             await saveLargeDataImmediate(authScopedStorageKey(OFFLINE_TIDE_KEY, scope), {
                 schema: 1,
                 ownerKey: scope.key,
                 tables,
             });
+            changedSavedTides();
+        }
     };
     const result = writes.then(work, work);
     writes = result.catch(() => undefined);

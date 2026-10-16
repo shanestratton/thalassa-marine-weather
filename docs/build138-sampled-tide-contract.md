@@ -118,3 +118,71 @@ display adapters, real verified operating intervals, a complete holding-area/
 weather reader and UI/atomic acceptance integration. None may use extrema
 interpolation or existing seabed advice to turn unknown water/holding into a
 safe result.
+
+## Concrete route-review integration
+
+`PassageTideReview` is lazy within the existing Route report scroll area and
+unchanged 85dvh cap. Opening it makes no request. Read aboard uses local saved
+events and the existing station-specific NOAA harmonic model where applicable.
+Separate explicit actions load an official event table or at most three
+WorldTides station predictions through existing adapters. No optional paid wind
+request is made. Satellite Mode permits aboard references only. Original dense
+brackets can supply an informational height at the actual prediction location;
+events never supply an invented any-time height. Nearby stations stay separate.
+Rights, actual datum, unknown epoch/issue clock and receipt/publication clocks
+are exposed. Credits and longer source details are collapsed.
+
+The active wx official publisher was checked read-only on 17 October 2026:
+`official-tides-publish.service` works in
+`/opt/thalassa-official-tides/tides`. Its NOAA fetcher explicitly requests
+`interval=hilo`; its publisher emits events/observations and generation/expiry
+clocks. It does not publish dense heights or datum epochs. The Pi tide route
+also forwards the WorldTides proxy. The wx2 forecast publication contract is
+weather/marine data, not a tide provider. No server/service was modified or
+provider activated during this integration.
+
+`readPassageTideContext` reads the complete selected installed navigation-chart
+cohort under package leases, with no chart download. It returns only RAM
+primitives: actual current cell identities, sounding/height datum metadata,
+point depth, nearby bridge clearances and existing bottom advice. It observes
+actual licence ownership, the existing 14 cell cap, 16,000 objects and 65,536
+vertices, with separate bridge-comparison bounds. Unknown/conflicting datum or
+covering depth stays unknown. Missing layers are disclosed. A complete readable
+inventory does not claim complete water/holding coverage. Licensed geometry
+does not survive the lease and no summary is exported or persisted.
+
+The coordinator captures the actual auth generation, active vessel/policy,
+route/timing request generation, chart version, saved-source epoch and aboard
+weather identities. Reads stop after 30 seconds. Loaded results retire on any
+of those transitions, including account/boat A/B/A, and within five minutes.
+Saved-table save/delete now advances its local source epoch. Missing/malformed
+charts withhold chart claims while source information remains usable.
+
+The holding form makes radius, duration, UKC and wind/gust/wave limits explicit.
+It reads the actual earlier point and reports the genuine missing evidence.
+Current adapters still provide no independently admitted original sampled
+navigation product or station-to-cell epoch tie. A complete holding circle and
+approach, current anchoring permission and full-interval exposure/weather are
+also not proved by the existing point reader; the complete holding reader is
+not implemented. Current wait proposals remain unavailable. This is a visible
+remaining integration/evidence gap, not a claim that 138-05/06/07 are complete.
+
+For a future genuine admitted proposal, acceptance reruns the complete evidence
+read and issues a private, one-use point-edit intent. The editor atomically
+checks the exact points reference, full geometry, source validity and a
+monotonic draft epoch inside its React updater. Every draft mutation advances
+the epoch before queuing, so queued A/B/A and a late source cannot revive an
+old edit. The current UI chooses an existing earlier route visit: acceptance
+labels that exact visit Wait, preserving coordinates and existing user marks.
+It does not reinsert earlier coordinates at the gate, create a backtrack,
+invent a waiting time, alter a watch or persist licensed derived facts.
+
+Integration evidence: 93 focused tests and source/draft regressions pass in
+`work/validation138-tide-review-integration-checkpoint.log`; first weather-alias
+failure is retained in `work/validation138-tide-review-integration-first.log`.
+Four real Chrome/WebKit cases at 300/375px and 130% text passed in
+`work/validation138-tide-review-browser-first.log`, using entirely fictional
+transport/chart data through actual client adapters. They check explicit source
+actions, no default network, unchanged report cap/page extent, private summary
+absence from storage, queued draft refusal and late boat retirement. Artifacts
+are in `work/passage-tide138-browser-proof/`. No live navigation proof is implied.
