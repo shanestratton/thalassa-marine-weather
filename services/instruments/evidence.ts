@@ -23,6 +23,10 @@ export function remoteInstrumentEvidence(snapshot: RemoteInstrumentSnapshot): In
     add('twaSigned', snapshot.twaDeg, 'degrees', 'relative');
     add('twdTrue', snapshot.twdDeg, 'degrees', 'true');
     add('rpm', snapshot.rpm, 'rpm');
+    if (readings.rpm && snapshot.rpmEngineCount) {
+        readings.rpm.engineCount = snapshot.rpmEngineCount;
+        readings.rpm.engineId = snapshot.rpmEngineId;
+    }
     add('heel', snapshot.heelDeg, 'degrees', 'relative');
     if (snapshot.leewaySource) {
         add('leeway', snapshot.leewayDeg, 'degrees', 'relative');

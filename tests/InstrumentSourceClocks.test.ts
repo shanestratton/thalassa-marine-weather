@@ -56,7 +56,7 @@ afterEach(() => {
 it('survives the actual Pi -> relay parser -> LAN/cloud wire -> store contract with original clocks', () => {
     const snapshot = readTelemetrySnapshot(doc(), () => NOW)!;
     const body = buildTelemetryBody(snapshot, 'fictional-test');
-    expect(Object.keys(body.extra && typeof body.extra === 'object' ? body.extra : {})).toHaveLength(6);
+    expect(Object.keys(body.extra && typeof body.extra === 'object' ? body.extra : {})).toHaveLength(7);
     expect(JSON.stringify(body.extra).length).toBeLessThan(4096);
     const parsed = parseTelemetryBody(body, NOW);
     if (!parsed.ok) throw Error(parsed.error);
@@ -66,6 +66,7 @@ it('survives the actual Pi -> relay parser -> LAN/cloud wire -> store contract w
         NmeaStore.ingestRemote(wire);
         const state = NmeaStore.getState();
         expect(state.measurementTimes?.rpm).toBe(NOW - 2000);
+        expect(state.instrumentEvidence?.readings.rpm).toMatchObject({ engineCount: 1, engineId: 'main' });
         expect(state.instrumentEvidence?.readings.stw?.at).toBe(NOW - 2000);
         const c = measuredCurrent(state.instrumentEvidence, NOW);
         expect(c.kind).toBe('available');
@@ -127,7 +128,7 @@ it('does not borrow a parent timestamp, and known zero requires every engine ori
             { propulsion: { main: { revolutions: leaf(20) }, other: { revolutions: { value: 0 } } } },
             NOW,
         ),
-    ).toEqual({ value: 1200, at: NOW - 2000 });
+    ).toMatchObject({ value: 1200, at: NOW - 2000, engineCount: 2, engineId: 'main' });
     expect(readQualifiedRpm({ propulsion: { main: { revolutions: leaf(0, NOW - 20000) } } }, NOW)).toBeNull();
 });
 it('qualifies actual VHW/RMC sentence values with their own receipt clocks instead of later depth or aggregate averages', () => {
@@ -162,18 +163,18 @@ it('a magnetic wind direction is never relabelled true, and invalid RPM status n
 });
 
 it('the fully populated actual supplement/history/AIS path preserves every scalar through the existing relay bounds', () => {
-    const d: {navigation:Record<string,unknown>;environment:Record<string,unknown>;propulsion:unknown} = doc();
-    d.navigation.position = { ...leaf({ latitude: 30, longitude: -60 }), $source: 'test-source' };
+    const d: { navigation: Record<string, unknown>; environment: Record<string, unknown>; propulsion: unknown } = doc();
+    d.navigation.position = { ...leaf({ latitude: 30, longitude: -60 }), $source: 'x'.repeat(120) };
     d.navigation.gnss = {
-        satellites: { ...leaf(12), $source: 'test-source' },
-        horizontalDilution: { ...leaf(0.8), $source: 'test-source' },
-        methodQuality: { ...leaf('GNSS Fix'), $source: 'test-source' },
+        satellites: { ...leaf(12), $source: 'x'.repeat(120) },
+        horizontalDilution: { ...leaf(0.8), $source: 'x'.repeat(120) },
+        methodQuality: { ...leaf('GNSS Fix'), $source: 'x'.repeat(120) },
     };
     d.navigation.attitude = leaf({ roll: 0.1, pitch: 0.2 });
     d.navigation.leewayAngle = leaf(-0.03);
     d.environment.depth = { belowTransducer: leaf(10), transducerToKeel: leaf(2) };
     d.environment.wind = {
-        speedTrue: { ...leaf(7), $source: 'test-source' },
+        speedTrue: { ...leaf(7), $source: 'x'.repeat(120) },
         angleTrueWater: leaf(1),
         directionTrue: leaf(1),
     };
@@ -193,8 +194,8 @@ it('the fully populated actual supplement/history/AIS path preserves every scala
         NOW,
     )!;
     const history = new RollingWindHistory();
-    history.ingest({ kts: 12, at: NOW - 2000, source: 'test-source' }, NOW);
-    snapshot.extra = { ...snapshot.extra, ...history.extra(NOW), wind_history_identity: 'fictional-pi' };
+    history.ingest({ kts: 12, at: NOW - 2000, source: 'x'.repeat(120) }, NOW);
+    snapshot.extra = { ...snapshot.extra, ...history.extra(NOW), wind_history_identity: 'p'.repeat(120) };
     const body = buildTelemetryBody(
         snapshot,
         'fictional-test',
@@ -215,3 +216,35 @@ it.each(['[]', '[1,2,3,4,5,6,0,null]', '[1,2,3,4,5,6,30,7]', '[1,2,3,4,5,"6",nul
     'refuses a malformed packed clock contract %s',
     (value) => expect(unpackInstrumentTimes(value)).toBeNull(),
 );
+
+it('direct engine identity is explicit and any fresh running engine suppresses sailing even after another engine zero', () => {
+    listener.status = 'connected';
+    NmeaStore.start();
+    feed('YDRPM,E,1,1200,0,A');
+    listener.emitSample();
+    expect(NmeaStore.getState().instrumentEvidence?.readings.rpm).toMatchObject({
+        value: 1200,
+        at: NOW,
+        engineId: 'NMEA-E-1',
+        engineCount: 1,
+    });
+    vi.setSystemTime(NOW + 4000);
+    feed('YDRPM,E,2,0,0,A');
+    listener.emitSample();
+    expect(NmeaStore.getState().instrumentEvidence?.readings.rpm).toMatchObject({
+        value: 1200,
+        at: NOW,
+        engineCount: 2,
+    });
+    feed('YDRPM,E,1,0,0,A');
+    listener.emitSample();
+    expect(NmeaStore.getState().instrumentEvidence?.readings.rpm).toMatchObject({ value: 0, engineCount: 2 });
+});
+it('shaft RPM alone cannot qualify an engine identity or engine hours', () => {
+    listener.status = 'connected';
+    NmeaStore.start();
+    feed('YDRPM,S,1,1200,0,A');
+    listener.emitSample();
+    expect(NmeaStore.getState().rpm.value).toBe(1200);
+    expect(NmeaStore.getState().instrumentEvidence?.readings.rpm).toBeUndefined();
+});

@@ -297,7 +297,10 @@ export function readPackedInstrumentTimes(doc: unknown, now: number): string | n
 }
 
 /** Zero is known only if every reported engine has a fresh, valid zero leaf. */
-export function readQualifiedRpm(doc: unknown, now: number): { value: number; at: number } | null {
+export function readQualifiedRpm(
+    doc: unknown,
+    now: number,
+): { value: number; at: number; engineId?: string; engineCount?: number } | null {
     const engines = valueAt(doc, 'propulsion');
     if (!engines || typeof engines !== 'object' || Array.isArray(engines)) return null;
     if (Object.keys(engines).length > 32) return null;
@@ -309,13 +312,23 @@ export function readQualifiedRpm(doc: unknown, now: number): { value: number; at
             const at = units === undefined || units === 'Hz' ? timestampAt(doc, path, false) : null,
                 hz = num(doc, path);
             return at !== null && at > 0 && at <= now + 1000 && now - at <= 13000 && hz !== null && hz >= 0 && hz <= 500
-                ? { value: hz * 60, at }
+                ? {
+                      value: hz * 60,
+                      at,
+                      engineId: /^[A-Za-z0-9_.-]{1,64}$/.test(engine) ? engine : undefined,
+                      engineCount: Object.keys(engines).length,
+                  }
                 : null;
         });
     return (
         rows.find((row) => row !== null && row.value > 0) ??
         (rows.length && rows.every((row) => row !== null)
-            ? { value: 0, at: Math.min(...rows.map((row) => row!.at)) }
+            ? {
+                  value: 0,
+                  at: Math.min(...rows.map((row) => row!.at)),
+                  engineId: rows.length === 1 ? rows[0]!.engineId : undefined,
+                  engineCount: rows.length,
+              }
             : null)
     );
 }
@@ -584,12 +597,16 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
     const nowMs = now();
     const busAt = readBusAt(selfDocument, nowMs);
     const instrumentTimes = readPackedInstrumentTimes(selfDocument, nowMs);
+    const rpmSource = readQualifiedRpm(selfDocument, nowMs);
     const extra: Record<string, number | string> = {
         // First among the snapshot's keys: the relay keeps the first 40 only.
         ...(busAt !== null ? { bus_at_ms: busAt } : {}),
         ...readGnssExtra(selfDocument, nowMs),
         ...readTrueHeadingExtra(selfDocument, nowMs),
         ...(instrumentTimes ? { instrument_times_v1: instrumentTimes } : {}),
+        ...(rpmSource?.engineCount
+            ? { instrument_rpm_source_v1: JSON.stringify([rpmSource.engineCount, rpmSource.engineId ?? null]) }
+            : {}),
     };
     // The wind record must deduplicate the actual sensor envelope, not a
     // freshly fetched copy of Signal K's cached value or its current GPS clock.

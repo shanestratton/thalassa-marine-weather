@@ -10,7 +10,7 @@ import type { RemoteInstrumentSnapshot, RemoteVia } from './NmeaStore';
 import type { NmeaDepthReference } from '../types/navigation';
 import { parseWindHistorySummary } from '../utils/windHistory';
 import { readGnssDiagnostics } from './nmea/gnssDiagnostics';
-import { measurementTimes, unpackInstrumentTimes } from './instruments/measurements';
+import { measurementTimes, unpackInstrumentTimes, unpackRpmSource } from './instruments/measurements';
 
 export type TelemetryWire = Record<string, unknown>;
 
@@ -82,6 +82,7 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
         deviceLabel,
         reportedAt,
         snapshot: {
+            ...(unpackRpmSource(extra.instrument_rpm_source_v1) ?? {}),
             measurementTimes: measurementTimes({
                 ...instrumentTimes?.times,
                 sog: instrumentTimes?.times.sog ?? extra.instrument_sog_at_ms,

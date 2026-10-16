@@ -7,6 +7,9 @@ export interface InstrumentReading {
     unit: InstrumentUnit;
     reference?: InstrumentReference;
     source: string;
+    /** Reported physical engine record; missing/multiple never implies a single-engine hourmeter. */
+    engineId?: string;
+    engineCount?: number;
 }
 export const INSTRUMENT_MEASUREMENT_KEYS = [
     'sog',
@@ -111,6 +114,25 @@ export function unpackInstrumentTimes(
             leewayDeg: row[6],
             ...(row[6] !== null ? { leewaySource: 'Signal K navigation.leewayAngle' } : {}),
         };
+    } catch {
+        return null;
+    }
+}
+
+export function unpackRpmSource(value: unknown): { rpmEngineCount: number; rpmEngineId?: string } | null {
+    if (typeof value !== 'string' || value.length > 120) return null;
+    try {
+        const row: unknown = JSON.parse(value);
+        if (
+            !Array.isArray(row) ||
+            row.length !== 2 ||
+            !Number.isInteger(row[0]) ||
+            row[0] < 1 ||
+            row[0] > 32 ||
+            !(row[1] === null || (typeof row[1] === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(row[1])))
+        )
+            return null;
+        return { rpmEngineCount: row[0], ...(row[1] !== null ? { rpmEngineId: row[1] } : {}) };
     } catch {
         return null;
     }

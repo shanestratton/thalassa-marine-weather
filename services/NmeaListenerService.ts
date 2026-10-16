@@ -344,6 +344,7 @@ class NmeaListenerServiceClass {
     private firstAttemptTime: number | null = null; // For 5-minute give-up
     private sampleTimer: ReturnType<typeof setInterval> | null = null;
     private accumulator: RawAccumulator = this.freshAccumulator();
+    private instrumentEngines = new Map<string, InstrumentReading>();
     private listeners: Set<NmeaSampleCallback> = new Set();
     private statusListeners: Set<(s: NmeaConnectionStatus) => void> = new Set();
     private enabled = false;
@@ -1273,6 +1274,7 @@ class NmeaListenerServiceClass {
     }
 
     private setStatus(s: NmeaConnectionStatus) {
+        if (s !== 'connected') this.instrumentEngines.clear();
         this.status = s;
         for (const cb of this.statusListeners) cb(s);
         // Tell the crowd-feed what the gateway is doing. The dependency points
@@ -1667,17 +1669,41 @@ class NmeaListenerServiceClass {
     private parseRPM(parts: string[]) {
         // $xxRPM,source,engineNo,rpm,pitch,status
         const rpm = parseNmeaNumber(parts[3]);
-        this.instrument(
-            'rpm',
-            parts[5] === 'A' && rpm !== null && rpm >= 0 && rpm <= 30000 ? rpm : null,
-            'rpm',
-            undefined,
-            'NMEA RPM valid',
-        );
+        if (parts[1] === 'E' && /^[0-9]{1,4}$/.test(parts[2] ?? '')) {
+            const engineId = `NMEA-E-${parts[2]}`;
+            this.instrumentEngines.set(engineId, {
+                value: parts[5] === 'A' && rpm !== null && rpm >= 0 && rpm <= 30000 ? rpm : null,
+                at: Date.now(),
+                unit: 'rpm',
+                source: 'NMEA RPM engine E',
+                engineId,
+            });
+            this.refreshInstrumentRpm();
+        }
         if (rpm !== null) {
             this.accumulator.rpm.push(rpm);
             this.hasRpmData = true;
         }
+    }
+
+    private refreshInstrumentRpm(): void {
+        const now = Date.now();
+        for (const [key, row] of this.instrumentEngines)
+            if (now - row.at > 13000 || row.at > now + 1000) this.instrumentEngines.delete(key);
+        const rows = [...this.instrumentEngines.values()];
+        if (!rows.length) return;
+        const selected =
+            rows.find((row) => row.value !== null && row.value > 0) ??
+            (rows.every((row) => row.value === 0) ? rows.reduce((a, b) => (a.at < b.at ? a : b)) : null);
+        this.accumulator.instrumentReadings.rpm = selected
+            ? { ...selected, engineCount: rows.length }
+            : {
+                  value: null,
+                  at: Math.min(...rows.map((row) => row.at)),
+                  unit: 'rpm',
+                  source: 'NMEA engine RPM unavailable',
+                  engineCount: rows.length,
+              };
     }
 
     /**
@@ -1864,6 +1890,7 @@ class NmeaListenerServiceClass {
     }
 
     private emitSample() {
+        this.refreshInstrumentRpm();
         if (this.status !== 'connected') return;
 
         // DPT is explicit about its signed datum offset, so prefer its most

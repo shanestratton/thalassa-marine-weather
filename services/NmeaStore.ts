@@ -151,6 +151,8 @@ export interface RemoteFeed {
 export interface RemoteInstrumentSnapshot {
     measurementTimes?: InstrumentMeasurementTimes;
     rpmAtMs?: number;
+    rpmEngineId?: string;
+    rpmEngineCount?: number;
     leewayDeg?: number | null;
     leewaySource?: string;
     source: 'pi' | 'device';
