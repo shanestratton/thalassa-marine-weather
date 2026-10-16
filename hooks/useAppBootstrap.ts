@@ -610,6 +610,12 @@ export function useAppBootstrap() {
         const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
             const data = notification.data;
             const type = data?.notification_type;
+            if (type === 'wake_alarm')
+                void import('../services/alarms/wakeCloudAlarms')
+                    .then((m) => {
+                        if (active && isAuthIdentityScopeCurrent(actionScope)) void m.refreshWakeCloudAlarms();
+                    })
+                    .catch(() => undefined);
             if (data && type === 'anchor_alarm') {
                 ShoreWatchAlarmService.receivePush(data);
             }
@@ -620,6 +626,14 @@ export function useAppBootstrap() {
         const tapHandler = (data: Readonly<Record<string, unknown>>, notice?: PushTapNotice) => {
             const type = data.notification_type as string;
             switch (type) {
+                case 'wake_alarm':
+                    void import('../services/alarms/wakeCloudAlarms')
+                        .then((m) => {
+                            if (active && isAuthIdentityScopeCurrent(actionScope)) void m.refreshWakeCloudAlarms();
+                        })
+                        .catch(() => undefined);
+                    setPage('map');
+                    break;
                 case 'dm':
                     setPage('chat');
                     break;

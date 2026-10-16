@@ -9,11 +9,12 @@ import ts from 'typescript';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const target = path.join(repo, 'pi-cache/src/wakeRule');
-const files = ['wakeRule.ts', 'wakeRuleInputs.ts', 'barometerTendency.ts'];
+const files = ['wakeRule.ts', 'wakeRuleInputs.ts', 'barometerTendency.ts', 'wakePiContract.ts'];
 const allowedImports = new Map([
     ['wakeRule.ts', []],
     ['barometerTendency.ts', []],
     ['wakeRuleInputs.ts', ['./barometerTendency', './wakeRule']],
+    ['wakePiContract.ts', ['./wakeRule']],
 ]);
 const args = new Set(process.argv.slice(2));
 if ([...args].some((arg) => !['--check', '--allow-dirty'].includes(arg)))
@@ -64,7 +65,7 @@ if (check) {
     const stamp = fs.readFileSync(stampPath, 'utf8');
     for (const [file, sha] of Object.entries(hashes))
         if (!stamp.includes(`'${file}': '${sha}'`)) throw new Error('Wake rule stamp drift: ' + file);
-    console.info('Wake rule mirror is current (3 allowlisted pure modules)');
+    console.info('Wake rule mirror is current (4 allowlisted pure modules)');
 } else {
     const dirty = execFileSync('git', ['status', '--porcelain', '--', ...files.map((file) => 'utils/' + file)], {
         cwd: repo,

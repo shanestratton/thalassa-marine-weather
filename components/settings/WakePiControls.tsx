@@ -14,7 +14,13 @@ export function WakePiControls() {
             <p role="status">
                 {view.keeper === 'pi' ? 'Pi is evaluating these saved rules.' : 'Phone only while the app is active.'}
             </p>
-            <p className="text-amber-200">Locked-phone delivery is unavailable.</p>
+            <p className="text-amber-200">
+                {view.keeper === 'pi' && view.pi?.push.state === 'ready' && view.pi.push.capability === 1
+                    ? 'The paired Pi recently confirmed relay support and a registered recipient. Delivery depends on its internet, APNs and phone settings.'
+                    : view.pi?.push.state === 'conflict'
+                      ? 'Cloud wake rules changed. Locked-phone delivery is held for review.'
+                      : 'Locked-phone delivery is unavailable.'}
+            </p>
             <p className="break-words text-gray-400">
                 {view.state === 'update'
                     ? 'The boat needs Pi update 7 to supply these sensors.'

@@ -5,6 +5,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { PiWakeKeeper } from './wakeKeeper/runner.js';
 import { WakeKeeperStore } from './wakeKeeper/store.js';
+import { WakeRelay } from './wakeKeeper/relay.js';
+import { wakeCloudContext, type WakeCloudContext } from './wakeKeeper/relayProtocol.js';
 import {
     wakeHash,
     wakePairingId,
@@ -60,7 +62,7 @@ function request(
         rulesDigest: wakeHash(wakeRulesCanonical(rules, 2)),
     };
 }
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, relay?: WakeRelay) {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'thalassa-wake-runner-'));
     t.after(async () => {
         assert(path.resolve(directory).startsWith(path.resolve(os.tmpdir()) + path.sep + 'thalassa-wake-runner-'));
@@ -90,6 +92,7 @@ async function fixture(t: TestContext) {
             return data.block ? data.block() : data.document;
         },
         now: () => data.now,
+        relay,
     };
     const keeper = new PiWakeKeeper(deps);
     await keeper.start(false);
@@ -122,6 +125,162 @@ async function fixture(t: TestContext) {
     assert.ok(binding);
     return { data, keeper, store, deps, binding, wind, pressure };
 }
+test('actual keeper transports complete original-clock episodes and applies only matching cloud ACKs; pairing retirement drops ready', async (t) => {
+    let now = start,
+        remote: unknown = null,
+        revision: string | null = null;
+    const sent: Record<string, unknown>[] = [];
+    const relay = new WakeRelay({
+        endpoint: 'https://pcisdplnodrphauixcau.supabase.co/functions/v1/pi-alarm-relay',
+        anonKey: () => 'fictional-gateway',
+        credentials: () => ({ relayId: 'fictional-relay-identity', token: 'fictional-not-secret' }),
+        ownerId: () => owner,
+        internetAllowed: () => true,
+        now: () => now,
+        fetchImpl: async (_url, init) => {
+            const body = JSON.parse(String(init?.body));
+            sent.push(body);
+            if (body.action === 'probe')
+                return Response.json({
+                    ok: true,
+                    devices: 1,
+                    wake: { v: 1, enabled: true },
+                    context: remote,
+                    contextRevision: revision,
+                    retired: false,
+                });
+            revision ??= '00000000-0000-4000-8000-000000000006';
+            if (body.action === 'bind') {
+                remote = body.context;
+                return Response.json({
+                    ok: true,
+                    wake: { v: 1, enabled: true },
+                    contextRevision: revision,
+                    queued: 0,
+                    acked: [],
+                });
+            }
+            if (body.action === 'retire')
+                return Response.json({
+                    ok: true,
+                    retired: true,
+                    wake: { v: 1, enabled: true },
+                    contextRevision: '00000000-0000-4000-8000-000000000007',
+                    queued: 0,
+                    acked: [],
+                });
+            return Response.json({
+                ok: true,
+                wake: { v: 1, enabled: true },
+                contextRevision: revision,
+                queued: 0,
+                acked: body.states.flatMap((r: { alarm: { key: string } | null }) => (r.alarm ? [r.alarm.key] : [])),
+            });
+        },
+    });
+    const f = await fixture(t, relay);
+    now = f.data.now;
+    await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    await f.keeper.tick();
+    await relay.settled();
+    f.data.now += 10_001;
+    now = f.data.now;
+    f.data.document = f.wind();
+    await f.keeper.tick();
+    await relay.settled();
+    const status = await f.keeper.status(device),
+        wind = status.rules.find((r) => r.preset === 'wind-above')!;
+    assert.equal(status.push.state, 'ready');
+    assert.equal(status.push.capability, 1);
+    assert.equal(wind.episode?.sourceAt, f.data.now);
+    assert.equal(wind.episode?.ackedAt, f.data.now);
+    assert.equal(wind.audible, false);
+    const snapshot = sent.filter((r) => r.action === 'sync').at(-1) as {
+        evaluatedAt: number;
+        states: { alarm: { sourceAt: number } | null }[];
+    };
+    assert.equal(snapshot.evaluatedAt, f.data.now);
+    assert.equal(snapshot.states.find((r) => r.alarm)?.alarm?.sourceAt, f.data.now);
+    f.data.identity = null;
+    assert.equal((await f.keeper.status(device)).push.capability, 0);
+    await relay.settled();
+    assert.equal(sent.at(-1)?.action, 'retire');
+});
+test('explicit cloud review verifies caller enrollment, local CAS and physical feed before scheduling exactly that context', async (t) => {
+    let now = start,
+        remote: WakeCloudContext | null = null;
+    const cloudRevision = '00000000-0000-4000-8000-000000000066',
+        calls: Record<string, unknown>[] = [];
+    const relay = new WakeRelay({
+        endpoint: 'https://pcisdplnodrphauixcau.supabase.co/functions/v1/pi-alarm-relay',
+        anonKey: () => 'fictional-gateway',
+        credentials: () => ({ relayId: 'fictional-relay-identity', token: 'fictional-not-secret' }),
+        ownerId: () => owner,
+        internetAllowed: () => true,
+        now: () => now,
+        fetchImpl: async (_url, init) => {
+            const body = JSON.parse(String(init?.body));
+            calls.push(body);
+            if (body.action === 'probe')
+                return Response.json({
+                    ok: true,
+                    devices: 1,
+                    wake: { v: 1, enabled: true },
+                    context: remote,
+                    contextRevision: cloudRevision,
+                    retired: false,
+                });
+            if (body.action === 'bind') remote = body.context;
+            return Response.json({
+                ok: true,
+                wake: { v: 1, enabled: true },
+                contextRevision: cloudRevision,
+                queued: 0,
+                acked: [],
+            });
+        },
+    });
+    const f = await fixture(t, relay);
+    now = f.data.now;
+    const config = await f.keeper.configure(request(f.binding, 'wind-above'), device);
+    remote = { ...wakeCloudContext(config, f.keeper.instance), rulesDigest: 'e'.repeat(64) };
+    await f.keeper.tick();
+    await relay.settled();
+    assert.equal((await f.keeper.status(device)).push.conflict?.revision, cloudRevision);
+    const review = {
+        schema: 1 as const,
+        expectedRevision: config.revision,
+        rulesDigest: config.rulesDigest,
+        binding: f.binding,
+        expectedContextRevision: cloudRevision,
+    };
+    await assert.rejects(
+        f.keeper.reviewRelay({ ...review, expectedRevision: '00000000-0000-4000-8000-000000000099' }, device),
+        { code: 'conflict' },
+    );
+    await assert.rejects(
+        f.keeper.reviewRelay(
+            { ...review, binding: { ...f.binding, deviceId: '00000000-0000-4000-8000-000000000099' } },
+            device,
+        ),
+        { code: 'binding' },
+    );
+    assert.equal(
+        calls.some((c) => c.action === 'bind'),
+        false,
+    );
+    const second = { ...device, id: '00000000-0000-4000-8000-000000000077' };
+    f.data.devices.push(second);
+    const b = {
+        ...review,
+        binding: { ...f.binding, deviceId: second.id, enrollmentRevision: wakeEnrollmentRevision(second) },
+    };
+    assert.deepEqual(await f.keeper.reviewRelay(b, second), { schema: 1, accepted: true });
+    await relay.settled();
+    assert.equal(relay.status().state, 'ready');
+    assert.equal(calls.filter((c) => c.action === 'bind').length, 1);
+    assert.deepEqual((calls.find((c) => c.action === 'bind')!.context as WakeCloudContext).binding, config.binding);
+});
 test('defaults OFF; read endpoints never poll source; phone and Pi evaluate exactly the same original reading', async (t) => {
     const f = await fixture(t),
         { keeper, data, binding } = f;

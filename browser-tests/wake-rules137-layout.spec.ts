@@ -9,6 +9,34 @@ const presets = [
     'engine-rpm-above',
     'battery-below',
 ];
+for (const width of [300, 375])
+    test(`wake Pi ACK stays explicit and readable at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 640 });
+        const remote: string[] = [];
+        await page.route('**/*', (route) => {
+            if (['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)) return route.continue();
+            remote.push(route.request().url());
+            return route.abort();
+        });
+        await page.goto('/e2e/fixtures/wake-alarms137.html');
+        await page.addStyleTag({ content: 'html{font-size:130%}' });
+        const card = page.getByRole('alert'),
+            ack = page.getByRole('button', { name: 'Acknowledge this Pi alarm' });
+        await expect(card.getByText('Reading unavailable')).toBeVisible();
+        await expect(card.getByText(/Paired Pi wake rule/)).toBeVisible();
+        await ack.focus();
+        await expect(ack).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(card.getByRole('status')).toHaveText('Pi acknowledgement not confirmed. Alarm retained.');
+        await expect(card).toBeVisible();
+        await expect(ack).toBeEnabled();
+        expect(await page.locator('body').evaluate((n) => n.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+        const box = (await ack.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(remote).toEqual([]);
+    });
 async function bounded(dialog: Locator, width: number, bottom: number) {
     const panel = dialog.locator('[data-modal-sheet]');
     const box = (await panel.boundingBox())!;

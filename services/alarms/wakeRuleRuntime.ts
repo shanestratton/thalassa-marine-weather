@@ -21,7 +21,14 @@ export function startWakeRuleRuntime(): () => void {
         last = context().key;
     const enabled = () => getWakeRulePreferences().rules.some((r) => r.enabled);
     const resume = () => {
-        if (live && enabled() && document.visibilityState !== 'hidden') void readWakeRuleSensors();
+        if (live && enabled() && document.visibilityState !== 'hidden') {
+            void readWakeRuleSensors();
+            void import('./wakeCloudAlarms')
+                .then((m) => {
+                    if (live) void m.refreshWakeCloudAlarms();
+                })
+                .catch(() => undefined);
+        }
     };
     const preferences = subscribeWakeRulePreferences(() => {
         if (

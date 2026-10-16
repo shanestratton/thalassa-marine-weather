@@ -21,7 +21,7 @@ import {
     parseWakePiStatus,
     wakePiBindingKey,
 } from './wakePiWire';
-import type { WakeKeeperStatus, WakeSensors } from '../../pi-cache/src/wakeKeeper/contract';
+import type { WakeKeeperStatus, WakeSensors } from '../../utils/wakePiContract';
 import { WakeAlarmStore } from './wakeAlarmStore';
 
 export interface WakePhoneRule extends WakeEvaluation {
@@ -110,6 +110,7 @@ export class WakeRuleWatchClass {
                     value: r.value,
                     quiet: r.quiet,
                     muted: this.view.muted,
+                    ...this.piEpisode(r.preset),
                 })),
         );
         for (const listener of [...this.listeners]) {
@@ -119,6 +120,24 @@ export class WakeRuleWatchClass {
                 console.error('[WakeRules] subscriber failed');
             }
         }
+    }
+    private piEpisode(preset: WakePreset) {
+        const config = this.view.pi?.configuration,
+            episode = this.view.pi?.rules.find((r) => r.preset === preset)?.episode;
+        if (!config || config.rulesDigest !== this.rulesDigest || !episode) return {};
+        if (episode.ackedAt !== null) return { acknowledged: true };
+        const revision = this.view.pi?.push.contextRevision;
+        return this.view.pi?.push.capability === 1 && revision
+            ? {
+                  cloud: {
+                      ownerId: config.binding.ownerId,
+                      piDeviceId: config.binding.piDeviceId,
+                      contextRevision: revision,
+                      rulesDigest: config.rulesDigest,
+                      key: episode.key,
+                  },
+              }
+            : {};
     }
     private releaseAudio() {
         this.audioGeneration++;
@@ -200,6 +219,11 @@ export class WakeRuleWatchClass {
         const rows = preferences.rules.map((rule) => {
             const reading = rule.selection ? (readings.get(wakeSourceKey(rule.preset, rule.selection)) ?? null) : null;
             const result = evaluateWakeRule(rule, this.states.get(rule.preset) ?? initialWakeState(), reading, now);
+            if (
+                this.view.pi?.configuration?.rulesDigest === this.rulesDigest &&
+                this.view.pi.rules.find((r) => r.preset === rule.preset)?.episode?.ackedAt != null
+            )
+                result.audible = false;
             this.states.set(rule.preset, result.state);
             return { ...result, preset: rule.preset, value: reading?.value ?? null };
         });

@@ -144,6 +144,38 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 describe('bounded wake wire', () => {
+    it('preserves a bounded current cloud conflict summary for explicit review and rejects unknown policy fields', () => {
+        const conflict = {
+            revision: REV,
+            configurationRevision: REV,
+            rulesDigest: 'c'.repeat(64),
+            feedMatches: false,
+            retired: true,
+            rules: defaultWakeRules().map((r) => ({
+                preset: r.preset,
+                enabled: false,
+                threshold: null,
+                sourceMatches: false,
+                quietHours: null,
+            })),
+        };
+        const raw = { ...status(), push: { state: 'conflict', capability: 0, conflict } };
+        expect(parseWakePiStatus(JSON.stringify(raw), NOW).push.conflict).toEqual(conflict);
+        expect(() =>
+            parseWakePiStatus(
+                JSON.stringify({
+                    ...raw,
+                    push: { ...raw.push, conflict: { ...conflict, url: 'https://invalid.example' } },
+                }),
+                NOW,
+            ),
+        ).toThrow();
+        const malformed = structuredClone(raw);
+        Object.assign(malformed.push.conflict.rules[0], {
+            quietHours: { startMinute: 0, endMinute: 0, utcOffsetMinutes: 0 },
+        });
+        expect(() => parseWakePiStatus(JSON.stringify(malformed), NOW)).toThrow();
+    });
     it('preserves the arming phone’s binding in a keeper proof read by another enrolled phone', () => {
         const rules = selectedRules();
         const configuration = {

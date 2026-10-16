@@ -20,6 +20,8 @@ import {
     wakePairKey,
     wakeRecord,
     sameWakeSelection,
+    validWakeBinding,
+    wakeUuid,
     type WakePairIdentity,
     type WakeBinding,
     type WakeConfiguration,
@@ -29,8 +31,12 @@ import {
     type WakeSensors,
     type WakeRuleStatus,
     type WakePressureStatus,
+    type WakeRelayReviewRequest,
 } from './contract.js';
 import { WakeKeeperStore } from './store.js';
+import { WakeEpisodes } from './episodes.js';
+import type { WakeRelay } from './relay.js';
+import { wakeCloudContext, wakeCloudContextKey } from './relayProtocol.js';
 
 const unavailablePressure = (): WakePressureStatus => ({ state: 'unavailable', sampleCount: 0, spanMs: 0 });
 /** No transport is accepted here. Both documents and ownership are authenticated, cache-only callbacks.
@@ -57,6 +63,7 @@ export class PiWakeKeeper {
     private rows: WakeRuleStatus[] = [];
     private proof: WakeKeeperStatus['proof'] = null;
     private proofUntil = 0;
+    private episodes = new WakeEpisodes();
     constructor(
         private readonly deps: {
             store: WakeKeeperStore;
@@ -64,6 +71,7 @@ export class PiWakeKeeper {
             devices: Pick<EncDeviceStore, 'list'>;
             selfDocument: () => Promise<unknown | null>;
             now?: () => number;
+            relay?: WakeRelay;
         },
     ) {
         this.now = deps.now ?? Date.now;
@@ -80,6 +88,8 @@ export class PiWakeKeeper {
         }
     }
     private retire(clearDocument = true): void {
+        this.deps.relay?.retire();
+        this.episodes.clear();
         this.epoch++;
         this.history = null;
         this.states = defaultWakeRules().map(initialWakeState);
@@ -336,6 +346,20 @@ export class PiWakeKeeper {
                   ...enabled.map(({ rule, reading }) => reading!.at + WAKE_PRESETS[rule.preset].maxAge),
               )
             : 0;
+        const pass = this.episodes.pass(config, this.instance, this.rows, now),
+            passEpoch = this.epoch;
+        this.deps.relay?.update(
+            pass,
+            () =>
+                this.started &&
+                !this.mutations &&
+                !this.storageUnavailable &&
+                !this.enrollmentUnavailable &&
+                this.epoch === passEpoch &&
+                this.configuration?.revision === config.revision &&
+                wakePairKey(config.binding) === wakePairKey(this.identity()),
+            (key, acked, at) => this.episodes.acknowledge(key, acked, at),
+        );
     }
     private bindingFor(device: ChartDevicePublic): WakeBinding | null {
         return this.pair && this.feedId
@@ -416,6 +440,13 @@ export class PiWakeKeeper {
                           : { ...row, quiet, audible, status: 'unknown' as const, value: null };
                   })
                 : [];
+        for (const row of rows) {
+            const episode = this.episodes.episode(row.preset);
+            if (episode) {
+                row.episode = episode;
+                if (episode.ackedAt !== null) row.audible = false;
+            }
+        }
         return {
             schema: 1,
             update: 7,
@@ -428,7 +459,7 @@ export class PiWakeKeeper {
             proof: proof ? structuredClone(proof) : null,
             rules: rows,
             pressure: this.pressure(config?.draftM ?? null),
-            push: { state: 'unavailable', capability: 0 },
+            push: this.deps.relay?.status() ?? { state: 'unavailable', capability: 0 },
             servedAt: now,
         };
     }
@@ -518,5 +549,52 @@ export class PiWakeKeeper {
         } finally {
             this.mutations--;
         }
+    }
+    async reviewRelay(raw: WakeRelayReviewRequest, device: ChartDevicePublic): Promise<{ schema: 1; accepted: true }> {
+        if (
+            !wakeRecord(raw) ||
+            Object.keys(raw).length !== 5 ||
+            raw.schema !== 1 ||
+            !wakeUuid(raw.expectedRevision) ||
+            !wakeUuid(raw.expectedContextRevision) ||
+            !validWakeBinding(raw.binding) ||
+            typeof raw.rulesDigest !== 'string' ||
+            !/^[a-f0-9]{64}$/.test(raw.rulesDigest)
+        )
+            throw new WakeKeeperError('invalid');
+        raw = { ...raw, binding: { ...raw.binding } };
+        await this.initialize();
+        await this.reconcile();
+        const config = this.visible(),
+            epoch = this.epoch,
+            binding = { ...raw.binding };
+        if (binding.deviceId !== device.id || binding.enrollmentRevision !== wakeEnrollmentRevision(device))
+            throw new WakeKeeperError('binding');
+        if (
+            !config ||
+            config.revision !== raw.expectedRevision ||
+            config.rulesDigest !== raw.rulesDigest ||
+            config.binding.feedId !== binding.feedId ||
+            wakePairKey(config.binding) !== wakePairKey(binding)
+        )
+            throw new WakeKeeperError('conflict');
+        if ((await this.deps.store.load())?.revision !== config.revision) throw new WakeKeeperError('conflict');
+        if (
+            !(await this.current(binding, true)) ||
+            epoch !== this.epoch ||
+            this.configuration?.revision !== config.revision ||
+            (await this.deps.store.load())?.revision !== config.revision ||
+            this.mutations
+        )
+            throw new WakeKeeperError('binding');
+        if (!this.deps.relay) throw new WakeKeeperError('unavailable');
+        if (
+            !this.deps.relay.review(
+                raw.expectedContextRevision,
+                wakeCloudContextKey(wakeCloudContext(config, this.instance)),
+            )
+        )
+            throw new WakeKeeperError('conflict');
+        return { schema: 1, accepted: true };
     }
 }

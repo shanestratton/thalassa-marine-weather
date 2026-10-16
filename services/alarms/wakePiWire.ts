@@ -4,7 +4,8 @@ import type {
     WakeKeeperStatus,
     WakePressureStatus,
     WakeSensors,
-} from '../../pi-cache/src/wakeKeeper/contract';
+    WakeRelayConflict,
+} from '../../utils/wakePiContract';
 import {
     defaultWakeRules,
     validWakeSelection,
@@ -210,10 +211,71 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
         !Array.isArray(v.rules) ||
         v.rules.length > 8 ||
         !record(v.push) ||
-        v.push.state !== 'unavailable' ||
-        v.push.capability !== 0
+        !['unavailable', 'ready', 'internet-off', 'not-paired', 'conflict'].includes(v.push.state as string) ||
+        ![0, 1].includes(v.push.capability as number) ||
+        (v.push.capability === 1 && (!clock(v.push.checkedAt) || !uuid(v.push.contextRevision))) ||
+        (v.push.state === 'ready' && v.push.capability !== 1)
     )
         return fail();
+    let conflict: WakeRelayConflict | undefined;
+    if (v.push.conflict !== undefined) {
+        const c = v.push.conflict;
+        if (
+            v.push.state !== 'conflict' ||
+            v.push.capability !== 0 ||
+            !record(c) ||
+            Object.keys(c).length !== 6 ||
+            !uuid(c.revision) ||
+            !uuid(c.configurationRevision) ||
+            !hex(c.rulesDigest) ||
+            typeof c.feedMatches !== 'boolean' ||
+            typeof c.retired !== 'boolean' ||
+            !Array.isArray(c.rules) ||
+            c.rules.length !== 8
+        )
+            return fail();
+        const seen = new Set<string>();
+        const rules = c.rules.map((r) => {
+            if (
+                !record(r) ||
+                Object.keys(r).length !== 5 ||
+                typeof r.preset !== 'string' ||
+                !Object.hasOwn(WAKE_PRESETS, r.preset) ||
+                seen.has(r.preset) ||
+                typeof r.enabled !== 'boolean' ||
+                typeof r.sourceMatches !== 'boolean' ||
+                !(r.threshold === null || finite(r.threshold)) ||
+                (r.enabled && r.threshold === null)
+            )
+                return fail();
+            const base = defaultWakeRules().find((rule) => rule.preset === r.preset)!;
+            if (
+                !validWakeDraft({
+                    ...base,
+                    threshold: r.threshold ?? base.threshold,
+                    quietHours: r.quietHours as typeof base.quietHours,
+                }) ||
+                (r.quietHours !== null && (!record(r.quietHours) || Object.keys(r.quietHours).length !== 3))
+            )
+                return fail();
+            seen.add(r.preset);
+            return {
+                preset: r.preset as WakePreset,
+                enabled: r.enabled,
+                threshold: r.threshold as number | null,
+                sourceMatches: r.sourceMatches,
+                quietHours: r.quietHours as typeof base.quietHours,
+            };
+        });
+        conflict = {
+            revision: c.revision,
+            configurationRevision: c.configurationRevision,
+            rulesDigest: c.rulesDigest,
+            feedMatches: c.feedMatches,
+            retired: c.retired,
+            rules,
+        };
+    }
     const binding = v.binding as WakeBinding | null;
     const configuration = v.configuration === null ? null : parseWakePiConfiguration(v.configuration);
     if (
@@ -239,6 +301,24 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
         )
             return fail();
         seen.add(row.preset);
+        let episode: WakeKeeperStatus['rules'][number]['episode'];
+        if (row.episode !== undefined) {
+            const a = row.episode;
+            if (
+                !record(a) ||
+                Object.keys(a).length !== 4 ||
+                typeof a.key !== 'string' ||
+                !/^wake-(depth|wind|speed|pressure|coolant|oil|rpm|battery):[0-9a-f]{12}:[0-9]{10,13}$/.test(a.key) ||
+                !clock(a.raisedAt) ||
+                !clock(a.sourceAt) ||
+                a.sourceAt < a.raisedAt ||
+                a.sourceAt > now + 1000 ||
+                a.key.split(':')[2] !== String(a.raisedAt) ||
+                !(a.ackedAt === null || (clock(a.ackedAt) && a.ackedAt >= a.raisedAt && a.ackedAt <= now + 1000))
+            )
+                return fail();
+            episode = { key: a.key, raisedAt: a.raisedAt, sourceAt: a.sourceAt, ackedAt: a.ackedAt as number | null };
+        }
         return {
             preset: row.preset as WakePreset,
             status: row.status as WakeKeeperStatus['rules'][number]['status'],
@@ -247,6 +327,7 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
             quiet: row.quiet as boolean,
             lastAt: row.lastAt as number | null,
             value: row.value as number | null,
+            ...(episode ? { episode } : {}),
             ...(['below-keel', 'transducer-offset', 'conservative-full-draft'].includes(row.depthBasis as string)
                 ? { depthBasis: row.depthBasis as WakeReading['depthBasis'] }
                 : {}),
@@ -299,7 +380,22 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
         proof,
         rules: rows,
         pressure: pressure(v.pressure),
-        push: { state: 'unavailable', capability: 0 },
+        push:
+            v.push.capability === 1 &&
+            clock(v.push.checkedAt) &&
+            now >= v.push.checkedAt &&
+            now - v.push.checkedAt <= 30_000
+                ? {
+                      state: v.push.state as WakeKeeperStatus['push']['state'],
+                      capability: 1,
+                      checkedAt: v.push.checkedAt,
+                      contextRevision: v.push.contextRevision as string,
+                  }
+                : {
+                      state: v.push.state === 'conflict' ? 'conflict' : 'unavailable',
+                      capability: 0,
+                      ...(conflict ? { conflict } : {}),
+                  },
         servedAt: v.servedAt as number,
     };
 }
