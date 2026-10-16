@@ -4,7 +4,6 @@ import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
 import { build } from 'vite';
-import type { RollupOutput } from 'rollup';
 import { decode, decodeApng, encode, type ImageData } from 'fast-png';
 import type { jsPDF } from 'jspdf';
 import { Inflate, inflate } from '../utils/pngInflate';
@@ -59,7 +58,8 @@ beforeAll(async () => {
             },
         },
     });
-    const output = (result as RollupOutput).output.find((o) => o.type === 'chunk');
+    if (Array.isArray(result) || !('output' in result)) throw Error('Expected one PNG production bundle');
+    const output = result.output.find((o) => o.type === 'chunk');
     if (!output || output.type !== 'chunk') throw Error('Missing PNG production proof');
     modules = Object.keys(output.modules);
     bytes = Buffer.byteLength(output.code);

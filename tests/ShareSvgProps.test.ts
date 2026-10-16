@@ -3,7 +3,6 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { build, parseAst } from 'vite';
 import react from '@vitejs/plugin-react';
-import type { RollupOutput } from 'rollup';
 import React, { type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
@@ -53,7 +52,8 @@ async function productionIcons(shared: boolean): Promise<{ bytes: number; icons:
             },
         },
     });
-    const output = (result as RollupOutput).output.find((o) => o.type === 'chunk');
+    if (Array.isArray(result) || !('output' in result)) throw Error('Expected one SVG production bundle');
+    const output = result.output.find((o) => o.type === 'chunk');
     if (!output || output.type !== 'chunk') throw Error('Missing SVG proof');
     return {
         bytes: Buffer.byteLength(output.code),
