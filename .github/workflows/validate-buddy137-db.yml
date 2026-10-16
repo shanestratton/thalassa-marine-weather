@@ -1,0 +1,72 @@
+name: Build137 isolated buddy watch PostGIS and concurrency proof
+on:
+  push:
+    branches: ['codex/build-137-buddy-db-validation']
+    paths: ['.github/workflows/validate-buddy137-db.yml']
+permissions:
+  contents: read
+concurrency:
+  group: buddy137-isolated-database-proof
+  cancel-in-progress: false
+jobs:
+  buddy:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HUSKY: '0'
+      THALASSA_DISPOSABLE_BUDDY_TEST: '1'
+      BUDDY_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/buddy137_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: '5ab747e88f4d99611db098f43ae33eaf957e4d03'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact source and preserve isolated fixture identities
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 5ab747e88f4d99611db098f43ae33eaf957e4d03
+          mkdir -p "$RUNNER_TEMP/buddy137-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/buddy137-proof/SOURCE_SHA.txt"
+          node --version > "$RUNNER_TEMP/buddy137-proof/NODE_VERSION.txt"
+          sha256sum supabase/tests/buddy-watch-db.mjs supabase/tests/buddy-watch-postgres-cases.mjs supabase/held-migrations/20261016171547_buddy_watch.sql utils/buddyWatch.ts > "$RUNNER_TEMP/buddy137-proof/SHA256SUMS"
+          docker image inspect postgis/postgis:17-3.5 --format '{{.Id}}' > "$RUNNER_TEMP/buddy137-proof/POSTGIS_IMAGE_ID.txt"
+      - name: Create a fresh template0 database inside the disposable service
+        run: |
+          set -euo pipefail
+          docker exec '${{ job.services.postgres.id }}' psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE buddy137_test TEMPLATE template0'
+      - name: Install only the isolated pinned PostgreSQL client
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/buddy137-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          test "$(node -p "require('$RUNNER_TEMP/buddy137-pg/node_modules/pg/package.json').version")" = 8.16.3
+          sha256sum "$RUNNER_TEMP/buddy137-pg/package-lock.json" > "$RUNNER_TEMP/buddy137-proof/CLIENT_LOCK_SHA256.txt"
+      - name: Actual owner privacy PostGIS distance and seven sixteen-session cohorts
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/buddy137-pg/node_modules/pg/lib/index.js
+        run: |
+          set -euo pipefail
+          node supabase/tests/buddy-watch-db.mjs 2>&1 | tee "$RUNNER_TEMP/buddy137-proof/BUDDY.txt"
+      - name: Preserve isolated proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build137-buddy-postgis-proof
+          path: ${{ runner.temp }}/buddy137-proof/
+          retention-days: 7
+          if-no-files-found: error
