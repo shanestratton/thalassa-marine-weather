@@ -43,6 +43,39 @@ const polygons = (g: Polygon | MultiPolygon): Position[][][] =>
 const overlaps = (a: readonly number[], b: readonly number[]) =>
     !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
 
+export const exclusionCostFactor = (grid: NavGrid, index: number): number =>
+    grid.exclusionCaution?.[index] === 1 ? 1.25 : 1;
+
+/** Apply to a freshly built/cached base grid before any endpoint or component
+ * rescue. Every mutable route array and mask is private; the cache is read only. */
+export function applyExclusionField(base: NavGrid, field: ExclusionField, check: () => void = () => {}): NavGrid {
+    const masks = rasterExclusionField(base, field, check);
+    const grid: NavGrid = {
+        ...base,
+        cells: base.cells.slice(),
+        preferred: base.preferred.slice(),
+        exclusionBlocked: masks?.blocked,
+        exclusionCaution: masks?.caution,
+    };
+    if (masks)
+        for (let i = 0; i < masks.blocked.length; i++) {
+            if ((i & 1023) === 0) check();
+            if (masks.blocked[i] === 1) grid.cells[i] = NaN;
+        }
+    check();
+    return grid;
+}
+
+export function exclusionRefusal(kind: ExclusionKind): string {
+    if (kind === 'manual-no-go')
+        return 'The route would cross one of your no-go polygons. Move the route outside it or edit that polygon.';
+    if (kind === 'traffic-separation')
+        return 'The route would enter a traffic separation zone. This planner keeps separation zones closed.';
+    return kind === 'entry-prohibited'
+        ? 'The route would enter an area marked entry prohibited. Move the route outside that area.'
+        : 'The route would enter a restricted area. This planner keeps entry-restricted areas closed.';
+}
+
 /** Take a bounded independent geometry snapshot before routing. Malformed hard
  * constraints are refused, never silently dropped or reinterpreted as a line. */
 export function buildExclusionField(sources: ExclusionSources): ExclusionField {

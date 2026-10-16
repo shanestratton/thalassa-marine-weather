@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
-import { buildExclusionField, rasterExclusionField, routeExclusionConflict } from '../services/engine/exclusionField';
+import {
+    applyExclusionField,
+    buildExclusionField,
+    rasterExclusionField,
+    routeExclusionConflict,
+} from '../services/engine/exclusionField';
+import { aStar, cellCostAt, lineOfSightClear } from '../services/engine/aStar';
+import { isNavigable } from '../services/engine/geometry';
 import type { NavGrid } from '../services/engine/types';
 
 const rect = (w: number, s: number, e: number, n: number, properties = {}): Feature<Polygon> => ({
@@ -33,6 +40,41 @@ const grid = (): NavGrid =>
     }) as NavGrid;
 
 describe('139 composite exclusion field', () => {
+    it('keeps the cached grid untouched and cannot reopen a masked cell by a later depth carve', () => {
+        const base = grid();
+        const field = buildExclusionField({ manual: fc(rect(0.004, 0.003, 0.006, 0.007)) });
+        const privateGrid = applyExclusionField(base, field);
+        expect(base.cells.every((depth) => depth === 10)).toBe(true);
+        expect(base.exclusionBlocked).toBeUndefined();
+        expect(privateGrid.cells).not.toBe(base.cells);
+        expect(privateGrid.preferred).not.toBe(base.preferred);
+        privateGrid.cells[55] = 50;
+        privateGrid.preferred[55] = 1;
+        expect(isNavigable(privateGrid, 5, 5)).toBe(false);
+        expect(cellCostAt(privateGrid, 5, 5)).toBe(Infinity);
+        expect(aStar(privateGrid, { x: 5, y: 5 }, { x: 9, y: 5 })).toBeNull();
+        expect(lineOfSightClear(privateGrid, { x: 0, y: 5 }, { x: 9, y: 5 })).toBe(false);
+    });
+    it('rerasterizes changed equal-count geometry and does not inherit another request’s masks', () => {
+        const base = grid();
+        const first = applyExclusionField(base, buildExclusionField({ manual: fc(rect(0.002, 0.002, 0.003, 0.003)) }));
+        const second = applyExclusionField(base, buildExclusionField({ manual: fc(rect(0.007, 0.007, 0.008, 0.008)) }));
+        expect(first.exclusionBlocked?.[22]).toBe(1);
+        expect(second.exclusionBlocked?.[22]).toBe(0);
+        expect(second.exclusionBlocked?.[77]).toBe(1);
+        expect(applyExclusionField(base, buildExclusionField({})).cells).toEqual(base.cells);
+    });
+    it('uses the same park cost for search and smoothing while preserving navigability', () => {
+        const base = grid();
+        const parks = applyExclusionField(
+            base,
+            buildExclusionField({ marineParks: fc(rect(0.004, 0.003, 0.006, 0.007)) }),
+        );
+        expect(isNavigable(parks, 5, 5)).toBe(true);
+        expect(cellCostAt(parks, 5, 5)).toBeCloseTo(cellCostAt(base, 5, 5) * 1.25);
+        expect(lineOfSightClear(parks, { x: 0, y: 5 }, { x: 9, y: 5 })).toBe(false);
+        expect(aStar(parks, { x: 0, y: 5 }, { x: 9, y: 5 })).not.toBeNull();
+    });
     it.each([7, '07', [3, 7]])('uses original entry-prohibited code %s', (RESTRN) => {
         const f = buildExclusionField({ RESARE: fc(rect(0.004, 0.003, 0.006, 0.007, { RESTRN })) });
         expect(
