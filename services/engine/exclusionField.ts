@@ -4,7 +4,7 @@ import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from
 import { normalizeOverlay } from '../userOverlays/model';
 import { restrnCodes } from '../enc/s57Restrn';
 import {
-    forEachCellOnSegment,
+    rasterizePolygonBoundaryCells,
     geometryBbox,
     mPerDegLon,
     rasterizePolygonCells,
@@ -177,29 +177,6 @@ export function buildExclusionField(sources: ExclusionSources): ExclusionField {
     return { areas, ...(trafficLanes ? { trafficLanes } : {}) };
 }
 
-/** Clip a boundary to the grid BEFORE its supercover walk: a distant feature
- * must not cause an unbounded walk through cells outside the selected window. */
-function clipped(a: Position, b: Position, box: readonly number[]): [Position, Position] | null {
-    let lo = 0,
-        hi = 1;
-    for (let axis = 0; axis < 2; axis++) {
-        const d = b[axis] - a[axis];
-        if (d === 0) {
-            if (a[axis] < box[axis] || a[axis] > box[axis + 2]) return null;
-        } else {
-            const x = (box[axis] - a[axis]) / d,
-                y = (box[axis + 2] - a[axis]) / d;
-            lo = Math.max(lo, Math.min(x, y));
-            hi = Math.min(hi, Math.max(x, y));
-            if (lo > hi) return null;
-        }
-    }
-    return [
-        [a[0] + (b[0] - a[0]) * lo, a[1] + (b[1] - a[1]) * lo],
-        [a[0] + (b[0] - a[0]) * hi, a[1] + (b[1] - a[1]) * hi],
-    ];
-}
-
 /** Whole-cell interior plus boundary supercover, including tiny islands and
  * corner touches. Builds private masks atomically and never alters a cached grid. */
 export function rasterExclusionField(
@@ -243,47 +220,14 @@ export function rasterExclusionField(
             spend();
             mask[y * width + x] = 1;
         });
-        const mark = (x: number, y: number) => {
-            if (x >= 0 && y >= 0 && x < width && y < height) {
-                spend();
+        rasterizePolygonBoundaryCells(
+            grid,
+            area.geometry,
+            (x, y) => {
                 mask[y * width + x] = 1;
-            }
-        };
-        const integer = (n: number) => Math.abs(n - Math.round(n)) < 1e-9;
-        const endpoint = (p: Position) => {
-            const x = (p[0] - minLon) / dLon,
-                y = (p[1] - minLat) / dLat;
-            const xs = [Math.floor(x)],
-                ys = [Math.floor(y)];
-            if (integer(x)) xs.push(Math.round(x) - 1);
-            if (integer(y)) ys.push(Math.round(y) - 1);
-            for (const col of xs) for (const row of ys) mark(col, row);
-        };
-        for (const polygon of polygons(area.geometry))
-            for (const ring of polygon)
-                for (let i = 1; i < ring.length; i++) {
-                    const line = clipped(ring[i - 1], ring[i], box);
-                    if (!line) continue;
-                    endpoint(line[0]);
-                    endpoint(line[1]);
-                    const x = (line[0][0] - minLon) / dLon,
-                        y = (line[0][1] - minLat) / dLat;
-                    const vertical = line[0][0] === line[1][0] && integer(x) && x > 0 && x < width;
-                    const horizontal = line[0][1] === line[1][1] && integer(y) && y > 0 && y < height;
-                    // The upper grid edge belongs to its last closed cell too.
-                    const inward = (p: Position): [number, number] => [
-                        Math.min(p[0], box[2] - dLon * 1e-10),
-                        Math.min(p[1], box[3] - dLat * 1e-10),
-                    ];
-                    forEachCellOnSegment(grid, inward(line[0]), inward(line[1]), (idx) => {
-                        const col = idx % width,
-                            row = Math.floor(idx / width);
-                        mark(col, row);
-                        if (vertical) mark(col - 1, row);
-                        if (horizontal) mark(col, row - 1);
-                        if (vertical && horizontal) mark(col - 1, row - 1);
-                    });
-                }
+            },
+            spend,
+        );
     }
     check();
     return { blocked, caution };

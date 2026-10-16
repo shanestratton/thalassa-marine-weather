@@ -194,11 +194,37 @@ describe('route-private lane fields and pricing', () => {
         expect(distant.tssLane).toBeUndefined();
         expect(aStar(distant, from, to)).toEqual(aStar(a, from, to));
     });
+    it('guides sub-cell lanes and both sides of grid-aligned boundaries before final audit', () => {
+        const cached = base(),
+            source = fc(rect(164.0049999, -27.2, 164.0050001, -27.19, { ORIENT: 0 })),
+            g = applyExclusionField(cached, buildExclusionField({ TSSLPT: source }));
+        // No grid centre is in this narrow lane; its complete boundary still
+        // guides the search on both adjacent columns, including closed ends.
+        for (const row of [0, 10, 19]) {
+            expect(g.tssLane![row * g.width + 9]).toBe(1);
+            expect(g.tssLane![row * g.width + 10]).toBe(1);
+        }
+        expect(trafficLaneStepFactor(g, 210, 230, 0)).toBe(1);
+        expect(trafficLaneStepFactor(g, 230, 210, 180)).toBe(Infinity);
+        expect(lineOfSightClear(g, { x: 10, y: 12 }, { x: 10, y: 2 })).toBe(false);
+        const path = aStar(g, { x: 10, y: 12 }, { x: 10, y: 2 });
+        expect(path).not.toBeNull();
+        expect(path!.some((p) => p.x > 10)).toBe(true);
+        expect(
+            auditTrafficLaneRoute(
+                path!.map((p) => gridToLatLon(g, p.x, p.y)),
+                buildTrafficLaneField(source),
+            ).conflict,
+        ).toBe(false);
+        expect(cached.tssLane).toBeUndefined();
+        expect(g.cells).toEqual(cached.cells);
+        expect(g.preferred).toEqual(cached.preferred);
+    });
     it('bounds source/grid work and cancels without mutating or partly adopting the cached chart grid', () => {
         expect(() => buildTrafficLaneField(fc(...Array.from({ length: 2001 }, () => rect())))).toThrow('bounded');
         const field = buildTrafficLaneField(fc(rect()))!,
             cached = base();
-        expect(() => trafficLaneGridFields({ ...cached, width: 4001, height: 2000 }, field)).toThrow('budget');
+        expect(() => trafficLaneGridFields({ ...cached, width: 2501, height: 1000 }, field)).toThrow('budget');
         expect(() =>
             trafficLaneGridFields(cached, field, () => {
                 throw Error('retired');
