@@ -1,13 +1,16 @@
 /** Share repeated literal class strings. Values, attribute order, components,
- * dynamic classes and DOM nodes remain identical. The leaf module has no
- * imports, so its immutable string table introduces no application cycle. */
+ * dynamic classes and DOM nodes remain identical. The bounded decoder imports
+ * only the shared inflate primitive, so the table has no application cycle. */
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import MagicString from 'magic-string';
+import { deflateSync } from 'node:zlib';
 
 const MODULE = 'virtual:thalassa-class-names';
 const RESOLVED = '\0' + MODULE;
+const DECODER = 'virtual:thalassa-class-data-decoder';
+const DECODE_RESOLVED = '\0' + DECODER;
 function walk(node, visit) {
     if (!node || typeof node.type !== 'string') return;
     visit(node);
@@ -78,6 +81,32 @@ export function classTableSource(values) {
     return packed.length < direct.length ? packed : direct;
 }
 
+/** Same word table and indexes, stored as bounded compressed JSON. */
+export function packClassNames(values) {
+    const words = [...new Set(values.flatMap((value) => value.split(' ')))].sort();
+    const indexes = new Map(words.map((word, index) => [word, index.toString(36)]));
+    const rows = values.map((value) =>
+        value
+            .split(' ')
+            .map((word) => indexes.get(word))
+            .join(' '),
+    );
+    const raw = Buffer.from(JSON.stringify([words, rows]));
+    if (raw.length > 128_000 || values.length > 4096 || words.length > 8192)
+        throw Error('Embedded class table exceeds reviewed bounds');
+    const zipped = deflateSync(raw, { level: 9 });
+    const encoded = zipped.toString('base64');
+    if (encoded.length > 64_000) throw Error('Embedded class encoding exceeds reviewed bounds');
+    const checksum = zipped.readUInt32BE(zipped.length - 4);
+    return {
+        encoded,
+        bytes: raw.length,
+        count: values.length,
+        checksum,
+        code: `import {decodeClassNames} from '${DECODER}';export const values=decodeClassNames(${JSON.stringify(encoded)},${raw.length},${values.length},${checksum});`,
+    };
+}
+
 /** @param {string} code @param {string} id
  * @param {{root:string, values:readonly string[], parse:(source:string)=>any}} options */
 export function shareLiteralClassNames(code, id, { root, values, parse }) {
@@ -136,10 +165,15 @@ export function shareClassNames(root) {
             if (enabled) values = collectClassNames(root);
         },
         resolveId(id) {
-            return id === MODULE ? RESOLVED : null;
+            return id === MODULE ? RESOLVED : id === DECODER ? DECODE_RESOLVED : null;
         },
         load(id) {
-            return id === RESOLVED ? classTableSource(values) : null;
+            if (id === DECODE_RESOLVED)
+                return `export {decodeClassNames} from ${JSON.stringify(path.resolve(root, 'utils/decodeClassNames.ts'))};`;
+            if (id !== RESOLVED) return null;
+            const ordinary = classTableSource(values),
+                packed = packClassNames(values);
+            return packed.code.length + 1600 < ordinary.length ? packed.code : ordinary;
         },
         transform(code, id) {
             if (!enabled || id === RESOLVED) return null;

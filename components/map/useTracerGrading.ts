@@ -45,6 +45,7 @@ import {
     tideWindowLabelFor,
     persistLegVerdicts,
     hydrateLegVerdicts,
+    setTracerCtxLru,
     type TracerContext,
     type TraceLegVerdict,
 } from '../../services/routeTracer';
@@ -309,7 +310,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
             (prevDraft.d !== draftNow || prevDraft.assumed !== draftAssumed || (prevDraft.air ?? null) !== airNow)
         ) {
             tracerCtxRef.current = null;
-            tracerCtxLruRef.current = []; // grids were built FOR the old keel
+            tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, []); // old keel
             legCacheRef.current.clear();
             stubHoldRef.current.clear();
             tideSpotCacheRef.current.clear();

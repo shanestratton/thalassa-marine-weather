@@ -177,7 +177,7 @@ export function observeEngineEvidence(
     let next = advanceEngineRunCounter(counter.rpmFeedIdentity ? counter : { ...counter, rpm: null }, receivedAtMs);
     if (next.ended) return next;
     const identity = evidence?.identity;
-    const feed = evidence?.meterIdentity ?? identity;
+    const feed = evidence?.meterIdentity === undefined ? identity : evidence.meterIdentity;
     const validId = (value: unknown): value is string =>
         typeof value === 'string' && value.trim().length > 0 && value.length <= 4096;
     const reading = evidence?.readings.rpm;

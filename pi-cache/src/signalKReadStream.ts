@@ -79,6 +79,7 @@ export function startSignalKReadStream(options: {
             'propulsion.*.runTime',
             'propulsion.*.coolantTemperature',
             'propulsion.*.oilPressure',
+            'electrical.batteries.*.voltage',
             'notifications.*',
         ];
         ws.send(

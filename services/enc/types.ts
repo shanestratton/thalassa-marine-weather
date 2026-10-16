@@ -671,6 +671,13 @@ export interface EncHazard {
  * Australian cell). Edition + source HO let us de-duplicate when a
  * user re-imports an updated cell.
  */
+/** Stored identity only; this pure type leaf must not import storage/plugins. */
+export interface NoaaPackageReference {
+    owner: string;
+    manifestSha256: string;
+    path: string;
+}
+
 export interface EncCell {
     /** S-57 dataset name (DSID/DSNM). */
     id: string;
@@ -684,7 +691,7 @@ export interface EncCell {
     /** SHA-256 of the signed Pi response that supplied this revision. */
     contentSha256?: string;
     /** Explicit, fully verified public NOAA record package; never a Pi/vault file. */
-    noaaPackage?: import('./noaaPackageStore').NoaaPackageReference;
+    noaaPackage?: NoaaPackageReference;
     /** S-57 issue date (ISO 8601). */
     issued: string;
     /** When the user imported this cell into the device. */

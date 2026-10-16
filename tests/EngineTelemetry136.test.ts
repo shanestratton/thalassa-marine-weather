@@ -3,6 +3,13 @@ import { readEngineMetrics, readTelemetrySnapshot } from '../pi-cache/src/trackS
 import { parseEngineTelemetry } from '../services/instruments/engineTelemetry';
 import { snapshotFromWire } from '../services/telemetryWire';
 import { buildTelemetryBody } from '../pi-cache/src/telemetryPublisher';
+import { remoteInstrumentEvidence } from '../services/instruments/evidence';
+import {
+    endEngineRunCounter,
+    engineRunSummary,
+    newEngineRunCounter,
+    observeEngineEvidence,
+} from '../services/shiplog/engineRunCounter';
 const T = 1_800_000_000_000;
 beforeEach(() => {
     vi.useFakeTimers();
@@ -27,6 +34,64 @@ function document() {
     };
 }
 describe('engine telemetry sensor-clock contract', () => {
+    it('binds a paired Pi meter to the actual vessel, even when both engines are named main', () => {
+        const read = (uuid: string, at: number) => {
+            const doc = { uuid, ...document() };
+            doc.propulsion.main.revolutions = leaf(20, 'Hz', at);
+            const body = buildTelemetryBody(readTelemetrySnapshot(doc, () => at)!, 'same-paired-pi');
+            expect(Object.keys(body.extra ?? {}).length).toBeLessThanOrEqual(40);
+            expect(JSON.stringify(body)).not.toContain(uuid);
+            const snap = snapshotFromWire(body, 'lan')!.snapshot;
+            snap.windHistoryIdentity = 'same-paired-pi';
+            expect(snap.rpmVesselKey).toMatch(/^[a-f0-9]{24}$/);
+            return remoteInstrumentEvidence(snap);
+        };
+        const first = read('urn:mrn:signalk:uuid:fictional-one', T);
+        let c = observeEngineEvidence(newEngineRunCounter('pi-vessel-swap', T), first, T);
+        c = observeEngineEvidence(c, read('urn:mrn:signalk:uuid:fictional-two', T + 2000), T + 2000);
+        c = endEngineRunCounter(c, T + 10_000);
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 2, unknownSeconds: 8 });
+        expect(c.rpmFeedIdentity).toBe(first.meterIdentity);
+    });
+    it('keeps the vessel identity when bounded metrics fall back to the existing RPM source scalar', () => {
+        const doc = { uuid: 'urn:mrn:signalk:uuid:fictional-one', ...document() };
+        const id = 'e'.repeat(64);
+        const large = { ...doc, propulsion: { [id]: doc.propulsion.main } };
+        const body = buildTelemetryBody(readTelemetrySnapshot(large, () => T)!, 'fictional');
+        const extra = body.extra as Record<string, unknown>;
+        expect(extra.engine_metrics_v1).toBeUndefined();
+        expect(String(extra.instrument_rpm_source_v1).length).toBeLessThanOrEqual(120);
+        const snap = snapshotFromWire(body, 'lan')!.snapshot;
+        expect(snap.rpmEngineId).toBe(id);
+        expect(snap.rpmVesselKey).toMatch(/^[a-f0-9]{24}$/);
+        expect(remoteInstrumentEvidence(snap).meterIdentity).toMatch(/^signalk-vessel:/);
+    });
+    it('keeps old Pi gauges but cannot assign their missing vessel identity to a maintenance meter', () => {
+        const body = buildTelemetryBody(readTelemetrySnapshot(document(), () => T)!, 'fictional');
+        const snap = snapshotFromWire(body, 'lan')!.snapshot;
+        expect(snap.rpm).toBe(1200);
+        expect(snap.engineTelemetry?.coolant?.value).toBe(80);
+        const c = endEngineRunCounter(
+            observeEngineEvidence(newEngineRunCounter('legacy-pi', T), remoteInstrumentEvidence(snap), T),
+            T + 10_000,
+        );
+        expect(engineRunSummary(c)).toMatchObject({ measuredSeconds: 0, unknownSeconds: 10 });
+    });
+    it('rejects conflicting packed vessel metadata and never mistakes a vessel-only pack for engine metrics', () => {
+        const key = 'a'.repeat(24);
+        expect(
+            parseEngineTelemetry(JSON.stringify([2, 'main', T, null, null, null, null, null, null, key]), T),
+        ).toBeUndefined();
+        const body = buildTelemetryBody(
+            readTelemetrySnapshot({ uuid: 'urn:fictional:one', ...document() }, () => T)!,
+            'fictional',
+        );
+        (body.extra as Record<string, unknown>).instrument_rpm_source_v1 = JSON.stringify([1, 'main', 'b'.repeat(24)]);
+        const snap = snapshotFromWire(body, 'lan')!.snapshot;
+        expect(snap.rpmVesselKey).toBeUndefined();
+        expect(snap.rpmEngineId).toBeUndefined();
+        expect(snap.engineTelemetry).toBeUndefined();
+    });
     it('round-trips actual Signal K units without replacing original leaf times', () => {
         const doc = document();
         const packed = readEngineMetrics(doc, T)!;

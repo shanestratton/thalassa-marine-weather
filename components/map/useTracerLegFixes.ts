@@ -85,28 +85,34 @@ export function useTracerLegFixes(deps: TracerLegFixDeps): TracerLegFixes {
             let fixed = 0;
             for (const i of [...legIdxs].sort((x, y) => y - x)) {
                 if (i < 0 || i + 1 >= pins.length) continue;
-                let ctx = tracerCtxFromLru([pins[i], pins[i + 1]]);
-                if (!ctx) {
-                    try {
-                        const built = await buildTracerContext(traceBboxPadded([pins[i], pins[i + 1]]), draft.d, {
-                            draftAssumed: draft.assumed,
-                            // The mast the verdict was graded for, as with the keel.
-                            ...(draft.air !== undefined ? { airDraftM: draft.air } : {}),
-                        });
-                        if (built.status === 'ready') {
-                            ctx = built.ctx;
-                            tracerCtxHold(built.ctx);
-                        } else {
-                            continue; // marks-only/no chart — nothing to A* on
+                let release: (() => void) | undefined;
+                try {
+                    let ctx = tracerCtxFromLru([pins[i], pins[i + 1]]);
+                    if (!ctx) {
+                        try {
+                            const built = await buildTracerContext(traceBboxPadded([pins[i], pins[i + 1]]), draft.d, {
+                                draftAssumed: draft.assumed,
+                                // The mast the verdict was graded for, as with the keel.
+                                ...(draft.air !== undefined ? { airDraftM: draft.air } : {}),
+                            });
+                            if ('ctx' in built) release = built.release;
+                            if (built.status === 'ready') {
+                                ctx = built.ctx;
+                                tracerCtxHold(built.ctx);
+                            } else {
+                                continue; // marks-only/no chart — nothing to A* on
+                            }
+                        } catch {
+                            continue;
                         }
-                    } catch {
-                        continue;
                     }
-                }
-                const detour = fixLegOnGrid(ctx, pins[i], pins[i + 1]);
-                if (detour && detour.length >= 2) {
-                    pins = [...pins.slice(0, i + 1), ...detour.slice(1, -1), ...pins.slice(i + 1)];
-                    fixed++;
+                    const detour = fixLegOnGrid(ctx, pins[i], pins[i + 1]);
+                    if (detour && detour.length >= 2) {
+                        pins = [...pins.slice(0, i + 1), ...detour.slice(1, -1), ...pins.slice(i + 1)];
+                        fixed++;
+                    }
+                } finally {
+                    release?.();
                 }
             }
             if (fixed > 0) setCapturedCoords(pins);

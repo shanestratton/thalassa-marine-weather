@@ -72,11 +72,56 @@ query candidates have been discarded, then release even on early refusal.
 Missing parts or any cap failure produces unknown/partial coverage. Package
 indexes are not retained in the legacy three-cell lookahead cache.
 
+The live inshore router loads every package intersecting the actual engine
+request envelope (the endpoint span padded by `max(span * 0.5, 0.08)` degrees),
+including packages outside the pin envelope. It verifies the whole package
+cohort before scale-shadow deconfliction. A missing/capped package refuses the
+request instead of leaving its fine-scale extent to hide a coarse chart. The
+cohort shares one 16 MiB view ceiling including the next decode transient and
+the existing global ledger. Its lease ends with the actual prep/hosted routing
+promise; an outer caller abort or watchdog cannot free still-borrowed geometry.
+Account/revision fences remain in force through the final routing result.
+
+Tracer assembly also verifies a complete bounded package cohort before merging.
+A package omitted by the existing cell/byte selection cap refuses the context.
+The assembler transfers its lease through the actual grid-worker await to the
+context. Coalesced callers each own an idempotent release; the tracer LRU owns
+an independent reference. Grading, one-shot/background checks and fix callers
+release on completion, supersession or failure. Eviction, draft reset,
+identity/revision invalidation and map unmount detach cache ownership. An
+invalid context cannot supply a checked verdict, lead/water snap or fix.
+The existing 48 MiB typed-grid LRU budget remains separate and unchanged.
+
 Generic whole-cell reads explicitly refuse package cells, including stale
-cached monoliths. Inshore whole-cell geometry and lead-overlay consumers do not
-yet have explicit package-window adapters. They cannot claim complete package
-coverage; their window behavior requires a separate review before full
-readiness or acquisition queue restart is claimed.
+cached monoliths.
+
+Leads use the exact view padded by 0.02 degrees as their compile/cache identity.
+The complete chart cohort is read with a further 75 metre halo, because hazard
+review reaches 60 metres beyond a span and clearance structures reach 10 metres.
+A dropped/capped cell or missing member refuses the entire mixed cohort.
+Both peek and compile use the same exact window; no cell-only cache hit can
+reuse another partial view. Invalid, polar or dateline bounds are refused.
+
+Numbered channel inference is transitive and interpolates whole mark groups;
+the 75 metre halo alone cannot preserve its result. The LEADS-only Worker scan
+therefore retains all original BOYLAT/BCNLAT records across all parts of the
+selected cohort. This is a fixed internal dependency list, with no arbitrary
+caller-provided layer expansion. All marks and each decode remain inside the
+same combined 16 MiB view/shared ledger. Original chart values and IDs stay
+unchanged. Only DERIVED lead/channel spans are clipped to the inner verified
+compile window, before depth/land/hazard/structure classification. Outside
+excursions cannot reconnect through the cached graph as checked leads.
+
+The compiler copies span coordinates and scalar review facts, so raw chart
+views detach after compilation. Before compilation the remaining portion of
+the same 16 MiB ceiling is reserved for the derived graph, then resized to its
+measured UTF-8 size; an oversized handoff publishes no cache entry. Existing
+four-span/eight-graph cache limits remain. A displayed source and queued route
+each retain their own reference to the measured graph lease. Cache clearing
+or eviction cannot discharge those borrowers; source replacement, hide/map
+removal and actual routing completion release them. Failed/uncertain source
+detach stays charged until actual map removal. Account/revision authority
+remains checked independently of the finished read request.
 
 The new Worker protocol accepts only explicit US public packages. Licensed
 boat charts remain in their existing RAM-only path and are not sent to this
@@ -125,10 +170,28 @@ manifests and geometry, sequential verified staging and one-use activation,
 auth changes, retained failed journals, complete bounded windows, corruption
 and registry races, shared resident caps, merge lease disposal and stale
 monolith refusal. Existing map/report/cache regressions remain in force.
+Live inshore tests compare ordinary/package merged layers and actual engine
+routes, full long-leg search bounds, incomplete fine/coarse cohorts, revision
+changes, late cancelled parses and real prep lifetime after abort/watchdog.
+The actual Chrome/WebKit fixture also routes through a locally installed
+package and refuses the same request after a relevant part is corrupted.
+Tracer regressions cover separate coalesced callers, real asynchronous grid
+lifetime, LRU eviction/reset, stale-context refusal and one-shot/superseded/
+failed grading. Chrome/WebKit builds the real grid, transfers its lease to the
+LRU, verifies retained bytes, then detaches and verifies the old context is
+unchecked and its bytes are returned.
+Leads tests cover exact two-window identities, same-cohort monolith parity
+(including complete channel groups, land and bridge clearance), a crossing
+line reaching a danger outside the window, disconnected outside excursions,
+a hazard just outside the clip edge, late cancellation/auth/revision changes,
+raw-plus-derived cap refusal and cache/source/queued-route ownership. The
+real Chrome/WebKit Worker retains complete synthetic mark groups, renders the
+normal leads overlay, retains displayed bytes after cache clear and returns
+them on actual source detach.
 
 Build a separate server artifact with
 `node scripts/noaa-enc/build-package-converter.mjs <new-outside-checkout.mjs>`.
 It refuses an existing artifact and does not alter the reviewed old CLI. A
-future package-aware staging/publishing plan, inshore/lead consumer decisions,
+future package-aware staging/publishing plan,
 the exact configured production bundle, independent review and normal release
 checks remain required before queue restart or activation.

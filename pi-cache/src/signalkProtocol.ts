@@ -3,6 +3,11 @@ export const SIGNALK_READ_PATHS = [
     'navigation.position',
     'navigation.speedOverGround',
     'navigation.courseOverGroundTrue',
+    'navigation.courseOverGroundMagnetic',
+    'navigation.datetime',
+    'navigation.gnss.satellites',
+    'navigation.gnss.horizontalDilution',
+    'navigation.gnss.methodQuality',
     'navigation.speedThroughWater',
     'navigation.headingTrue',
     'navigation.headingMagnetic',
@@ -54,11 +59,35 @@ export function signalKReadPath(path: string): boolean {
     return (
         !path.split('.').some((key) => BAD_KEYS.has(key)) &&
         (staticPaths.has(path) ||
-            /^propulsion\.[A-Za-z0-9_-]{1,40}\.(revolutions|runTime|coolantTemperature|oilPressure)$/.test(path))
+            /^propulsion\.[A-Za-z0-9_-]{1,40}\.(revolutions|runTime|coolantTemperature|oilPressure)$/.test(path) ||
+            /^electrical\.batteries\.[A-Za-z0-9_-]{1,40}\.voltage$/.test(path))
     );
 }
 function validValue(path: string, value: unknown): boolean {
     if (value === null) return true;
+    if (path === 'navigation.datetime')
+        return (
+            typeof value === 'string' &&
+            value.length <= 40 &&
+            /^\d{4}-\d\d-\d\dT.*Z$/.test(value) &&
+            Number.isFinite(Date.parse(value))
+        );
+    if (path === 'navigation.gnss.satellites') return finite(value, 0, 256) && Number.isInteger(value);
+    if (path === 'navigation.gnss.horizontalDilution') return finite(value, 0, 100);
+    if (path === 'navigation.gnss.methodQuality')
+        return [
+            'no GPS',
+            'GNSS Fix',
+            'DGNSS fix',
+            'Precise GNSS',
+            'RTK fixed integer',
+            'RTK float',
+            'Estimated (DR) mode',
+            'Manual input',
+            'Simulator mode',
+            'Error',
+        ].includes(String(value));
+    if (path.endsWith('.voltage')) return finite(value, 0, 1000);
     if (path === 'navigation.position') {
         const p = signalkRecord(value);
         return !!p && finite(p.latitude, -90, 90) && finite(p.longitude, -180, 180);
@@ -84,6 +113,9 @@ function validValue(path: string, value: unknown): boolean {
 }
 export function signalKExpectedUnit(path: string): string {
     if (path === 'navigation.position') return 'position';
+    if (path === 'navigation.datetime') return 'RFC 3339 (UTC)';
+    if (path.startsWith('navigation.gnss.')) return '';
+    if (path.endsWith('.voltage')) return 'V';
     if (path.endsWith('revolutions')) return 'Hz';
     if (path.endsWith('runTime')) return 's';
     if (path.endsWith('Pressure') || path.endsWith('.pressure')) return 'Pa';
@@ -116,6 +148,7 @@ export class SignalKReadState {
     private notices = new Map<string, SignalKNotice>();
     private noticeClocks = new Map<string, number>();
     private engines = new Set<string>();
+    private batteries = new Set<string>();
     constructor(
         public readonly selfUrn: string,
         private readonly startedAt = Date.now(),
@@ -127,6 +160,7 @@ export class SignalKReadState {
         this.notices.clear();
         this.noticeClocks.clear();
         this.engines.clear();
+        this.batteries.clear();
     }
     /** REST bootstrap only: require this vessel identity, exact leaf envelopes and source times. */
     ingestSelfDocument(doc: unknown, now = Date.now()): boolean {
@@ -139,6 +173,8 @@ export class SignalKReadState {
             for (const leaf of ['revolutions', 'runTime', 'coolantTemperature', 'oilPressure'])
                 all.push(`propulsion.${id}.${leaf}`);
         }
+        const batteries = signalkRecord(signalkRecord(root.electrical)?.batteries);
+        for (const id of Object.keys(batteries ?? {}).slice(0, 9)) all.push(`electrical.batteries.${id}.voltage`);
         let changed = false;
         for (const path of all) {
             let item: unknown = root;
@@ -164,6 +200,11 @@ export class SignalKReadState {
             const id = path.split('.')[1];
             if (!this.engines.has(id) && this.engines.size >= 8) return false;
             this.engines.add(id);
+        }
+        if (path.startsWith('electrical.batteries.')) {
+            const id = path.split('.')[2];
+            if (!this.batteries.has(id) && this.batteries.size >= 8) return false;
+            this.batteries.add(id);
         }
         const old = this.leaves.get(path);
         if (old && Date.parse(old.timestamp) >= at) return false;

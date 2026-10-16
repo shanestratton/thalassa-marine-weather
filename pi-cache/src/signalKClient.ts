@@ -30,6 +30,8 @@ export interface SignalKCourseRequest {
 export interface SignalKClient {
     origin: string;
     getSelf(options?: { signal?: AbortSignal }): Promise<SignalKReply>;
+    /** Fixed read-only collection for the Pi's existing AIS reader. */
+    getVessels(options?: { signal?: AbortSignal }): Promise<SignalKReply>;
     getDiscovery(options?: { signal?: AbortSignal }): Promise<SignalKReply>;
     requestCourse(options: SignalKCourseRequest): Promise<SignalKReply>;
 }
@@ -201,6 +203,7 @@ export function createSignalKClient(options: {
         origin,
         getDiscovery: ({ signal } = {}) => request('/signalk', 'GET', undefined, signal),
         getSelf: ({ signal } = {}) => request('/signalk/v1/api/vessels/self', 'GET', undefined, signal, 1024 * 1024),
+        getVessels: ({ signal } = {}) => request('/signalk/v1/api/vessels', 'GET', undefined, signal, 4 * 1024 * 1024),
         requestCourse: ({ method, target, routeId, body, signal }) => {
             if (
                 !['GET', 'PUT', 'DELETE'].includes(method) ||

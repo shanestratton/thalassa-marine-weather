@@ -5,6 +5,9 @@ import type { EncConversionResult } from './types';
 export const NOAA_PART_BYTES = 4 * 1024 * 1024;
 export const NOAA_PACKAGE_BYTES = 128 * 1024 * 1024;
 export const NOAA_PACKAGE_PARTS = 32;
+/** Lead channel inference needs complete numbered-mark groups. This fixed
+ * public-only dependency list is never supplied by a file or generic caller. */
+export const noaaLeadDependency = (layer: string): boolean => layer === 'BOYLAT' || layer === 'BCNLAT';
 export interface NoaaPartSpan {
     layer: string;
     first: number;

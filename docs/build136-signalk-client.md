@@ -9,6 +9,8 @@ returns:
 
 - `getDiscovery({ signal? })`: fixed `GET /signalk`, maximum 64 KiB.
 - `getSelf({ signal? })`: fixed `GET /signalk/v1/api/vessels/self`, maximum 1 MiB.
+- `getVessels({ signal? })`: fixed `GET /signalk/v1/api/vessels`, maximum 4 MiB,
+  for the existing Pi AIS reader. No incoming URL or path controls this request.
 - `requestCourse({ method, target, routeId?, body?, signal? })`: maximum 64 KiB
   response and 32 KiB request. The only method/target pairs are course GET/DELETE,
   activeRoute PUT, and route GET/PUT. Paths are fixed v2 course or UUID route

@@ -44,9 +44,19 @@ test('converts only qualified magnetic heading with fresh east/west signed varia
             magneticVariation: leaf(variation * rad, now - 3_000),
         });
         assert.ok(Math.abs(Number(value.extra?.heading_true_deg) - expected) < 1e-9);
-        assert.equal(value.extra?.heading_true_at_ms, now - 2_000);
+        assert.equal(value.extra?.heading_true_at_ms, now - 3_000, 'derived heading retains its oldest input clock');
         assert.ok(Math.abs(value.headingDeg! - heading) < 1e-9, 'legacy remains magnetic');
     }
+});
+
+test('magnetic conversion never refreshes either input clock by polling or reversing which sensor is older', () => {
+    const navigation = {
+        headingMagnetic: leaf(80 * rad, now - 3_000),
+        magneticVariation: leaf(10 * rad, now - 1_000),
+    };
+    assert.equal(snapshot(navigation).extra?.heading_true_at_ms, now - 3_000);
+    assert.equal(snapshot(navigation, now + 1000).extra?.heading_true_at_ms, now - 3_000);
+    absent({ ...navigation, magneticVariation: leaf(10 * rad, now - TRUE_HEADING_MAX_AGE_MS) });
 });
 
 test('missing or stale variation never silently labels magnetic as true', () => {

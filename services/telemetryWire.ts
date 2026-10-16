@@ -42,14 +42,23 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
     const instrumentTimes = unpackInstrumentTimes(extra.instrument_times_v1);
     const packedEngine = parseEngineTelemetry(extra.engine_metrics_v1, Date.now());
     const legacyRpmSource = unpackRpmSource(extra.instrument_rpm_source_v1);
-    const rpmSource =
-        legacyRpmSource ?? (packedEngine ? { rpmEngineCount: 1, rpmEngineId: packedEngine.engineId } : {});
-    const engineTelemetry =
+    const engineConflict =
         packedEngine &&
-        (!legacyRpmSource ||
-            (legacyRpmSource.rpmEngineCount === 1 && legacyRpmSource.rpmEngineId === packedEngine.engineId))
-            ? packedEngine
-            : undefined;
+        legacyRpmSource &&
+        (legacyRpmSource.rpmEngineCount !== 1 ||
+            legacyRpmSource.rpmEngineId !== packedEngine.engineId ||
+            legacyRpmSource.rpmVesselKey !== packedEngine.vesselKey);
+    const rpmSource = engineConflict
+        ? {}
+        : (legacyRpmSource ??
+          (packedEngine
+              ? {
+                    rpmEngineCount: 1,
+                    rpmEngineId: packedEngine.engineId,
+                    ...(packedEngine.vesselKey ? { rpmVesselKey: packedEngine.vesselKey } : {}),
+                }
+              : {}));
+    const engineTelemetry = engineConflict ? undefined : packedEngine;
     const windHistory = source === 'pi' ? parseWindHistorySummary(extra) : null;
     const boundedText = (value: unknown): string | undefined =>
         typeof value === 'string' && value.trim().length > 0 && value.length <= 120 && !/\p{Cc}/u.test(value)

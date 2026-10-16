@@ -7,10 +7,16 @@ import '../../index.css';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import NoaaCatalogueSheet from '../../components/map/NoaaCatalogueSheet';
 import { useEncVectorLayer } from '../../components/map/useEncVectorLayer';
+import {
+    useChartLeadsLayer,
+    CHART_LEADS_SOURCE_ID,
+    CHART_LEADS_LAYER_IDS,
+} from '../../components/map/useChartLeadsLayer';
 import { getRegisteredCell } from '../../services/enc/EncCellMetadata';
 import { getCoverage, importCell, queryHazards } from '../../services/enc/EncHazardService';
 import { noaaResidentBytes, loadCellGeoJSON } from '../../services/enc/EncCellStore';
-import { loadNoaaPackageWindow } from '../../services/enc/noaaPackageWindow';
+import { loadNoaaPackageWindow, loadNoaaPackageCohort } from '../../services/enc/noaaPackageWindow';
+import { clearLeadGraphCache } from '../../services/routing/leadCompiler';
 import { readNoaaPackage } from '../../services/enc/noaaPackageStore';
 import { clearMergedData } from '../../services/enc/mergedDataCache';
 import { readChartDatumForBounds } from '../../services/enc/readChartDatum';
@@ -27,8 +33,10 @@ function Fixture() {
     const element = React.useRef<HTMLDivElement | null>(null),
         map = React.useRef<mapboxgl.Map | null>(null);
     const [ready, setReady] = React.useState(false),
-        [open, setOpen] = React.useState(true);
+        [open, setOpen] = React.useState(true),
+        [showLeads, setShowLeads] = React.useState(false);
     useEncVectorLayer(map, ready, true, true, 3, 4);
+    useChartLeadsLayer(map, ready, showLeads, 0.5, false, null);
     React.useEffect(() => {
         const m = new mapboxgl.Map({
             container: element.current!,
@@ -74,6 +82,10 @@ function Fixture() {
                         oldWholeCellRefused: (await loadCellGeoJSON('US3AK1EX', false)) === null,
                         mounted: !!m.getSource(ENC_VEC_SRC.DEPARE),
                         rendered: m.queryRenderedFeatures().length,
+                        leadsMounted: !!m.getSource(CHART_LEADS_SOURCE_ID),
+                        leadsRendered: m.queryRenderedFeatures({
+                            layers: Object.values(CHART_LEADS_LAYER_IDS).filter((id) => !!m.getLayer(id)),
+                        }).length,
                     };
                 },
                 async view(windowBounds: [number, number, number, number] = bounds) {
@@ -95,6 +107,22 @@ function Fixture() {
                 },
                 query: () => queryHazards([{ lat: 55.5, lon: -133.75 }]),
                 clearMergeMemo: () => clearMergedData(),
+                clearLeadCache: () => clearLeadGraphCache(),
+                leads: (visible: boolean) => setShowLeads(visible),
+                async leadDependencies() {
+                    const cell = getRegisteredCell('US3AK1EX')!;
+                    const view = await loadNoaaPackageCohort(
+                        [cell],
+                        [-133.77, 55.49, -133.73, 55.51],
+                        () => {},
+                        'leads',
+                    );
+                    try {
+                        return view.blobs.get(cell.id)!.layers.BOYLAT?.features.length;
+                    } finally {
+                        view.release();
+                    }
+                },
                 datum: () => readChartDatumForBounds(bounds),
                 ahead: () =>
                     queryChartLookahead(
@@ -102,6 +130,49 @@ function Fixture() {
                         2,
                         0.5,
                     ),
+                async inshore() {
+                    const { tryInshoreRoute } = await import('../../services/InshoreRouter');
+                    const before = noaaResidentBytes();
+                    const result = await tryInshoreRoute(
+                        { lat: 55.5, lon: -133.76 },
+                        { lat: 55.5, lon: -133.74 },
+                        0.5,
+                        null,
+                        'safest',
+                        { tideCeilings: [] },
+                    );
+                    return { result, before, after: noaaResidentBytes() };
+                },
+                async tracer() {
+                    const { buildTracerContext, holdTracerCtx, setTracerCtxLru, validateTraceLeg } =
+                        await import('../../services/routeTracer');
+                    const before = noaaResidentBytes();
+                    const built = await buildTracerContext([-133.77, 55.49, -133.73, 55.51], 0.5, {
+                        airDraftM: null,
+                        chartedDepthOnly: true,
+                    });
+                    if (!('ctx' in built)) return { status: built.status, before, after: noaaResidentBytes() };
+                    let held = holdTracerCtx([], built.ctx);
+                    built.release?.();
+                    try {
+                        const a = { lat: 55.5, lon: -133.76 },
+                            b = { lat: 55.5, lon: -133.74 };
+                        const verdict = validateTraceLeg(a, b, built.ctx);
+                        const retained = noaaResidentBytes();
+                        held = setTracerCtxLru(held, []);
+                        return {
+                            status: built.status,
+                            grid: !!built.ctx.grid,
+                            verdict,
+                            staleVerdict: validateTraceLeg(a, b, built.ctx),
+                            before,
+                            retained,
+                            after: noaaResidentBytes(),
+                        };
+                    } finally {
+                        setTracerCtxLru(held, []);
+                    }
+                },
                 satellite(enabled: boolean) {
                     const s = useSettingsStore.getState();
                     useSettingsStore.setState({ settings: { ...s.settings, satelliteMode: enabled } });
