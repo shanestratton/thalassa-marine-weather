@@ -488,7 +488,15 @@ export async function validateRouteSegments(
     if (options.signal?.aborted) cancel();
     else options.signal?.addEventListener('abort', cancel, { once: true });
     let lease: CurrentRoutingExclusions | undefined,
+        acquired: CurrentRoutingExclusions | undefined,
         acceptingRead = true;
+    const released = new WeakSet<CurrentRoutingExclusions>();
+    const release = (value: CurrentRoutingExclusions | undefined) => {
+        if (!value || released.has(value)) return;
+        released.add(value);
+        value.release();
+        if (acquired === value) acquired = undefined;
+    };
     const check = () => {
         abort.signal.throwIfAborted();
         if (!(options.stillCurrent?.() ?? true) || (lease && !lease.isCurrent()))
@@ -521,7 +529,10 @@ export async function validateRouteSegments(
         // A non-cooperative/late reader still cannot leak its lease after abort.
         void reading.then(
             (value) => {
-                if (!acceptingRead || abort.signal.aborted) value.release();
+                // Capture before any acceptance/current check: wait can reject
+                // between this resolution handler and the assignment below.
+                acquired = value;
+                if (!acceptingRead || abort.signal.aborted) release(value);
             },
             () => {},
         );
@@ -591,7 +602,9 @@ export async function validateRouteSegments(
     } finally {
         acceptingRead = false;
         abort.abort();
-        lease?.release();
+        release(lease);
+        release(acquired);
+        lease = undefined;
         options.signal?.removeEventListener('abort', cancel);
     }
 }
