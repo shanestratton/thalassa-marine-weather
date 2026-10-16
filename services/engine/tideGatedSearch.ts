@@ -4,7 +4,8 @@
 import type { Polygon, MultiPolygon } from 'geojson';
 import type { NavGrid } from './types';
 import { MinHeap, cellCostMultiplier } from './aStar';
-import { haversineM } from './geometry';
+import { haversineM, mPerDegLon } from './geometry';
+import { M_PER_DEG_LAT } from './constants';
 import { trackPriorFactor, TRACK_PRIOR_MIN_FACTOR } from './trackPriors';
 import { holdingGeometryRelation, type HoldingBounds } from '../enc/holdingFootprint';
 export interface TideGateAreaWindow {
@@ -34,8 +35,11 @@ export interface TideGatedCandidateRequest {
     areas: readonly TideGateArea[];
     /** Original point minima may only reduce an already charted area depth. */
     soundings?: readonly { lon: number; lat: number; depthM: number }[];
+    /** Actual complete source read window; ceil-rounded edge cells cannot escape. */
+    sourceBounds?: HoldingBounds;
 }
 export interface TideGridPath {
+    grid: { width: number; height: number; minLon: number; minLat: number; dLon: number; dLat: number };
     points: readonly (readonly [number, number])[];
     timesMs: readonly number[];
     indices: readonly number[];
@@ -70,6 +74,31 @@ export function tideGatedBounds(
         Math.max(from.lat, to.lat) + pad,
     ] as const;
     return b[0] >= -180 && b[2] <= 180 && b[1] >= -85 && b[3] <= 85 ? b : null;
+}
+export function tideGatedGridLayout(bounds: HoldingBounds) {
+    const mPerLon = mPerDegLon((bounds[1] + bounds[3]) / 2);
+    const w = (bounds[2] - bounds[0]) * mPerLon,
+        h = (bounds[3] - bounds[1]) * M_PER_DEG_LAT;
+    let resolutionM = Math.max(50, Math.ceil(Math.sqrt((w * h) / 2500000)));
+    const dimensions = () => ({
+        width: Math.ceil((bounds[2] - bounds[0]) / (resolutionM / mPerLon)),
+        height: Math.ceil((bounds[3] - bounds[1]) / (resolutionM / M_PER_DEG_LAT)),
+    });
+    let size = dimensions();
+    while (size.width * size.height > 2500000) {
+        resolutionM++;
+        size = dimensions();
+    }
+    return {
+        resolutionM,
+        grid: {
+            ...size,
+            minLon: bounds[0],
+            minLat: bounds[1],
+            dLon: resolutionM / mPerLon,
+            dLat: resolutionM / M_PER_DEG_LAT,
+        },
+    };
 }
 /** No grid writes, snaps, carves, interpolation of extrema or implicit waits.
  * Baseline is measured first on exactly the same original grid/masks. */
@@ -129,6 +158,7 @@ export function searchTideGatedCandidate(
         !Array.isArray(r.areas) ||
         r.areas.length > 32 ||
         r.areas.some((a) => !a || !Array.isArray(a.windows)) ||
+        (r.sourceBounds !== undefined && (r.sourceBounds.length !== 4 || !r.sourceBounds.every(finite))) ||
         r.areas.reduce((n, a) => n + (a.windows?.length ?? 10000), 0) > 512
     )
         return no('Tide search bounds, exact departure, speed or arrival uncertainty are unavailable.');
@@ -166,6 +196,13 @@ export function searchTideGatedCandidate(
     };
     const hard = (i: number) =>
         !finite(grid.cells[i]) ||
+        !!(
+            r.sourceBounds &&
+            (grid.minLon + (i % grid.width) * grid.dLon < r.sourceBounds[0] ||
+                grid.minLat + Math.floor(i / grid.width) * grid.dLat < r.sourceBounds[1] ||
+                grid.minLon + ((i % grid.width) + 1) * grid.dLon > r.sourceBounds[2] ||
+                grid.minLat + (Math.floor(i / grid.width) + 1) * grid.dLat > r.sourceBounds[3])
+        ) ||
         !!(
             grid.landBlocked?.[i] ||
             grid.obstnBlocked?.[i] ||
@@ -316,6 +353,14 @@ export function searchTideGatedCandidate(
                             if (!deep(side)) tideCells.add(side);
                 }
                 return {
+                    grid: {
+                        width: grid.width,
+                        height: grid.height,
+                        minLon: grid.minLon,
+                        minLat: grid.minLat,
+                        dLon: grid.dLon,
+                        dLat: grid.dLat,
+                    },
                     points,
                     timesMs: path.map((l) => l.at),
                     indices: path.map((l) => l.index),

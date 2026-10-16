@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EncCell, EncConversionResult } from '../services/enc/types';
 import type { SampledTideAuthority } from '../services/tides/sampledTideNavigation';
 import type { SampledTideSeries } from '../services/tides/sampledTideContract';
+import type { RouteJob } from '../services/routing/routeJob';
 const h = vi.hoisted(() => ({
     version: 1,
+    chartLifetime: 1,
     scope: { key: 'user:fictional', userId: 'fictional', generation: 1 },
     prior: 'fictional-boat-1',
     cells: [] as EncCell[],
@@ -15,10 +17,19 @@ const h = vi.hoisted(() => ({
     receipt: {} as object | null,
     release: vi.fn(),
     load: vi.fn(),
+    peek: vi.fn(),
+    byteLength: 1000 as number | null,
     readSources: vi.fn(),
+    workerCalls: 0,
+    contextRelease: vi.fn(),
 }));
 vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => h.cells, getVersion: () => h.version }));
-vi.mock('../services/enc/EncCellStore', () => ({ loadCellGeoJSON: h.load }));
+vi.mock('../services/enc/chartFindMemory', () => ({ chartFindGeneration: () => h.chartLifetime }));
+vi.mock('../services/enc/EncCellStore', () => ({
+    loadCellGeoJSON: h.load,
+    peekCellGeoJSON: h.peek,
+    readRetainedCellGeoJSONBytes: (_id: string, blob: EncConversionResult) => (blob === h.blob ? h.byteLength : null),
+}));
 vi.mock('../services/enc/piCellSync', () => ({
     readPiChartReadEvidence: () => h.receipt,
     isPiChartReadEvidenceCurrent: (r: object) => r === h.receipt,
@@ -37,6 +48,22 @@ vi.mock('../services/authIdentityScope', () => ({
     isAuthIdentityScopeCurrent: (s: { generation: number }) => s.generation === h.scope.generation,
 }));
 vi.mock('../services/routing/trackRoutingPriors', () => ({ trackPriorContextKey: () => h.prior }));
+vi.mock('../services/routing/routingExclusions', () => ({
+    readCurrentRoutingExclusions: async () => ({
+        manual: undefined,
+        marineParks: undefined,
+        advisories: [],
+        isCurrent: () => true,
+        release: h.contextRelease,
+    }),
+}));
+vi.mock('../services/routing/routeWorkerHost', () => ({
+    runRouteJobHosted: async (job: RouteJob) => {
+        h.workerCalls++;
+        const { runRouteJob } = await import('../services/routing/routeJob');
+        return { output: runRouteJob(job), where: 'main', waitMs: 0, handoffMs: 0, backMs: 0 };
+    },
+}));
 vi.mock('../services/tides/sampledTideNavigation', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/tides/sampledTideNavigation')>()),
     REVIEWED_SAMPLED_TIDE_AUTHORITY: h.authority,
@@ -50,6 +77,12 @@ import {
     tideGatedBounds,
 } from '../services/routing/tideGatedSources';
 import { haversineM } from '../services/engine/geometry';
+import { tideGatedGridLayout } from '../services/engine/tideGatedSearch';
+import {
+    planTideGatedShortcut,
+    finalizeTideShortcutPreview,
+    retireTideShortcutPreview,
+} from '../services/routing/tideGatedPlanning';
 
 const T = Date.parse('2026-10-17T01:00:00Z'),
     H = 3600000;
@@ -77,27 +110,43 @@ const rectangle = (n: number): GeoJSON.Polygon => ({
 });
 function fakePath() {
     const r = input(),
-        distanceM = haversineM(0, r.from.lon, 0, r.to.lon);
-    return {
-        points: [
-            [r.from.lon, 0],
-            [r.to.lon, 0],
-        ] as [number, number][],
-        timesMs: [T, T + (distanceM / ((r.speedKts * 1852) / 3600)) * 1000],
-        indices: [1, 2],
-        tideCells: [1],
-        distanceM,
-    };
+        grid = tideGatedGridLayout(tideGatedBounds(r.from, r.to)!).grid;
+    const y = Math.floor((r.from.lat - grid.minLat) / grid.dLat),
+        fromX = Math.floor((r.from.lon - grid.minLon) / grid.dLon),
+        toX = Math.floor((r.to.lon - grid.minLon) / grid.dLon);
+    const indices = Array.from({ length: toX - fromX + 1 }, (_, i) => y * grid.width + fromX + i),
+        points = indices.map((idx, i) =>
+            i === 0
+                ? [r.from.lon, r.from.lat]
+                : i === indices.length - 1
+                  ? [r.to.lon, r.to.lat]
+                  : [grid.minLon + ((idx % grid.width) + 0.5) * grid.dLon, grid.minLat + (y + 0.5) * grid.dLat],
+        ) as [number, number][];
+    const timesMs = [T];
+    let distanceM = 0;
+    for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1],
+            b = points[i],
+            length = haversineM(a[1], a[0], b[1], b[0]);
+        distanceM += length;
+        timesMs.push(timesMs[i - 1] + (length / ((r.speedKts * 1852) / 3600)) * 1000);
+    }
+    return { grid, points, timesMs, indices, tideCells: [...indices], distanceM };
 }
 beforeEach(() => {
     vi.spyOn(Date, 'now').mockReturnValue(T);
     h.version++;
+    h.chartLifetime++;
     h.scope.generation++;
     h.prior = 'fictional-boat-1';
     h.receipt = {};
     h.release.mockReset();
     h.load.mockReset();
+    h.peek.mockReset();
+    h.byteLength = 1000;
     h.readSources.mockReset();
+    h.contextRelease.mockReset();
+    h.workerCalls = 0;
     const cell: EncCell = {
         id: 'AU500001',
         sourceHO: 'AHO',
@@ -118,6 +167,7 @@ beforeEach(() => {
         [
             'DEPARE',
             'LNDARE',
+            'COALNE',
             'OBSTRN',
             'WRECKS',
             'UWTROC',
@@ -126,6 +176,7 @@ beforeEach(() => {
             'M_SDAT',
             'RESARE',
             'TSEZNE',
+            'TSSLPT',
             'BRIDGE',
             'CBLOHD',
             'PIPOHD',
@@ -151,6 +202,7 @@ beforeEach(() => {
         layers,
     };
     h.load.mockImplementation(async () => h.blob);
+    h.peek.mockImplementation(() => h.blob);
     const raw: SampledTideSeries = {
         schema: 1,
         kind: 'sampled-prediction',
@@ -226,9 +278,54 @@ beforeEach(() => {
         },
     ];
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+    retireTideShortcutPreview();
+    vi.restoreAllMocks();
+});
 
 describe('aboard source permit', () => {
+    it('joins real source admission to the real strict worker across original shallow/deep seams', async () => {
+        const rect = (w: number, s: number, e: number, n: number, depth: number): GeoJSON.Feature<GeoJSON.Polygon> => ({
+            type: 'Feature',
+            properties: { acronym: 'DEPARE', DRVAL1: depth, DRVAL2: depth + 1 },
+            geometry: {
+                type: 'Polygon',
+                coordinates: [
+                    [
+                        [w, s],
+                        [e, s],
+                        [e, n],
+                        [w, n],
+                        [w, s],
+                    ],
+                ],
+            },
+        });
+        h.blob!.layers.DEPARE!.features = [
+            rect(-0.2, -0.2, -0.00035, 0.2, 5),
+            rect(0.00035, -0.2, 0.2, 0.2, 5),
+            rect(-0.00035, 0.0009, 0.00035, 0.2, 5),
+            rect(-0.00035, -0.2, 0.00035, -0.0009, 5),
+            rect(-0.00035, -0.0009, 0.00035, 0.0009, 1),
+        ];
+        const result = await planTideGatedShortcut(
+            {
+                ...input(),
+                from: { lat: 0, lon: -0.0015 },
+                to: { lat: 0, lon: 0.0015 },
+                draftM: 2,
+                safetyM: 0.5,
+                airDraftM: null,
+            },
+            options(),
+        );
+        expect(result.kind, JSON.stringify(result)).toBe('preview');
+        if (result.kind !== 'preview') return;
+        expect(h.workerCalls).toBe(1);
+        expect(await finalizeTideShortcutPreview(result.result)).toBe(true);
+        retireTideShortcutPreview(result.result);
+        expect(h.contextRelease).toHaveBeenCalledOnce();
+    });
     it('keeps actual adapters without original navigation samples held without chart I/O or WAN', async () => {
         h.series = [];
         const result = await prepareTideGatedSources(input(), options());
@@ -272,7 +369,7 @@ describe('aboard source permit', () => {
         },
     );
     it('releases a late read without issuing after a chart transition', async () => {
-        h.load.mockImplementationOnce(async () => {
+        h.peek.mockImplementationOnce(() => {
             h.version++;
             return h.blob;
         });
@@ -280,7 +377,7 @@ describe('aboard source permit', () => {
         expect(h.release).toHaveBeenCalledOnce();
     });
     it('retires on receipt, owner, boat and chart changes', async () => {
-        for (const kind of ['receipt', 'owner', 'boat', 'chart']) {
+        for (const kind of ['receipt', 'owner', 'boat', 'chart', 'private-memory']) {
             const result = await prepareTideGatedSources(input(), options());
             expect(result.kind).toBe('ready');
             if (result.kind !== 'ready') return;
@@ -288,6 +385,7 @@ describe('aboard source permit', () => {
             if (kind === 'owner') h.scope.generation++;
             if (kind === 'boat') h.prior += '-next';
             if (kind === 'chart') h.version++;
+            if (kind === 'private-memory') h.chartLifetime++;
             expect(() => checkTideGatedSourcePermit(result.permit)).toThrow(/retired/);
             result.release();
         }
@@ -311,8 +409,88 @@ describe('aboard source permit', () => {
         expect(await recheckTideGatedSourcePermit(result.permit, path)).toBe(false);
         result.release();
     });
+    it.each(['grid-layout', 'cell-index', 'interior-position'])('refuses a forged %s final footprint', async (kind) => {
+        const result = await prepareTideGatedSources(input(), options());
+        expect(result.kind).toBe('ready');
+        if (result.kind !== 'ready') return;
+        const path = fakePath();
+        if (kind === 'grid-layout') path.grid.dLon *= 0.99;
+        if (kind === 'cell-index') path.indices[1] += path.grid.width;
+        if (kind === 'interior-position') path.points[1][0] += path.grid.dLon / 10;
+        expect(await recheckTideGatedSourcePermit(result.permit, path)).toBe(false);
+        result.release();
+    });
+    it.each(['physical-point', 'drying-sliver', 'shallow-sounding'])(
+        'checks original %s across the complete final cell rather than only its centre',
+        async (kind) => {
+            const path = fakePath(),
+                x = path.points[1][0] + path.grid.dLon / 3,
+                y = path.points[1][1] + path.grid.dLat / 3;
+            if (kind === 'physical-point')
+                h.blob!.layers.OBSTRN!.features.push({
+                    type: 'Feature',
+                    properties: {},
+                    geometry: { type: 'Point', coordinates: [x, y] },
+                });
+            if (kind === 'shallow-sounding')
+                h.blob!.layers.SOUNDG!.features.push({
+                    type: 'Feature',
+                    properties: {},
+                    geometry: { type: 'Point', coordinates: [x, y, 0.1] },
+                });
+            if (kind === 'drying-sliver') {
+                const d = path.grid.dLon / 100;
+                h.blob!.layers.DEPARE!.features.push({
+                    type: 'Feature',
+                    properties: { DRVAL1: -0.1, DRVAL2: 0 },
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [
+                            [
+                                [x, y],
+                                [x + d, y],
+                                [x + d, y + d],
+                                [x, y + d],
+                                [x, y],
+                            ],
+                        ],
+                    },
+                });
+            }
+            const result = await prepareTideGatedSources(input(), options());
+            expect(result.kind).toBe('ready');
+            if (result.kind !== 'ready') return;
+            expect(await recheckTideGatedSourcePermit(result.permit, path)).toBe(false);
+            result.release();
+        },
+    );
     it('does not assume a dateline or polar chart transfer', () => {
         expect(tideGatedBounds({ lat: 0, lon: 179.99 }, { lat: 0, lon: -179.99 })).toBeNull();
         expect(tideGatedBounds({ lat: 81, lon: 0 }, { lat: 81, lon: 1 })).toBeNull();
+    });
+    it.each(['absent', 'unmeasured', 'over-budget'])(
+        'holds a private %s RAM view without fetching or trusting metadata bytes',
+        async (kind) => {
+            if (kind === 'absent') h.peek.mockReturnValueOnce(null);
+            if (kind === 'unmeasured') h.byteLength = null;
+            if (kind === 'over-budget') {
+                h.cells[0].sizeBytes = 1;
+                h.byteLength = 16 * 1024 * 1024 + 1;
+            }
+            expect((await prepareTideGatedSources(input(), options())).kind).toBe('held');
+            expect(h.load).not.toHaveBeenCalled();
+        },
+    );
+    it('reads a deep original sounding without converting it to a physical obstacle', async () => {
+        h.blob!.layers.SOUNDG!.features.push({
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Point', coordinates: [0, 0, 9] },
+        });
+        const r = await prepareTideGatedSources(input(), options());
+        expect(r.kind).toBe('ready');
+        if (r.kind !== 'ready') return;
+        expect(r.permit.request.soundings).toEqual([{ lon: 0, lat: 0, depthM: 9 }]);
+        r.release();
     });
 });

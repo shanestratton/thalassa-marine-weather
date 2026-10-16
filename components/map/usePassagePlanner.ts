@@ -922,6 +922,25 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                           chartVerdicts: inshoreRes.chartVerdicts,
                       });
                 if (gen !== computeGenRef.current) return; // user moved on, abort
+                if (
+                    inshoreRes.tideShortcut?.kind === 'preview' &&
+                    (!backstop || backstop.status !== 'verified' || backstop.crossesLand)
+                ) {
+                    const { retireTideShortcutPreview } = await import('../../services/routing/tideGatedPlanning');
+                    retireTideShortcutPreview(inshoreRes);
+                    if (gen !== computeGenRef.current) return;
+                    setTideShortcutReview({
+                        kind: 'held',
+                        reason: 'The final land check did not verify this exact timed geometry. No timed route was accepted.',
+                    });
+                    setRouteAnalysis(null);
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Timed preview held',
+                        message: 'The exact candidate failed or lacks its final land verification. Replan to retry.',
+                    });
+                    return;
+                }
                 if (!backstop) {
                     log.warn(
                         `[Passage][BAYLEG] FELL THROUGH (charted-land) — ${Math.round(inshoreRes.hardLand?.awayM ?? 0)} m of charted land away from the pins`,
@@ -1462,6 +1481,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
+                if (inshoreRes.code === 'route-exclusion' || inshoreRes.code === 'exclusion-unavailable') {
+                    setRouteAnalysis(null);
+                    setRouteVerification({ status: 'unverified', geometryKey: null, reason: inshoreRes.error });
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Routing constraints held',
+                        message: inshoreRes.error,
+                    });
+                    return;
+                }
                 // A bridge verdict is FINAL — no offshore fallback, no green
                 // line, no cross-country workaround. The pin is behind a fixed
                 // structure this vessel cannot pass; the only fixes are moving
@@ -1502,6 +1531,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // too-short check will bail with the friendly message.
             }
         } catch (err) {
+            if (tideShortcutEnabled) {
+                if (gen !== computeGenRef.current || !mounted.current) return;
+                setTideShortcutReview({
+                    kind: 'held',
+                    reason: err instanceof Error ? err.message : 'Current timed route evidence is unavailable.',
+                });
+                setRouteAnalysis(null);
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Timed route held',
+                    message:
+                        'Current source or hard routing-policy evidence could not be read. Replan after reviewing the data.',
+                });
+                return;
+            }
             log.warn(
                 `[Passage][BAYLEG] FELL THROUGH (threw) → unverified offshore preview will draw — inshore routing exception`,
                 err,

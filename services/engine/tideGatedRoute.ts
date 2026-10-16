@@ -3,9 +3,7 @@
 import type { InshoreLayers, NavGrid, RouteFailure, RouteRequest, RouteResult } from './types';
 import { buildNavGrid } from './navGrid';
 import { applyExclusionField, routeExclusionConflict, exclusionRefusal } from './exclusionField';
-import { searchTideGatedCandidate, tideGatedBounds } from './tideGatedSearch';
-import { mPerDegLon } from './geometry';
-import { M_PER_DEG_LAT } from './constants';
+import { searchTideGatedCandidate, tideGatedBounds, tideGatedGridLayout } from './tideGatedSearch';
 
 /** Original point measurements can lower area minima; they never create area
  * coverage, lift a blocked cell, clear a hazard or give depth above a band. */
@@ -62,10 +60,7 @@ export function routeTideGatedCandidate(layers: InshoreLayers, req: RouteRequest
     const bounds = tideGatedBounds(r.from, r.to);
     if (!bounds || !req._exclusionField) return no('Current complete chart bounds or exclusions are missing.');
     try {
-        const widthM = (bounds[2] - bounds[0]) * mPerDegLon((bounds[1] + bounds[3]) / 2),
-            heightM = (bounds[3] - bounds[1]) * M_PER_DEG_LAT;
-        let resolution = Math.max(50, Math.ceil(Math.sqrt((widthM * heightM) / 2500000)));
-        while (Math.ceil(widthM / resolution) * Math.ceil(heightM / resolution) > 2500000) resolution++;
+        const { resolutionM: resolution } = tideGatedGridLayout(bounds);
         // No count-key cache, tide ceiling, canal/lead rescue, endpoint snap or
         // component carve participates in this independently qualified path.
         const base = buildNavGrid(
@@ -83,7 +78,7 @@ export function routeTideGatedCandidate(layers: InshoreLayers, req: RouteRequest
         );
         const grid = applyExclusionField(base, req._exclusionField);
         applyTideSoundingMinima(grid, r.soundings ?? []);
-        const candidate = searchTideGatedCandidate(grid, r);
+        const candidate = searchTideGatedCandidate(grid, { ...r, sourceBounds: bounds });
         if (candidate.kind !== 'candidate')
             return no(candidate.kind === 'held' ? candidate.reason : 'Tide candidate is off.');
         if (candidate.path.points.length > 8192)

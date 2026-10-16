@@ -115,6 +115,7 @@ export async function planTideGatedShortcut(
         Object.freeze(path.timesMs);
         Object.freeze(path.indices);
         Object.freeze(path.tideCells);
+        Object.freeze(path.grid);
         Object.freeze(path);
         const points = path.points.map((p) => [p[0], p[1]] as [number, number]);
         const outputKey = JSON.stringify(output.polyline),

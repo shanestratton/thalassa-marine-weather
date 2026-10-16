@@ -69,6 +69,7 @@ interface ReadContext {
     boatGeneration: number;
     pairingKey: string;
     pairingRevision: number;
+    vaultClearRevision: number;
 }
 interface PendingRead {
     context: ReadContext;
@@ -96,6 +97,7 @@ function readContext(): ReadContext | null {
         boatGeneration,
         pairingKey: JSON.stringify([pairing.deviceId, pairing.publicKeySpki, pairing.fingerprint, pairing.pairedAt]),
         pairingRevision: getPiEquipmentReadRevision(),
+        vaultClearRevision: vault.boatCellVaultClearRevision(),
     };
 }
 function sameReadContext(a: ReadContext, b: ReadContext | null): boolean {

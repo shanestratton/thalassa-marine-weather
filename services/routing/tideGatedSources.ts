@@ -1,13 +1,13 @@
 /** Main-thread source admission. No provider activation, WAN, chart writes or
  * serialized authority. Geometry and its real cohort lease live for one run. */
-import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson';
+import type { FeatureCollection, MultiPolygon, Polygon, Geometry } from 'geojson';
 import type { EncCell, EncConversionResult } from '../enc/types';
 import type { InshoreLayers } from '../engine/types';
 import type { TideGateArea, TideGatedCandidateRequest, TideGridPath } from '../engine/tideGatedSearch';
-import { tideGatedBounds } from '../engine/tideGatedSearch';
+import { tideGatedBounds, tideGatedGridLayout } from '../engine/tideGatedSearch';
 export { tideGatedBounds } from '../engine/tideGatedSearch';
 import { cellsForBBox, getVersion } from '../enc/EncCellMetadata';
-import { loadCellGeoJSON } from '../enc/EncCellStore';
+import { peekCellGeoJSON, readRetainedCellGeoJSONBytes } from '../enc/EncCellStore';
 import { loadNoaaPackageCohort } from '../enc/noaaPackageWindow';
 import { readPiChartReadEvidence, isPiChartReadEvidenceCurrent } from '../enc/piCellSync';
 import { encCellContentIdentity } from '../enc/cellContentIdentity';
@@ -23,11 +23,13 @@ import {
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import { trackPriorContextKey } from './trackRoutingPriors';
 import { holdingGeometryRelation, type HoldingBounds } from '../enc/holdingFootprint';
-import { haversineM } from '../engine/geometry';
+import { haversineM, bboxBuckets } from '../engine/geometry';
+import { chartFindGeneration } from '../enc/chartFindMemory';
 
 const classes = [
     'DEPARE',
     'LNDARE',
+    'COALNE',
     'OBSTRN',
     'WRECKS',
     'UWTROC',
@@ -36,6 +38,7 @@ const classes = [
     'M_SDAT',
     'RESARE',
     'TSEZNE',
+    'TSSLPT',
     'BRIDGE',
     'CBLOHD',
     'PIPOHD',
@@ -76,6 +79,21 @@ function freezeOwned<T>(value: T): T {
     }
     return value;
 }
+function originalBounds(geometry: Geometry): HoldingBounds {
+    const b: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+    const walk = (v: unknown): void => {
+        if (!Array.isArray(v)) throw Error('An original footprint is malformed.');
+        if (typeof v[0] === 'number') {
+            b[0] = Math.min(b[0], v[0]);
+            b[1] = Math.min(b[1], v[1]);
+            b[2] = Math.max(b[2], v[0]);
+            b[3] = Math.max(b[3], v[1]);
+        } else for (const child of v) walk(child);
+    };
+    if (geometry.type === 'GeometryCollection') throw Error('An original footprint has no bounded geometry.');
+    walk(geometry.coordinates);
+    return b;
+}
 
 /** Current adapters return no navigationSeries: their extrema, local model or
  * untied WorldTides display predictions cannot mint a source permit. A future
@@ -88,6 +106,7 @@ export async function prepareTideGatedSources(
     const scope = getAuthIdentityScope(),
         version = getVersion(),
         prior = trackPriorContextKey(),
+        chartLifetime = chartFindGeneration(),
         started = Date.now();
     let released = false,
         cohort: Awaited<ReturnType<typeof loadNoaaPackageCohort>> | null = null;
@@ -102,7 +121,8 @@ export async function prepareTideGatedSources(
             now >= started + 5 * 60_000 ||
             !isAuthIdentityScopeCurrent(scope) ||
             version !== getVersion() ||
-            prior !== trackPriorContextKey()
+            prior !== trackPriorContextKey() ||
+            chartLifetime !== chartFindGeneration()
         )
             throw new DOMException('Tide source run retired.', 'AbortError');
         for (const { cell, receipt } of receipts)
@@ -181,14 +201,16 @@ export async function prepareTideGatedSources(
                         'An original chart has no current verified Pi read receipt or retained public-package lease.',
                     );
                 receipts.push({ cell, receipt });
-                if (!Number.isSafeInteger(cell.sizeBytes) || cell.sizeBytes! <= 0)
-                    return held('A Pi chart byte bound is unknown.');
-                bytes += cell.sizeBytes!;
+            }
+            const blob = cell.noaaPackage ? cohort.blobs.get(cell.id) : peekCellGeoJSON(cell.id);
+            check();
+            if (!cell.noaaPackage && blob) {
+                const measured = readRetainedCellGeoJSONBytes(cell.id, blob);
+                if (measured === null) return held('An original Pi chart has no current measured RAM byte proof.');
+                bytes += measured;
             }
             if (bytes > 16 * 1024 * 1024)
                 return held('The complete tide chart window exceeds the existing 16 MiB view bound.');
-            const blob = cell.noaaPackage ? cohort.blobs.get(cell.id) : await loadCellGeoJSON(cell.id, false);
-            check();
             if (
                 !blob ||
                 blob.cellId !== cell.id ||
@@ -198,7 +220,9 @@ export async function prepareTideGatedSources(
                 blob.issued !== cell.issued ||
                 !cellSoundingDatum(blob)
             )
-                return held('An original chart revision or explicit whole-cell sounding datum is unknown.');
+                return held(
+                    'An original chart is absent from the current complete RAM window, or its revision/whole-cell sounding datum is unknown.',
+                );
             for (const cls of classes) {
                 const fc = blob.layers[cls];
                 if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features))
@@ -251,6 +275,10 @@ export async function prepareTideGatedSources(
                 type: 'FeatureCollection',
                 features: blobs.flatMap(({ blob }) => blob.layers[cls]!.features),
             } as FeatureCollection;
+        layers.COASTLINE = {
+            type: 'FeatureCollection',
+            features: blobs.flatMap(({ blob }) => blob.layers.COALNE!.features),
+        };
         // No sounding-datum tide may open an overhead structure. Its original
         // footprint becomes a hard obstacle for this optional route instead.
         for (const { blob } of blobs)
@@ -267,12 +295,22 @@ export async function prepareTideGatedSources(
             ] as const)
                 for (const feature of blob.layers[cls]!.features)
                     layers.OBSTRN!.features.push({ ...feature, properties: { _class: 'tide-overhead-exclusion' } });
-        for (const cls of ['RESARE', 'TSEZNE'] as const)
+        for (const cls of ['RESARE', 'TSEZNE', 'TSSLPT'] as const)
             (layers as Record<string, unknown>)[cls] = {
                 type: 'FeatureCollection',
                 features: blobs.flatMap(({ blob }) => blob.layers[cls]!.features),
             };
         const ownedLayers = freezeOwned(structuredClone(layers));
+        const { buildTideDepthCoverage } = await import('../enc/tideDepthCoverage');
+        check();
+        const depthCoverage = buildTideDepthCoverage(ownedLayers.DEPARE!.features, bounds, check);
+        if (!depthCoverage) return held('The complete positive-depth coverage union is unavailable.');
+        const layout = tideGatedGridLayout(bounds).grid;
+        const hardObjects = ['LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'COASTLINE']
+            .flatMap((cls) => ownedLayers[cls as keyof InshoreLayers]?.features ?? [])
+            .map((feature) => ({ geometry: feature.geometry, bbox: originalBounds(feature.geometry) }));
+        const hardQuery = bboxBuckets(hardObjects, (item) => item.bbox);
+        const soundQuery = bboxBuckets(soundings, (point) => [point.lon, point.lat, point.lon, point.lat]);
         // Restrictions are not depth credit. Keep their original geometries in
         // the worker exclusion compiler; no tide permit can reopen its masks.
         const areas: TideGateArea[] = [],
@@ -283,88 +321,83 @@ export async function prepareTideGatedSources(
             }> = [];
         let reviews = 0,
             expiresAtMs = started + 5 * 60_000;
-        for (const { blob } of blobs)
-            for (const feature of blob.layers.DEPARE!.features) {
-                if (!holdingGeometryRelation(feature.geometry, bounds, vertex, compare).intersects) continue;
-                const d = feature.properties?.DRVAL1 ?? feature.properties?.drval1;
-                if (!finite(d)) return held('An intersecting original depth band has no numeric minimum.');
-                if (d <= 0 || d >= r.requiredM) continue;
-                if (feature.geometry?.type !== 'Polygon' && feature.geometry?.type !== 'MultiPolygon')
-                    return held('A shallow depth band lacks original area geometry.');
-                if (areas.length >= 32) return held('The complete shallow-band set exceeds 32 original areas.');
-                const candidates = source.navigationSeries.flatMap((series) =>
-                    REVIEWED_SAMPLED_TIDE_AUTHORITY.ties
-                        .filter(
-                            (tie) =>
-                                tie.use === 'sounding' &&
-                                tie.chartContentKey === chartContentKey &&
-                                tie.targetDatumId === datum &&
-                                tie.targetDatumEpoch &&
-                                tie.provider === series.provider &&
-                                tie.productId === series.productId &&
-                                tie.stationId === series.stationId,
-                        )
-                        .map((tie) => ({ series, tie })),
-                );
-                if (candidates.length !== 1)
-                    return held('A unique reviewed station-to-complete-window datum/epoch tie is missing.');
-                const { series, tie } = candidates[0];
-                for (const coverage of tie.coverage) {
-                    const center = { lat: (coverage[1] + coverage[3]) / 2, lon: (coverage[0] + coverage[2]) / 2 };
-                    const context: WaterIntervalContext = {
-                        ...center,
-                        lifetimeKey: r.lifetimeKey,
-                        nowMs: started,
-                        chartContentKey,
-                        targetDatumId: datum,
-                        targetDatumEpoch: tie.targetDatumEpoch,
-                        use: 'sounding',
-                        protectedChart: cells.some(isProtectedChart),
-                        fromMs: 0,
-                        untilMs: 0,
-                    };
-                    const area: TideGateArea = {
-                        id: `bank-${areas.length}`,
-                        geometry: structuredClone(feature.geometry) as Polygon | MultiPolygon,
-                        coverage: [...coverage],
-                        station: { lat: series.lat, lon: series.lon },
-                        maxDistanceKm: tie.maxDistanceKm,
-                        chartedDepthM: d,
-                        windows: [],
-                    };
-                    const windows: Array<{ fromMs: number; untilMs: number; minLowM: number }> = [];
-                    for (let i = 1; i < series.samples.length; i++) {
-                        const fromMs = Math.max(series.samples[i - 1].timeMs, r.departureMs - r.uncertaintyMs - 300000),
-                            untilMs = Math.min(
-                                series.samples[i].timeMs,
-                                r.departureMs + 86400000 + r.uncertaintyMs + 300000,
-                            );
-                        if (untilMs <= fromMs) continue;
-                        if (++reviews > 512 || Date.now() - started > 30000)
-                            return held('Full original-interval review exceeds its 512-bracket /30-second bound.');
-                        const c = { ...context, fromMs, untilMs, nowMs: Date.now() };
-                        const water = await reviewWaterInterval([series], c, {
-                            signal: options.signal,
-                            assertCurrent: check,
-                        });
-                        check();
-                        if (!water || !isReviewedWaterInterval(water, c) || d + water.minLowM < r.requiredM) continue;
-                        expiresAtMs = Math.min(expiresAtMs, water.expiresAtMs);
-                        const previous = windows[windows.length - 1];
-                        if (previous?.untilMs === fromMs && untilMs - previous.fromMs <= 86400000) {
-                            previous.untilMs = untilMs;
-                            previous.minLowM = Math.min(previous.minLowM, water.minLowM);
-                        } else windows.push({ fromMs, untilMs, minLowM: water.minLowM });
-                    }
-                    if (windows.length) {
-                        if (areas.length >= 32) return held('The complete shallow-band set exceeds 32 original areas.');
-                        area.windows = windows;
-                        freezeOwned(area);
-                        areas.push(area);
-                        proofs.push({ area, context, series });
-                    }
+        {
+            const d = depthCoverage.minimumPositiveM;
+            if (d >= r.requiredM)
+                return held('This complete original window has no positive charted bank that needs a tide shortcut.');
+            const candidates = source.navigationSeries.flatMap((series) =>
+                REVIEWED_SAMPLED_TIDE_AUTHORITY.ties
+                    .filter(
+                        (tie) =>
+                            tie.use === 'sounding' &&
+                            tie.chartContentKey === chartContentKey &&
+                            tie.targetDatumId === datum &&
+                            tie.targetDatumEpoch &&
+                            tie.provider === series.provider &&
+                            tie.productId === series.productId &&
+                            tie.stationId === series.stationId,
+                    )
+                    .map((tie) => ({ series, tie })),
+            );
+            if (candidates.length !== 1)
+                return held('A unique reviewed station-to-complete-window datum/epoch tie is missing.');
+            const { series, tie } = candidates[0];
+            for (const coverage of tie.coverage) {
+                const center = { lat: (coverage[1] + coverage[3]) / 2, lon: (coverage[0] + coverage[2]) / 2 };
+                const context: WaterIntervalContext = {
+                    ...center,
+                    lifetimeKey: r.lifetimeKey,
+                    nowMs: started,
+                    chartContentKey,
+                    targetDatumId: datum,
+                    targetDatumEpoch: tie.targetDatumEpoch,
+                    use: 'sounding',
+                    protectedChart: cells.some(isProtectedChart),
+                    fromMs: 0,
+                    untilMs: 0,
+                };
+                const area: TideGateArea = {
+                    id: `bank-${areas.length}`,
+                    geometry: structuredClone(depthCoverage.geometry) as Polygon | MultiPolygon,
+                    coverage: [...coverage],
+                    station: { lat: series.lat, lon: series.lon },
+                    maxDistanceKm: tie.maxDistanceKm,
+                    chartedDepthM: d,
+                    windows: [],
+                };
+                const windows: Array<{ fromMs: number; untilMs: number; minLowM: number }> = [];
+                for (let i = 1; i < series.samples.length; i++) {
+                    const fromMs = Math.max(series.samples[i - 1].timeMs, r.departureMs - r.uncertaintyMs - 300000),
+                        untilMs = Math.min(
+                            series.samples[i].timeMs,
+                            r.departureMs + 86400000 + r.uncertaintyMs + 300000,
+                        );
+                    if (untilMs <= fromMs) continue;
+                    if (++reviews > 512 || Date.now() - started > 30000)
+                        return held('Full original-interval review exceeds its 512-bracket /30-second bound.');
+                    const c = { ...context, fromMs, untilMs, nowMs: Date.now() };
+                    const water = await reviewWaterInterval([series], c, {
+                        signal: options.signal,
+                        assertCurrent: check,
+                    });
+                    check();
+                    if (!water || !isReviewedWaterInterval(water, c) || d + water.minLowM < r.requiredM) continue;
+                    expiresAtMs = Math.min(expiresAtMs, water.expiresAtMs);
+                    const previous = windows[windows.length - 1];
+                    if (previous?.untilMs === fromMs && untilMs - previous.fromMs <= 86400000) {
+                        previous.untilMs = untilMs;
+                        previous.minLowM = Math.min(previous.minLowM, water.minLowM);
+                    } else windows.push({ fromMs, untilMs, minLowM: water.minLowM });
+                }
+                if (windows.length) {
+                    if (areas.length >= 32) return held('The complete shallow-band set exceeds 32 original areas.');
+                    area.windows = windows;
+                    freezeOwned(area);
+                    areas.push(area);
+                    proofs.push({ area, context, series });
                 }
             }
+        }
         if (!areas.length)
             return held(
                 'No full original-sample interval clears a charted bank with the reviewed uncertainty and datum transfer.',
@@ -381,6 +414,7 @@ export async function prepareTideGatedSources(
             maxJourneyMs: 86400000,
             areas: Object.freeze(areas),
             soundings: freezeOwned(soundings),
+            sourceBounds: freezeOwned(bounds),
         });
         const permit = Object.freeze({
             request,
@@ -399,6 +433,12 @@ export async function prepareTideGatedSources(
             check,
             finish: async (path) => {
                 check();
+                const finalStarted = Date.now();
+                const finalCheck = () => {
+                    check();
+                    if (Date.now() < finalStarted || Date.now() - finalStarted > 30000)
+                        throw new DOMException('Final tide source review exceeded 30 seconds.', 'AbortError');
+                };
                 if (
                     Date.now() >= expiresAtMs ||
                     !path ||
@@ -411,6 +451,10 @@ export async function prepareTideGatedSources(
                     path.points.length !== path.indices.length ||
                     path.points.length < 2 ||
                     path.points.length > 25000 ||
+                    !path.grid ||
+                    Object.keys(layout).some(
+                        (key) => path.grid[key as keyof typeof layout] !== layout[key as keyof typeof layout],
+                    ) ||
                     new Set(path.indices).size !== path.indices.length ||
                     path.indices.some((i) => !Number.isInteger(i) || i < 0 || i >= 2500000) ||
                     path.points.some(
@@ -430,12 +474,131 @@ export async function prepareTideGatedSources(
                     path.timesMs[0] !== r.departureMs
                 )
                     return false;
+                let footprintVertices = 0,
+                    footprintComparisons = 0;
+                const pv = () => {
+                    if (++footprintVertices > 262144) throw Error('Final original footprint exceeds its vertex bound.');
+                };
+                const pc = () => {
+                    if (++footprintComparisons > 500000)
+                        throw Error('Final original footprint exceeds its comparison bound.');
+                };
+                const cells = new Map<number, { bounds: HoldingBounds; depth: number }>();
+                const cell = (index: number) => {
+                    finalCheck();
+                    const previous = cells.get(index);
+                    if (previous) return previous;
+                    if (cells.size >= 4096) return null;
+                    const x = index % layout.width,
+                        y = Math.floor(index / layout.width);
+                    if (x < 0 || y < 0 || x >= layout.width || y >= layout.height) return null;
+                    const box = [
+                        layout.minLon + x * layout.dLon,
+                        layout.minLat + y * layout.dLat,
+                        layout.minLon + (x + 1) * layout.dLon,
+                        layout.minLat + (y + 1) * layout.dLat,
+                    ] as const;
+                    if (
+                        box[0] < bounds[0] ||
+                        box[1] < bounds[1] ||
+                        box[2] > bounds[2] ||
+                        box[3] > bounds[3] ||
+                        !holdingGeometryRelation(depthCoverage.geometry, box, pv, pc).covers
+                    )
+                        return null;
+                    const marginLat = 60 / 111320,
+                        marginLon = marginLat / Math.cos((((box[1] + box[3]) / 2) * Math.PI) / 180);
+                    const expanded = [
+                        box[0] - marginLon,
+                        box[1] - marginLat,
+                        box[2] + marginLon,
+                        box[3] + marginLat,
+                    ] as const;
+                    for (const object of hardQuery(expanded))
+                        if (holdingGeometryRelation(object.geometry, expanded, pv, pc).intersects) return null;
+                    let depth = depthCoverage.minimumAt(box);
+                    if (depth === null || depth <= 0) return null;
+                    for (const point of soundQuery([
+                        box[0] - layout.dLon,
+                        box[1] - layout.dLat,
+                        box[2] + layout.dLon,
+                        box[3] + layout.dLat,
+                    ]))
+                        depth = Math.min(depth, point.depthM);
+                    if (depth <= 0) return null;
+                    const value = { bounds: box, depth };
+                    cells.set(index, value);
+                    return value;
+                };
+                const admitted = (index: number, from: number, until: number) => {
+                    const facts = cell(index);
+                    if (!facts) return false;
+                    if (facts.depth >= r.requiredM) return true;
+                    const lo = r.departureMs + Math.floor((from - r.departureMs) / 300000) * 300000 - r.uncertaintyMs,
+                        hi = r.departureMs + Math.ceil((until - r.departureMs) / 300000) * 300000 + r.uncertaintyMs;
+                    const b = facts.bounds,
+                        at = { lat: (b[1] + b[3]) / 2, lon: (b[0] + b[2]) / 2 },
+                        radius = haversineM(b[1], b[0], b[3], b[2]);
+                    return areas.some(
+                        (area) =>
+                            b[0] >= area.coverage[0] &&
+                            b[1] >= area.coverage[1] &&
+                            b[2] <= area.coverage[2] &&
+                            b[3] <= area.coverage[3] &&
+                            haversineM(at.lat, at.lon, area.station.lat, area.station.lon) + radius <=
+                                area.maxDistanceKm * 1000 &&
+                            area.windows.some(
+                                (window) =>
+                                    window.fromMs <= lo &&
+                                    window.untilMs >= hi &&
+                                    Math.min(facts.depth, area.chartedDepthM) + window.minLowM >= r.requiredM,
+                            ),
+                    );
+                };
                 let distance = 0;
+                const firstIndex =
+                        Math.floor((r.from.lat - layout.minLat) / layout.dLat) * layout.width +
+                        Math.floor((r.from.lon - layout.minLon) / layout.dLon),
+                    lastIndex =
+                        Math.floor((r.to.lat - layout.minLat) / layout.dLat) * layout.width +
+                        Math.floor((r.to.lon - layout.minLon) / layout.dLon);
+                if (path.indices[0] !== firstIndex || path.indices.at(-1) !== lastIndex) return false;
+                for (let i = 0; i < path.indices.length; i++) {
+                    const idx = path.indices[i],
+                        point = path.points[i],
+                        expected =
+                            idx === firstIndex
+                                ? [r.from.lon, r.from.lat]
+                                : idx === lastIndex
+                                  ? [r.to.lon, r.to.lat]
+                                  : [
+                                        layout.minLon + ((idx % layout.width) + 0.5) * layout.dLon,
+                                        layout.minLat + (Math.floor(idx / layout.width) + 0.5) * layout.dLat,
+                                    ];
+                    if (point[0] !== expected[0] || point[1] !== expected[1]) return false;
+                }
                 for (let i = 1; i < path.points.length; i++) {
                     const a = path.points[i - 1],
                         b = path.points[i],
                         length = haversineM(a[1], a[0], b[1], b[0]);
                     distance += length;
+                    const aIndex = path.indices[i - 1],
+                        bIndex = path.indices[i],
+                        ax = aIndex % layout.width,
+                        ay = Math.floor(aIndex / layout.width),
+                        bx = bIndex % layout.width,
+                        by = Math.floor(bIndex / layout.width);
+                    if (
+                        Math.abs(ax - bx) > 1 ||
+                        Math.abs(ay - by) > 1 ||
+                        !admitted(aIndex, path.timesMs[i - 1], path.timesMs[i]) ||
+                        !admitted(bIndex, path.timesMs[i - 1], path.timesMs[i]) ||
+                        (ax !== bx &&
+                            ay !== by &&
+                            (!admitted(ay * layout.width + bx, path.timesMs[i - 1], path.timesMs[i]) ||
+                                !admitted(by * layout.width + ax, path.timesMs[i - 1], path.timesMs[i])))
+                    )
+                        return false;
                     if (
                         length <= 0 ||
                         path.timesMs[i] !== path.timesMs[i - 1] + (length / ((r.speedKts * 1852) / 3600)) * 1000
@@ -449,6 +612,7 @@ export async function prepareTideGatedSources(
                     path.indices,
                     path.distanceM,
                     path.tideCells,
+                    path.grid,
                 ]);
                 // Final exact candidate must remain within the issued original
                 // windows; the grid verifier separately rechecks all touched cells.
@@ -462,17 +626,24 @@ export async function prepareTideGatedSources(
                         };
                         const water = await reviewWaterInterval([proof.series], c, {
                             signal: options.signal,
-                            assertCurrent: check,
+                            assertCurrent: finalCheck,
                         });
-                        check();
+                        finalCheck();
                         if (!water || !isReviewedWaterInterval(water, c) || water.minLowM < window.minLowM)
                             return false;
                     }
-                check();
+                finalCheck();
                 return (
                     Date.now() < expiresAtMs &&
                     snapshot ===
-                        JSON.stringify([path.points, path.timesMs, path.indices, path.distanceM, path.tideCells])
+                        JSON.stringify([
+                            path.points,
+                            path.timesMs,
+                            path.indices,
+                            path.distanceM,
+                            path.tideCells,
+                            path.grid,
+                        ])
                 );
             },
         });

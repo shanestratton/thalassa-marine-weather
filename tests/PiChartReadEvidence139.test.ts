@@ -73,6 +73,7 @@ import {
     isPiChartReadEvidenceCurrent,
     readPiChartReadEvidence,
 } from '../services/enc/piCellSync';
+import * as vault from '../services/enc/boatCellVault';
 
 const NOW = Date.parse('2026-10-17T01:00:00Z');
 function cell(id = 'AU500001', hash = 'a'.repeat(64)): EncCell {
@@ -167,7 +168,7 @@ describe('actual Pi download/import read evidence (synthetic transport)', () => 
         put(cell());
         expect(isPiChartReadEvidenceCurrent(receipt, cell())).toBe(false);
     });
-    it.each(['boat', 'owner', 'pairing'])('%s A/B/A retires an issued receipt', async (kind) => {
+    it.each(['boat', 'owner', 'pairing', 'vault'])('%s A/B/A retires an issued receipt', async (kind) => {
         await downloadPiCell('AU500001');
         const receipt = readPiChartReadEvidence(cell())!;
         if (kind === 'boat') {
@@ -179,9 +180,10 @@ describe('actual Pi download/import read evidence (synthetic transport)', () => 
             owner('a');
         }
         if (kind === 'pairing') h.pairingRevision += 2;
+        if (kind === 'vault') vault.clear();
         expect(isPiChartReadEvidenceCurrent(receipt, cell())).toBe(false);
     });
-    it.each(['boat', 'owner', 'pairing', 'cell'])('late %s transition cannot mint a receipt', async (kind) => {
+    it.each(['boat', 'owner', 'pairing', 'cell', 'vault'])('late %s transition cannot mint a receipt', async (kind) => {
         let finish!: (value: unknown) => void;
         h.fetch.mockImplementationOnce(
             () =>
@@ -199,6 +201,7 @@ describe('actual Pi download/import read evidence (synthetic transport)', () => 
             owner('a');
         }
         if (kind === 'pairing') h.pairingRevision += 2;
+        if (kind === 'vault') vault.clear();
         if (kind === 'cell') {
             put(cell('AU500001', 'b'.repeat(64)));
             put(cell());
