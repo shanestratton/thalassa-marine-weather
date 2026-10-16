@@ -9,6 +9,7 @@ export default defineConfig({
         'chart-contours-layout.spec.ts',
         'chart-find-layout.spec.ts',
         'user-overlays139-layout.spec.ts',
+        'routing-exclusions139-layout.spec.ts',
         'chart-drawing139-layout.spec.ts',
         'berth139-layout.spec.ts',
         'pi-track-history-layout.spec.ts',

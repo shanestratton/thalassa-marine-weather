@@ -2,11 +2,13 @@ import { beforeEach, it, expect, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 const f = vi.hoisted(() => ({
     files: new Map<string, string>(),
-    scope: { key: 'user:A', generation: 1, userId: 'A' },
+    scope: { key: 'user:A', generation: 1, userId: 'A' as string | null },
     listeners: new Set<() => void>(),
     renameWait: null as Promise<void> | null,
     statError: null as Error | null,
     native: true,
+    readWait: null as Promise<void> | null,
+    blockedReadSuffix: '',
 }));
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => f.scope,
@@ -27,7 +29,10 @@ vi.mock('@capacitor/filesystem', () => ({
             const value = f.files.get(path)!;
             return { type: 'file', size: f.native ? new TextEncoder().encode(value).length : value.length };
         }),
-        readFile: vi.fn(async ({ path }: { path: string }) => ({ data: f.files.get(path) })),
+        readFile: vi.fn(async ({ path }: { path: string }) => {
+            if (f.readWait && path.endsWith(f.blockedReadSuffix)) await f.readWait;
+            return { data: f.files.get(path) };
+        }),
         writeFile: vi.fn(async ({ path, data }: { path: string; data: string }) => {
             f.files.set(path, data);
         }),
@@ -54,6 +59,10 @@ vi.mock('@capacitor/filesystem', () => ({
         }),
     },
 }));
+vi.mock('../services/weather/api/mpaDataset', () => ({
+    retainedMpaRoutingContextKey: () => 'absent',
+    borrowRetainedMpaDataset: () => ({ status: 'absent', data: undefined, isCurrent: () => true, release: () => {} }),
+}));
 import { Filesystem } from '@capacitor/filesystem';
 import { normalizeOverlay } from '../services/userOverlays/model';
 import {
@@ -63,6 +72,7 @@ import {
     updateUserOverlay,
     removeUserOverlay,
 } from '../services/userOverlays/store';
+import { readCurrentRoutingExclusions } from '../services/routing/routingExclusions';
 const preview = (x = 0) => ({
     ...normalizeOverlay({ type: 'Point', coordinates: [x, 1] }),
     format: 'GeoJSON' as const,
@@ -74,6 +84,8 @@ beforeEach(() => {
     f.renameWait = null;
     f.statError = null;
     f.native = true;
+    f.readWait = null;
+    f.blockedReadSuffix = '';
     vi.clearAllMocks();
 });
 it('writes only normalized content under a hashed Directory.Data account namespace, alerts off', async () => {
@@ -179,4 +191,101 @@ it('verified data cannot bypass aggregate caps through corrupted index counts', 
     await expect(readUserOverlay({ ...row, features: 2 })).rejects.toThrow('metadata');
     await expect(readUserOverlay({ ...row, vertices: 2 })).rejects.toThrow('metadata');
     await expect(readUserOverlay({ ...row, polygons: 1 })).rejects.toThrow('metadata');
+});
+const polygonPreview = () => ({
+    ...normalizeOverlay({
+        type: 'Polygon',
+        coordinates: [
+            [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 1],
+                [0, 0],
+            ],
+        ],
+    }),
+    format: 'GeoJSON' as const,
+});
+const bbox = [-0.1, -0.1, 1.1, 1.1] as const;
+it('imports and old indexes stay reference-only; explicit polygon avoidance is independent of visibility and alerts', async () => {
+    const row = await saveUserOverlay(polygonPreview(), 'Own area');
+    expect(row.avoidRouting).toBe(false);
+    const index = [...f.files.keys()].find((k) => k.endsWith('/index.json'))!;
+    const old = JSON.parse(f.files.get(index)!);
+    delete old.overlays[0].avoidRouting;
+    f.files.set(index, JSON.stringify(old));
+    expect((await loadUserOverlays()).overlays[0].avoidRouting).toBe(false);
+    let context = await readCurrentRoutingExclusions({ bbox });
+    expect(context.manual?.features).toHaveLength(0);
+    context.release();
+    await updateUserOverlay(row.id, { visible: false, alerts: true, avoidRouting: true });
+    expect((await loadUserOverlays()).overlays[0]).toMatchObject({ visible: false, alerts: true, avoidRouting: true });
+    context = await readCurrentRoutingExclusions({ bbox });
+    expect(context.manual?.features).toHaveLength(1);
+    expect(context.isCurrent()).toBe(true);
+    await updateUserOverlay(row.id, { alerts: false });
+    expect(context.isCurrent()).toBe(false);
+    context.release();
+    expect(context.manual).toBeUndefined();
+    expect((await loadUserOverlays()).overlays[0].avoidRouting).toBe(true);
+});
+it('only complete polygons intersecting the route window are admitted; enabled corrupt files and policy refuse', async () => {
+    const row = await saveUserOverlay(polygonPreview(), 'No-go');
+    await updateUserOverlay(row.id, { avoidRouting: true });
+    const distant = await readCurrentRoutingExclusions({ bbox: [10, 10, 11, 11] });
+    expect(distant.manual?.features).toHaveLength(0);
+    distant.release();
+    const path = [...f.files.keys()].find((k) => k.endsWith(row.id + '.json'))!;
+    f.files.set(path, f.files.get(path)!.replace('[0,0]', '[2,0]'));
+    await expect(readCurrentRoutingExclusions({ bbox })).rejects.toThrow('integrity');
+    const index = [...f.files.keys()].find((k) => k.endsWith('/index.json'))!,
+        raw = JSON.parse(f.files.get(index)!);
+    raw.overlays[0].avoidRouting = 'yes';
+    f.files.set(index, JSON.stringify(raw));
+    await expect(readCurrentRoutingExclusions({ bbox })).rejects.toThrow('damaged');
+});
+it('a point cannot be enabled and a polygon must pass its content SHA before enabling', async () => {
+    const point = await saveUserOverlay(preview(), 'Point');
+    await expect(updateUserOverlay(point.id, { avoidRouting: true })).rejects.toThrow('polygon');
+    const row = await saveUserOverlay(polygonPreview(), 'Area'),
+        path = [...f.files.keys()].find((k) => k.endsWith(row.id + '.json'))!;
+    f.files.set(path, f.files.get(path)!.replace('[0,0]', '[2,0]'));
+    await expect(updateUserOverlay(row.id, { avoidRouting: true })).rejects.toThrow('integrity');
+    expect((await loadUserOverlays()).overlays.every((r) => !r.avoidRouting)).toBe(true);
+});
+it.each(['abort', 'account-A/B/A', 'policy'])('retires a late verified file read after %s', async (kind) => {
+    const row = await saveUserOverlay(polygonPreview(), 'Area');
+    await updateUserOverlay(row.id, { avoidRouting: true });
+    let finish!: () => void;
+    f.blockedReadSuffix = row.id + '.json';
+    f.readWait = new Promise((r) => {
+        finish = r;
+    });
+    vi.clearAllMocks();
+    const controller = new AbortController(),
+        reading = readCurrentRoutingExclusions({ bbox, signal: controller.signal });
+    const rejected = expect(reading).rejects.toThrow();
+    await vi.waitFor(() =>
+        expect(Filesystem.readFile).toHaveBeenCalledWith(
+            expect.objectContaining({ path: expect.stringContaining(row.id) }),
+        ),
+    );
+    if (kind === 'abort') controller.abort();
+    if (kind === 'account-A/B/A') {
+        f.scope = { ...f.scope, generation: 3 };
+        for (const fn of f.listeners) fn();
+    }
+    if (kind === 'policy') await updateUserOverlay(row.id, { avoidRouting: false });
+    finish();
+    await rejected;
+});
+it('unsigned context never reads a private library and exposes no private polygons', async () => {
+    f.scope = { key: 'anonymous', generation: 2, userId: null };
+    vi.clearAllMocks();
+    const context = await readCurrentRoutingExclusions({ bbox });
+    expect(context.manual).toBeUndefined();
+    expect(context.advisories.join(' ')).toMatch(/Signed out/);
+    expect(Filesystem.readFile).not.toHaveBeenCalled();
+    context.release();
 });

@@ -29,6 +29,8 @@ export interface UserOverlay {
     polygons: number;
     visible: boolean;
     alerts: boolean;
+    /** Independent explicit policy. Missing in old private indexes means OFF. */
+    avoidRouting?: boolean;
 }
 export interface UserOverlayLibrary {
     schema: 1;
@@ -95,6 +97,8 @@ function parseLibrary(v: unknown): UserOverlayLibrary {
             safeLabel(r.label, '') !== r.label ||
             typeof r.visible !== 'boolean' ||
             typeof r.alerts !== 'boolean' ||
+            (r.avoidRouting !== undefined && typeof r.avoidRouting !== 'boolean') ||
+            (r.avoidRouting === true && !(typeof r.polygons === 'number' && r.polygons > 0)) ||
             !['createdAt', 'bytes', 'features', 'vertices', 'polygons'].every(
                 (k) => typeof r[k] === 'number' && Number.isSafeInteger(r[k]) && (r[k] as number) >= 0,
             ) ||
@@ -115,7 +119,10 @@ function parseLibrary(v: unknown): UserOverlayLibrary {
     }
     if (total > OVERLAY_TOTAL_BYTES || features > OVERLAY_MAX_FEATURES || vertices > OVERLAY_MAX_VERTICES)
         throw Error('Private overlay library exceeds its byte, feature or vertex limit.');
-    return v as unknown as UserOverlayLibrary;
+    return {
+        ...v,
+        overlays: v.overlays.map((r) => ({ ...r, avoidRouting: r.avoidRouting === true })),
+    } as unknown as UserOverlayLibrary;
 }
 async function readAt(path: string, scope: AuthIdentityScope): Promise<UserOverlayLibrary> {
     check(scope);
@@ -241,6 +248,7 @@ export function saveUserOverlay(
             polygons: normalized.polygons,
             visible: true,
             alerts: false,
+            avoidRouting: false,
         };
         await Filesystem.writeFile({ ...options(path + '/' + id + '.json'), data: text, recursive: true });
         check(scope);
@@ -250,13 +258,20 @@ export function saveUserOverlay(
 }
 export function updateUserOverlay(
     id: string | null,
-    patch: { visible?: boolean; alerts?: boolean; charts?: boolean; position?: 'boat' | 'phone' },
+    patch: {
+        visible?: boolean;
+        alerts?: boolean;
+        avoidRouting?: boolean;
+        charts?: boolean;
+        position?: 'boat' | 'phone';
+    },
     scope = getAuthIdentityScope(),
 ) {
     return serial(async () => {
         if (
             (id !== null && !HASH.test(id)) ||
-            Object.keys(patch).some((k) => !['visible', 'alerts', 'charts', 'position'].includes(k)) ||
+            Object.keys(patch).some((k) => !['visible', 'alerts', 'avoidRouting', 'charts', 'position'].includes(k)) ||
+            (id === null && patch.avoidRouting !== undefined) ||
             Object.entries(patch).some(([k, v]) =>
                 k === 'position' ? !['boat', 'phone'].includes(String(v)) : typeof v !== 'boolean',
             )
@@ -264,6 +279,15 @@ export function updateUserOverlay(
             throw Error('Invalid overlay change.');
         const path = await folder(scope),
             library = await readAt(path, scope);
+        if (patch.avoidRouting !== undefined) {
+            const row = library.overlays.find((r) => r.id === id);
+            if (!row) throw Error('The overlay changed. Review Your overlays again.');
+            if (patch.avoidRouting) {
+                if (!row.polygons) throw Error('Choose a saved polygon overlay to avoid while routing.');
+                await readUserOverlay(row, scope);
+                check(scope);
+            }
+        }
         const next =
             id === null
                 ? { ...library, charts: patch.charts ?? library.charts, position: patch.position ?? library.position }
@@ -271,7 +295,12 @@ export function updateUserOverlay(
                       ...library,
                       overlays: library.overlays.map((r) =>
                           r.id === id
-                              ? { ...r, visible: patch.visible ?? r.visible, alerts: patch.alerts ?? r.alerts }
+                              ? {
+                                    ...r,
+                                    visible: patch.visible ?? r.visible,
+                                    alerts: patch.alerts ?? r.alerts,
+                                    avoidRouting: patch.avoidRouting ?? r.avoidRouting ?? false,
+                                }
                               : r,
                       ),
                   };

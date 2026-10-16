@@ -3,6 +3,7 @@ import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from
 import { API_BASE } from '../../native/apiBase';
 import { createLogger } from '../../../utils/createLogger';
 import { validateMarineManifest } from './marineManifestContract';
+import { overlayPolygonOverlaps, validOverlayRouteBounds, type OverlayRouteBounds } from '../../userOverlays/model';
 import {
     decodeUtf8Json,
     fetchBoundedPublisherBytes,
@@ -343,6 +344,33 @@ let cache: MpaCacheEntry | null = null;
 let pending: { epoch: number; promise: Promise<VerifiedMpaCollection | null> } | null = null;
 let ownershipEpoch = 0;
 let activeController: AbortController | null = null;
+const retainedOwnerIds = new WeakMap<MpaCacheEntry, number>();
+let nextRetainedOwnerId = 0;
+function retainedFresh(entry: MpaCacheEntry, now = Date.now()): boolean {
+    return (
+        now >= entry.checkedAt &&
+        now - entry.checkedAt < MPA_CACHE_TTL_MS &&
+        now - Date.parse(entry.publishedAt) <= 14 * 24 * HOUR_MS
+    );
+}
+/** Synchronous source/freshness identity for route deduplication. Does not renew or retain ownership. */
+export function retainedMpaRoutingContextKey(): string {
+    if (!cache) return JSON.stringify([ownershipEpoch, null]);
+    let owner = retainedOwnerIds.get(cache);
+    if (owner === undefined) {
+        owner = ++nextRetainedOwnerId;
+        retainedOwnerIds.set(cache, owner);
+    }
+    return JSON.stringify([
+        ownershipEpoch,
+        owner,
+        cache.generation,
+        cache.checkedAt,
+        cache.sourceDate,
+        cache.publishedAt,
+        retainedFresh(cache),
+    ]);
+}
 
 /** Drop parsed GeoJSON ownership and abort any fetch that could repopulate it. */
 export function releaseMpaDataset(): void {
@@ -361,6 +389,81 @@ export function getVerifiedMpaDatasetStatus(): { generation: string; sourceDate:
     return cache
         ? { generation: cache.generation, sourceDate: cache.sourceDate, publishedAt: cache.publishedAt }
         : null;
+}
+
+export interface RetainedMpaBorrow {
+    readonly data: VerifiedMpaCollection | undefined;
+    readonly status: 'available' | 'absent' | 'expired' | 'bounded-out';
+    readonly generation?: string;
+    readonly sourceDate?: string;
+    isCurrent(): boolean;
+    release(): void;
+}
+/** Borrow complete selected features from the verified RAM owner only. No fetch,
+ * TTL renewal, ownership extension or full-footprint copy. Indicative caution only. */
+export function borrowRetainedMpaDataset({
+    bbox,
+    signal,
+}: {
+    bbox: OverlayRouteBounds;
+    signal?: AbortSignal;
+}): RetainedMpaBorrow {
+    if (!validOverlayRouteBounds(bbox)) throw Error('Invalid route exclusion bounds.');
+    let captured = cache;
+    const epoch = ownershipEpoch,
+        checkedAt = captured?.checkedAt;
+    const fresh = () =>
+        !!captured &&
+        cache === captured &&
+        ownershipEpoch === epoch &&
+        captured.checkedAt === checkedAt &&
+        retainedFresh(captured);
+    let active = true,
+        data: VerifiedMpaCollection | undefined;
+    let status: RetainedMpaBorrow['status'] = !captured ? 'absent' : !fresh() ? 'expired' : 'available';
+    if (status === 'available' && captured && !signal?.aborted) {
+        const features: VerifiedMpaCollection['features'] = [];
+        let vertices = 0;
+        for (const feature of captured.data.features) {
+            if (signal?.aborted) break;
+            if (!overlayPolygonOverlaps(feature.geometry, bbox)) continue;
+            const polygons =
+                feature.geometry.type === 'Polygon' ? [feature.geometry.coordinates] : feature.geometry.coordinates;
+            for (const polygon of polygons) for (const ring of polygon) vertices += ring.length;
+            if (features.length >= 2000 || vertices > 50_000) {
+                status = 'bounded-out';
+                break;
+            }
+            features.push(feature);
+        }
+        if (status === 'available' && !signal?.aborted) data = { type: 'FeatureCollection', features };
+    }
+    const generation = captured?.generation,
+        sourceDate = captured?.sourceDate;
+    const release = () => {
+        active = false;
+        data = undefined;
+        captured = null;
+        signal?.removeEventListener('abort', release);
+    };
+    signal?.addEventListener('abort', release, { once: true });
+    if (signal?.aborted) release();
+    return {
+        get data() {
+            return data;
+        },
+        status,
+        generation,
+        sourceDate,
+        isCurrent: () =>
+            active &&
+            !signal?.aborted &&
+            cache === captured &&
+            ownershipEpoch === epoch &&
+            captured?.checkedAt === checkedAt &&
+            (status === 'absent' || status === 'expired' ? !captured || !fresh() : fresh()),
+        release,
+    };
 }
 
 export type BeforeMpaGenerationAsset = (nextGeneration: string) => void;
