@@ -579,7 +579,7 @@ export const TideGraphOriginal = ({
         <div
             ref={graphRef}
             className={`flex flex-col h-full min-h-0 relative group ${className || ''}`}
-            style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}
+            style={{ ...style, contain: 'layout style' }}
         >
             {/* On a short card the canvas's grid lines and now hairline start
                 inside the caption band and ran through its words: the band
