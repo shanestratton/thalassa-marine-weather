@@ -215,6 +215,7 @@ vi.mock('../../services/enc/EncCellMetadata', () => ({
     listDisplayCells: () => displayCells,
     listPendingCells: () => [],
     getCell: (id: string) => ALL_CELLS.find((c) => c.id === id),
+    getDisplayCell: (id: string) => ALL_CELLS.find((c) => c.id === id),
     cellsForBBox: () => CELLS,
     getVersion: () => 1,
     putCell: () => undefined,

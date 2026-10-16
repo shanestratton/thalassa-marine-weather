@@ -9,6 +9,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string): string => readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -77,6 +78,30 @@ describe('supersede-at-enqueue (the merge-stack killer)', () => {
         expect(enqueueAt).toBeGreaterThan(-1);
         expect(queueAt).toBeGreaterThan(-1);
         expect(enqueueAt).toBeLessThan(queueAt);
-        expect(hazard).toContain('buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom, enqueueGen)');
+        const source = ts.createSourceFile('EncHazardService.ts', hazard, ts.ScriptTarget.Latest, true);
+        const calls: ts.CallExpression[] = [];
+        const visit = (node: ts.Node): void => {
+            if (
+                ts.isCallExpression(node) &&
+                ts.isIdentifier(node.expression) &&
+                node.expression.text === 'buildMergedVectorData'
+            )
+                calls.push(node);
+            ts.forEachChild(node, visit);
+        };
+        visit(source);
+        expect(calls).toHaveLength(1);
+        // The claimed generation still reaches argument six; package windows
+        // and their measured borrowers are additional arguments, not a new claim.
+        expect(calls[0].arguments.map((arg) => arg.getText(source))).toEqual([
+            'cells',
+            'cacheKey',
+            'densify',
+            'buildGlaze',
+            'zoom',
+            'enqueueGen',
+            'window',
+            'releases',
+        ]);
     });
 });
