@@ -217,9 +217,10 @@ async function filled(page: Page, limit: number) {
 }
 
 /** The menu box's rows, and with the crew card's every row of the menu. */
-const BOX_ROWS = '[data-testid="vessel-hub-menu"] > button';
+const BOX_ROWS =
+    '[data-testid="vessel-hub-menu"] > button, [data-testid="vessel-hub-menu"] > .vessel-hub-tools > button';
 const MENU_ROWS = `[data-testid="vessel-hub-crew"] > button, ${BOX_ROWS}`;
-const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'];
+const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Systems', 'Music', 'Settings', 'Boat Network'];
 
 /** Crew & Float Plan's own card (128-HUES): one, its one row, just above the
  *  box and as wide, a gap between them, its row the height of the box's, and
@@ -327,6 +328,47 @@ const PANES = [
 ];
 
 test.describe('Vessel page', () => {
+    for (const width of [300, 375]) {
+        test(`Systems and Music remain reachable at ${width}px with 130% text`, async ({ page, baseURL }, info) => {
+            await open(page, baseURL, { width, height: 667, view: 'vessel' });
+            await expect(page.getByRole('button', { name: 'Systems', exact: true })).toBeVisible({ timeout: 25000 });
+            await page.addStyleTag({ content: 'html{font-size:130% !important}' });
+            await settle(page);
+            const systems = page.getByRole('button', { name: 'Systems', exact: true }),
+                music = page.getByRole('button', { name: 'Music', exact: true });
+            // Larger text may need the page's existing native scroller. Use
+            // its lower resting point, as in the short-screen check below;
+            // WebKit's touch-device driver does not support mouse wheels.
+            await page.locator('.vessel-hub-port').evaluate((port) => port.scrollTo({ top: port.scrollHeight }));
+            await settle(page);
+            await wholeRows(page, '.vessel-hub-tools > button', await floor(page));
+            const measure = await page.locator('.vessel-hub-tools').evaluate((tools) => {
+                const rows = [...tools.querySelectorAll<HTMLElement>(':scope > button')];
+                const boxes = rows.map((row) => row.getBoundingClientRect());
+                return {
+                    horizontal: Math.abs(boxes[0].top - boxes[1].top) < 1 && boxes[0].right <= boxes[1].left + 1,
+                    whole: rows.map((row) => {
+                        const label = row.querySelector<HTMLElement>('.hub-row-label')!;
+                        return label.scrollWidth <= label.clientWidth + 1;
+                    }),
+                    overflow: document.documentElement.scrollWidth - window.innerWidth,
+                };
+            });
+            expect(measure.horizontal).toBe(true);
+            expect(measure.whole).toEqual([true, true]);
+            expect(measure.overflow).toBeLessThanOrEqual(1);
+            await expect(systems).toHaveAccessibleDescription('Tanks, batteries & power');
+            await expect(music).toHaveAccessibleDescription('Apple Music & speakers');
+            await page.screenshot({ path: info.outputPath('vessel-systems-music.png') });
+            await systems.click();
+            await expect(page.getByRole('dialog', { name: 'Boat systems' })).toBeVisible();
+            await page.keyboard.press('Escape');
+            await expect(page.getByRole('dialog', { name: 'Boat systems' })).toHaveCount(0);
+            await expect(systems).toBeFocused();
+            await music.click();
+            await expect(page.getByRole('heading', { name: 'Apple Music', exact: true })).toBeVisible();
+        });
+    }
     for (const size of [...PHONES, ...LANDSCAPE]) {
         test(`fits one screen, one menu box, at ${size.name}`, async ({ page, baseURL }) => {
             await open(page, baseURL, { ...size, view: 'vessel' });
@@ -338,7 +380,7 @@ test.describe('Vessel page', () => {
             expect(await page.locator(MENU_ROWS).evaluateAll((rows) => rows.map((row) => row.ariaLabel))).toEqual(
                 ORDER,
             );
-            expect(await page.locator(BOX_ROWS).count(), 'the box keeps the other five').toBe(5);
+            expect(await page.locator(BOX_ROWS).count(), 'the box keeps the other six').toBe(6);
             await noScroll(page, '.vessel-hub-port');
             const limit = await floor(page);
             await wholeRows(page, MENU_ROWS, limit);

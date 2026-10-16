@@ -128,14 +128,24 @@
 .vessel-hub-home .vessel-hub-menu > .hub-row {
     flex: 1 0 auto;
 }
+.vessel-hub-tools {
+    display: contents;
+}
+.vessel-hub-home .vessel-hub-tools > .hub-row {
+    flex: 1 0 auto;
+}
+.vessel-hub-tool-divider {
+    margin: 0 1rem;
+    border-top: 1px solid var(--day-ui-border, rgba(255, 255, 255, 0.04));
+}
 /* The menu takes the share the box took. Inside it the crew card grows by its
-   one row and the box by its five, so all six rows share alike; the card
+   one row and the box by its six, so all seven rows share alike; the card
    wears the one card hue's halo, not the box's drop shadow. */
 .vessel-hub-home .vessel-hub-menus {
     flex-grow: 1;
 }
 .vessel-hub-home .vessel-hub-menu.vessel-hub-crew {
-    flex-grow: 0.2;
+    flex-grow: calc(1 / 6);
     box-shadow: var(--card-hue-halo);
 }
 /* The menu's icon chips take the hub accent's tint, as the cards above do. */
@@ -330,6 +340,53 @@
     }
 }
 
+@container vessel-hub (max-height: 819.98px) {
+    /* Systems adds a sixth box control. Sharing its row with Music keeps all
+       seven actions visible without taking a 44 pt target or the Diary pair's
+       room. The box has five visual rows here, six on taller pages. */
+    .vessel-hub-home .vessel-hub-menu.vessel-hub-crew {
+        flex-grow: 0.2;
+    }
+    .vessel-hub-home .vessel-hub-tools {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        flex: 1 0 auto;
+        min-height: 44px;
+    }
+    .vessel-hub-tools > .hub-row {
+        min-width: 0;
+        padding-inline: 8px;
+        gap: 6px;
+    }
+    .vessel-hub-tools .hub-row-icon {
+        padding: 4px;
+    }
+    .vessel-hub-tools .hub-row-icon svg {
+        width: 1rem;
+        height: 1rem;
+    }
+    .vessel-hub-tools .hub-row-chevron svg {
+        width: 12px;
+        height: 12px;
+    }
+    .vessel-hub-tools .hub-row-status {
+        margin-top: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vessel-hub-tool-divider {
+        position: absolute;
+        inset-block: 0;
+        left: 50%;
+        margin: 0;
+        border-top: 0;
+        border-left: 1px solid var(--day-ui-border, rgba(255, 255, 255, 0.04));
+        pointer-events: none;
+    }
+}
+
 @container vessel-hub (max-height: 719.98px) {
     .vessel-hub-deck {
         padding-top: 0.5rem;
@@ -479,6 +536,16 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+    /* The two short actions keep their whole names at 130% text on a 300 pt
+       page. Their buttons already supply the action semantics; the repeated
+       decorative chevrons yield space before any words or touch targets do. */
+    .vessel-hub-tools > .hub-row {
+        padding-inline: 6px;
+        gap: 4px;
+    }
+    .vessel-hub-tools .hub-row-chevron {
+        display: none;
     }
 }
 
