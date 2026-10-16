@@ -6,6 +6,7 @@ import {
     type TideNavigationContext,
 } from './sampledTideNavigation';
 const spatialMark: unique symbol = Symbol('reviewed-spatial-tide-estimate');
+const issued = new WeakSet<object>();
 export interface ReviewedSpatialTideEstimate {
     readonly [spatialMark]: true;
     readonly kind: 'reviewed-spatial-estimate';
@@ -42,7 +43,7 @@ export function blendNearbyReviewedTides(
     const sum = weights.reduce((a, b) => a + b, 0);
     const heightM = stations.reduce((height, s, i) => height + (s.heightM * weights[i]) / sum, 0);
     if (!Number.isFinite(heightM)) return null;
-    return Object.freeze({
+    const result = Object.freeze({
         [spatialMark]: true as const,
         kind: 'reviewed-spatial-estimate' as const,
         lifetimeKey: c.lifetimeKey,
@@ -64,6 +65,8 @@ export function blendNearbyReviewedTides(
         stations: Object.freeze(ids),
         reviews: Object.freeze(stations.flatMap((s) => [s.sourceReviewId, s.datumReviewId])),
     });
+    issued.add(result);
+    return result;
 }
 export function isReviewedSpatialTideEstimate(
     value: unknown,
@@ -72,6 +75,7 @@ export function isReviewedSpatialTideEstimate(
     if (!value || typeof value !== 'object') return false;
     const v = value as ReviewedSpatialTideEstimate;
     return (
+        issued.has(v) &&
         v[spatialMark] === true &&
         v.lifetimeKey === c.lifetimeKey &&
         v.atMs === c.atMs &&

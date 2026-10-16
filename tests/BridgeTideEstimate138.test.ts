@@ -6,6 +6,10 @@ import {
     type TideNavigationContext,
 } from '../services/tides/sampledTideNavigation';
 import type { SampledTideSeries } from '../services/tides/sampledTideContract';
+import { bindAdapterSampledTideSeries } from '../services/tides/sampledTideAcquisition';
+import { reviewWaterInterval } from '../services/tides/reviewedWaterInterval';
+import { assessBridgeOpening } from '../services/routing/bridgeOperatingWindows';
+import { assessBridgeCrossing } from '../services/routing/bridgeCrossingAssessment';
 const T = Date.parse('2026-10-17T06:00:00Z');
 const context = (): TideNavigationContext => ({
     lifetimeKey: 'fictional-lifetime',
@@ -19,7 +23,7 @@ const context = (): TideNavigationContext => ({
     use: 'overhead',
     protectedChart: true,
 });
-const source = (): SampledTideSeries => ({
+const rawSource = (): SampledTideSeries => ({
     schema: 1,
     kind: 'sampled-prediction',
     provider: 'NOAA',
@@ -42,6 +46,23 @@ const source = (): SampledTideSeries => ({
         { timeMs: T + 1800000, heightM: 2.5 },
     ],
 });
+const acquire = (raw: SampledTideSeries): SampledTideSeries => {
+    const value = bindAdapterSampledTideSeries(
+        raw,
+        {
+            provider: 'NOAA',
+            productId: 'fictional-samples',
+            requestUrl: 'https://tidesandcurrents.noaa.gov/',
+            responseUrl: 'https://tidesandcurrents.noaa.gov/',
+            receivedAtMs: T,
+            bodySha256: 'b'.repeat(64),
+        },
+        T,
+    );
+    if (!value) throw Error('Invalid synthetic acquisition fixture');
+    return value;
+};
+const source = () => acquire(rawSource());
 const authority = (): SampledTideAuthority => ({
     sources: [
         {
@@ -93,11 +114,66 @@ const bridge = (): ChartBridgeHeightContext => ({
 });
 const water = (heightM = 2) =>
     assessSampledTideNavigation(
-        { ...source(), samples: source().samples.map((p) => ({ ...p, heightM })) },
+        acquire({ ...source(), samples: source().samples.map((p) => ({ ...p, heightM })) }),
         context(),
         authority(),
     );
 describe('instant overhead tide estimate with an independent height tie', () => {
+    it('keeps unknown full crossings blocked and only labels a fully evidenced opening as required', async () => {
+        const c = { ...context(), fromMs: T, untilMs: T + 1800000 };
+        const interval = await reviewWaterInterval(
+            [source()],
+            c,
+            { signal: new AbortController().signal, assertCurrent: () => {} },
+            authority(),
+        );
+        expect(assessBridgeCrossing(bridge(), 18, interval, c).kind).toBe('closed-span-estimate');
+        const lowBridge = { ...bridge(), properties: { CATBRG: 3, VERCCL: 15, VERCOP: 30 } };
+        expect(assessBridgeCrossing(lowBridge, 18, interval, c).kind).toBe('blocked');
+        const request = { ...c, boatId: 'fictional-boat', bridgeFeatureKey: bridge().featureKey };
+        const opening = assessBridgeOpening(request, null, [
+            {
+                reviewId: 'FICTIONAL-OPERATIONS',
+                bridgeFeatureKey: bridge().featureKey,
+                chartContentKey: c.chartContentKey,
+                revision: 'FICTIONAL-REVISION',
+                sourceReference: 'https://www.ecfr.gov/fictional-source',
+                sourcePublishedAtMs: T - 3600000,
+                timezone: 'UTC',
+                effectiveFromMs: T - 3600000,
+                effectiveUntilMs: T + 3600000,
+                deviationsCheckedAtMs: T,
+                expiresAtMs: T + 3600000,
+                maxCheckAgeMs: 3600000,
+                closureState: 'none-reported',
+                noticeMs: 0,
+                intervals: [{ openMs: T, closeMs: T + 3600000 }],
+            },
+        ]);
+        expect(assessBridgeCrossing(lowBridge, 18, interval, c, opening, request)).toMatchObject({
+            kind: 'opening-required',
+            requiresActualOpening: true,
+        });
+        expect(
+            assessBridgeCrossing(
+                { ...lowBridge, properties: { CATBRG: 3, VERCOP: 30 } },
+                18,
+                interval,
+                c,
+                opening,
+                request,
+            ).kind,
+        ).toBe('blocked');
+        expect(assessBridgeCrossing({ ...lowBridge, estimated: true }, 18, interval, c, opening, request).kind).toBe(
+            'blocked',
+        );
+        expect(
+            assessBridgeCrossing(lowBridge, 18, JSON.parse(JSON.stringify(interval)), c, opening, request).kind,
+        ).toBe('blocked');
+        expect(assessBridgeCrossing(lowBridge, 18, interval, c, opening, { ...request, boatId: 'changed' }).kind).toBe(
+            'blocked',
+        );
+    });
     it('uses high water plus uncertainty adversely, keeps the 1m margin and never asserts an opening', () => {
         const result = bridgeClearanceAtSample(bridge(), 18, water(), context());
         expect(result.kind).toBe('instant-estimate');
