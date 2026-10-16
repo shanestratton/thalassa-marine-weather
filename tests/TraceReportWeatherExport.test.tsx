@@ -18,7 +18,7 @@ vi.mock('../components/weather/RouteMeteogram', async () => {
         ),
     };
 });
-import { TraceReportModal } from '../components/map/TraceReportModal';
+import { TraceReportModal, formatWaypointEtaUTC } from '../components/map/TraceReportModal';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { routeWeatherFixturePins as pins, routeWeatherFixtureStart } from './fixtures/routeWeatherFixture';
 import { traceGeometryKey } from '../services/traceVerification';
@@ -65,6 +65,18 @@ async function sample() {
     fireEvent.click(screen.getByRole('button', { name: 'Route meteogram' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use synthetic report rows' }));
 }
+
+it('retains waypoint timings with minute carry, explicit UTC and no invented default speed', async () => {
+    expect(formatWaypointEtaUTC({ etaMs: Date.UTC(2026, 9, 17, 2, 30), hoursFromDep: 2.999 })).toBe('+3h · 02:30 UTC');
+    expect(formatWaypointEtaUTC({ etaMs: NaN, hoursFromDep: 3 })).toBe('Unknown');
+    const input = props();
+    const view = render(<TraceReportModal {...input} cruisingSpeedKts={undefined} />);
+    expect(screen.queryAllByText(/ UTC$/)).toHaveLength(0);
+    view.rerender(<TraceReportModal {...input} />);
+    expect(screen.getByText(/^dep · \d\d:\d\d UTC$/)).toBeInTheDocument();
+    await sample();
+    expect(screen.getByText('dep · 23:30 UTC')).toBeInTheDocument();
+});
 
 it('exports exactly the sampled clock/rows, even when the original departure was now', async () => {
     render(<TraceReportModal {...props()} />);

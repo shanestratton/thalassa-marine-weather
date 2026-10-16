@@ -80,6 +80,22 @@ const ddToDMM = (v: number, isLat: boolean): string => {
 };
 const fmtFix = (p: TracePoint): string => `${ddToDMM(p.lat, true)}  ${ddToDMM(p.lon, false)}`;
 
+export function formatWaypointEtaUTC(w: { etaMs: number; hoursFromDep: number }): string {
+    if (
+        !Number.isFinite(w.etaMs) ||
+        Math.abs(w.etaMs) > 8.64e15 ||
+        !Number.isFinite(w.hoursFromDep) ||
+        w.hoursFromDep < 0
+    )
+        return 'Unknown';
+    const clock = new Date(w.etaMs).toISOString().slice(11, 16);
+    // Round the whole interval first: a remainder must never become "+2h60".
+    const totalMin = Math.round(w.hoursFromDep * 60);
+    const h = Math.floor(totalMin / 60),
+        m = totalMin % 60;
+    return `${totalMin === 0 ? 'dep' : h ? `+${h}h${m ? String(m).padStart(2, '0') : ''}` : `+${m}m`} · ${clock} UTC`;
+}
+
 const sevRow = (
     v: TraceLegVerdict,
     i: number,
@@ -194,6 +210,22 @@ export const TraceReportModal: React.FC<Props> = ({
         sampledWeather?.identity === weatherIdentity && isAuthIdentityScopeCurrent(sampledWeather.ownerScope)
             ? sampledWeather
             : null;
+    const timingRef = React.useRef({ identity: '', open: false, departure: Date.now() });
+    if (timingRef.current.identity !== weatherIdentity || (open && !timingRef.current.open))
+        timingRef.current = { identity: weatherIdentity, open, departure: departureMs ?? Date.now() };
+    else timingRef.current.open = open;
+    const etaDeparture = routeWeather?.departureMs ?? timingRef.current.departure;
+    const etaSpeed = routeWeather?.speedKts ?? cruisingSpeedKts;
+    const waypointEtas = React.useMemo(() => {
+        if (!Number.isFinite(etaSpeed) || !etaSpeed || etaSpeed <= 0 || etaSpeed > 100 || pins.length > 10000)
+            return null;
+        let distance = 0;
+        return pins.map((p, i) => {
+            if (i) distance += haversineNm(pins[i - 1].lat, pins[i - 1].lon, p.lat, p.lon);
+            const hoursFromDep = distance / etaSpeed;
+            return formatWaypointEtaUTC({ etaMs: etaDeparture + hoursFromDep * 3600000, hoursFromDep });
+        });
+    }, [pins, etaDeparture, etaSpeed]);
     const exportState = React.useRef({ open, identity: weatherIdentity, routeWeather, releaseGate });
     exportState.current = { open, identity: weatherIdentity, routeWeather, releaseGate };
     React.useEffect(
@@ -492,10 +524,15 @@ export const TraceReportModal: React.FC<Props> = ({
                                     <button
                                         key={i}
                                         onClick={() => onFlyTo?.(p)}
-                                        className="flex min-h-[44px] w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left active:bg-white/10"
+                                        className="flex min-h-[44px] w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-sm px-1 py-0.5 text-left active:bg-white/10"
                                     >
                                         <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
                                         <span className="min-w-0 break-words tabular-nums">{fmtFix(p)}</span>
+                                        {waypointEtas && (
+                                            <span className="ml-auto shrink-0 text-[10px] text-slate-400">
+                                                {waypointEtas[i]}
+                                            </span>
+                                        )}
                                     </button>
                                 ))}
                             </div>
