@@ -160,3 +160,21 @@ offscreen under body, and one offscreen under the source canvas's parent to
 share its ancestor compositing layer. Each attached control is removed in a
 finally block. None paints into or over the product, and the original case
 does not create controls or intercept native canvas methods.
+
+Calibration run `38980106461` on `a89a6aa2d` confirms that the failed product
+raster has the extra factor: grid alpha begins at backing y180 (logical20×9)
+and its column bands are about195 pixels apart (logical21.708×9). The successful
+third draw instead begins at y60 (logical20×3). All three fresh controls match
+their expected 3× rectangle bounds even while the product is wrong, including
+the control under the same source-parent ancestry. This narrows the defect to
+the product surface's lifetime rather than a global readback-coordinate error.
+The offscreen controls do not prove that every compositor path is equivalent.
+Artifact `12080598299` is 450680 bytes, SHA256
+`e72cdfb92ac2a921d88a32b0f17fed9ee6a0e4bbbaba3ae14c6a76752af9c912`.
+
+The following product candidate acquires the 2D context before assigning any
+changed backing dimensions. Those assignments therefore reset the initial
+native graphics state before the explicit absolute DPR transform. Zero-size
+hosts still return before acquiring a context, and unchanged dimensions still
+preserve their bitmap. No DPR reduction, extra paint loop, geometry change or
+test-threshold change is introduced. Exact Linux proof is required.
