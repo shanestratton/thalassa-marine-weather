@@ -75,4 +75,22 @@ describe('shared isochrone environment', () => {
         expect(leg.exclusionField?.isExcluded(0, 0, 1)).toBe(true);
         expect(mocks.waves).toHaveBeenCalledOnce();
     });
+    it('rebases time-varying currents and nested later legs exactly once', async () => {
+        const env = await loadIsochroneEnvironment(options);
+        const current = vi.fn((_lat: number, _lon: number, hours: number) => ({ speed: hours, direction: 90 }));
+        env.currentField = { getCurrent: current };
+        const leg = isochroneEnvironmentAt(env, '2026-10-17T13:00:00Z');
+        expect(leg.currentField?.getCurrent(0, 0, 0.5)?.speed).toBe(1.5);
+        const next = isochroneEnvironmentAt(leg, '2026-10-17T13:30:00Z');
+        expect(next.currentField?.getCurrent(0, 0, 0.5)?.speed).toBe(2);
+        expect(next.waveField?.getWave(0, 0, 0.5)?.heightM).toBe(3);
+        expect(next.exclusionField?.isExcluded(0, 0, 0.5)).toBe(true);
+        expect(next.departureMs).toBe(Date.parse('2026-10-17T13:30:00Z'));
+        expect(mocks.currents).toHaveBeenCalledOnce();
+    });
+    it('does not retain apparently usable fields when the next leg clock is invalid', async () => {
+        const env = isochroneEnvironmentAt(await loadIsochroneEnvironment(options), 'invalid');
+        expect([env.currentField, env.waveField, env.exclusionField]).toEqual([null, null, null]);
+        expect(env.notes.join(' ')).toMatch(/later-leg departure time is invalid/);
+    });
 });

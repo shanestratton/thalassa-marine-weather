@@ -128,11 +128,27 @@ describe('currentFieldFromGrid — honest step indexing', () => {
         expect(field.currentAt(10, 100, T0 + 3 * HOUR + 1)).toBeNull();
     });
 
-    it('falls back to hourly when stepHours length mismatches totalHours', () => {
+    it('fails unknown when stepHours length mismatches totalHours', () => {
         const field = currentFieldFromGrid(makeGrid({ stepHours: [0, 3, 6] }), T0);
-        // Unreliable axis discarded → hourly: +1 h is the last step.
-        expect(field.currentAt(10, 100, T0 + HOUR)?.u).toBeCloseTo(2, 6);
+        expect(field.currentAt(10, 100, T0 + HOUR)).toBeNull();
         expect(field.currentAt(10, 100, T0 + 1.5 * HOUR)).toBeNull();
+    });
+
+    it.each([
+        [0, 0],
+        [3, 0],
+        [0, NaN],
+    ])('rejects a malformed explicit axis%s', (a, b) => {
+        expect(currentFieldFromGrid(makeGrid({ stepHours: [a, b] }), T0).currentAt(10, 100, T0)).toBeNull();
+    });
+
+    it('does not read zero-weight NaN corners at an exact known point', () => {
+        const grid = makeGrid();
+        grid.u[0].fill(NaN);
+        grid.u[0][0] = 0;
+        const field = currentFieldFromGrid(grid, T0);
+        expect(field.currentAt(10, 100, T0)).toEqual({ u: 0, v: 10 });
+        expect(field.currentAt(10, 100.01, T0)).toBeNull();
     });
 });
 

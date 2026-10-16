@@ -10,6 +10,41 @@ import {
     OFFSHORE_COMPARISON_MODELS,
 } from '../services/routing/offshoreModelComparison';
 import type { RouteWorkerReply } from '../services/routing/routeJob';
+import type { CurrentSeries } from '../services/weather/currentSeries';
+
+function currentSeriesForJob(input: OffshoreJob): CurrentSeries {
+    const runMs = Date.parse(input.departureTime);
+    return {
+        schema: 1,
+        model: 'CMEMS',
+        dataset: 'generated-public-current',
+        generation: 'fixture20261017',
+        sourceSha256: 'a'.repeat(64),
+        runMs,
+        expiresMs: runMs + 120 * 3_600_000,
+        units: 'm/s',
+        vectorBasis: 'true-east-north',
+        depthM: 0,
+        tiles: [
+            {
+                id: 'synthetic-ocean',
+                north: 2,
+                south: -2,
+                west: -32,
+                east: -28,
+                width: 2,
+                height: 2,
+                ocean: {
+                    cadenceHours: 1,
+                    times: Array.from({ length: 24 }, (_, i) => runMs + i * 3_600_000),
+                    u: Array.from({ length: 24 }, () => new Float32Array(4).fill(1)),
+                    v: Array.from({ length: 24 }, () => new Float32Array(4)),
+                    known: Array.from({ length: 24 }, () => new Uint8Array(4).fill(1)),
+                },
+            },
+        ],
+    };
+}
 
 function job(): OffshoreJob {
     const frame = (value: number) => new Float32Array(9).fill(value);
@@ -106,6 +141,28 @@ afterEach(() => {
 });
 
 describe('public-only offshore Worker boundary', () => {
+    it('uses a verified forecast DTO in the actual kernel and strips unknown nested inputs', async () => {
+        const baseline = (await runOffshoreJob(job()))!;
+        const input = job();
+        input.environment.currentSeries = currentSeriesForJob(input);
+        Object.assign(input.environment.currentSeries, { licensedChart: 'private' });
+        Object.assign(input.environment.currentSeries.tiles[0].ocean, { boatHistory: 'private' });
+        const dto = prepareOffshoreJob(input);
+        expect(dto.environment.currentSeries).not.toHaveProperty('licensedChart');
+        expect(dto.environment.currentSeries!.tiles[0].ocean).not.toHaveProperty('boatHistory');
+        const actual = (await runOffshoreJob(dto))!;
+        expect(actual.result.totalDurationHours).toBeLessThan(baseline.result.totalDurationHours);
+        expect(actual.verification).toBe('unverified-public-data');
+    });
+    it('rejects mixed legacy snapshots, forecast components and masked NaN before Worker creation', () => {
+        const input = job();
+        input.environment.currentSeries = currentSeriesForJob(input);
+        input.environment.currentVectors = [{ lat: 0, lon: -30, u: 0, v: 0, speedKts: 0, directionDeg: 0 }];
+        expect(() => prepareOffshoreJob(input)).toThrow('mixed snapshot');
+        input.environment.currentVectors = null;
+        input.environment.currentSeries.tiles[0].ocean.u[0][0] = NaN;
+        expect(() => prepareOffshoreJob(input)).toThrow('nonfinite');
+    });
     it('keeps the interpolation edge outside the declared forecast domain unknown', () => {
         const fields = offshoreWindFields(job());
         expect(fields.wind.getWind(2, -30, 0)).not.toBeNull();

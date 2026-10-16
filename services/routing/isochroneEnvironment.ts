@@ -4,12 +4,15 @@ import { withDeadline } from '../../utils/deadline';
 import type { CurrentVector } from '../OceanCurrentService';
 import type { WaveFieldData } from '../weather/waveField';
 import type { ActiveCyclone } from '../weather/CycloneTrackingService';
+import type { CurrentComponents, CurrentSeries } from '../weather/currentSeries';
 
 type Point = { lat: number; lon: number };
 /** Structured-clone inputs for the Worker; missing values stay missing, with no resampling. */
 export interface IsochroneEnvironmentSnapshot {
     departureMs: number;
     currentVectors: CurrentVector[] | null;
+    currentSeries?: CurrentSeries;
+    currentComponents?: CurrentComponents;
     waves: WaveFieldData | null;
     cyclones: ActiveCyclone[] | null;
 }
@@ -141,10 +144,23 @@ export async function loadIsochroneEnvironment(opts: {
 
 /** Reuse the same snapshot for later route legs without resetting its clock. */
 export function isochroneEnvironmentAt(environment: IsochroneEnvironment, departureTime: string): IsochroneEnvironment {
-    const offset = (Date.parse(departureTime) - environment.departureMs) / 3_600_000;
+    const departureMs = Date.parse(departureTime);
+    if (!Number.isFinite(departureMs))
+        return {
+            ...environment,
+            currentField: null,
+            waveField: null,
+            exclusionField: null,
+            notes: [...environment.notes, 'Routing environment unavailable: later-leg departure time is invalid.'],
+        };
+    const offset = (departureMs - environment.departureMs) / 3_600_000;
     return {
         ...environment,
-        currentField: environment.currentField,
+        departureMs,
+        snapshot: { ...environment.snapshot, departureMs },
+        currentField: environment.currentField && {
+            getCurrent: (lat, lon, hours) => environment.currentField!.getCurrent(lat, lon, hours + offset),
+        },
         waveField: environment.waveField && {
             sampleHours: environment.waveField.sampleHours?.map((hour) => hour - offset),
             getWave: (lat, lon, hours) => environment.waveField!.getWave(lat, lon, hours + offset),
