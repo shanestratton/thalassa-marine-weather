@@ -376,3 +376,23 @@ test('an unreadable current controller cannot be silently treated as an empty CA
     s.enrolled(() => true);
     assert.equal((await s.watch.describe()).context!.watchEpoch, first.context!.watchEpoch);
 });
+
+test('remote danger ACK uses its original clock and never renews its 30-minute mute on polls', async () => {
+    const s = setup(),
+        first = await s.arm(),
+        key = first.alarms[0].key;
+    s.time(T + 29 * 60000);
+    s.raw(picture(T + 29 * 60000));
+    await s.watch.tick();
+    await s.watch.applyRemoteAcks(first.context!, [{ key, ackedAt: T + 1000 }]);
+    assert.equal((await s.watch.describe()).alarms.length, 0);
+    s.time(T + 29 * 60000 + 5000);
+    s.raw(picture(T + 29 * 60000 + 5000));
+    await s.watch.tick();
+    await s.watch.applyRemoteAcks(first.context!, [{ key, ackedAt: T + 1000 }]);
+    s.time(T + 30 * 60000 + 1001);
+    s.raw(picture(T + 30 * 60000 + 1001));
+    await s.watch.tick();
+    assert.equal((await s.watch.describe()).alarms[0].key, key);
+    assert.equal(s.events.filter((e) => e.action === 'ack').length, 0);
+});

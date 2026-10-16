@@ -357,6 +357,59 @@ export class RadarWatch {
         this.emit({ action: 'ack', context: active.context, ack });
         return this.describe();
     }
+    async reviewRelay(
+        controller: RadarController,
+        raw: unknown,
+        review: (revision: string, context: RadarRelayContext) => boolean,
+    ): Promise<RadarWatchStatus> {
+        if (
+            !validRadarController(controller) ||
+            !radarRecord(raw) ||
+            Object.keys(raw).length !== 2 ||
+            !validRadarContext(raw.context) ||
+            typeof raw.expectedContextRevision !== 'string'
+        )
+            throw new RadarWatchError(400, 'radar_invalid_relay_review');
+        const active = await this.validate();
+        if (
+            !active ||
+            !same(active.context, raw.context) ||
+            active.context.binding.deviceId !== controller.deviceId ||
+            active.context.binding.enrollmentRevision !== controller.enrollmentRevision
+        )
+            throw new RadarWatchError(409, 'radar_controller_conflict');
+        if (!this.current(active) || !review(raw.expectedContextRevision, active.context))
+            throw new RadarWatchError(409, 'radar_cloud_context_changed');
+        return this.describe();
+    }
+    /** Remote ACKs carry their original DB action clock; polling never starts a new mute. */
+    async applyRemoteAcks(
+        context: RadarRelayContext,
+        acks: readonly { key: string; ackedAt: number }[],
+    ): Promise<void> {
+        const active = await this.validate();
+        if (!active || !same(active.context, context) || acks.length > 8 || !this.current(active)) return;
+        const now = this.now();
+        for (const ack of acks) {
+            const card = active.model.cards(now).find((c) => !c.cleared && radarAlarmKey(context, c) === ack.key);
+            if (
+                !card ||
+                !Number.isSafeInteger(ack.ackedAt) ||
+                ack.ackedAt < card.raisedAt ||
+                ack.ackedAt > now + 1000 ||
+                (!card.closeQuarters && now - ack.ackedAt >= 30 * 60000)
+            )
+                continue;
+            active.model.acknowledge(
+                {
+                    contactKey: card.contactKey,
+                    episodeId: card.episodeId,
+                    kind: card.closeQuarters ? 'radar-close-quarters' : 'radar-collision',
+                },
+                ack.ackedAt,
+            );
+        }
+    }
     private publishRelay(active: Active, now: number): void {
         const upserts: RadarRelayUpsert[] = active.model
             .cards(now)
