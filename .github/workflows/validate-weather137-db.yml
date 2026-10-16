@@ -1,0 +1,68 @@
+name: Build137 isolated weather transaction proof
+on:
+  push:
+    branches: ['codex/build-137-weather-db-validation']
+    paths: ['.github/workflows/validate-weather137-db.yml']
+permissions:
+  contents: read
+concurrency:
+  group: weather137-isolated-transaction-proof
+  cancel-in-progress: false
+jobs:
+  transaction:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: weather137_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HUSKY: '0'
+      THALASSA_DISPOSABLE_WEATHER_TEST: '1'
+      WEATHER_WATCH_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/weather137_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: '92f8e1cf13c71df5b598a0930649644d7ea2e623'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact source and isolated fixture identities
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 92f8e1cf13c71df5b598a0930649644d7ea2e623
+          mkdir -p "$RUNNER_TEMP/weather137-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/weather137-proof/SOURCE_SHA.txt"
+          node --version > "$RUNNER_TEMP/weather137-proof/NODE_VERSION.txt"
+          sha256sum supabase/tests/weather-watch-postgres.mjs supabase/tests/weather-watch-base.sql supabase/held-migrations/20261016152301_weather_watch_optins.sql supabase/held-migrations/20261016161522_weather_position_binding.sql > "$RUNNER_TEMP/weather137-proof/SHA256SUMS"
+          docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/weather137-proof/POSTGRES_IMAGE_ID.txt"
+      - name: Install only the isolated pinned PostgreSQL client
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/weather137-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          test "$(node -p "require('$RUNNER_TEMP/weather137-pg/node_modules/pg/package.json').version")" = 8.16.3
+          sha256sum "$RUNNER_TEMP/weather137-pg/package-lock.json" > "$RUNNER_TEMP/weather137-proof/CLIENT_LOCK_SHA256.txt"
+      - name: Real weather interval, account quota and source CAS races
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/weather137-pg/node_modules/pg/lib/index.js
+        run: |
+          set -euo pipefail
+          node supabase/tests/weather-watch-postgres.mjs 2>&1 | tee "$RUNNER_TEMP/weather137-proof/CONCURRENCY.txt"
+      - name: Preserve isolated proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build137-weather-transaction-proof
+          path: ${{ runner.temp }}/weather137-proof/
+          retention-days: 7
+          if-no-files-found: error
