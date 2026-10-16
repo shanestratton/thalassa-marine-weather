@@ -188,17 +188,71 @@ try {
       await context.addInitScript(() => {
         const events = [];
         window.__cacheOperations = events;
+        const metadata = new WeakMap(),
+          handles = new WeakMap();
+        let nextHandle = 0;
+        const NativeResponse = window.Response;
+        window.Response = new Proxy(NativeResponse, {
+          construct(target, args, newTarget) {
+            const response = Reflect.construct(target, args, newTarget);
+            metadata.set(response, {
+              inputType:
+                typeof args[0] === "string"
+                  ? "string"
+                  : Object.prototype.toString.call(args[0]),
+              bodyText: typeof args[0] === "string" ? args[0] : null,
+            });
+            return response;
+          },
+        });
+        const originalOpen = CacheStorage.prototype.open,
+          originalStorageDelete = CacheStorage.prototype.delete;
         const originalPut = Cache.prototype.put,
           originalDelete = Cache.prototype.delete;
         const append = (event) => {
           events.push({ ...event, at: performance.now() });
           if (events.length > 512) events.shift();
         };
+        CacheStorage.prototype.open = async function (name) {
+          const cache = await originalOpen.call(this, name);
+          if (!handles.has(cache))
+            handles.set(cache, { name, id: ++nextHandle });
+          return cache;
+        };
+        CacheStorage.prototype.delete = async function (name) {
+          const result = await originalStorageDelete.call(this, name);
+          append({ operation: "storage-delete", name, answer: result });
+          return result;
+        };
         Cache.prototype.put = async function (key, response) {
           const url = typeof key === "string" ? key : key.url;
+          const detail = url?.includes("manifest")
+            ? metadata.get(response)
+            : null;
+          const headers = url?.includes("manifest")
+            ? Object.fromEntries(response.headers)
+            : null;
           try {
             const answer = await originalPut.call(this, key, response);
-            append({ operation: "put", url, ok: true });
+            let insidePut;
+            if (url?.includes("manifest")) {
+              const keys = (await this.keys()).map((r) => r.url);
+              const hit = await this.match(key);
+              insidePut = {
+                keys,
+                matched: Boolean(hit),
+                text: hit ? await hit.text() : null,
+              };
+            }
+            append({
+              operation: "put",
+              url,
+              ok: true,
+              handle: handles.get(this),
+              detail,
+              headers,
+              insidePut,
+            });
             return answer;
           } catch (error) {
             append({ operation: "put", url, ok: false, error: String(error) });
@@ -269,11 +323,17 @@ try {
             );
           const payload = manifest
             ? await manifest.text()
-            : JSON.stringify({
+            : (window.__cacheOperations.findLast(
+                (op) =>
+                  op.operation === "put" &&
+                  op.url.includes("manifest") &&
+                  op.detail?.bodyText,
+              )?.detail.bodyText ??
+              JSON.stringify({
                 schema: 1,
                 tiles: [],
                 diagnostic: "manifest already absent",
-              });
+              }));
           const bytes = new TextEncoder().encode(payload),
             expected = [];
           for (const crossOrigin of [false, true])
@@ -307,6 +367,31 @@ try {
         { cacheName, origin, manifestPath, legacy },
       );
       result.expectedSentinels = sentinels;
+      result.directSameKey = await warm.evaluate(
+        async ({ cacheName, manifestPath, legacy, origin, payload }) => {
+          const cache = await caches.open(cacheName),
+            key = manifestPath ? origin + manifestPath : legacy;
+          await cache.put(
+            key,
+            new Response(payload, {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+          const hit = await cache.match(key);
+          return {
+            key,
+            keys: (await cache.keys()).map((r) => r.url),
+            text: hit ? await hit.text() : null,
+          };
+        },
+        {
+          cacheName,
+          manifestPath,
+          legacy,
+          origin,
+          payload: sentinels[0].expectedText,
+        },
+      );
       await warm.evaluate(
         async ({ core, html, script }) => {
           const c = await caches.open(core);
