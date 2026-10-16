@@ -13,6 +13,8 @@ export interface InshoreLayers {
     /** Original chart entry restrictions and traffic separation zones, kept in RAM. */
     RESARE?: FeatureCollection;
     TSEZNE?: FeatureCollection;
+    /** Original S-57 lane areas with ORIENT traffic flow; never water/depth evidence. */
+    TSSLPT?: FeatureCollection;
     /** Explicitly enabled private no-go polygons; never a source of water/depth. */
     USER_NOGO?: FeatureCollection;
     /** Indicative marine park polygons: caution cost only. */
@@ -927,6 +929,7 @@ export interface DryPinTail {
 }
 
 export interface RouteResult {
+    trafficLaneGuidance?: import('./trafficLanes').TrafficLaneGuidance;
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     /**
      * Per-segment caution flag, length `polyline.length - 1`.
@@ -1139,6 +1142,9 @@ export interface RouteFailure {
 // Exported for services/seaway/connector.ts (Phase 11) — the connector
 // runs on the SAME grid + cost function as the engine, by construction.
 export interface NavGrid {
+    /** Route-private direction guidance:0absent,1known,2unknown/conflicting. */
+    tssLane?: Uint8Array;
+    tssDirection?: Float32Array;
     /** Private per-request masks; never alter the cached chart grid or supply water. */
     exclusionBlocked?: Uint8Array;
     exclusionCaution?: Uint8Array;
