@@ -1,4 +1,5 @@
 /** Only our versioned, redistributable terrain. Never OSM/Mapbox or licensed charts. */
+import { RELIEF_DISPLAY_REGIONS, reliefRegionBase } from './reliefDisplayRegions';
 export interface ReliefBounds {
     north: number;
     south: number;
@@ -32,24 +33,29 @@ export function reliefTile(url: string): ReliefTile | null {
         if (u.origin !== 'https://tiles.thalassatiles.com' || u.search || u.hash || u.username || u.password)
             return null;
         const m =
-            /^\/(v[1-9]\d{0,2})\/relief-(global|au)\/(dem|idx)\/(0|[1-9]\d?)\/(0|[1-9]\d*)\/(0|[1-9]\d*)\.(webp|png)$/.exec(
+            /^\/(v[1-9]\d{0,2})\/relief-([a-z][a-z0-9]{0,15})\/(dem|idx)\/(0|[1-9]\d?)\/(0|[1-9]\d*)\/(0|[1-9]\d*)\.(webp|png)$/.exec(
                 u.pathname,
             );
         if (!m) return null;
         const [, version, area, kind, zs, xs, ys, ext] = m,
             z = Number(zs),
             x = Number(xs),
-            y = Number(ys);
+            y = Number(ys),
+            region = RELIEF_DISPLAY_REGIONS.find((candidate) => candidate.id === area);
         if (
-            z > (area === 'global' ? 9 : 13) ||
-            (area === 'au' && z < 8) ||
+            !region ||
+            z > region.maxzoom ||
+            z < region.minzoom ||
+            (region.version && version !== region.version) ||
             x >= 2 ** z ||
             y >= 2 ** z ||
             (kind === 'dem' ? ext !== 'webp' : ext !== 'png')
         )
             return null;
-        if (area === 'au' && (x < tileX(142, z) || x > tileX(156.5, z) || y < tileY(-9, z) || y > tileY(-29.5, z)))
-            return null;
+        if (region.bounds) {
+            const [west, south, east, north] = region.bounds;
+            if (x < tileX(west, z) || x > tileX(east, z) || y < tileY(north, z) || y > tileY(south, z)) return null;
+        }
         return {
             key: `${version}_${area}_${kind}_${z}_${x}_${y}.${ext}`,
             url: u.href,
@@ -83,22 +89,30 @@ export function planReliefArea(bounds: ReliefBounds, detail: number, base = 'htt
               ]
             : [[bounds.west, bounds.east]];
     const ranges: { set: string; z: number; x0: number; x1: number; y0: number; y1: number }[] = [];
-    for (const set of ['global', 'au'])
-        for (let z = set === 'global' ? 0 : 8; z <= Math.min(detail, set === 'global' ? 9 : 13); z++) {
+    for (const region of RELIEF_DISPLAY_REGIONS)
+        for (let z = region.minzoom; z <= Math.min(detail, region.maxzoom); z++) {
             const atZoom: typeof ranges = [];
             for (const [west, east] of segments) {
-                const w = set === 'au' ? Math.max(west, 142) : west,
-                    e = set === 'au' ? Math.min(east, 156.5) : east;
-                const south = set === 'au' ? Math.max(bounds.south, -29.5) : bounds.south;
-                const north = set === 'au' ? Math.min(bounds.north, -9) : bounds.north;
+                const [minLon, minLat, maxLon, maxLat] = region.bounds ?? [-180, -90, 180, 90],
+                    w = Math.max(west, minLon),
+                    e = Math.min(east, maxLon),
+                    south = Math.max(bounds.south, minLat),
+                    north = Math.min(bounds.north, maxLat);
                 if (w >= e || south >= north) continue;
-                atZoom.push({ set, z, x0: tileX(w, z), x1: tileX(e, z), y0: tileY(north, z), y1: tileY(south, z) });
+                atZoom.push({
+                    set: region.id,
+                    z,
+                    x0: tileX(w, z),
+                    x1: tileX(e, z),
+                    y0: tileY(north, z),
+                    y1: tileY(south, z),
+                });
             }
             // Merge dateline intervals before counting, including the single world tile at z0.
             atZoom.sort((a, b) => a.x0 - b.x0);
             for (const range of atZoom) {
                 const prior = ranges.at(-1);
-                if (prior?.set === set && prior.z === z && range.x0 <= prior.x1 + 1)
+                if (prior?.set === region.id && prior.z === z && range.x0 <= prior.x1 + 1)
                     prior.x1 = Math.max(prior.x1, range.x1);
                 else ranges.push(range);
             }
@@ -114,7 +128,7 @@ export function planReliefArea(bounds: ReliefBounds, detail: number, base = 'htt
                 for (const kind of ['dem', 'idx']) {
                     tiles.push(
                         reliefTile(
-                            `${base}/relief-${r.set}/${kind}/${r.z}/${x}/${y}.${kind === 'dem' ? 'webp' : 'png'}`,
+                            `${reliefRegionBase(base, RELIEF_DISPLAY_REGIONS.find((region) => region.id === r.set)!)}/relief-${r.set}/${kind}/${r.z}/${x}/${y}.${kind === 'dem' ? 'webp' : 'png'}`,
                         )!,
                     );
                 }
