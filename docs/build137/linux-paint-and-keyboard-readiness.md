@@ -178,3 +178,18 @@ native graphics state before the explicit absolute DPR transform. Zero-size
 hosts still return before acquiring a context, and unchanged dimensions still
 preserve their bitmap. No DPR reduction, extra paint loop, geometry change or
 test-threshold change is introduced. Exact Linux proof is required.
+
+Context-order source `ab4be4aa3` passes all 40 local Chrome/WebKit tide-footer
+cases, but Linux run `38980426704` retains the same grid alpha bands at y180
+and about195 pixel spacing throughout the original case. Artifact
+`12080472815` is 450687 bytes, SHA256
+`d6a4f0ad4cd7df0b059dc1949a2b604143cd502048e806785735982ab5ae1781`.
+Context acquisition order alone is therefore insufficient.
+
+The next controlled product candidate removes only the graph wrapper's
+identity `translateZ(0)` and its transform `will-change` hint. Layout/style
+containment, dimensions, clipping, captions, DPR and draw scheduling remain
+unchanged. This tests a hypothesis about the visible composited canvas surface;
+the correct offscreen controls do not rule that path out. Diagnostics also
+retain the graph wrapper's actual CSS rectangle/transform/will-change and
+containment state. Original curve/axis/bounds/error guards remain mandatory.

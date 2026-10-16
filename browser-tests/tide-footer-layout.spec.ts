@@ -275,6 +275,8 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                                 overflow: style.overflow,
                                 clipPath: style.clipPath,
                                 transform: style.transform,
+                                willChange: style.willChange,
+                                contain: style.contain,
                             };
                         };
                         // Fresh calibration surfaces are diagnostic controls
@@ -370,6 +372,7 @@ async function drawnPixels(canvas: Locator, caption: Locator, info: TestInfo) {
                             canvasRect: rect(el),
                             containerRect: rect(el.parentElement),
                             plotRect: rect(el.closest('[data-testid="tide-plot"]')),
+                            graphRect: rect(el.closest('[data-testid="tide-plot"]')?.parentElement ?? null),
                             freshSurface,
                             contextLost: typeof ctx.isContextLost === 'function' ? Number(ctx.isContextLost()) : -1,
                         };
