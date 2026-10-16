@@ -20,6 +20,7 @@ export interface RouteReplanBase {
     speed: number;
     deadlineMs: number;
     original: VoyagePlan;
+    remainingConstraints?: import('./routeConstraints').RouteConstraintPoint[];
     oldCoords: Array<{ lat: number; lon: number }>;
     remainingNm: number;
     oldRemainingHours: number | null;

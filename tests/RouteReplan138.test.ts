@@ -205,13 +205,14 @@ describe('reviewed route replacement', () => {
         expect(f.rpc).not.toHaveBeenCalled();
         expect(f.followWrite).not.toHaveBeenCalled();
     });
-    it('refuses a remaining accepted via rather than passing it to the currently incomplete chaining path', async () => {
+    it('retains every remaining accepted via in the actual shared planner handoff and refuses a dropped candidate', async () => {
         f.follow.routeCoords = [0, 0.1, 0.11, 0.12].map((lon) => ({ lat: 0, lon }));
         f.follow.voyagePlan.waypoints = [{ name: 'Required via', coordinates: { lat: 0, lon: 0.11 } }];
         await requestRouteReplan();
+        expect(readRouteReplan().phase).toBe('computing');
+        expect(f.pending).toMatchObject({ via: [{ lat: 0, lon: 0.11, name: 'Required via' }] });
+        offerRouteReplanCandidate(readRouteReplan().base!.token, candidate());
         expect(readRouteReplan().phase).toBe('error');
-        expect(readRouteReplan().message).toContain('accepted via');
-        expect(f.load).not.toHaveBeenCalled();
         expect(f.followWrite).not.toHaveBeenCalled();
     });
     it('requires final covered geometry before offering acceptance', async () => {
@@ -222,6 +223,28 @@ describe('reviewed route replacement', () => {
         expect(readRouteReplan().phase).toBe('error');
         expect(await acceptRouteReplan()).toBe(false);
         expect(f.rpc).not.toHaveBeenCalled();
+    });
+    it('accepts a complete verified via candidate only through the same atomic CAS and persists its constraints', async () => {
+        f.follow.routeCoords = [0, 0.1, 0.11, 0.12].map((lon) => ({ lat: 0, lon }));
+        f.follow.voyagePlan.waypoints = [{ name: 'Required via', coordinates: { lat: 0, lon: 0.11 } }];
+        await requestRouteReplan();
+        const value = candidate(),
+            middle = { ...value.result.route[0], lon: 0.11, timeHours: 0.5, distance: 0.6 };
+        value.result.route.splice(1, 0, middle);
+        value.result.routeCoordinates.splice(1, 0, [0.11, 0]);
+        value.result.shallowFlags.splice(1, 0, false);
+        offerRouteReplanCandidate(readRouteReplan().base!.token, value);
+        expect(readRouteReplan().phase).toBe('ready');
+        expect(await acceptRouteReplan()).toBe(true);
+        expect(f.save.mock.calls[0][0].routeConstraints).toEqual([{ lat: 0, lon: 0.11, name: 'Required via' }]);
+        expect(f.followWrite.mock.calls[0][0].routeConstraints).toEqual([{ lat: 0, lon: 0.11, name: 'Required via' }]);
+        expect(f.rpc).toHaveBeenCalledWith(
+            'accept_reviewed_route_replan',
+            expect.objectContaining({
+                p_expected_plan: 'old',
+                p_geometry_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+            }),
+        );
     });
     it('keeps Cast Off passage identity separate from its planned-route mirror', async () => {
         f.follow.voyageId = f.voyage;

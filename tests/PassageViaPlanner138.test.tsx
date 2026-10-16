@@ -91,6 +91,7 @@ function candidate() {
         turns: [],
         cells: [],
         polarLabel: 'Fixture polar',
+        constraints: [via],
     };
 }
 function mount() {

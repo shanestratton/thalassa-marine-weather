@@ -1,14 +1,6 @@
-import { haversineNm, initialBearing, projectPosition } from '../isochrone/geodesy';
-
-/** User-authored points only. Never attach a chart feature or provider properties. */
-export interface RouteConstraintPoint {
-    lat: number;
-    lon: number;
-    name?: string;
-    leaveSide?: 'port' | 'starboard';
-    /** Explicit passing-point offset, not a claim of charted clearance. */
-    standOffM?: number;
-}
+import { haversineNm, initialBearing, projectPosition, R_NM } from '../isochrone/geodesy';
+import { normaliseRouteConstraints, MAX_ROUTE_VIAS, type RouteConstraintPoint } from './routeConstraintTypes';
+export { normaliseRouteConstraints, MAX_ROUTE_VIAS, type RouteConstraintPoint } from './routeConstraintTypes';
 export interface RouteHalfLine {
     lat: number;
     lon: number;
@@ -17,8 +9,8 @@ export interface RouteHalfLine {
 export interface ResolvedRouteConstraints {
     points: RouteConstraintPoint[];
     halfLines: RouteHalfLine[];
+    canonicalVias: RouteConstraintPoint[];
 }
-export const MAX_ROUTE_VIAS = 256;
 const finitePoint = (p: RouteConstraintPoint) =>
     p && Number.isFinite(p.lat) && Math.abs(p.lat) <= 90 && Number.isFinite(p.lon) && Math.abs(p.lon) <= 180;
 
@@ -34,15 +26,26 @@ export function resolveRouteConstraints(
         ![origin, ...vias, destination].every(finitePoint) ||
         origin.leaveSide !== undefined ||
         origin.standOffM !== undefined ||
+        origin.courseBearing !== undefined ||
         destination.leaveSide !== undefined ||
-        destination.standOffM !== undefined
+        destination.standOffM !== undefined ||
+        destination.courseBearing !== undefined
     )
         return null;
-    const chain = [origin, ...vias, destination],
+    const clean = normaliseRouteConstraints(vias, false);
+    if (!clean) return null;
+    const canonicalVias: RouteConstraintPoint[] = [];
+    const chain = [origin, ...clean, destination],
         points = [{ lat: origin.lat, lon: origin.lon, name: origin.name }];
     const halfLines: RouteHalfLine[] = [];
     for (let i = 1; i < chain.length - 1; i++) {
         const p = chain[i];
+        const neighbouringDistance = haversineNm(
+            chain[i - 1].lat,
+            chain[i - 1].lon,
+            chain[i + 1].lat,
+            chain[i + 1].lon,
+        );
         if (
             (p.name !== undefined && (typeof p.name !== 'string' || p.name.length > 100)) ||
             (p.leaveSide !== undefined && !['port', 'starboard'].includes(p.leaveSide))
@@ -51,6 +54,7 @@ export function resolveRouteConstraints(
         if (!p.leaveSide) {
             if (p.standOffM !== undefined) return null;
             points.push({ lat: p.lat, lon: p.lon, name: p.name });
+            canonicalVias.push({ ...p });
             continue;
         }
         if (
@@ -58,10 +62,13 @@ export function resolveRouteConstraints(
             !Number.isFinite(p.standOffM) ||
             p.standOffM < 5 ||
             p.standOffM > 2000 ||
-            haversineNm(chain[i - 1].lat, chain[i - 1].lon, chain[i + 1].lat, chain[i + 1].lon) < 0.001
+            (p.courseBearing === undefined &&
+                (neighbouringDistance < 0.001 || neighbouringDistance / R_NM >= Math.PI - 1e-8))
         )
             return null;
-        const bearing = initialBearing(chain[i - 1].lat, chain[i - 1].lon, chain[i + 1].lat, chain[i + 1].lon);
+        const bearing =
+            p.courseBearing ?? initialBearing(chain[i - 1].lat, chain[i - 1].lon, chain[i + 1].lat, chain[i + 1].lon);
+        canonicalVias.push({ ...p, courseBearing: bearing });
         const forbidden = (bearing + (p.leaveSide === 'port' ? 270 : 90)) % 360;
         halfLines.push({ lat: p.lat, lon: p.lon, bearing: forbidden });
         const passing = projectPosition(p.lat, p.lon, (forbidden + 180) % 360, p.standOffM / 1852);
@@ -70,7 +77,7 @@ export function resolveRouteConstraints(
     points.push({ lat: destination.lat, lon: destination.lon, name: destination.name });
     if (points.some((p, i) => i && haversineNm(points[i - 1].lat, points[i - 1].lon, p.lat, p.lon) < 0.0001))
         return null;
-    return { points, halfLines };
+    return { points, halfLines, canonicalVias };
 }
 
 type V = [number, number, number];
@@ -126,7 +133,7 @@ export function routeSegmentAllowed(
 /** Ordered exact vertices after every smoothing/chart pass, including terminal legs. */
 export function routeRetainsConstraints(
     route: readonly RouteConstraintPoint[],
-    constraints: ResolvedRouteConstraints,
+    constraints: Pick<ResolvedRouteConstraints, 'points' | 'halfLines'>,
 ): boolean {
     if (
         route.length < 2 ||

@@ -263,6 +263,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [showPassage, setShowPassage] = useState(() => peekPassageRequest() !== null);
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
+    const routeConstraintsRef = useRef<RouteConstraintPoint[]>([]);
     const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
     const displayedRouteGeometryKeyRef = useRef<string | null>(null);
@@ -336,6 +337,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 modelComparison.reset();
                 isoResultRef.current = null;
                 turnWaypointsRef.current = [];
+                routeConstraintsRef.current = [];
                 setDeparture(null);
                 setArrival(null);
                 setViaWaypoints([]);
@@ -477,6 +479,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // Clear previous results immediately so stale data isn't displayed
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        routeConstraintsRef.current = [];
         PassageStore.clear(operationScope);
         setRouteAnalysis(null);
         setRouteVerification({ status: 'pending', geometryKey: null, reason: 'route computation in progress' });
@@ -594,6 +597,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 routeCellsRef.current = route.cells;
                 isoResultRef.current = route.result;
                 turnWaypointsRef.current = route.turns;
+                routeConstraintsRef.current = route.constraints;
                 commitDisplayedRoute(
                     map,
                     route.result.routeCoordinates.slice(1).map((point, i) => ({
@@ -3223,6 +3227,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setDepartureTime('');
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        routeConstraintsRef.current = [];
         computeGenRef.current++; // Invalidate any running computation
         modelComparison.reset();
         PassageStore.clear();
@@ -3296,6 +3301,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setShowPassage,
         isoResultRef,
         turnWaypointsRef,
+        routeConstraintsRef,
         computePassage,
         clearRoute,
     };

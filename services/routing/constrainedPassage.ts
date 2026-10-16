@@ -71,6 +71,7 @@ export async function computeConstrainedPassage(input: {
     polarLabel: string;
     points: RouteConstraintPoint[];
     turns: TurnWaypoint[];
+    constraints: RouteConstraintPoint[];
 }> {
     const constraints = resolveRouteConstraints(input.origin, input.vias, input.destination),
         departureMs = Date.parse(input.departureTime);
@@ -324,7 +325,14 @@ export async function computeConstrainedPassage(input: {
             throw Error(
                 'This route has too many intermediate turns to save atomically. Split it into reviewed passages.',
             );
-        return { result, cells: [...cells], polarLabel: polar.label, points: constraints.points, turns };
+        return {
+            result,
+            cells: [...cells],
+            polarLabel: polar.label,
+            points: constraints.points,
+            turns,
+            constraints: constraints.canonicalVias,
+        };
     } finally {
         clearTimeout(timer);
         clearInterval(contextTimer);

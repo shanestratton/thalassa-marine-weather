@@ -23,6 +23,7 @@ import {
 import { withDeadline } from '../../utils/deadline';
 import { haversineNm } from '../isochrone/geodesy';
 import type { VoyagePlan } from '../../types';
+import { resolveRouteConstraints, routeRetainsConstraints } from './routeConstraints';
 
 const followKey = () => {
     const state = useFollowRouteStore.getState();
@@ -152,13 +153,17 @@ export async function requestRouteReplan(expectedArrivalMs: number | null = null
             throw Error(
                 'The remaining accepted route constraints are ambiguous. Open the full planner to review them.',
             );
-        if (remaining.remaining.length)
-            throw Error(
-                'This route still has accepted via points. Verified waypoint chaining is required before re-planning it.',
-            );
         const dest = original.destinationCoordinates!;
-        const east = fix!.lon + (((dest.lon - fix!.lon + 540) % 360) - 180);
-        if (Math.abs(dest.lat - fix!.lat) > 20 || Math.abs(east - fix!.lon) > 20)
+        const constraints = resolveRouteConstraints(fix!, remaining.remaining, dest);
+        if (!constraints) throw Error('The remaining waypoint constraints cannot be retained from this position.');
+        const lons = [fix!.lon];
+        for (const p of constraints.points.slice(1))
+            lons.push(lons.at(-1)! + ((((p.lon - lons.at(-1)! + 180) % 360) + 360) % 360) - 180);
+        const north = Math.max(...constraints.points.map((p) => p.lat)),
+            south = Math.min(...constraints.points.map((p) => p.lat)),
+            west = Math.min(...lons),
+            east = Math.max(...lons);
+        if (north - south > 20 || east - west > 20 || north > 83 || south < -83)
             throw Error('This re-plan exceeds the bounded regional forecast window. Open the full planner.');
         const { fetchModelWindGrid } = await import('../weather/OpenMeteoWindFetcher');
         const abort = new AbortController();
@@ -167,10 +172,10 @@ export async function requestRouteReplan(expectedArrivalMs: number | null = null
             fetchModelWindGrid(
                 model.id,
                 {
-                    north: Math.min(85, Math.max(fix!.lat, dest.lat) + 2),
-                    south: Math.max(-85, Math.min(fix!.lat, dest.lat) - 2),
-                    west: Math.min(fix!.lon, east) - 2,
-                    east: Math.max(fix!.lon, east) + 2,
+                    north: north + 2,
+                    south: south - 2,
+                    west: west - 2,
+                    east: east + 2,
                 },
                 168,
                 2,
@@ -209,6 +214,7 @@ export async function requestRouteReplan(expectedArrivalMs: number | null = null
             speed,
             deadlineMs,
             original,
+            remainingConstraints: constraints.canonicalVias,
             oldCoords,
             remainingNm: remaining.remainingNm,
             oldRemainingHours:
@@ -231,7 +237,7 @@ export async function requestRouteReplan(expectedArrivalMs: number | null = null
             {
                 departure: { lat: fix!.lat, lon: fix!.lon, name: 'Current position' },
                 arrival: { ...dest, name: original.destination },
-                via: [],
+                via: constraints.canonicalVias.map((p, i) => ({ ...p, name: p.name ?? `VIA${i + 1}` })),
                 departureTime,
                 speed,
                 replanToken: token,
@@ -253,7 +259,14 @@ export function offerRouteReplanCandidate(token: string, candidate: RouteReplanC
     const state = readRouteReplan(),
         base = state.base;
     if (!base || base.token !== token || state.phase !== 'computing') return;
+    const constraints = resolveRouteConstraints(
+        base.fix,
+        base.remainingConstraints ?? [],
+        base.original.destinationCoordinates!,
+    );
     if (
+        !constraints ||
+        !routeRetainsConstraints(candidate.result.route, constraints) ||
         !replanContextCurrent(base) ||
         Date.now() > base.deadlineMs ||
         !Number.isFinite(candidate.result.totalDurationHours) ||
@@ -310,6 +323,7 @@ export async function acceptRouteReplan(): Promise<boolean> {
             distanceApprox: `${candidate.result.totalDistanceNM} NM`,
             durationApprox: `${candidate.result.totalDurationHours} hours`,
             overview: 'Reviewed re-plan from the boat’s position',
+            routeConstraints: structuredClone(base.remainingConstraints ?? []),
             waypoints: candidate.turns
                 .slice(1, -1)
                 .map((p) => ({ name: p.id, coordinates: { lat: p.lat, lon: p.lon } })),

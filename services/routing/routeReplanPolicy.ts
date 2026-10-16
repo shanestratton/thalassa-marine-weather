@@ -5,6 +5,12 @@ import { sampleWindGrid } from '../weather/importedGribSample';
 import type { IsochroneResult } from '../isochrone/types';
 import type { WindGrid } from '../weather/windGridEncoding';
 import type { VoyagePlan } from '../../types';
+import {
+    normaliseRouteConstraints,
+    resolveRouteConstraints,
+    routeRetainsConstraints,
+    type RouteConstraintPoint,
+} from './routeConstraints';
 
 export type ReplanPoint = { lat: number; lon: number };
 export function replanAuthoritySnapshot(settings: {
@@ -32,7 +38,7 @@ export function remainingReplanVias(
     plan: VoyagePlan,
     route: readonly ReplanPoint[],
     fix: ReplanPoint & { cog?: number },
-): { remaining: Array<ReplanPoint & { name: string }>; remainingNm: number } | null {
+): { remaining: Array<RouteConstraintPoint & { name: string }>; remainingNm: number } | null {
     if (
         route.length < 2 ||
         route.length > 8192 ||
@@ -46,6 +52,26 @@ export function remainingReplanVias(
         return null;
     const progress = progressAlongRoute(route, fix, Number.isFinite(fix.cog) ? { headingDeg: fix.cog } : undefined);
     if (!progress) return null;
+    if (plan.routeConstraints !== undefined) {
+        const canonical = normaliseRouteConstraints(plan.routeConstraints);
+        const constraints = canonical && resolveRouteConstraints(route[0], canonical, end);
+        if (!constraints || !routeRetainsConstraints(route, constraints)) return null;
+        let previous = -1;
+        const remaining: Array<RouteConstraintPoint & { name: string }> = [];
+        for (let i = 0; i < canonical!.length; i++) {
+            const point = constraints.points[i + 1];
+            const matches = route.flatMap((p, index) =>
+                haversineNm(p.lat, p.lon, point.lat, point.lon) * 1852 <= 1 ? [index] : [],
+            );
+            if (!matches.length || matches.some((n, j) => j > 0 && n > matches[j - 1] + 1)) return null;
+            const index = matches.find((n) => n > previous);
+            if (index === undefined) return null;
+            previous = index;
+            if (index > progress.legIndex && index < route.length - 1)
+                remaining.push({ ...canonical![i], name: canonical![i].name ?? `VIA${i + 1}` });
+        }
+        return { remaining, remainingNm: progress.toGoNm };
+    }
     const source = plan.routeGeoJSON?.properties?._source;
     if (
         typeof source === 'string' &&

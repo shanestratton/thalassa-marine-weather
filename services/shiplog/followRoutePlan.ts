@@ -1,8 +1,10 @@
 import type { VoyagePlan } from '../../types';
 import type { RouteOrTrack } from './RoutesAndTracks';
 import { sanitizeRouteCoordinates, type RouteCoordinate } from '../../utils/routeCoordinates';
+import { normaliseRouteConstraints, type RouteConstraintPoint } from '../routing/routeConstraintTypes';
 
 export interface FollowRoutePlanInput {
+    routeConstraints?: RouteConstraintPoint[] | null;
     label?: string;
     points: readonly RouteCoordinate[];
     distanceNm?: number;
@@ -23,7 +25,21 @@ function routeNames(label: string | undefined): { origin: string; destination: s
  * become thousands of "waypoint" markers.
  */
 export function buildFollowRoutePlan(input: FollowRoutePlanInput): VoyagePlan | null {
-    const points = sanitizeRouteCoordinates(input.points);
+    // The new explicit contract represents verified user choices. Never drop
+    // an invalid vertex, or the valid equator/prime-meridian origin, from it.
+    const points =
+        input.routeConstraints !== undefined
+            ? input.points.length <= 8192 &&
+              input.points.every(
+                  (p) =>
+                      Number.isFinite(p.lat) &&
+                      Math.abs(p.lat) <= 90 &&
+                      Number.isFinite(p.lon) &&
+                      Math.abs(p.lon) <= 180,
+              )
+                ? input.points.map(({ lat, lon }) => ({ lat, lon }))
+                : []
+            : sanitizeRouteCoordinates(input.points);
     if (points.length < 2) return null;
 
     const { origin, destination } = routeNames(input.label);
@@ -36,6 +52,9 @@ export function buildFollowRoutePlan(input: FollowRoutePlanInput): VoyagePlan | 
         Number.isFinite(input.durationHours) && (input.durationHours ?? 0) > 0 ? input.durationHours : undefined;
 
     return {
+        ...(input.routeConstraints !== undefined
+            ? { routeConstraints: normaliseRouteConstraints(input.routeConstraints) }
+            : {}),
         origin,
         destination,
         departureDate,
@@ -63,6 +82,7 @@ export function buildFollowRoutePlanFromRoute(route: RouteOrTrack): VoyagePlan |
         distanceNm: route.distanceNm,
         durationHours: route.durationHours,
         timestamp: route.timestamp,
+        routeConstraints: route.routeConstraints,
     });
     // A planned inshore route's caveats ride the followed plan (round-3
     // review, 2026-09-30), where savedInshoreRouteCaveats reads them.

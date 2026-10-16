@@ -16,6 +16,7 @@ import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
 import type { RouteFuelEstimate, RouteSailingStats } from '../../services/isochrone/routeStats';
 import type { RouteComfortSummary } from '../../services/isochrone/routeComfort';
 import type { OffshoreComparisonView } from './useOffshoreComparison';
+import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
 
 const OffshoreComparisonSheet = lazy(() => import('../passage/OffshoreComparisonSheet'));
 const RouteReplanReview = lazy(() =>
@@ -52,6 +53,7 @@ interface PassageBannerProps {
         isoResultRef: React.MutableRefObject<any>;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         turnWaypointsRef: React.MutableRefObject<any[]>;
+        routeConstraintsRef?: React.MutableRefObject<RouteConstraintPoint[]>;
         speed: number;
     };
     isoProgress: {
@@ -141,6 +143,16 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             const lastWP = hasIsoWPs ? turnWPs[turnWPs.length - 1] : null;
 
             const plan: Record<string, unknown> = {
+                ...(passage.routeConstraintsRef ? { routeConstraints: passage.routeConstraintsRef.current } : {}),
+                ...(isoResult?.routeCoordinates
+                    ? {
+                          routeGeoJSON: {
+                              type: 'Feature',
+                              properties: { _source: 'explicit-follow-route' },
+                              geometry: { type: 'LineString', coordinates: isoResult.routeCoordinates },
+                          },
+                      }
+                    : {}),
                 origin: dep.name || `${dep.lat.toFixed(2)}, ${dep.lon.toFixed(2)}`,
                 destination: arr.name || `${arr.lat.toFixed(2)}, ${arr.lon.toFixed(2)}`,
                 originCoordinates: firstWP ? { lat: firstWP.lat, lon: firstWP.lon } : { lat: dep.lat, lon: dep.lon },
