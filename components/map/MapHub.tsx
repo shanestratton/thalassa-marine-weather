@@ -5772,7 +5772,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     }}
                                     // Right-rail column — sits directly below SysStatus and
                                     // above the Radial Helm FAB.
-                                    className="absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                                    className="thalassa-offline-area-download absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                                     aria-label="Download offline relief"
                                     title="Download offline relief"
                                 >

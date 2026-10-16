@@ -5200,6 +5200,13 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
        (its toggle's nav is then labelled 'Navigation toggle'), and these
        lowered positions put Locate under it and the scale into the ENC
        notice's band (UX scorecard run 7). The defaults already clear it. */
+    .thalassa-offline-area-download {
+        /* The right rail contains attribution here. The top row has a free
+           slot after the zoom readout, clear of the central base picker. */
+        top: 8px;
+        left: calc(max(16px, env(safe-area-inset-left)) + 112px);
+        right: auto;
+    }
     :root:not(:has(nav[aria-label='Navigation toggle'])) {
         --thalassa-chart-credits-bottom: calc(env(safe-area-inset-bottom) + 60px);
     }

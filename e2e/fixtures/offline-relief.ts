@@ -3,6 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import { downloadReliefArea, hydrateRelief, reliefStorage } from '../../services/OfflineReliefService';
 import { offlineReliefUrl, subscribeOfflineRelief } from '../../services/offlineReliefRuntime';
 import { initialReliefMapStyle } from '../../services/initialReliefMapStyle';
+import { RELIEF_WEB_CACHE } from '../../services/offlineReliefPlan';
 import {
     addReliefBase,
     offlineReliefStyle,
@@ -12,7 +13,13 @@ import {
 } from '../../components/map/reliefBase';
 
 const errors: string[] = [];
+let cacheBeforeHydrate: unknown;
 const ready = (async () => {
+    const cache = await caches.open(RELIEF_WEB_CACHE);
+    const index = await cache.match('https://tiles.thalassatiles.com/__offline-relief-manifest-v1');
+    const manifest = index ? await index.json() : null;
+    const keys = await cache.keys();
+    cacheBeforeHydrate = { keys: keys.length, manifestRows: manifest?.tiles?.length ?? null };
     await hydrateRelief();
     mapboxgl.accessToken = 'pk.fixture-offline-terrain';
     const initialStyle = reliefStorage().tiles
@@ -89,6 +96,7 @@ Object.assign(window, {
                 offline: navigator.onLine === false,
                 attribution: document.querySelector('.mapboxgl-ctrl-attrib')?.textContent,
                 errors: errors.slice(-12),
+                cacheBeforeHydrate,
             };
         },
     },
