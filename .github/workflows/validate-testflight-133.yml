@@ -15,7 +15,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    CANDIDATE_SHA: '6e2ee4ad203b60d7ddbcb377f29708b6420684ff'
+    CANDIDATE_SHA: '9c0d9f2f2e5ca3a00226bc023b44a850e3666225'
     CI: 'true'
     HUSKY: '0'
     NODE_OPTIONS: --max-old-space-size=4096
@@ -41,7 +41,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '6e2ee4ad203b60d7ddbcb377f29708b6420684ff'
+                  ref: '9c0d9f2f2e5ca3a00226bc023b44a850e3666225'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -134,7 +134,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '6e2ee4ad203b60d7ddbcb377f29708b6420684ff'
+                  ref: '9c0d9f2f2e5ca3a00226bc023b44a850e3666225'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -251,7 +251,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '6e2ee4ad203b60d7ddbcb377f29708b6420684ff'
+                  ref: '9c0d9f2f2e5ca3a00226bc023b44a850e3666225'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
