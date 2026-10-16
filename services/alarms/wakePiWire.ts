@@ -256,6 +256,8 @@ export function parseWakePiStatus(raw: unknown, now: number): WakeKeeperStatus {
     if (v.proof !== null) {
         const p = v.proof;
         if (
+            v.running !== true ||
+            v.reason !== 'watching' ||
             !record(p) ||
             !binding ||
             !configuration ||

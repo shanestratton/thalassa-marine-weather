@@ -169,6 +169,22 @@ describe('bounded wake wire', () => {
         expect(parsed.binding).toEqual(binding());
         expect(parsed.proof?.binding).toEqual(configuration.binding);
         expect(parsed.proof?.binding.deviceId).not.toBe(parsed.binding?.deviceId);
+        for (const changed of [{ running: false }, { reason: 'awaiting-sensors' }]) {
+            expect(() =>
+                parseWakePiStatus(
+                    JSON.stringify({
+                        ...status(),
+                        configured: true,
+                        running: true,
+                        reason: 'watching',
+                        configuration,
+                        proof,
+                        ...changed,
+                    }),
+                    NOW,
+                ),
+            ).toThrow();
+        }
         proof.binding = binding();
         expect(() =>
             parseWakePiStatus(
