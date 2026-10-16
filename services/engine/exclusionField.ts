@@ -1,0 +1,271 @@
+/** Negative route constraints only. Compiled chart geometry stays in RAM;
+ * no area supplies water, a depth, clearance, permission or a preferred lane. */
+import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from 'geojson';
+import { normalizeOverlay } from '../userOverlays/model';
+import { restrnCodes } from '../enc/s57Restrn';
+import {
+    forEachCellOnSegment,
+    geometryBbox,
+    mPerDegLon,
+    rasterizePolygonCells,
+    segmentGeometryDistanceM,
+} from './geometry';
+import type { NavGrid } from './types';
+
+export type ExclusionKind =
+    | 'entry-prohibited'
+    | 'entry-restricted'
+    | 'traffic-separation'
+    | 'manual-no-go'
+    | 'marine-park';
+interface ExclusionArea {
+    readonly kind: ExclusionKind;
+    readonly geometry: Polygon | MultiPolygon;
+    readonly bbox: readonly [number, number, number, number];
+    readonly vertices: number;
+}
+export interface ExclusionField {
+    readonly areas: readonly ExclusionArea[];
+}
+export interface ExclusionSources {
+    RESARE?: FeatureCollection;
+    TSEZNE?: FeatureCollection;
+    /** Caller supplies explicitly enabled private polygon files only. */
+    manual?: FeatureCollection;
+    /** Indicative park footprints add caution cost; they do not prohibit transit. */
+    marineParks?: FeatureCollection;
+}
+const MAX_SCAN = 16000,
+    MAX_AREAS = 2000,
+    MAX_OPERATIONS = 8_000_000;
+const polygons = (g: Polygon | MultiPolygon): Position[][][] =>
+    g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+const overlaps = (a: readonly number[], b: readonly number[]) =>
+    !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+
+export const exclusionCostFactor = (grid: NavGrid, index: number): number =>
+    grid.exclusionCaution?.[index] === 1 ? 1.25 : 1;
+
+/** Apply to a freshly built/cached base grid before any endpoint or component
+ * rescue. Every mutable route array and mask is private; the cache is read only. */
+export function applyExclusionField(base: NavGrid, field: ExclusionField, check: () => void = () => {}): NavGrid {
+    const masks = rasterExclusionField(base, field, check);
+    const grid: NavGrid = {
+        ...base,
+        cells: base.cells.slice(),
+        preferred: base.preferred.slice(),
+        exclusionBlocked: masks?.blocked,
+        exclusionCaution: masks?.caution,
+    };
+    if (masks)
+        for (let i = 0; i < masks.blocked.length; i++) {
+            if ((i & 1023) === 0) check();
+            if (masks.blocked[i] === 1) grid.cells[i] = NaN;
+        }
+    check();
+    return grid;
+}
+
+export function exclusionRefusal(kind: ExclusionKind): string {
+    if (kind === 'manual-no-go')
+        return 'The route would cross one of your no-go polygons. Move the route outside it or edit that polygon.';
+    if (kind === 'traffic-separation')
+        return 'The route would enter a traffic separation zone. This planner keeps separation zones closed.';
+    return kind === 'entry-prohibited'
+        ? 'The route would enter an area marked entry prohibited. Move the route outside that area.'
+        : 'The route would enter a restricted area. This planner keeps entry-restricted areas closed.';
+}
+
+/** Take a bounded independent geometry snapshot before routing. Malformed hard
+ * constraints are refused, never silently dropped or reinterpreted as a line. */
+export function buildExclusionField(sources: ExclusionSources): ExclusionField {
+    const selected: Feature[] = [],
+        kinds: ExclusionKind[] = [];
+    let scanned = 0;
+    const add = (collection: FeatureCollection | undefined, kind: ExclusionKind | null) => {
+        if (!collection) return;
+        if (collection.type !== 'FeatureCollection' || !Array.isArray(collection.features))
+            throw Error('Route exclusion source is malformed.');
+        for (const feature of collection.features) {
+            if (++scanned > MAX_SCAN) throw Error('Route exclusion source exceeds the object budget.');
+            let actual = kind;
+            if (actual === null) {
+                const codes = restrnCodes(feature?.properties?.RESTRN ?? feature?.properties?.restrn);
+                actual = codes.includes('7') ? 'entry-prohibited' : codes.includes('8') ? 'entry-restricted' : null;
+            }
+            if (actual === null) continue;
+            if (!feature?.geometry || !['Polygon', 'MultiPolygon'].includes(feature.geometry.type))
+                throw Error('A route exclusion has no complete polygon.');
+            if (selected.length >= MAX_AREAS) throw Error('Too many route exclusion polygons.');
+            // Original chart labels/identifiers are neither needed nor copied.
+            selected.push({ type: 'Feature', properties: {}, geometry: feature.geometry });
+            kinds.push(actual);
+        }
+    };
+    add(sources.RESARE, null);
+    add(sources.TSEZNE, 'traffic-separation');
+    add(sources.manual, 'manual-no-go');
+    add(sources.marineParks, 'marine-park');
+    if (!selected.length) return { areas: [] };
+    // Reuse the bounded topology/WGS84 validator; no user-overlay store is read.
+    const normalized = normalizeOverlay({ type: 'FeatureCollection', features: selected });
+    if (normalized.data.features.length !== kinds.length) throw Error('Route exclusion geometry changed shape.');
+    const areas = normalized.data.features.map((feature, i): ExclusionArea => {
+        const geometry = feature.geometry as Polygon | MultiPolygon;
+        let vertices = 0;
+        for (const polygon of polygons(geometry))
+            for (const ring of polygon)
+                for (let j = 0; j < ring.length; j++) {
+                    vertices++;
+                    if (j && Math.abs(ring[j][0] - ring[j - 1][0]) > 180)
+                        throw Error('Split route exclusions at the dateline before routing.');
+                }
+        return { kind: kinds[i], geometry, vertices, bbox: geometryBbox(geometry) };
+    });
+    return { areas };
+}
+
+/** Clip a boundary to the grid BEFORE its supercover walk: a distant feature
+ * must not cause an unbounded walk through cells outside the selected window. */
+function clipped(a: Position, b: Position, box: readonly number[]): [Position, Position] | null {
+    let lo = 0,
+        hi = 1;
+    for (let axis = 0; axis < 2; axis++) {
+        const d = b[axis] - a[axis];
+        if (d === 0) {
+            if (a[axis] < box[axis] || a[axis] > box[axis + 2]) return null;
+        } else {
+            const x = (box[axis] - a[axis]) / d,
+                y = (box[axis + 2] - a[axis]) / d;
+            lo = Math.max(lo, Math.min(x, y));
+            hi = Math.min(hi, Math.max(x, y));
+            if (lo > hi) return null;
+        }
+    }
+    return [
+        [a[0] + (b[0] - a[0]) * lo, a[1] + (b[1] - a[1]) * lo],
+        [a[0] + (b[0] - a[0]) * hi, a[1] + (b[1] - a[1]) * hi],
+    ];
+}
+
+/** Whole-cell interior plus boundary supercover, including tiny islands and
+ * corner touches. Builds private masks atomically and never alters a cached grid. */
+export function rasterExclusionField(
+    grid: NavGrid,
+    field: ExclusionField,
+    check: () => void = () => {},
+): { blocked: Uint8Array; caution: Uint8Array } | null {
+    if (!field.areas.length) return null;
+    const { width, height, minLon, minLat, dLon, dLat } = grid;
+    if (
+        ![width, height].every(Number.isSafeInteger) ||
+        width <= 0 ||
+        height <= 0 ||
+        width * height > 2_500_000 ||
+        ![minLon, minLat, dLon, dLat].every(Number.isFinite) ||
+        dLon <= 0 ||
+        dLat <= 0
+    )
+        throw Error('Route exclusion grid is invalid or oversized.');
+    const box = [minLon, minLat, minLon + width * dLon, minLat + height * dLat];
+    const blocked = new Uint8Array(width * height),
+        caution = new Uint8Array(width * height);
+    let operations = 0;
+    const spend = (n = 1) => {
+        operations += n;
+        if (operations > MAX_OPERATIONS) throw Error('Route exclusions exceed the bounded grid review.');
+        if ((operations & 1023) === 0) check();
+    };
+    for (const area of field.areas) {
+        check();
+        if (!overlaps(box, area.bbox)) continue;
+        const mask = area.kind === 'marine-park' ? caution : blocked;
+        const rows = Math.max(
+            0,
+            Math.min(height - 1, Math.ceil((area.bbox[3] - minLat) / dLat)) -
+                Math.max(0, Math.floor((area.bbox[1] - minLat) / dLat)) +
+                1,
+        );
+        spend(rows * area.vertices);
+        rasterizePolygonCells(grid, area.geometry, (x, y) => {
+            spend();
+            mask[y * width + x] = 1;
+        });
+        const mark = (x: number, y: number) => {
+            if (x >= 0 && y >= 0 && x < width && y < height) {
+                spend();
+                mask[y * width + x] = 1;
+            }
+        };
+        const integer = (n: number) => Math.abs(n - Math.round(n)) < 1e-9;
+        const endpoint = (p: Position) => {
+            const x = (p[0] - minLon) / dLon,
+                y = (p[1] - minLat) / dLat;
+            const xs = [Math.floor(x)],
+                ys = [Math.floor(y)];
+            if (integer(x)) xs.push(Math.round(x) - 1);
+            if (integer(y)) ys.push(Math.round(y) - 1);
+            for (const col of xs) for (const row of ys) mark(col, row);
+        };
+        for (const polygon of polygons(area.geometry))
+            for (const ring of polygon)
+                for (let i = 1; i < ring.length; i++) {
+                    const line = clipped(ring[i - 1], ring[i], box);
+                    if (!line) continue;
+                    endpoint(line[0]);
+                    endpoint(line[1]);
+                    const x = (line[0][0] - minLon) / dLon,
+                        y = (line[0][1] - minLat) / dLat;
+                    const vertical = line[0][0] === line[1][0] && integer(x) && x > 0 && x < width;
+                    const horizontal = line[0][1] === line[1][1] && integer(y) && y > 0 && y < height;
+                    // The upper grid edge belongs to its last closed cell too.
+                    const inward = (p: Position): [number, number] => [
+                        Math.min(p[0], box[2] - dLon * 1e-10),
+                        Math.min(p[1], box[3] - dLat * 1e-10),
+                    ];
+                    forEachCellOnSegment(grid, inward(line[0]), inward(line[1]), (idx) => {
+                        const col = idx % width,
+                            row = Math.floor(idx / width);
+                        mark(col, row);
+                        if (vertical) mark(col - 1, row);
+                        if (horizontal) mark(col, row - 1);
+                        if (vertical && horizontal) mark(col - 1, row - 1);
+                    });
+                }
+    }
+    check();
+    return { blocked, caution };
+}
+
+/** Audit the final complete line after every lead/tail/smoothing splice. A grid
+ * mask alone cannot prove a thin polygon was avoided by the returned geometry. */
+export function routeExclusionConflict(
+    points: readonly (readonly [number, number])[],
+    field: ExclusionField,
+    check: () => void = () => {},
+): ExclusionKind | null {
+    if (!field.areas.length) return null;
+    if (
+        points.length < 2 ||
+        points.length > 8192 ||
+        points.some((p) => p.length !== 2 || !p.every(Number.isFinite) || Math.abs(p[0]) > 180 || Math.abs(p[1]) > 85)
+    )
+        throw Error('The complete route exclusion audit is unavailable for this geometry.');
+    let operations = 0;
+    for (let i = 1; i < points.length; i++) {
+        check();
+        const a = points[i - 1],
+            b = points[i];
+        if (Math.abs(a[0] - b[0]) > 180) throw Error('Split the route at the dateline before checking exclusions.');
+        const box = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        for (const area of field.areas) {
+            if (area.kind === 'marine-park' || !overlaps(box, area.bbox)) continue;
+            operations += area.vertices * 3;
+            if (operations > MAX_OPERATIONS) throw Error('The complete route exclusion audit exceeds its budget.');
+            if (segmentGeometryDistanceM(a, b, area.geometry, mPerDegLon((a[1] + b[1]) / 2), 111320) <= 1e-6)
+                return area.kind;
+        }
+    }
+    check();
+    return null;
+}

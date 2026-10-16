@@ -1010,7 +1010,10 @@ export async function validateRouteSegments(
                 landLog.warn('[ValidateRoute] report publish skipped — went stale during hazard walk');
                 return result;
             }
-            const finalReport = routeAdvisories.length > 0 ? { ...report, advisories: routeAdvisories } : report;
+            const finalReport =
+                routeAdvisories.length > 0
+                    ? { ...report, advisories: [...routeAdvisories, ...(report.advisories ?? [])] }
+                    : report;
             options.onHazardReport?.(finalReport);
             if (options.publishReport ?? true) setLastReport(finalReport);
             if (report.entries.length > 0) {
