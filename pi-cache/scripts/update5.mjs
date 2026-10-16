@@ -24,8 +24,8 @@ export const CODE = Object.freeze([
     '.env.example',
 ]);
 const PACKED = ['manifest.json', 'source.tar.gz', 'install.mjs', 'rollback.mjs', 'update5.mjs'];
-// Update 5 is retained for both reviewed app releases; future builds require an explicit compatibility review.
-export const UPDATE5_APP_BUILDS = Object.freeze([133, 134]);
+// Update 5 is retained for the reviewed app releases; future builds require an explicit compatibility review.
+export const UPDATE5_APP_BUILDS = Object.freeze([133, 134, 135]);
 export function update5NativeBuild(project) {
     const builds = [...project.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
     const build = Number(builds[0]?.[1]);
@@ -34,7 +34,7 @@ export function update5NativeBuild(project) {
         !UPDATE5_APP_BUILDS.includes(build) ||
         builds.some((value) => value[1] !== String(build))
     )
-        throw new Error('Exactly four matching native build-133 or build-134 configurations are required');
+        throw new Error('Exactly four matching native build-133, build-134 or build-135 configurations are required');
     return build;
 }
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');

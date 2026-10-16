@@ -69,23 +69,23 @@ test('a complete frozen source bundle verifies and its installer defaults to a r
 
 test('update 5 requires four equal reviewed native builds and rejects unsupported manifest builds', () => {
     const project = (values) => values.map((build) => `CURRENT_PROJECT_VERSION = ${build};`).join('\n');
-    for (const build of [133, 134]) assert.equal(update5NativeBuild(project(Array(4).fill(build))), build);
+    for (const build of [133, 134, 135]) assert.equal(update5NativeBuild(project(Array(4).fill(build))), build);
     for (const values of [
         [133, 133, 134, 134],
         [134, 134, 134],
         Array(5).fill(134),
         Array(4).fill(132),
-        Array(4).fill(135),
+        Array(4).fill(136),
     ])
         assert.throws(() => update5NativeBuild(project(values)), /four matching native/);
     const f = fixture();
     try {
-        for (const build of [133, 134]) {
+        for (const build of [133, 134, 135]) {
             f.manifest.appBuild = build;
             f.write();
             assert.equal(verifyBundle(f.dir).appBuild, build);
         }
-        for (const build of [132, 135, '134', null]) {
+        for (const build of [132, 136, '134', null]) {
             f.manifest.appBuild = build;
             f.write();
             assert.throws(() => verifyBundle(f.dir), /Invalid update-5 manifest/);
@@ -95,10 +95,10 @@ test('update 5 requires four equal reviewed native builds and rejects unsupporte
     }
 });
 
-test('both reviewed frozen builds stage and the archived installer verifies the matching read-only plan', () => {
+test('all reviewed frozen builds stage and the archived installer verifies the matching read-only plan', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'thalassa-update5-stage-'));
     try {
-        for (const build of [133, 134]) {
+        for (const build of [133, 134, 135]) {
             const repository = path.join(root, `source-${build}`),
                 output = path.join(root, `bundle-${build}`);
             fs.mkdirSync(repository);
