@@ -233,6 +233,23 @@ describe('passage-final actual policy lease and staged emission', () => {
         await vi.waitFor(() => expect(h.release).toHaveBeenCalledOnce());
         expect(h.publish).not.toHaveBeenCalled();
     });
+    it('releases exactly once when resolution is followed by a queued abort before assignment', async () => {
+        const gate = deferred<CurrentRoutingExclusions>();
+        h.read.mockReturnValueOnce(gate.promise);
+        const original = lease(),
+            dispose = vi.fn(() => original.release());
+        const owned = { ...original, release: dispose };
+        const abort = new AbortController();
+        const task = validateRouteSegments(route(), { signal: abort.signal });
+        const rejection = expect(task).rejects.toMatchObject({ name: 'AbortError' });
+        gate.resolve(owned);
+        queueMicrotask(() => abort.abort());
+        await rejection;
+        expect(dispose).toHaveBeenCalledOnce();
+        expect(h.release).toHaveBeenCalledOnce();
+        expect(h.queries).not.toHaveBeenCalled();
+        expect(h.publish).not.toHaveBeenCalled();
+    });
     it('cancels an outstanding hazard await without waiting for its provider to finish', async () => {
         const gate = deferred<ReturnType<typeof clearPoints>>();
         h.queries.mockReturnValueOnce(gate.promise);
