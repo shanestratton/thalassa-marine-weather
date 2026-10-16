@@ -1,0 +1,49 @@
+name: Build135 isolated AIS PostGIS replay
+on:
+  push:
+    branches: ['codex/build-135-ais-sql-check']
+    paths: ['.github/workflows/validate-ais135-sql.yml']
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_PASSWORD: synthetic-fixture-only
+          POSTGRES_DB: ais_fixture
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: ais_fixture
+      PGPASSWORD: synthetic-fixture-only
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 'af8a4c8df971b56e04dae00258384c4ec0c0307f'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact synthetic fixture source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'af8a4c8df971b56e04dae00258384c4ec0c0307f'
+          sha256sum supabase/migrations/20261016072703_ais_fleet_budget.sql tests/sql/ais-fleet-replay.sql tests/sql/ais-fleet-concurrency.mjs | tee /tmp/ais-fixture-sha256.txt
+          psql -X -v ON_ERROR_STOP=1 -c 'select version();'
+      - name: Run real migration and privacy/budget assertions in empty disposable PostGIS
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/ais-fleet-replay.sql
+      - name: Sixteen independent connections and restart cooldown
+        run: node tests/sql/ais-fleet-concurrency.mjs
