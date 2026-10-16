@@ -11,7 +11,12 @@ if (postgres) {
     if (
         !['postgres:', 'postgresql:'].includes(url.protocol) ||
         !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
+        url.port !== '5432' ||
         url.pathname !== '/buddy137_test' ||
+        url.username !== 'postgres' ||
+        url.password !== 'fixture-only-password' ||
+        url.search ||
+        url.hash ||
         !process.env.PG_MODULE_PATH
     ) {
         throw new Error('Only an explicit empty localhost buddy137_test database is allowed');
@@ -28,18 +33,21 @@ if (postgres) {
             await pool.end();
         },
     };
+    const name = (await client.query('SELECT current_database() AS name')).rows[0].name;
+    const version = (await client.query('SHOW server_version')).rows[0].server_version;
     const existing = await client.query(
         "SELECT count(*)::integer n FROM pg_tables WHERE schemaname !~ '^pg_' AND schemaname <> 'information_schema'",
     );
-    if (existing.rows[0].n !== 0) {
+    if (name !== 'buddy137_test' || !/^17\.6(?:\D|$)/.test(version) || existing.rows[0].n !== 0) {
         await db.close();
-        throw new Error('Refusing a nonempty fixture database');
+        throw new Error('Refusing a nonempty or different PostgreSQL fixture');
     }
     await db.exec(
         'CREATE SCHEMA extensions;CREATE EXTENSION postgis WITH SCHEMA extensions;GRANT USAGE ON SCHEMA extensions TO PUBLIC',
     );
 } else {
-    if (!process.env.PGLITE_MODULE_PATH) throw new Error('Outside-repository isolated PGlite required');
+    if (!process.env.PGLITE_MODULE_PATH || process.env.BUDDY_TEST_DATABASE_URL || process.env.PG_MODULE_PATH)
+        throw new Error('Explicit isolated PGlite or opted-in disposable PostgreSQL fixture required');
     const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href);
     db = new PGlite();
 }
@@ -273,14 +281,23 @@ try {
         3,
         'only bounded latest/control/quota tables, no history',
     );
+    const actual = postgres
+        ? await (await import('./buddy-watch-postgres-cases.mjs')).runBuddyPostgresCases({ db, pool, eq })
+        : null;
     console.log(
         JSON.stringify({
             checks,
             isolated: true,
-            spatialAdapter: 'not exercised without PostGIS',
+            runtime: postgres ? 'postgresql' : 'pglite',
+            spatialAdapter: actual?.spatialAdapter ?? {
+                exercised: false,
+                reason: 'PostGIS is not available in PGlite',
+            },
+            actualPostgres: actual,
             productDatabase: false,
             notificationsDelivered: 0,
-            fixtureQueueRows: 12,
+            baselineFixtureQueueRows: 12,
+            fixtureQueueRows: await scalar('SELECT count(*)::integer FROM public.push_notification_queue'),
         }),
     );
 } finally {
