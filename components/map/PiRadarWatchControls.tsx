@@ -130,7 +130,10 @@ export function PiRadarAlarmCards({
                     className="rounded-xl border border-amber-400/60 bg-slate-950 p-3 text-sm text-amber-200"
                 >
                     <strong>Pi radar capacity reached</strong>
-                    <p>Existing encounters remain; the radar picture is incomplete. Check the radar display.</p>
+                    <p>
+                        Additional unresolved encounters are not individually listed. They have not been shown clear.
+                        Check the radar display.
+                    </p>
                 </section>
             )}
             {view.alarms.slice(0, 5).map((card) => {

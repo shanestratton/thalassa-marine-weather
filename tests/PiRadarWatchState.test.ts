@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
+import { PiRadarAlarmCards } from '../components/map/PiRadarWatchControls';
 vi.mock('../services/radar/piRadarWatch', () => ({
     readPiRadarWatch: vi.fn(),
     armPiRadarWatch: vi.fn(),
@@ -95,7 +98,10 @@ beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(T);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
 describe('passive Pi watch state and explicit phone consent', () => {
     it('an empty cloud cohort or truncated LAN view cannot erase an unresolved LAN latch', async () => {
         const s = setup();
@@ -120,7 +126,7 @@ describe('passive Pi watch state and explicit phone consent', () => {
         await s.state.refresh();
         expect(s.state.get().view?.alarms).toHaveLength(0);
     });
-    it('bounds accumulated partial cohorts without evicting an already held encounter', async () => {
+    it('bounds accumulated partial cohorts and keeps an explicit unknown aggregate when identities cannot all fit', async () => {
         const s = setup();
         await s.state.refresh();
         for (let n = 0; n < 22; n++) {
@@ -132,10 +138,76 @@ describe('passive Pi watch state and explicit phone consent', () => {
             await s.state.refresh();
         }
         const view = s.state.get().view!;
-        expect(view.alarms).toHaveLength(400);
-        expect(view.alarms.some((c) => c.key === 'original')).toBe(true);
+        expect(view.alarms).toHaveLength(420);
         expect(view.capacity).toBe(true);
         expect(view.more).toBe(true);
+    });
+    it('latest close quarters stay visible beside400oldunknowns; later omission cannot turn the rotated threat clear', async () => {
+        const s = setup();
+        await s.state.refresh();
+        for (let n = 0; n < 22; n++) {
+            const next = s.proof();
+            next.source = 'cloud';
+            next.view.alarms = Array.from({ length: 20 }, (_, i) => ({
+                ...next.view.alarms[0],
+                key: `old-${n}-${i}`,
+                unknown: true,
+            }));
+            s.read.mockResolvedValue(next);
+            await s.state.refresh();
+        }
+        const close = s.proof();
+        close.source = 'cloud';
+        close.view.alarms = [{ ...close.view.alarms[0], key: 'latest-close', closeQuarters: true, unknown: true }];
+        s.read.mockResolvedValue(close);
+        await s.state.refresh();
+        expect(s.state.get().view?.alarms[0]).toMatchObject({ key: 'latest-close', closeQuarters: true });
+        expect(s.state.get().view?.alarms).toHaveLength(401);
+        const rendered = render(createElement(PiRadarAlarmCards, { state: s.state.get(), now: T }));
+        expect(rendered.container.querySelector('[data-pi-radar-alarm]')?.getAttribute('data-pi-radar-alarm')).toBe(
+            'latest-close',
+        );
+        expect(screen.getByText(/Additional unresolved encounters are not individually listed/)).toBeInTheDocument();
+        expect(
+            screen
+                .getAllByRole('button')
+                .slice(1)
+                .every((button) => (button as HTMLButtonElement).disabled),
+        ).toBe(true);
+        cleanup();
+        const rotated = s.proof();
+        rotated.source = 'cloud';
+        rotated.view.alarms = Array.from({ length: 20 }, (_, i) => ({
+            ...rotated.view.alarms[0],
+            key: `rotated-${i}`,
+            unknown: true,
+        }));
+        s.read.mockResolvedValue(rotated);
+        await s.state.refresh();
+        expect(s.state.get().view?.alarms).toHaveLength(420);
+        expect(s.state.get().view?.alarms.find((c) => c.key === 'latest-close')).toMatchObject({
+            unknown: true,
+            actionable: false,
+            cleared: null,
+        });
+        const missing = s.proof();
+        missing.source = 'cloud';
+        missing.view.alarms = [];
+        s.read.mockResolvedValue(missing);
+        await s.state.refresh();
+        expect(s.state.get().view).toMatchObject({ capacity: true, more: true });
+        expect(s.state.get().view?.alarms.find((c) => c.key === 'latest-close')).toMatchObject({
+            unknown: true,
+            actionable: false,
+            cleared: null,
+        });
+        await s.state.acknowledge('latest-close');
+        expect(s.ack).not.toHaveBeenCalled();
+        const complete = s.proof();
+        complete.view.alarms = [];
+        s.read.mockResolvedValue(complete);
+        await s.state.refresh();
+        expect(s.state.get().view).toMatchObject({ capacity: false, more: false, alarms: [] });
     });
     it('never arms or stands down on cold start, status refresh, lease changes or a persisted armed shield', async () => {
         const s = setup(),

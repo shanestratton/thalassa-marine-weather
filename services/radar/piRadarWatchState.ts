@@ -104,14 +104,21 @@ export class PiRadarWatchController {
             const retained = (this.state.view?.alarms ?? [])
                 .filter((c) => !c.cleared && !seen.has(c.key) && !acknowledged.has(c.key))
                 .map((c) => ({ ...c, unknown: true, cpaNm: null, tcpaMin: null, actionable: false }));
-            const all = [...retained, ...view.alarms];
+            // Keep the latest bounded cohort independent of the historical capacity.
+            // If old unknown identities exceed it, a sticky aggregate remains unresolved.
+            retained.sort((a, b) => Number(b.closeQuarters) - Number(a.closeQuarters) || b.raisedAt - a.raisedAt);
             view.capacity ||= this.state.view?.capacity ?? false;
             view.more ||= this.state.view?.more ?? false;
-            view.alarms = all.slice(0, 400);
-            view.alarms.sort(
-                (a, b) => Number(b.closeQuarters) - Number(a.closeQuarters) || Number(a.unknown) - Number(b.unknown),
-            );
-            if (all.length > 400) {
+            view.alarms = [...view.alarms, ...retained.slice(0, 400)];
+            const priority = (card: (typeof view.alarms)[number]) => {
+                const recent =
+                    card.actionable !== false &&
+                    this.deps.now() >= card.sourceAt - 1000 &&
+                    this.deps.now() - card.sourceAt <= 15000;
+                return recent ? (card.closeQuarters ? 0 : 1) : card.closeQuarters ? 2 : 3;
+            };
+            view.alarms.sort((a, b) => priority(a) - priority(b) || b.raisedAt - a.raisedAt);
+            if (retained.length > 400) {
                 view.capacity = true;
                 view.more = true;
             }
