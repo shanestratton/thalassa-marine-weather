@@ -17,8 +17,8 @@ import type { MapBaseKind } from './MapBaseSelector';
 import { boatChartsLine } from '../../services/enc/boatChartsWords';
 
 export const DESK_MAP_KEY = 'thalassa_desk_map_v1';
-type DeskBase = 'light' | 'reliefSat' | 'hybrid';
-const DESK_BASES: readonly unknown[] = ['light', 'reliefSat', 'hybrid'];
+type DeskBase = 'light' | 'reliefSat' | 'hybrid' | 'enc';
+const DESK_BASES: readonly unknown[] = ['light', 'reliefSat', 'hybrid', 'enc'];
 interface DeskPicks {
     base?: DeskBase;
     seamarks?: boolean;

@@ -26,6 +26,7 @@ import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
+import { handler as handleNoaaChart } from './api/noaa-chart';
 import {
     ROUTE_ENGINE_LOGGER_QUERY,
     ROUTE_JOB_LOGGER,
@@ -368,15 +369,14 @@ function oceanApiLocal(env: Record<string, string | undefined>): Plugin {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const serve = (server: any) => {
         server.middlewares.use(async (req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => {
-            if (!req.url?.startsWith('/api/ocean/')) {
+            const noaaChart = req.url?.split('?')[0] === '/api/noaa-chart';
+            if (!noaaChart && !req.url?.startsWith('/api/ocean/')) {
                 next();
                 return;
             }
             try {
-                const response = await handleOcean(
-                    new Request(`http://127.0.0.1${req.url}`, { method: req.method ?? 'GET' }),
-                    env,
-                );
+                const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method ?? 'GET' });
+                const response = noaaChart ? await handleNoaaChart(request) : await handleOcean(request, env);
                 res.statusCode = response.status;
                 response.headers.forEach((value, key) => res.setHeader(key, value));
                 res.end(Buffer.from(await response.arrayBuffer()));

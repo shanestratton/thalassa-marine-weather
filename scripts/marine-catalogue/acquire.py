@@ -152,7 +152,8 @@ def run_osmium(arguments, maximum):
 
 def acquire(plan, directory):
     validate(plan)
-    if plan["dataset"] == "noaa": verify_noaa_agreement()
+    if plan["dataset"] == "noaa":
+        raise ValueError("NOAA inputs must come from the official catalogue job's ACTIVE-only immutable source directory; independent All_ENCs acquisition is disabled")
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     fingerprint = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()[:16]

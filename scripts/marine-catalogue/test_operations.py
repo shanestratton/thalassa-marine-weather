@@ -166,5 +166,11 @@ class OperationsTests(unittest.TestCase):
     def test_every_source_recipe_is_bounded_including_separately_reviewed_world(self):
         for path in Path(__file__).parent.glob("*.plan.json"):
             acquire.validate(json.loads(path.read_bytes()))
+    def test_independent_noaa_acquisition_cannot_fetch_cancelled_or_unreviewed_cells(self):
+        plan = json.loads(Path(__file__).with_name("noaa-us.plan.json").read_bytes())
+        with tempfile.TemporaryDirectory() as tmp, patch.object(acquire, "download") as download:
+            with self.assertRaisesRegex(ValueError, "ACTIVE-only"):
+                acquire.acquire(plan, tmp)
+            download.assert_not_called()
 
 if __name__ == "__main__": unittest.main()

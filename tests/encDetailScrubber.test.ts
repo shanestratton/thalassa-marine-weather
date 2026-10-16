@@ -352,7 +352,8 @@ describe('W1-01: the browsing chart uses the exported floor', () => {
     it('takes its level from browseDetailLevel instead of keeping its own floor', () => {
         expect(hubCode).toMatch(/import \{[^}]*\bbrowseDetailLevel\b[^}]*\} from '\.\/encDetailScrubber';/);
         expect(hubCode).not.toMatch(/const BROWSE_DECLUTTER_FLOOR\s*=/);
-        expect(hubCode).toContain('const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);');
+        expect(hubCode).toContain('CATEGORY_DETAIL[displayCategory]');
+        expect(hubCode).toContain(': browseDetailLevel(coordCaptureMode, declutter);');
         // The slider's leftover value must not reach the browsing chart.
         expect(hubCode).not.toMatch(/Math\.max\(\s*declutter\b/);
     });

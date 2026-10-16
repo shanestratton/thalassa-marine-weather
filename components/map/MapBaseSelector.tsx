@@ -36,6 +36,7 @@ export const MAP_BASE_OPTIONS: ReadonlyArray<{
     { id: 'reliefSat', label: 'Relief + Sat', description: 'Seafloor, with satellite land' },
     { id: 'ocean', label: 'Ocean', description: 'Plain sea, depth offshore' },
     { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
+    { id: 'enc', label: 'ENC only', description: 'Installed charts, no imagery' },
 ];
 
 /* The web desk planner's bases (127-DESKMAP A2): Light first, and none of the
@@ -44,6 +45,7 @@ export const DESK_MAP_BASE_OPTIONS: typeof MAP_BASE_OPTIONS = [
     { id: 'light', label: 'Light', description: 'Easiest to read · seabed is a guide, mean sea level' },
     MAP_BASE_OPTIONS[1],
     MAP_BASE_OPTIONS[3],
+    MAP_BASE_OPTIONS[4],
 ];
 
 /** An on/off row drawn on top of the base, after it (the desk's Seamarks). */
@@ -71,6 +73,8 @@ export interface MapBaseSelectorProps {
     toggles?: readonly MapBaseToggle[];
     /** Obs's clear view, offered only while its chart can hide the controls. */
     onClearView?: () => void;
+    /** Explicit paper overlay/category/catalogue sheet; no source queried by opening the menu. */
+    onCharts?: () => void;
     /** Extra classes on the root (the desk's narrow-window placement, index.css). */
     className?: string;
 }
@@ -91,6 +95,7 @@ export function MapBaseSelector({
     encRow = true,
     toggles = [],
     onClearView,
+    onCharts,
     className = '',
 }: MapBaseSelectorProps) {
     const [open, setOpen] = useState(false);
@@ -102,7 +107,7 @@ export function MapBaseSelector({
     /* The ENC row and the switches are menu items too, so the arrow keys have
        to know about them or the one control a skipper reaches for under memory
        pressure would be the one item they cannot reach without a mouse. */
-    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length + (onClearView ? 1 : 0);
+    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length + (onClearView ? 1 : 0) + (onCharts ? 1 : 0);
     const noCharts = encCellCount === 0;
     /* With nothing installed and the layer off, 'OFF' was a state for charts
        that don't exist, with no hint that the tap leads to getting some: it
@@ -331,12 +336,29 @@ export function MapBaseSelector({
                             </span>
                         </button>
                     ))}
+                    {onCharts && (
+                        <button
+                            ref={(element) => {
+                                optionRefs.current[options.length + checks.length] = element;
+                            }}
+                            type="button"
+                            role="menuitem"
+                            className="min-h-[52px] w-full rounded-xl px-3 text-left text-xs font-black text-sky-200 hover:bg-white/6"
+                            onClick={() => {
+                                setOpen(false);
+                                triggerRef.current?.focus({ preventScroll: true });
+                                onCharts();
+                            }}
+                        >
+                            Charts &amp; detail
+                        </button>
+                    )}
                     {onClearView && (
                         <>
                             <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
                             <button
                                 ref={(element) => {
-                                    optionRefs.current[options.length + checks.length] = element;
+                                    optionRefs.current[options.length + checks.length + (onCharts ? 1 : 0)] = element;
                                 }}
                                 type="button"
                                 role="menuitem"

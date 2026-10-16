@@ -51,7 +51,12 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
     getVersion: () => 0,
 }));
 
-import { getIndexForCell, importCell, invalidateCloudCellBlob } from '../services/enc/EncHazardService';
+import {
+    getIndexForCell,
+    importCell,
+    invalidateCloudCellBlob,
+    removeNoaaCatalogueRevision,
+} from '../services/enc/EncHazardService';
 
 function conversion(edition: number, cellId = 'VU5PORT1'): EncConversionResult {
     return {
@@ -72,6 +77,69 @@ describe('ENC cell import authority serialization', () => {
         mocks.saveCellGeoJSON.mockReset();
         mocks.loadCellGeoJSON.mockReset();
         mocks.deleteCellGeoJSON.mockReset();
+    });
+
+    it('withdraws only the identical catalogue-installed NOAA revision, preserving replacements and aliases', async () => {
+        mocks.saveCellGeoJSON.mockResolvedValue({ path: 'enc-cells/US5CA1LK.geojson', sizeBytes: 100 });
+        const noaa = { ...conversion(1, 'US5CA1LK'), sourceHO: 'US', updateNumber: 1 };
+        const fingerprint = 'a'.repeat(64);
+        await importCell(noaa, { contentSha256: fingerprint });
+        const expected = { edition: 1, updateNumber: 1, contentSha256: fingerprint };
+        for (const change of [
+            { edition: 2 },
+            { updateNumber: 2 },
+            { contentSha256: 'b'.repeat(64) },
+            { sourceHO: 'AU' },
+            { licence: 'protected' as const },
+        ]) {
+            mocks.storedCell = { ...mocks.storedCell!, ...change };
+            await expect(removeNoaaCatalogueRevision('us5ca1lk', expected, () => undefined)).resolves.toBe(false);
+            expect(mocks.deleteCellGeoJSON).not.toHaveBeenCalled();
+            mocks.storedCell = {
+                ...mocks.storedCell!,
+                edition: 1,
+                updateNumber: 1,
+                contentSha256: fingerprint,
+                sourceHO: 'US',
+                licence: 'open',
+            };
+        }
+        await expect(removeNoaaCatalogueRevision('us5ca1lk', expected, () => undefined)).resolves.toBe(true);
+        expect(mocks.storedCell).toBeNull();
+        expect(mocks.deleteCellGeoJSON).toHaveBeenCalledWith('US5CA1LK');
+    });
+
+    it('compares withdrawal ownership after a queued Pi/manual import has committed', async () => {
+        mocks.saveCellGeoJSON.mockResolvedValue({ path: 'enc-cells/US5CA1LK.geojson', sizeBytes: 100 });
+        const noaa = { ...conversion(1, 'US5CA1LK'), sourceHO: 'US', updateNumber: 1 };
+        await importCell(noaa, { contentSha256: 'a'.repeat(64) });
+        const write = deferred<{ path: string; sizeBytes: number }>();
+        mocks.saveCellGeoJSON.mockReturnValueOnce(write.promise);
+        const replacement = importCell({ ...noaa, updateNumber: 2 }, { contentSha256: 'b'.repeat(64) });
+        await vi.waitFor(() => expect(mocks.saveCellGeoJSON).toHaveBeenCalledTimes(2));
+        const withdrawal = removeNoaaCatalogueRevision(
+            'us5ca1lk',
+            { edition: 1, updateNumber: 1, contentSha256: 'a'.repeat(64) },
+            () => undefined,
+        );
+        write.resolve({ path: 'enc-cells/US5CA1LK.geojson', sizeBytes: 101 });
+        await replacement;
+        await expect(withdrawal).resolves.toBe(false);
+        expect(mocks.storedCell).toMatchObject({ updateNumber: 2, contentSha256: 'b'.repeat(64) });
+        expect(mocks.deleteCellGeoJSON).not.toHaveBeenCalled();
+    });
+
+    it('fences a withdrawal account before any cell mutation', async () => {
+        await expect(
+            removeNoaaCatalogueRevision(
+                'US5CA1LK',
+                { edition: 1, updateNumber: 1, contentSha256: 'a'.repeat(64) },
+                () => {
+                    throw Error('Account changed');
+                },
+            ),
+        ).rejects.toThrow('Account changed');
+        expect(mocks.deleteCellGeoJSON).not.toHaveBeenCalled();
     });
 
     it('never lets a concurrent unsigned import replace trusted bytes or metadata', async () => {
