@@ -64,6 +64,7 @@
 import { engineLog, ENGINE_DEBUG, M_PER_DEG_LAT, UNKNOWN_OPEN, CAUTION, UNCHARTED_MAX_RUN_M } from './engine/constants';
 import { applyTrackPriors } from './engine/trackPriors';
 import { routeTideGatedCandidate } from './engine/tideGatedRoute';
+import { auditTrafficLaneRoute } from './engine/trafficLanes';
 import {
     applyExclusionField,
     buildExclusionField,
@@ -498,6 +499,7 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
         field = buildExclusionField({
             RESARE: rawLayers.RESARE,
             TSEZNE: rawLayers.TSEZNE,
+            TSSLPT: rawLayers.TSSLPT,
             manual: rawLayers.USER_NOGO,
             marineParks: rawLayers.MPA_CAUTION,
         });
@@ -518,7 +520,15 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
     if ('error' in result) return result;
     try {
         const conflict = routeExclusionConflict(result.polyline, field);
-        return conflict ? { error: exclusionRefusal(conflict), code: 'route-exclusion', debug: result.debug } : result;
+        if (conflict) return { error: exclusionRefusal(conflict), code: 'route-exclusion', debug: result.debug };
+        const guidance = auditTrafficLaneRoute(result.polyline, field.trafficLanes).guidance;
+        if (guidance) return { ...result, trafficLaneGuidance: guidance };
+        if (result.trafficLaneGuidance !== undefined) {
+            const current = { ...result };
+            delete current.trafficLaneGuidance;
+            return current;
+        }
+        return result;
     } catch (error) {
         return unavailable(error);
     }
