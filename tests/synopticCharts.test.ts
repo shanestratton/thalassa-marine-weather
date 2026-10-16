@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chartsForPoint, jmaChartUrl, synopticChart, chartCredit } from '../services/weather/synopticCharts';
 import { readChartBytes, SYNOPTIC_MAX_ASSET_BYTES } from '../services/weather/synopticChartBytes';
-import handler from '../api/synoptic-chart';
+import endpoint, { handler } from '../api/synoptic-chart';
 const state = vi.hoisted(() => ({ disk: null as unknown, satellite: false, pi: null as unknown }));
 vi.mock('../services/PiOfflineWeatherService', () => ({ readPiAnalysis: vi.fn(async () => state.pi) }));
 vi.mock('../services/nativeStorage', () => ({
@@ -68,6 +68,9 @@ describe('reviewed official chart registry', () => {
 });
 
 describe('bounded official chart bytes and proxy', () => {
+    it('exposes the documented Node Web fetch entry point', () => {
+        expect(endpoint.fetch).toBe(handler);
+    });
     it('checks MIME and magic bytes, rejects HTML/SVG and enforces the streamed byte cap', async () => {
         expect(Array.from(await readChartBytes(response(), 'image/gif'))).toEqual(Array.from(gif));
         await expect(readChartBytes(response(gif, 'text/html'), 'image/gif')).rejects.toThrow();
@@ -86,7 +89,11 @@ describe('bounded official chart bytes and proxy', () => {
         expect(result.headers.get('access-control-allow-origin')).toBe('*');
         expect(fetcher).toHaveBeenCalledWith(
             synopticChart('opc-atl-analysis')!.url,
-            expect.objectContaining({ redirect: 'error', credentials: 'omit' }),
+            expect.objectContaining({
+                redirect: 'manual',
+                credentials: 'omit',
+                headers: { Accept: 'image/gif', 'User-Agent': 'Thalassa/1.2 (+https://www.thalassawx.app)' },
+            }),
         );
         for (const query of [
             'id=https://evil.test/a',
@@ -96,6 +103,42 @@ describe('bounded official chart bytes and proxy', () => {
         ])
             expect((await handler(new Request(`https://example.test/api/synoptic-chart?${query}`))).status).toBe(400);
         expect(fetcher).toHaveBeenCalledOnce();
+    });
+    it('reports only the fixed public source status when the host rejects the request', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('private diagnostic', { status: 403 })));
+        const result = await handler(new Request('https://example.test/api/synoptic-chart?id=opc-atl-analysis'));
+        expect(result.status).toBe(502);
+        expect(result.headers.get('x-thalassa-upstream-status')).toBe('403');
+        expect(result.headers.get('cache-control')).toBe('no-store');
+        expect(await result.text()).toBe('Official chart unavailable');
+    });
+    it('refuses redirects and partial images without following their target', async () => {
+        const fetcher = vi.fn();
+        vi.stubGlobal('fetch', fetcher);
+        for (const status of [301, 302, 307, 308, 206]) {
+            fetcher.mockResolvedValueOnce(
+                new Response(gif, {
+                    status,
+                    headers: { 'content-type': 'image/gif', location: 'https://evil.test/chart.gif' },
+                }),
+            );
+            const result = await handler(new Request('https://example.test/api/synoptic-chart?id=opc-atl-analysis'));
+            expect(result.status).toBe(502);
+            expect(result.headers.get('x-thalassa-upstream-status')).toBe(String(status));
+        }
+        expect(fetcher).toHaveBeenCalledTimes(5);
+        expect(
+            fetcher.mock.calls.every(
+                ([url, init]) => url === synopticChart('opc-atl-analysis')!.url && init.redirect === 'manual',
+            ),
+        ).toBe(true);
+    });
+    it('suppresses network exceptions while distinguishing that no HTTP response arrived', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('private diagnostic')));
+        const result = await handler(new Request('https://example.test/api/synoptic-chart?id=opc-atl-analysis'));
+        expect(result.status).toBe(502);
+        expect(result.headers.get('x-thalassa-upstream-status')).toBe('0');
+        expect(await result.text()).toBe('Official chart unavailable');
     });
 });
 
