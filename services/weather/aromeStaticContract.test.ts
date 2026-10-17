@@ -19,7 +19,7 @@ describe('14206 immutable original-grid storage contract', () => {
         expect(parseAromeManifest(f.manifest, f.slot, run)).toBe(f.manifest);
         expect(aromeTileAt(f.manifest, f.point)).toBe(f.tile);
         const point = aromePointFromTile(f.raw, f.manifest, f.slot, f.tile, f.point, run)!;
-        expect(point.seaCell).toMatchObject({ i: 400, j: 400, latitude: -20, longitude: 166, landFraction: 0 });
+        expect(point.seaCell).toMatchObject({ i: 300, j: 240, latitude: -20, longitude: 166, landFraction: 0 });
         expect(point.hourly.wind_speed_10m).toEqual(Array(49).fill(10));
         expect(point.hourly.wind_direction_10m).toEqual(Array(49).fill(90));
         expect(point.hourly.pressure_msl[0]).toBe(101234.567891 / 100);
@@ -40,7 +40,7 @@ describe('14206 immutable original-grid storage contract', () => {
         expect(point.hourly.wind_direction_10m).toEqual(Array(49).fill(null));
         const missing = await aromeStaticFixture({
             mask: () => 0,
-            sample: (_field, _hour, i, j) => (i === 400 && j === 400 ? Number.NaN : 1),
+            sample: (_field, _hour, i, j) => (i === 300 && j === 240 ? Number.NaN : 1),
         });
         expect(
             aromePointFromTile(missing.raw, missing.manifest, missing.slot, missing.tile, missing.point, run),
@@ -53,9 +53,9 @@ describe('14206 immutable original-grid storage contract', () => {
     });
 
     it('searches a bounded three-original-interval halo and refuses a distant sea cell', async () => {
-        const near = await aromeStaticFixture({ mask: (i, j) => (i === 403 && j === 400 ? 0 : 1) });
-        expect(aromePointFromTile(near.raw, near.manifest, near.slot, near.tile, near.point, run)?.seaCell.i).toBe(403);
-        const far = await aromeStaticFixture({ mask: (i, j) => (i === 404 && j === 400 ? 0 : 1) });
+        const near = await aromeStaticFixture({ mask: (i, j) => (i === 303 && j === 240 ? 0 : 1) });
+        expect(aromePointFromTile(near.raw, near.manifest, near.slot, near.tile, near.point, run)?.seaCell.i).toBe(303);
+        const far = await aromeStaticFixture({ mask: (i, j) => (i === 304 && j === 240 ? 0 : 1) });
         expect(aromePointFromTile(far.raw, far.manifest, far.slot, far.tile, far.point, run)).toBeNull();
     });
 
@@ -77,6 +77,7 @@ describe('14206 immutable original-grid storage contract', () => {
             { provider: 'ECMWF' },
             { licence: '' },
             { width: 720 },
+            { width: 721, height: 801, bounds: [-30, -10, 156, 174] },
             { stepDegrees: 0.25 },
             { hours: 48 },
             { encoding: 'f32' },

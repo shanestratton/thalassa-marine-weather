@@ -19,8 +19,8 @@ function fixture() {
         seaCell: {
             latitude: -20,
             longitude: 166,
-            i: 400,
-            j: 400,
+            i: 300,
+            j: 240,
             landFraction: 0,
             method: 'nearest-original-sea-cell',
         },
@@ -39,6 +39,32 @@ function fixture() {
 }
 
 describe('14206 original AROME-OM point admission', () => {
+    it('binds only NCALED to the observed original grid and preserves both other domains', () => {
+        expect(AROME_DOMAINS[0]).toMatchObject({
+            region: [-26, -13.75, 158.5, 171.5],
+            width: 521,
+            height: 491,
+        });
+        expect(AROME_DOMAINS[0].width * AROME_DOMAINS[0].height).toBe(255811);
+        expect(AROME_DOMAINS[1]).toMatchObject({
+            region: [-25.25, -12.6, -157.5, -144.5],
+            width: 521,
+            height: 507,
+        });
+        expect(AROME_DOMAINS[2]).toMatchObject({
+            region: [9.7, 22.9, -75.3, -51.7],
+            width: 945,
+            height: 529,
+        });
+    });
+
+    it('refuses the old wider grid indices for the same physical point', () => {
+        const data = fixture();
+        expect(
+            parseAromePoint({ ...data, seaCell: { ...data.seaCell, i: 400, j: 400 } }, model, point, run),
+        ).toBeNull();
+    });
+
     it('admits only an original current sea cell and preserves every original clock and gap', () => {
         const value = fixture();
         expect(parseAromePoint(value, model, point, run + 3600_000)).toBe(value);
@@ -88,6 +114,8 @@ describe('14206 original AROME-OM point admission', () => {
         ['method', 'nearest'],
         ['i', 401],
         ['j', 801],
+        ['i', 521],
+        ['j', 491],
         ['i', -1],
         ['i', 400.5],
         ['latitude', -20.001],

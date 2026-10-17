@@ -73,6 +73,10 @@ describe('14206 bounded immutable AROME Edge reader', () => {
             ['meteofrance_arome', point],
             [model, { lat: NaN, lon: 166 }],
             [model, { lat: -31, lon: 166 }],
+            [model, { lat: -28, lon: 166 }],
+            [model, { lat: -20, lon: 157 }],
+            [model, { lat: -12, lon: 166 }],
+            [model, { lat: -20, lon: 173 }],
         ] as const) {
             await expect(fetchAromeFromStatic(id, p, env, fetcher, now)).rejects.toThrow();
         }

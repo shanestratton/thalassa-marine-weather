@@ -21,7 +21,7 @@ DOMAINS = {
     'NCALED': {
         'model': 'thalassa_arome_om_ncaled_025', 'grid': 'NCALED',
         'catalogue': '65bd14cca6919e97e9699b09',
-        'bounds': [-30, -10, 156, 174], 'width': 721, 'height': 801,
+        'bounds': [-26, -13.75, 158.5, 171.5], 'width': 521, 'height': 491,
         'cycles': [0, 6, 12, 18],
     },
     'ANTIL': {

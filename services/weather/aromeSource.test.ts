@@ -76,6 +76,17 @@ describe('14206 own regional transport', () => {
         expect(fetcher).not.toHaveBeenCalled();
     });
 
+    it.each([
+        { lat: -28, lon: 166 },
+        { lat: -20, lon: 157 },
+        { lat: -12, lon: 166 },
+        { lat: -20, lon: 173 },
+    ])('does not query an old-only NCALED point %j', async (outside) => {
+        expect(await fetchOwnAromePoint(model, outside)).toBeNull();
+        expect(fetcher).not.toHaveBeenCalled();
+        expect(vi.mocked(fetchOpenMeteoProxy)).not.toHaveBeenCalled();
+    });
+
     it('bounds headers and body even when a native transport ignores AbortSignal', async () => {
         fetcher.mockImplementation(() => new Promise(() => undefined));
         const headers = fetchOwnAromePoint(model, point);

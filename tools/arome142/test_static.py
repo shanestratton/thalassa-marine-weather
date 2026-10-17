@@ -33,6 +33,19 @@ def metadata(domain='NCALED', field='u10', i_negative=0, j_positive=0):
 
 
 class StaticAromeTests(unittest.TestCase):
+    def test_ncaled_observed_original_grid_replaces_only_the_old_wider_extent(self):
+        spec = DOMAINS['NCALED']
+        self.assertEqual((spec['bounds'], spec['width'], spec['height']), ([-26, -13.75, 158.5, 171.5], 521, 491))
+        self.assertEqual(spec['width'] * spec['height'], 255811)
+        self.assertEqual((DOMAINS['ANTIL']['bounds'], DOMAINS['ANTIL']['width'], DOMAINS['ANTIL']['height']),
+                         ([9.7, 22.9, -75.3, -51.7], 945, 529))
+        self.assertEqual((DOMAINS['POLYN']['bounds'], DOMAINS['POLYN']['width'], DOMAINS['POLYN']['height']),
+                         ([-25.25, -12.6, -157.5, -144.5], 521, 507))
+        old = {**metadata(), 'Ni': 721, 'Nj': 801, 'numberOfPoints': 577521,
+               'latitudeOfFirstGridPointInDegrees': -10, 'latitudeOfLastGridPointInDegrees': -30,
+               'longitudeOfFirstGridPointInDegrees': 156, 'longitudeOfLastGridPointInDegrees': 174}
+        with self.assertRaises(AdmissionError): admit_metadata(old, 'NCALED', 'u10', RUN, 0)
+
     def test_every_domain_field_and_admitted_scan_preserves_original_metadata(self):
         for domain in DOMAINS:
             for field in PARAMETERS:
