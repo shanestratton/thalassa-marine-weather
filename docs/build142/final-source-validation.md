@@ -24,10 +24,21 @@ repair, not a reason to install a server database into the app build.
 The four focused source/scorer/transaction/session suites pass all 59 cases, with
 scoped lint, Prettier and `git diff --check` clean. The reused local Pi dependency
 junction was moved to an ignored `.local` name, preserving its installed target
-while removing it from normal module resolution. Final repaired whole-app
-TypeScript must pass under the original root-only dependency environment before
-the configured production budget is accepted. Original failure and intermediate
-dependency-enabled success remain evidence rather than being overwritten.
+while removing it from normal module resolution. Exact repaired source
+`11af28f2465b333fa4c48a0f73addfe5c411b2e3` passed whole-app TypeScript with
+root-only dependencies at `2026-10-17T07:31:29.922Z`. Its configured Vite build
+finished successfully at `07:33:38.927Z`, but the unchanged JavaScript budget
+failed: 10,650,289 bytes against 10,643,046, an excess of 7,243 bytes.
+The exact receipt remains
+`work/build142-configured-final-11af28f2465b-receipt.json`. Original failure,
+intermediate dependency-enabled success and the genuine budget failure remain
+evidence rather than being overwritten.
+
+The subsequent source normally merges the reviewed139 document-teardown repair
+through141 `740bb8636082d513c6e17b902ceb218fa8bd01d6`. The lossless representation
+candidate in [authored-prose-packing.md](authored-prose-packing.md) requires a
+fresh exact-source compiler and configured full-artifact measurement before any
+size acceptance; an isolated estimate is insufficient.
 
 Native identity remains139 in this source-only phase. This repair performs no
 provider activation, native identity bump, signing, upload or deployment. The
