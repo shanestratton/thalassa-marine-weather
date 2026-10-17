@@ -23,6 +23,7 @@ import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publ
  * legacy-secret gateway check. The rationale names the guard.
  */
 const FUNCTION_GUARDED_OFF = {
+    'regional-arome': 'requireAuthenticatedOrPublicQuota bounds public weather; fixed owned origin and original sea-cell contract',
     'elevenlabs-tts': 'requireAuthenticatedQuota verifies the signed-in session',
     'fetch-wind-grid': 'per-client public quota; app and Pi-cache callers',
     'fetch-wind-velocity': 'per-client public quota; no client caller remains',
@@ -43,6 +44,8 @@ const FUNCTION_GUARDED_OFF = {
 
 /** Already true on both sides; kept explicit with a caller rationale. */
 const EXISTING_PROTECTED_FUNCTIONS = {
+    'ensemble-forecast': 'gateway JWT plus signed-in quota before paid fixed-point ensemble access',
+    'licensed-lightning': 'gateway JWT plus signed-in quota, current licence and shared atomic paid-request reservations',
     'pi-internet-ais': 'gateway anon JWT plus current scoped Pi relay, owner quota and deletion/revocation rechecks',
     'morning-briefing': 'held weather work requires gateway JWT and exact service-role POST',
     'nowcast-watch': 'held weather work requires gateway JWT and exact service-role POST',
@@ -194,8 +197,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         }
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
         // 16 original function-guarded drifts; the authenticated SevenCs trial
-        // that made it 17 was deleted on 2026-10-09.
-        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(16);
+        // was deleted on 2026-10-09. New regional-arome uses the same bounded
+        // public-weather quota shape and is explicitly accounted for here.
+        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(17);
         // The six credentialless drifts, the eight already allowlisted,
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).

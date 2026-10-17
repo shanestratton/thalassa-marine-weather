@@ -336,3 +336,8 @@ verify_jwt = true
 # Gateway anon JWT plus the current scoped Pi relay; no service key on the Pi.
 # New export remains disabled until separately reviewed and explicitly enabled.
 verify_jwt = true
+
+[functions.regional-arome]
+# Public weather uses requireAuthenticatedOrPublicQuota inside the function;
+# requests reach only the fixed owned origin and original sea-cell projection.
+verify_jwt = false
