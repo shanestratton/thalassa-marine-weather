@@ -180,6 +180,31 @@ describe('Held service-only licensed lightning watch', () => {
         ).toBe(200);
         expect(p.claim).not.toHaveBeenCalled();
     });
+    it.each(['work', 'current'] as const)(
+        'rejects an uncooperative late %s result after cancellation',
+        async (stage) => {
+            const controller = new AbortController();
+            const p = ports();
+            if (stage === 'work')
+                p.work = vi.fn(async () => {
+                    controller.abort();
+                    return [row];
+                });
+            else
+                p.current = vi.fn(async () => {
+                    controller.abort();
+                    return true;
+                });
+            const response = await createLightningWatchHandler(
+                () => 'fixture-service',
+                () => p,
+            )(new Request(request(), { signal: controller.signal }));
+            expect(response.status).toBe(503);
+            expect(p.licensed.reserve).not.toHaveBeenCalled();
+            expect(p.licensed.fetch).not.toHaveBeenCalled();
+            expect(p.claim).not.toHaveBeenCalled();
+        },
+    );
     it('never emits an all-clear for empty, expired or future source observations', async () => {
         for (const response of [
             { ...original, response: [] },
