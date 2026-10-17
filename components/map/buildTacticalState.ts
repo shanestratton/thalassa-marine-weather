@@ -201,7 +201,7 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         // Lightning is offered only behind the Blitzortung licence flag (off
         // by default since build 123): like protected areas below, no flag,
         // no menu item — never a toggle for a layer that cannot draw.
-        ...(isBlitzortungEnabled()
+        ...(isBlitzortungEnabled() || import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
             ? {
                   lightningVisible,
                   onToggleLightning: () => {

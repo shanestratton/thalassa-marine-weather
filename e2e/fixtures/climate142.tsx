@@ -35,7 +35,7 @@ async function start() {
     }
     const descriptor = async (data: Uint8Array) => ({
         bytes: data.length,
-        sha256: [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))]
+        sha256: [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(data).buffer))]
             .map((n) => n.toString(16).padStart(2, '0'))
             .join(''),
     });

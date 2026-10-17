@@ -53,6 +53,7 @@ describe('committed public-beta feature profile', () => {
             // never straight from their servers) forbid our use. Off until
             // written permission; see services/weather/api/lightningLicence.ts.
             VITE_BLITZORTUNG_ENABLED: false,
+            VITE_LICENSED_LIGHTNING_ENABLED: false,
         });
         expect(profile.publicEndpoints).toEqual({
             VITE_DEEPGRAM_PROXY_URL: 'https://thalassa-deepgram-proxy.thalassacalypso.workers.dev',

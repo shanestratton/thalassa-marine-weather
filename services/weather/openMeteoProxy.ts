@@ -88,12 +88,13 @@ export async function fetchOpenMeteoProxy<T>(
 
 /** Fixed weather functions share the existing credential-free client boundary. */
 export async function fetchWeatherFunction<T>(
-    name: 'proxy-openmeteo' | 'ensemble-forecast',
+    name: 'proxy-openmeteo' | 'ensemble-forecast' | 'licensed-lightning',
     body: unknown,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     signal?: AbortSignal,
 ): Promise<T> {
-    if (name !== 'proxy-openmeteo' && name !== 'ensemble-forecast') throw new Error('Invalid weather function');
+    if (name !== 'proxy-openmeteo' && name !== 'ensemble-forecast' && name !== 'licensed-lightning')
+        throw new Error('Invalid weather function');
     if (!supabaseUrl) throw new Error('Weather service is not configured');
 
     const controller = new AbortController();

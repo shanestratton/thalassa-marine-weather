@@ -366,6 +366,10 @@ const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
 const MeasuredBuoysLayer = React.lazy(() => import('./MeasuredBuoysLayer'));
+const LicensedLightningLayer =
+    import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
+        ? React.lazy(() => import('./LicensedLightningLayer'))
+        : null;
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
 const SshObservedLayer =
@@ -409,6 +413,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
     const [sshMode, setSshMode] = useState<SshMode>('off');
     const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
+    const [licensedLightningCredit, setLicensedLightningCredit] = useState<AtmosCredit | null>(null);
     const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
     const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
     const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
@@ -5887,11 +5892,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         atmosphere={[
                             ...atmosPresentation.credits,
                             ...(sshCredit ? [sshCredit] : []),
+                            ...(licensedLightningCredit ? [licensedLightningCredit] : []),
                             ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
                             ...(sharperCredit ? [sharperCredit] : []),
                             ...(localLibraryCredit ? [localLibraryCredit] : []),
                         ]}
-                        lightning={browseLightningVisible}
+                        lightning={browseLightningVisible && import.meta.env.VITE_BLITZORTUNG_ENABLED === 'true'}
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
                         ais={browseAisVisible}
@@ -6390,6 +6396,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onCredit={setSharperCredit}
                             onControls={setSharperControls}
                             onFallback={satellitePicture.useHourly}
+                        />
+                    )}
+                    {LicensedLightningLayer && !embedded && !pickerMode && (
+                        <LicensedLightningLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={
+                                obsShowing &&
+                                !isPinView &&
+                                !planningSurface &&
+                                !mobActive &&
+                                obsCreditsVisible &&
+                                browseLightningVisible
+                            }
+                            onCredit={setLicensedLightningCredit}
                         />
                     )}
                     {SshObservedLayer && !embedded && !pickerMode && (

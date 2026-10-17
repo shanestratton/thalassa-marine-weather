@@ -24,6 +24,7 @@ import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { pinOfficialPush } from '../services/officialPushPin';
 import { pinWeatherBriefing } from '../services/briefing/briefingPin';
 import type { PushTapNotice } from '../services/PushNotificationService';
+import { isCurrentLightningNotice } from '../utils/licensedLightningPush';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
@@ -611,6 +612,7 @@ export function useAppBootstrap() {
         const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
             const data = notification.data;
             const type = data?.notification_type;
+            if (type === 'lightning_nearby' && !isCurrentLightningNotice(data)) return;
             if (type === 'wake_alarm')
                 void import('../services/alarms/wakeCloudAlarms')
                     .then((m) => {
@@ -649,6 +651,10 @@ export function useAppBootstrap() {
                 case 'weather_alert':
                     if (pinWeatherBriefing(data, actionScope)) setPage('briefing');
                     else setPage('dashboard');
+                    break;
+                case 'lightning_nearby':
+                    // Navigation only: a tap never starts a paid provider read or changes a watch.
+                    setPage('map');
                     break;
                 case 'overdue_notice':
                     // Review navigation only; tapping never confirms arrival,

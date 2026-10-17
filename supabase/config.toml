@@ -188,6 +188,10 @@ verify_jwt = false
   # Genuine members, fixed products and per-account quota; key remains server-side.
   verify_jwt = true
 
+[functions.licensed-lightning]
+  # Held until current display and push rights are verified; no historical-key inference.
+  verify_jwt = true
+
 [functions.proxy-spoonacular]
 # Server-disabled provider (SPOONACULAR_ENABLED) plus a public quota inside
 # the function; the client uses credentialed functions.invoke. OFF.
