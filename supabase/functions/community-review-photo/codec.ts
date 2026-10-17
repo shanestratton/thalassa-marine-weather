@@ -4,7 +4,10 @@ export interface Pixels {
     data: Uint8Array;
 }
 export interface JpegCodec {
-    decode(bytes: Uint8Array, options: {useTArray:true;tolerantDecoding:false;maxResolutionInMP:number;maxMemoryUsageInMB:number}): Pixels;
+    decode(
+        bytes: Uint8Array,
+        options: { useTArray: true; tolerantDecoding: false; maxResolutionInMP: number; maxMemoryUsageInMB: number },
+    ): Pixels;
     encode(pixels: Pixels, quality: number): { data: Uint8Array };
 }
 /** Reject dimensions before allocating decoder output; never preserve EXIF/comments. */
