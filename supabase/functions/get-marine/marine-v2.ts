@@ -1,5 +1,5 @@
 import { readResponseJsonObjectLimited } from '../_shared/http-security.ts';
-import { marineEnvelopeV2, marineQueryV2, type MarineKindV2, type MarinePointV2 } from '../_shared/marine-v2.ts';
+import { marineEnvelopeV2, type MarineKindV2, type MarinePointV2, marineQueryV2 } from '../_shared/marine-v2.ts';
 
 const BASE = 'https://customer-marine-api.open-meteo.com/v1/marine';
 export const MARINE_V2_SOURCE_BYTES = 750_000;
