@@ -100,6 +100,10 @@ export interface RadialHelmMenuProps {
         onToggleTideStations?: () => void;
         anchorageVisible?: boolean;
         onToggleAnchorage?: () => void;
+        communityNotesVisible?: boolean;
+        onToggleCommunityNotes?: () => void;
+        communityNotesVisible?: boolean;
+        onToggleCommunityNotes?: () => void;
         mooringsVisible?: boolean;
         onToggleMoorings?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
@@ -443,6 +447,36 @@ function buildCategories(
                                   label: 'Anchorages',
                                   icon: <AnchorageIcon />,
                                   action: tacticalState.onToggleAnchorage,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleCommunityNotes
+                        ? [
+                              {
+                                  id: 'community-notes',
+                                  label: 'Community notes',
+                                  icon: (
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                          <path d="M4 4h16v12H9l-5 4Z" />
+                                          <path d="M12 7v4m0 2v1" />
+                                      </svg>
+                                  ),
+                                  action: tacticalState.onToggleCommunityNotes,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleCommunityNotes
+                        ? [
+                              {
+                                  id: 'community-notes',
+                                  label: 'Community notes',
+                                  icon: (
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                          <path d="M4 4h16v12H9l-5 4Z" />
+                                          <path d="M12 7v4m0 2v1" />
+                                      </svg>
+                                  ),
+                                  action: tacticalState.onToggleCommunityNotes,
                               },
                           ]
                         : []),
@@ -867,6 +901,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
             if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
+            if (tacticalState?.communityNotesVisible) tacticalState.onToggleCommunityNotes?.();
+            if (tacticalState?.communityNotesVisible) tacticalState.onToggleCommunityNotes?.();
             if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
             // Also clear any chart sources.
             chartsState?.sources?.forEach((s) => {
@@ -1006,6 +1042,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'seamark') return tacticalState?.seamarkVisible ?? false;
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
             if (item.id === 'anchorages') return tacticalState?.anchorageVisible ?? false;
+            if (item.id === 'community-notes') return tacticalState?.communityNotesVisible ?? false;
+            if (item.id === 'community-notes') return tacticalState?.communityNotesVisible ?? false;
             if (item.id === 'moorings') return tacticalState?.mooringsVisible ?? false;
             if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
@@ -1030,6 +1068,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.tideStationsVisible) count++;
         if (tacticalState?.anchorageVisible) count++;
         if (tacticalState?.mooringsVisible) count++;
+        if (tacticalState?.communityNotesVisible) count++;
+        if (tacticalState?.communityNotesVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
         if (chartsState?.sources) {
             for (const s of chartsState.sources) if (s.enabled) count++;

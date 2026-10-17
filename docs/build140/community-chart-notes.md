@@ -1,0 +1,41 @@
+# 140-03 community chart notes
+
+Source is prepared, not deployed. No live database, Edge, Storage, environment, Pi or timer change was made. No whole-app compiler or production build was run for this packet. The genuine 14002 PostgreSQL proof remains recorded separately in `community-place-reviews.md`.
+
+## Behaviour and admission
+
+Obs → Sea → Community notes is OFF on a fresh map. Violet observation points are separate from official chart objects. Tap a point for its dated text, confirm/deny/withdraw, report, contributor block, or owned edit/delete. Add at map centre shows the exact chosen pin and requires separate public pin/content consent; it never takes an automatic GNSS or vessel position. My latest 50 notes includes held/expired own items so they can be edited or removed. The account has at most 200 notes; deleting recent items exposes older ones in that bounded list.
+
+Notes expire at UTC midnight 30 days after the observation date. Opacity fades from day 7 through day 30. Votes bind the exact content revision, do not renew any note clock, and never confer navigation authority. Editing changes revision and invalidates old votes; reports hold the note and withdraw its public photo. Owner edits cannot self-clear held/removed content. Moderators review exact note/photo revisions and can remove or suspend contributors. Content approval is explicitly not observation verification.
+
+No route, watch, depth, clearance, ENC geometry or anchorage suitability input reads this data. There is no offline cache, background retry or Realtime publication. The public view is bounded to 4° by 4° and 150 notes, with an honest truncation message. At most four process-local windows can be reserved. A 15-second lease starts before the request; full request latency is also charged against the earliest server UTC expiry. Auth, caller abort, write/report/block, offline, source retirement, view movement, document hiding and unmount clear owned source data. A stale or unavailable response cannot restore a previous cohort. The map source stores only point coordinates, opaque note ID and opacity; text/photo/account fields stay out of its properties.
+
+## Private photos and compatibility
+
+Canonical CLI migration `20261017011927_community_chart_notes.sql` adds private note/vote/report/queue/quota tables and nullable `review_photos.chart_note_id`. A photo cannot belong to both a place review and a chart note. Both-null orphan reservations remain charged and inaccessible. The existing private `community-review-photos` bucket, owner-prefix Storage fence, account deletion inventory and 40 total reservations are shared. No existing canonical migration is replaced.
+
+The original `community_reviews`, `community_review_photo`, `account_deletion_storage_inventory` and `block_tombstoned_storage_write` functions are unchanged. The isolated SQL fixture compares their complete `pg_get_functiondef` values before/after this migration. New photos use the separate service-only `community_chart_photo` RPC and authenticated `community-chart-photo` Edge. Old review RPC/Edge code cannot acquire note photos through a guessed UUID, null `review_id`, orphan, owner or moderator path. The new API likewise cannot acquire review photos.
+
+The Edge reuses pinned JPEG pixel-only decoding/re-encoding: bounded input, dimensions and decoder memory; metadata is removed before upload; one MiB stored maximum; private pending admission; pre/post Storage access and revision/hash checks; private no-store bytes with no signed/public URL. The client requests photos deliberately, retires the prior open image, aborts on identity/source changes and revokes blob URLs. Rejected late finalization removes its uploaded object. Orphan/retired reservations do not reset quota and require existing maintenance/account deletion for object removal.
+
+Raw schemas, votes, queues, paths, owners and account links have no client grants or Realtime exposure. Public responses are whitelisted. Both acting and contributing tombstoned accounts are fenced. Existing moderator roles, contributor bans, blocks and deletion advisory lock family are reused. Cross-owner writes use a try-lock before row locks rather than creating opposite-owner deadlocks. Text writes share the existing 40 successful operations/account/UTC-day quota; votes have 100 operations/account/UTC-day, 2000 rows/note and one choice/account/note.
+
+## Official reporting links
+
+These primary entry points were checked on 17 October 2026: [Australia AHO](https://www.hydro.gov.au/resources/forms/hydrographic-note), [New Zealand LINZ](https://www.linz.govt.nz/products-services/maritime-safety/safety-sea/report-hazard-navigation-hydrographic-note), [UKHO](https://www.admiralty.co.uk/maritime-safety-information/hydrographic-notes), [NOAA ASSIST](https://www.nauticalcharts.noaa.gov/customer-service/assist/) and [Canadian CHS MAREP](https://www.charts.gc.ca/help-aide/marep/index-eng.asp). Other offices use the current [IHO directory](https://iho.int/en/map-of-member-states). This is five verified direct entry points plus the worldwide office directory, not a claim that every office has a verified direct form. Posting in Thalassa does not notify an authority. No retired UK H-Note app or guessed form URL is used.
+
+## Verification
+
+- 52 focused Vitest cases across seven suites pass: model/bounds/ageing, actual source leases and late intent/auth retirement, actual photo Edge with fake external boundaries, actual editor/vote/owner/moderator controls, map-source identity/retirement, and old photo/review UI compatibility.
+- Scoped lint: zero errors; only the three inherited MapHub warnings remain.
+- Targeted Deno check for `community-chart-photo/index.ts`: pass. Existing pinned dependencies/lock and shared codec are reused without installation.
+- Migration audit: 228 canonical files, pass. `node --check` for the new PostgreSQL harness passes.
+- Phone browser proof is pending on the frozen source. No genuine new SQL PASS is claimed yet.
+
+`.github/workflows/community-chart-notes-db.yml` prepares an isolated, exact-source PostgreSQL 17.6 proof using the existing disposable base. Every action is pinned with its corresponding version comment. It has no deployment credentials. The new fixture covers raw grants/RLS, public projection, ownership, revision voting, fixed clocks/expiry, moderation, old/new photo isolation, shared quotas, tombstones, Storage/deletion reach and real competing transaction paths with blocking evidence. Root reviews and dispatches it; this agent does not dispatch/rerun or apply live SQL.
+
+## Deployment order and remaining evidence
+
+Review the genuine 14002 proof and deploy its canonical migration first. Review/run this exact 14003 PostgreSQL proof before applying its additive migration. Then deploy the new authenticated photo Edge and updated terms before publishing the app controls. Missing backend functions are shown as unavailable, never an empty or cached success. Preserve the old photo Edge for old clients. No bucket-policy replacement, automatic extraction or new maintenance job is required by this packet.
+
+Remaining release work is the genuine 14003 PostgreSQL result, exact phone browser receipt, root composition/whole-app checks and reviewed live deployment. External readers may retain copies they already saw; server withdrawals stop new public reads and live views retire within their bounded lease. The terms state this limit. A complete worldwide direct discrepancy-form catalogue would need additional primary-office verification beyond the five explicit entries and current IHO directory.

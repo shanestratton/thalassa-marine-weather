@@ -29,6 +29,8 @@ export interface BuildTacticalStateDeps {
     setTideStationsVisible: Dispatch<SetStateAction<boolean>>;
     anchorageVisible: boolean;
     setAnchorageVisible: Dispatch<SetStateAction<boolean>>;
+    communityNotesVisible?: boolean;
+    setCommunityNotesVisible?: Dispatch<SetStateAction<boolean>>;
     mooringsVisible?: boolean;
     setMooringsVisible?: Dispatch<SetStateAction<boolean>>;
     lightningVisible: boolean;
@@ -63,6 +65,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        communityNotesVisible,
+        setCommunityNotesVisible,
         lightningVisible,
         setLightningVisible,
         weatherInspectMode,
@@ -208,6 +212,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         anchorageVisible,
         onToggleAnchorage: () => setAnchorageVisible((v) => !v),
         mooringsVisible,
+        communityNotesVisible,
+        onToggleCommunityNotes: setCommunityNotesVisible ? () => setCommunityNotesVisible((v) => !v) : undefined,
         onToggleMoorings: setMooringsVisible ? () => setMooringsVisible((v) => !v) : undefined,
         mobActive,
         onOpenMob: () => setPage('mob'),

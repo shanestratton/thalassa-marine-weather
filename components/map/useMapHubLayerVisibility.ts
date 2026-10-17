@@ -35,6 +35,7 @@ export function useMapHubLayerVisibility({
     const [seamarkVisible, setSeamarkVisible] = useState(false);
     const [anchorageVisible, setAnchorageVisible] = useState(false);
     const [mooringsVisible, setMooringsVisible] = useState(false);
+    const [communityNotesVisible, setCommunityNotesVisible] = useState(false);
     // Active-MOB flag for the radial menu's MOB item highlight. MobService
     // emits ~1 Hz while active; setState with an unchanged boolean bails
     // before re-render, so this costs nothing in steady state.
@@ -89,6 +90,7 @@ export function useMapHubLayerVisibility({
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
     const browseAnchorageVisible = anchorageVisible && !planningSurface;
     const browseMooringsVisible = mooringsVisible && !planningSurface;
+    const browseCommunityNotesVisible = communityNotesVisible && !planningSurface;
     const browseTideStationsVisible = tideStationsVisible && !planningSurface;
     // The flag first: only its menu item can turn lightning on, and a build
     // with it off then drops the strike layer's credit strip as well.
@@ -110,6 +112,8 @@ export function useMapHubLayerVisibility({
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        communityNotesVisible,
+        setCommunityNotesVisible,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -129,6 +133,7 @@ export function useMapHubLayerVisibility({
         browseSeamarkVisible,
         browseAnchorageVisible,
         browseMooringsVisible,
+        browseCommunityNotesVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     };
