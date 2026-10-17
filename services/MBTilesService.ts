@@ -16,9 +16,11 @@ import { looksGzipped, sniffImageMime } from '../utils/imageBytes';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import type { Database, SqlJsStatic } from 'sql.js';
+import { waitForLocalChart } from './charts/localChartWait';
 import {
     assertLocalChartName,
     assertLocalChartSize,
+    assertLocalChartSqliteBytes,
     readLocalChartBytes,
     localChartRasterDimensions,
     LOCAL_CHART_OPEN_BYTES,
@@ -49,6 +51,7 @@ export interface OpenChart {
     /** Encoded file MiB; SQLite and decoder working memory are additional. */
     memoryMB: number;
     fileBytes: number;
+    storage?: 'retained';
 }
 
 type Listener = () => void;
@@ -75,6 +78,7 @@ class MBTilesServiceImpl {
     private openQueue: Promise<unknown> = Promise.resolve();
     private readonly openEpoch = new Map<string, number>();
     private allEpoch = 0;
+    private readonly sourceCurrent = new Map<string, () => boolean>();
 
     /** Total megabytes currently held across every open chart. */
     getMemoryMB(): number {
@@ -148,6 +152,90 @@ class MBTilesServiceImpl {
         return task;
     }
 
+    /** The retained adapter supplies checksum-admitted bytes, never a Cache path. */
+    openRetained(source: {
+        fileName: string;
+        name: string;
+        bytes: Uint8Array;
+        isCurrent(): boolean;
+    }): Promise<OpenChart> {
+        assertLocalChartName(source.fileName);
+        if (!/^retained-[a-f0-9]{32}-[a-f0-9-]{36}\.mbtiles$/.test(source.fileName))
+            throw new Error('Invalid retained chart identity.');
+        assertLocalChartSqliteBytes(source.bytes);
+        const epoch = this.openEpoch.get(source.fileName) ?? 0,
+            allEpoch = this.allEpoch;
+        const check = () => {
+            if (
+                epoch !== (this.openEpoch.get(source.fileName) ?? 0) ||
+                allEpoch !== this.allEpoch ||
+                !source.isCurrent()
+            )
+                throw new Error('Chart opening was cancelled.');
+        };
+        const task = this.openQueue.then(async () => {
+            check();
+            const existing = this.chartInfo.get(source.fileName);
+            if (existing) {
+                if (existing.storage !== 'retained')
+                    throw new Error('The existing chart has a different owner or source.');
+                if (this.sourceCurrent.get(source.fileName) === source.isCurrent) return existing;
+                this.close(source.fileName);
+                throw new Error('The previous local chart reader was retired. Choose Display again.');
+            }
+            this.evictUntilRoomFor(source.bytes.byteLength, source.fileName);
+            const SQL = await waitForLocalChart(this.ensureSql(), check, performance.now() + 15_000);
+            check();
+            const db = new SQL.Database(source.bytes);
+            try {
+                this.assertRetainedTables(db);
+                const metadata = this.readMetadata(db, true);
+                if (!['png', 'jpg', 'jpeg', 'webp'].includes(metadata.format))
+                    throw new Error('Choose a raster MBTiles chart; vector MBTiles are not supported here.');
+                if (
+                    (metadata.minzoom !== undefined &&
+                        (!Number.isInteger(metadata.minzoom) || metadata.minzoom < 0 || metadata.minzoom > 22)) ||
+                    (metadata.maxzoom !== undefined &&
+                        (!Number.isInteger(metadata.maxzoom) || metadata.maxzoom < 0 || metadata.maxzoom > 22)) ||
+                    (metadata.minzoom ?? 0) > (metadata.maxzoom ?? 22) ||
+                    (metadata.bounds &&
+                        (!metadata.bounds.every(Number.isFinite) ||
+                            metadata.bounds[0] < -180 ||
+                            metadata.bounds[2] > 180 ||
+                            metadata.bounds[0] >= metadata.bounds[2] ||
+                            metadata.bounds[1] < -85.05112878 ||
+                            metadata.bounds[3] > 85.05112878 ||
+                            metadata.bounds[1] >= metadata.bounds[3]))
+                )
+                    throw new Error('This MBTiles chart has unsupported bounds or zoom levels.');
+                check();
+                const chart: OpenChart = {
+                    name: source.name,
+                    fileName: source.fileName,
+                    metadata,
+                    memoryMB: source.bytes.byteLength / 1024 / 1024,
+                    fileBytes: source.bytes.byteLength,
+                    storage: 'retained',
+                };
+                this.databases.set(source.fileName, db);
+                this.chartInfo.set(source.fileName, chart);
+                this.sourceCurrent.set(source.fileName, source.isCurrent);
+                this.touch(source.fileName);
+                this.notify();
+                return chart;
+            } catch (error) {
+                db.close();
+                throw error;
+            }
+        });
+        this.openQueue = task.catch(() => undefined);
+        return task;
+    }
+
+    closeRetained(fileName: string, proof: () => boolean): void {
+        if (this.sourceCurrent.get(fileName) === proof) this.close(fileName);
+    }
+
     private async openOne(fileName: string, current: () => boolean): Promise<OpenChart> {
         if (!current()) throw new Error('Chart opening was cancelled.');
         // Already open?
@@ -211,6 +299,7 @@ class MBTilesServiceImpl {
     /** Close a chart and free memory. */
     close(fileName: string): void {
         this.openEpoch.set(fileName, (this.openEpoch.get(fileName) ?? 0) + 1);
+        this.sourceCurrent.delete(fileName);
         const db = this.databases.get(fileName);
         if (db) {
             db.close();
@@ -240,6 +329,7 @@ class MBTilesServiceImpl {
         }
         this.databases.clear();
         this.chartInfo.clear();
+        this.sourceCurrent.clear();
         this.useOrder = [];
         this.tileCache.clear();
         this.tileCacheBytes = 0;
@@ -258,6 +348,18 @@ class MBTilesServiceImpl {
      * Mapbox GL's `transformRequest`.
      */
     getTile(fileName: string, z: number, x: number, y: number): Uint8Array | null {
+        const source = this.sourceCurrent.get(fileName);
+        if (source) {
+            try {
+                if (!source()) {
+                    this.close(fileName);
+                    return null;
+                }
+            } catch {
+                this.close(fileName);
+                return null;
+            }
+        }
         if (![z, x, y].every(Number.isSafeInteger) || z < 0 || z > 22 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z)
             return null;
         const db = this.databases.get(fileName);
@@ -273,8 +375,9 @@ class MBTilesServiceImpl {
         // MBTiles uses TMS tiling scheme — y-axis is flipped vs XYZ (Slippy Map)
         const tmsY = (1 << z) - 1 - y;
 
+        let stmt: ReturnType<Database['prepare']> | undefined;
         try {
-            const stmt = db.prepare(
+            stmt = db.prepare(
                 'SELECT substr(tile_data, 1, ?) FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ? LIMIT 1',
             );
             stmt.bind([LOCAL_CHART_TILE_BYTES + 1, z, x, tmsY]);
@@ -285,7 +388,6 @@ class MBTilesServiceImpl {
                 const value = row[0];
                 if (value instanceof Uint8Array && value.byteLength <= LOCAL_CHART_TILE_BYTES) result = value;
             }
-            stmt.free();
 
             // Cache the result (including null for missing tiles — avoids repeated lookups)
             this.tileCache.set(cacheKey, result);
@@ -301,6 +403,8 @@ class MBTilesServiceImpl {
             return result;
         } catch {
             return null;
+        } finally {
+            stmt?.free();
         }
     }
 
@@ -320,9 +424,11 @@ class MBTilesServiceImpl {
         // Unrecognised raster bytes return null so useMapInit's transparent
         // fallback tile is used instead of a decode attempt.
         const declaredPbf = metadata?.format === 'pbf';
+        const retained = this.chartInfo.get(fileName)?.storage === 'retained';
         const sniffed = sniffImageMime(tileData);
         if (sniffed && !localChartRasterDimensions(tileData, sniffed)) return null;
-        const mimeType = sniffed ?? (declaredPbf || looksGzipped(tileData) ? 'application/x-protobuf' : null);
+        const mimeType =
+            sniffed ?? (!retained && (declaredPbf || looksGzipped(tileData)) ? 'application/x-protobuf' : null);
         if (!mimeType) return null;
 
         const blob = new Blob([new Uint8Array(tileData)], { type: mimeType });
@@ -356,7 +462,13 @@ class MBTilesServiceImpl {
     }
 
     getOpenCharts(): OpenChart[] {
-        return [...this.chartInfo.values()];
+        return [...this.chartInfo.values()].filter((chart) => {
+            try {
+                return this.sourceCurrent.get(chart.fileName)?.() ?? true;
+            } catch {
+                return false;
+            }
+        });
     }
 
     /** Subscribe to changes (chart opened/closed). */
@@ -367,18 +479,69 @@ class MBTilesServiceImpl {
 
     // ── Internal ──
 
-    private readMetadata(db: Database): MBTilesMetadata {
-        const meta: Record<string, string> = {};
-        try {
-            const stmt = db.prepare('SELECT name, value FROM metadata');
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
-                meta[row.name as string] = row.value as string;
+    private assertRetainedTables(db: Database): void {
+        // Ordinary on-disk tables only: a view/virtual table or generated
+        // expression must not turn a bounded chart read into arbitrary SQL work.
+        db.run('PRAGMA query_only=ON; PRAGMA trusted_schema=OFF');
+        for (const [table, fields] of [
+            ['metadata', ['name', 'value']],
+            ['tiles', ['zoom_level', 'tile_column', 'tile_row', 'tile_data']],
+        ] as const) {
+            let statement = db.prepare('SELECT type, rootpage FROM sqlite_master WHERE name = ? LIMIT 2');
+            try {
+                statement.bind([table]);
+                if (!statement.step()) throw new Error('The MBTiles chart is missing an ordinary data table.');
+                const row = statement.getAsObject();
+                if (row.type !== 'table' || typeof row.rootpage !== 'number' || row.rootpage < 1 || statement.step())
+                    throw new Error('MBTiles views and virtual tables are not supported.');
+            } finally {
+                statement.free();
             }
-            stmt.free();
-        } catch {
-            log.warn('Could not read metadata table');
+            statement = db.prepare(`PRAGMA table_xinfo('${table}')`);
+            try {
+                const names = new Set<string>();
+                let count = 0;
+                while (statement.step()) {
+                    const row = statement.getAsObject();
+                    if (++count > 16 || typeof row.name !== 'string' || row.hidden !== 0)
+                        throw new Error('The MBTiles table has unsupported generated or hidden columns.');
+                    names.add(row.name);
+                }
+                if (!fields.every((field) => names.has(field)))
+                    throw new Error('The MBTiles table is missing required columns.');
+            } finally {
+                statement.free();
+            }
         }
+    }
+
+    private readMetadata(db: Database, strict = false): MBTilesMetadata {
+        const meta: Record<string, string> = {};
+        let stmt: ReturnType<Database['prepare']> | undefined;
+        try {
+            stmt = db.prepare(
+                'SELECT substr(name, 1, 65) AS name, substr(value, 1, 2049) AS value FROM metadata LIMIT 257',
+            );
+            let count = 0;
+            while (stmt.step()) {
+                if (++count > 256) throw new Error('Too much chart metadata.');
+                const row = stmt.getAsObject();
+                if (
+                    typeof row.name !== 'string' ||
+                    row.name.length > 64 ||
+                    typeof row.value !== 'string' ||
+                    row.value.length > 2048
+                )
+                    throw new Error('Chart metadata is too large.');
+                meta[row.name] = row.value;
+            }
+        } catch (error) {
+            if (strict) throw error;
+            log.warn('Could not read metadata table');
+        } finally {
+            stmt?.free();
+        }
+        if (strict && !meta.format) throw new Error('The MBTiles chart has no raster format metadata.');
 
         // Parse bounds: "west,south,east,north"
         let bounds: [number, number, number, number] | undefined;
@@ -386,7 +549,7 @@ class MBTilesServiceImpl {
             const parts = meta.bounds.split(',').map(Number);
             if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
                 bounds = parts as [number, number, number, number];
-            }
+            } else if (strict) throw new Error('The chart has invalid bounds.');
         }
 
         // Parse center: "lon,lat,zoom"
@@ -412,7 +575,13 @@ class MBTilesServiceImpl {
     }
 
     private notify(): void {
-        this.listeners.forEach((fn) => fn());
+        for (const fn of [...this.listeners]) {
+            try {
+                fn();
+            } catch {
+                /* One view cannot interrupt database retirement or another view's owner fence. */
+            }
+        }
     }
 }
 

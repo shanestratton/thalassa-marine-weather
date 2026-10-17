@@ -62,7 +62,7 @@ export function useLocalCharts(
             const toOpen = renderableFiles.filter((f) => !MBTilesService.isOpen(f.name) && enabledChartIds.has(f.name));
 
             // And give back what is no longer on screen.
-            for (const open of MBTilesService.getOpenCharts()) {
+            for (const open of MBTilesService.getOpenCharts().filter((chart) => chart.storage !== 'retained')) {
                 if (!enabledChartIds.has(open.fileName)) MBTilesService.close(open.fileName);
             }
 
@@ -78,7 +78,7 @@ export function useLocalCharts(
                 setLoading(false);
             }
 
-            setAvailableCharts(MBTilesService.getOpenCharts());
+            setAvailableCharts(MBTilesService.getOpenCharts().filter((chart) => chart.storage !== 'retained'));
         } catch (err) {
             log.warn('Failed to scan local charts:', err);
         }
@@ -87,7 +87,7 @@ export function useLocalCharts(
     // Subscribe to MBTilesService changes + initial scan
     useEffect(() => {
         const unsub = MBTilesService.subscribe(() => {
-            setAvailableCharts(MBTilesService.getOpenCharts());
+            setAvailableCharts(MBTilesService.getOpenCharts().filter((chart) => chart.storage !== 'retained'));
         });
 
         refreshAvailable();

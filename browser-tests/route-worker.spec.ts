@@ -126,7 +126,7 @@ async function openFixture(page: Page, query = '') {
         if (url.pathname === '/services/supabase.ts')
             return route.fulfill({
                 contentType: 'application/javascript',
-                body: 'export const supabase = {auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})},functions:{}}; export const getCurrentUserId = async () => "trial-layout-fixture"; export const isSupabaseConfigured = () => false; export const supabaseAnonKey = "fixture-only"; export const supabaseUrl = "https://fixture.invalid";',
+                body: 'export const supabase = {auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})},functions:{}}; export const getCurrentUserId = async () => "trial-layout-fixture"; export const getCurrentUser = async () => ({id:"trial-layout-fixture"}); export const isSupabaseConfigured = () => false; export const supabaseAnonKey = "fixture-only"; export const supabaseUrl = "https://fixture.invalid";',
             });
         if (url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/styles/'))
             return route.fulfill({

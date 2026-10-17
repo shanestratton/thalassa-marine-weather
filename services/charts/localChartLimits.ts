@@ -65,6 +65,18 @@ export function assertLocalChartSize(size: number): void {
     }
 }
 
+export function assertLocalChartSqliteBytes(bytes: Uint8Array): void {
+    assertLocalChartSize(bytes.byteLength);
+    const magic = 'SQLite format 3\0';
+    if (!Array.from(magic).every((letter, index) => bytes[index] === letter.charCodeAt(0)))
+        throw new Error('This file is not a SQLite MBTiles chart.');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const sizeField = view.getUint16(16, false),
+        pageSize = sizeField === 1 ? 65536 : sizeField;
+    if (pageSize < 512 || pageSize > 65536 || (pageSize & (pageSize - 1)) !== 0 || bytes.length % pageSize !== 0)
+        throw new Error('The chart has an invalid SQLite page size.');
+}
+
 /** The original stat, declared HTTP length and actual bytes must agree. No unbounded arrayBuffer fallback. */
 export async function readLocalChartBytes(response: Response, expectedBytes: number): Promise<Uint8Array> {
     assertLocalChartSize(expectedBytes);
@@ -94,16 +106,7 @@ export async function readLocalChartBytes(response: Response, expectedBytes: num
             bytes.set(chunk, at);
             at += chunk.byteLength;
         }
-        const magic = 'SQLite format 3\0';
-        if (!Array.from(magic).every((letter, index) => bytes[index] === letter.charCodeAt(0))) {
-            throw new Error('This file is not a SQLite MBTiles chart.');
-        }
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const sizeField = view.getUint16(16, false),
-            pageSize = sizeField === 1 ? 65536 : sizeField;
-        if (pageSize < 512 || pageSize > 65536 || (pageSize & (pageSize - 1)) !== 0 || count % pageSize !== 0) {
-            throw new Error('The chart has an invalid SQLite page size.');
-        }
+        assertLocalChartSqliteBytes(bytes);
         return bytes;
     } catch (error) {
         void reader.cancel().catch(() => undefined);
