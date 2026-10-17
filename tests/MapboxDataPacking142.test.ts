@@ -162,19 +162,30 @@ describe('explicit data-only SDK stages142', () => {
         expect(hook.transform(source, file + '.other')).resolves.toBeNull();
     });
 
-    it('connects the real source transform to its sole bounded virtual table with original source attribution', async () => {
-        const hook = packMapboxData142(root) as unknown as {
+    describe('real plugin fixture', () => {
+        type Hook = {
             configResolved(config: { isProduction: boolean; isWorker: boolean }): void;
             load(id: string): string | null;
             transform(code: string, id: string): Promise<{ code: string; map: { sourcesContent: string[] } }>;
         };
-        hook.configResolved({ isProduction: true, isWorker: false });
-        expect(hook.load('\0virtual:thalassa-mapbox-shader-data')).toBeNull();
-        const result = await hook.transform(source, file);
-        expect(result.code).toBe(schema.code);
-        expect(result.map.sourcesContent).toEqual([source]);
-        expect(hook.load('\0virtual:thalassa-mapbox-shader-data')).toBe(main.table);
-        expect(hook.load('\0virtual:foreign')).toBeNull();
+        let hook: Hook;
+        let result: Awaited<ReturnType<Hook['transform']>>;
+        // Like the independent source fixtures above, this setup parses and
+        // packs the full pinned SDK. Keep that work under the same existing
+        // fixture bound, separate from the unchanged 20 s assertion bound.
+        beforeAll(async () => {
+            hook = packMapboxData142(root) as unknown as Hook;
+            hook.configResolved({ isProduction: true, isWorker: false });
+            expect(hook.load('\0virtual:thalassa-mapbox-shader-data')).toBeNull();
+            result = await hook.transform(source, file);
+        }, 40_000);
+
+        it('connects the real source transform to its sole bounded virtual table with original source attribution', () => {
+            expect(result.code).toBe(schema.code);
+            expect(result.map.sourcesContent).toEqual([source]);
+            expect(hook.load('\0virtual:thalassa-mapbox-shader-data')).toBe(main.table);
+            expect(hook.load('\0virtual:foreign')).toBeNull();
+        });
     });
 
     it('preserves original31-word inflate base tables and reverses every private dependency edit', () => {
