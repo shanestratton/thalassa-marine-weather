@@ -415,6 +415,26 @@ describe('a route always comes back', () => {
         expect(runRouteJob(tinyRouteJob() as never)).not.toHaveProperty('outOfStack');
     });
 
+    it('holds a malformed hard exclusion in the worker without a main-thread retry', async () => {
+        const job = tinyRouteJob();
+        const malformed = structuredClone(job.layers.DEPARE.features[0]);
+        malformed.geometry.coordinates[0].pop();
+        const hosted = await runRouteJobHosted(
+            tinyRouteJob({
+                layers: {
+                    ...job.layers,
+                    USER_NOGO: { type: 'FeatureCollection', features: [malformed] },
+                },
+            }) as never,
+        );
+        expect(hosted.where).toBe('worker');
+        expect(hosted.output.result && 'error' in hosted.output.result && hosted.output.result.code).toBe(
+            'exclusion-unavailable',
+        );
+        expect(hosted.output).not.toHaveProperty('outOfStack');
+        expect(mainRuns).not.toHaveBeenCalled();
+    });
+
     it('a job that throws in the worker gives no route, and the main thread never runs it again', async () => {
         FakeWorker.behaviour = 'throw';
         const thrown = await runRouteJobHosted(tinyRouteJob() as never);
