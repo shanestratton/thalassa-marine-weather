@@ -64,3 +64,13 @@ actual device alarm acceptance is inferred from these source tests. The first
 old-owner code regression genuinely failed before the binding/nonce repair;
 `work/validation142-cabin-old-owner-code-first-failure.log` preserves it. Any
 bearer in that failure belongs only to the isolated synthetic unit fixture.
+
+The prepared `cabin-native-142.yml` job installs the existing locked Pi packages,
+builds SQLite from that locked source, compiles the actual Pi code and runs all
+38 cabin/owner-generation/command-lock tests inside a disposable network-isolated
+Linux service. Its additional operator proof executes the compiled CLI against
+the actual temporary SQLite pairing, captures the issued code only in memory,
+pairs a viewer and checks A→B→A retirement, fresh rotation and actual private file
+permissions. The job has read-only repository access and no provider credentials,
+Pi connection or installer action. This definition is prepared for review; it is
+not evidence that the Linux proof has run or passed.
