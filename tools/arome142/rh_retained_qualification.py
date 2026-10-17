@@ -102,6 +102,24 @@ def admit_capture(capture):
             'failed original capture cannot be relabelled')
 
 
+def admit_original_names(originals):
+    expected = {f'hour-{i:03}.grib2' for i in range(49)} | {'mask.grib2'}
+    require(not originals.is_symlink() and {p.name for p in originals.iterdir()} == expected,
+            'exact50 original names')
+
+
+def verify_original_row(row, expected, path, offset):
+    readonly = readonly_file(path); before = stable_stat(path)
+    require(type(row) is dict and set(row) == {'path', 'offsetHours', 'url', 'bytes', 'sha256'}
+            and row['offsetHours'] == offset and row['url'] == expected['url']
+            and type(row['bytes']) is int and 20 <= row['bytes'] <= 16 * 1024**2
+            and row['bytes'] == expected['bytes'] and path.stat().st_size == row['bytes']
+            and type(row['sha256']) is str and len(row['sha256']) == 64
+            and hashlib.sha256(path.read_bytes()).hexdigest() == row['sha256']
+            and stable_stat(path) == before, 'retained original declaration/hash')
+    return {**row, 'path': str(path.resolve())}, readonly, before
+
+
 def reconcile_packet(offset, fields, qa, survey, np):
     prior = survey['outcomes'][offset]
     require(prior['offsetHours'] == offset and qa['policy'] == POLICY and qa['sourceCells'] == 255811,
@@ -124,6 +142,16 @@ def reconcile_packet(offset, fields, qa, survey, np):
     require((qa['upperDisplayUnavailableCells'], qa['sourceMissingCells'],
              qa['sourceFiniteMinimum'], qa['sourceFiniteMaximum']) == expected,
             'new RH QA does not match retained raw survey')
+    upper, missing = expected[:2]; available = 255811 - upper - missing
+    require(qa['sourceFiniteCells'] == 255811-missing and qa['displayAvailableCells'] == available
+            and qa['displayMissingCells'] == missing+upper
+            and type(qa['sourceBitmapMissingCells']) is int and 0 <= qa['sourceBitmapMissingCells'] <= missing
+            and qa['sourceUnmarkedMissingCells'] == missing-qa['sourceBitmapMissingCells']
+            and qa['displayAvailability'] == ('complete' if available == 255811 else 'partial' if available else 'unavailable')
+            and qa['reason'] == ('upper-rh-outside-display-domain' if upper else None)
+            and qa['upperRhCause'] == ('unproven' if upper else None)
+            and qa['upperValuesClamped'] is False and qa['roundingNormalizationApplied'] is False,
+            'false RH availability or missing/quarantine accounting')
 
 
 def raw_rh_readback(raw, native, codes, np, offset, sea):
@@ -152,6 +180,8 @@ def raw_rh_readback(raw, native, codes, np, offset, sea):
             upper = values > 100; missing = np.isnan(values)
             compatible = upper & (values - precision < 100) & (100 <= values + precision)
             return values, {'upperCells': int(np.count_nonzero(upper)),
+                'upperMinimum': float(np.min(values[upper])) if np.any(upper) else None,
+                'upperMaximum': float(np.max(values[upper])) if np.any(upper) else None,
                 'upperSeaCells': int(np.count_nonzero(upper & sea)),
                 'originalMissingSeaCells': int(np.count_nonzero(missing & sea)),
                 'packingBoundaryCompatibleCells': int(np.count_nonzero(compatible)),
@@ -160,9 +190,20 @@ def raw_rh_readback(raw, native, codes, np, offset, sea):
     raise ValueError('original RH readback missing')
 
 
+def reconcile_upper_readback(qa, counts):
+    require(counts['upperCells'] == qa['upperDisplayUnavailableCells']
+            and counts['upperMinimum'] == qa['upperSourceMinimum']
+            and counts['upperMaximum'] == qa['upperSourceMaximum'], 'RH raw/view QA mismatch')
+
+
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == '--create-phase':
         with Path(sys.argv[2]).open('xb') as stream: stream.write(compact(make_phase(utc(), time.monotonic())))
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == '--remaining-phase':
+        remaining = math.floor(check_phase(bounded_json(Path(sys.argv[2]), 4096), utc(), time.monotonic()))
+        require(remaining > 0, 'no bounded native runtime remains')
+        print(remaining)
         return
     import resource
     import signal
@@ -205,18 +246,12 @@ def main():
     plan = plan_from(args.catalogue.read_bytes(), utc())
     require(set(receipt) == {'schema', 'packets', 'mask'} and receipt['schema'] == 1
             and len(receipt['packets']) == 49, 'exact retained source schema')
-    expected_names = {f'hour-{i:03}.grib2' for i in range(49)} | {'mask.grib2'}
-    require(not args.originals.is_symlink() and {p.name for p in args.originals.iterdir()} == expected_names,
-            'exact50 original names')
+    admit_original_names(args.originals)
     sources = []; before = {}
     for offset, row in enumerate(receipt['packets']):
         current(); path = args.originals / f'hour-{offset:03}.grib2'
-        readonly.append(readonly_file(path)); before[str(path)] = stable_stat(path)
-        require(set(row) == {'path', 'offsetHours', 'url', 'bytes', 'sha256'} and row['offsetHours'] == offset
-                and row['url'] == plan['packets'][offset]['url'] and row['bytes'] == plan['packets'][offset]['bytes']
-                and path.stat().st_size == row['bytes']
-                and hashlib.sha256(path.read_bytes()).hexdigest() == row['sha256'], 'retained original declaration/hash')
-        sources.append({**row, 'path': str(path.resolve())})
+        source, facts, original_stat = verify_original_row(row, plan['packets'][offset], path, offset)
+        readonly.append(facts); before[str(path)] = original_stat; sources.append(source)
     mask_path = args.originals / 'mask.grib2'; readonly.append(readonly_file(mask_path))
     before[str(mask_path)] = stable_stat(mask_path)
     require(sources[0]['sha256'] == H000_SHA and receipt['mask']['resource'] == MASK_RESOURCE
@@ -246,7 +281,7 @@ def main():
         require(np.array_equal(np.isnan(fields['rh2m']), expected_unknown)
                 and np.array_equal(fields['rh2m'][~expected_unknown], original[~expected_unknown]),
                 'RH view must preserve valid original values and exact unknown positions')
-        require(counts['upperCells'] == qa['upperDisplayUnavailableCells'], 'RH raw/view QA mismatch')
+        reconcile_upper_readback(qa, counts)
         if selected_tile is None:
             touched = np.flatnonzero((original > 100) & sea)
             if touched.size:

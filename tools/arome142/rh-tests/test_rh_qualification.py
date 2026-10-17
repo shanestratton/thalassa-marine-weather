@@ -2,6 +2,7 @@
 import copy
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import math
 from pathlib import Path
 import sys
@@ -11,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import rh_retained_qualification as q
+from native import rh_display_qa
 
 NOW = datetime(2026, 10, 17, 16, tzinfo=timezone.utc)
 
@@ -24,7 +26,98 @@ def capture():
             'deadlineMonotonic': 1284.789584713}
 
 
+class TinyArray(tuple):
+    """Explicit pure fake for reconciliation branches, never a native proof."""
+    @property
+    def size(self): return len(self)
+    def __getitem__(self, key):
+        if isinstance(key, list): return TinyArray(v for v, present in zip(self, key) if present)
+        return super().__getitem__(key)
+
+
+class TinyNp:
+    @staticmethod
+    def isfinite(values): return [math.isfinite(v) for v in values]
+    @staticmethod
+    def count_nonzero(values): return sum(bool(v) for v in values)
+    min = staticmethod(min)
+    max = staticmethod(max)
+
+
+def reconciliation_fixture(refused):
+    fields = {name: TinyArray((1., 2.)) for name in ('u10', 'v10', 'msl', 't2m')}
+    prior_fields = {name: {'finiteCells': 2, 'unknownCells': 0, 'minimum': 1., 'maximum': 2.} for name in fields}
+    if refused:
+        qa = rh_display_qa(255811, 0, 8, 42., 100.125, 100.125, 100.125)
+        row = {'offsetHours': 0, 'outcome': 'unchanged-native-refusal', 'field': 'rh2m',
+               'originalError': 'original field physical range', 'admittedPriorFieldExtrema': prior_fields,
+               'rangeEvidence': {'aboveMaximumCells': 8, 'missingNaNCells': 0, 'finiteMinimum': 42., 'finiteMaximum': 100.125}}
+    else:
+        qa = rh_display_qa(255811, 0, 0, 42., 98.)
+        row = {'offsetHours': 0, 'outcome': 'unchanged-native-fields-passed',
+               'fields': {**prior_fields, 'rh2m': {'unknownCells': 0, 'minimum': 42., 'maximum': 98.}}}
+    return fields, qa, {'outcomes': [row]}
+
+
 class RetainedRhQualificationTests(unittest.TestCase):
+    def test_accepted_and_refused_original_survey_structures_reconcile(self):
+        for refused in (False, True):
+            fields, qa, survey = reconciliation_fixture(refused)
+            q.reconcile_packet(0, fields, qa, survey, TinyNp)
+
+    def test_mutated_upper_missing_extrema_and_false_availability_refuse(self):
+        fields, qa, survey = reconciliation_fixture(True)
+        for key, value in (('upperDisplayUnavailableCells', 9), ('sourceMissingCells', 1),
+                           ('sourceFiniteMinimum', 41.), ('sourceFiniteMaximum', 100.126),
+                           ('displayAvailability', 'complete'), ('displayAvailableCells', 255811),
+                           ('displayMissingCells', 0), ('sourceBitmapMissingCells', 1),
+                           ('sourceUnmarkedMissingCells', 1), ('reason', None),
+                           ('upperRhCause', 'packing-only'), ('upperValuesClamped', True)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                q.reconcile_packet(0, fields, {**qa, key: value}, survey, TinyNp)
+
+    def test_other_field_count_or_extrema_changes_refuse(self):
+        fields, qa, survey = reconciliation_fixture(False)
+        for name in fields:
+            changed = {**fields, name: TinyArray((1., 3.))}
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'other-field'):
+                q.reconcile_packet(0, changed, qa, survey, TinyNp)
+
+    def test_independent_raw_upper_count_and_extrema_readback_refuses_mutation(self):
+        _, qa, _ = reconciliation_fixture(True)
+        counts = {'upperCells': 8, 'upperMinimum': 100.125, 'upperMaximum': 100.125}
+        q.reconcile_upper_readback(qa, counts)
+        for key, value in (('upperCells', 7), ('upperMinimum', 100.126), ('upperMaximum', 100.126)):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'raw/view'):
+                q.reconcile_upper_readback(qa, {**counts, key: value})
+
+    def test_exact50_names_missing_extra_and_mask_omission_refuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in [*(f'hour-{i:03}.grib2' for i in range(49)), 'mask.grib2']: (root/name).touch()
+            q.admit_original_names(root)
+            for name in ('hour-000.grib2', 'hour-048.grib2', 'mask.grib2'):
+                (root/name).unlink()
+                with self.subTest(missing=name), self.assertRaisesRegex(ValueError, 'exact50'): q.admit_original_names(root)
+                (root/name).touch()
+            (root/'hour-049.grib2').touch()
+            with self.assertRaisesRegex(ValueError, 'exact50'): q.admit_original_names(root)
+
+    def test_regular_file_hash_size_order_origin_mismatch_refuse_before_arrays(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'hour-000.grib2'; raw = b'fictional-not-GRIB-1234'; path.write_bytes(raw)
+            expected = {'bytes': len(raw), 'url': 'https://object-fixed.invalid/hour-000.grib2'}
+            row = {**expected, 'path': 'historical-capture-path', 'offsetHours': 0, 'sha256': hashlib.sha256(raw).hexdigest()}
+            with patch.object(q, 'readonly_file', return_value={'syntheticOwnershipCheck': True}):
+                got, _, _ = q.verify_original_row(row, expected, path, 0)
+                self.assertEqual(got['path'], str(path.resolve()))
+                for key, value in (('sha256', '0'*64), ('bytes', len(raw)+1), ('bytes', True),
+                                   ('offsetHours', 1), ('url', 'https://foreign.invalid/original')):
+                    with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'declaration/hash'):
+                        q.verify_original_row({**row, key: value}, expected, path, 0)
+                path.write_bytes(raw[:-1]+b'x')
+                with self.assertRaisesRegex(ValueError, 'declaration/hash'): q.verify_original_row(row, expected, path, 0)
+
     def test_new_phase_is_explicit_and_cannot_relabel_historical_failed_capture(self):
         original = capture(); before = copy.deepcopy(original)
         phase = q.make_phase(NOW, 2000.)
