@@ -23,6 +23,7 @@ utils/anchorSafeZone.ts
 pi-cache/src/anchorSafeZone.ts
 utils/internetAis.ts
 pi-cache/src/internetAisWire.ts
+services/seabed/crowdPolicy.ts
 
 # Generated anchorage data + build cache — data, not code
 public/anchorages/qld/

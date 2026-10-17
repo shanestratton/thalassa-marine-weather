@@ -52,3 +52,31 @@ This first policy/consent/migration packet is source only. Actual PostgreSQL
 RLS/concurrency, Linux QA, publication, browser layout, tide-source authority,
 DCDB onboarding and physical Pi acceptance require separate evidence. It has
 not been deployed or run against a database.
+
+The lazy Public contribution settings sheet now sits beside private capture.
+It loads no sharing service until opened, checks actual fresh owned-vessel
+records, and keeps map and DCDB choices separate. Saving requires measured
+fields and an explicit acknowledgement; editing a measurement retires that
+acknowledgement. OFF is available even if the current row cannot be loaded.
+An offline OFF intent is retained only in the current owner's vessel namespace;
+it is delivered before any later enabling request. The pinned footer keeps
+Close and Save within the sheet rather than extending the page.
+
+The new `crowd-sounding-export` function is disabled unless explicitly admitted.
+A dedicated 256-bit worker token is verified against its SHA256 before any
+privileged read. The service-role key stays inside Edge. There is no browser
+quota fallback or request-supplied authority. It lists at most32 candidate IDs,
+reads one gzip under2MiB and inflates under2MiB, parses the unchanged canonical
+CSV, reapplies current buffered privacy/QC and re-reads the actual owner/consent/
+platform source after all awaits. It recomputes the stored object's SHA instead
+of confusing it with the legacy sent-object idempotency SHA. A private source
+receipt lasts60seconds; the worker must call `check` again immediately before
+public emission. This is not a transaction lock across remote publication.
+
+Focused source proof:36cases in5suites, including real gzip, decompression-bomb,
+default-OFF/auth refusal, late source replacement, owner A/B/A and offline OFF.
+The actual Deno2.9.4 entry check passes with frozen dependencies. The initial
+check exposed a stream generic mismatch; a copied ArrayBuffer-backed input
+fixed the type while retaining the same2MiB output ceiling. Browser geometry,
+actual PostgreSQL/RLS/races, wx native QA and public/DCDB admission remain
+separate pending proofs. No production function or schema was deployed.

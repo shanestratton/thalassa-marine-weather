@@ -124,8 +124,9 @@ export function parseCrowdCalibration(value: unknown, now: number): CrowdCalibra
         !finite(value.sounderUncertaintyM, 0.01, 1) ||
         !finite(value.checkedDepthLimitM, 0.5, 200) ||
         value.method !== 'measured-offset-and-sounder-check'
-    )
+    ) {
         return refuse('explicit measured waterline/sounder calibration required');
+    }
     return value as unknown as CrowdCalibration;
 }
 
@@ -155,8 +156,9 @@ export function requireCrowdRelease(source: CrowdSource, purpose: 'map' | 'dcdb'
         !utc(consent.effectiveFrom) ||
         source.capturedStart < consent.effectiveFrom ||
         !consent.calibration
-    )
+    ) {
         return refuse('fresh separate owner permission and thirty-day hold required');
+    }
     const calibration = parseCrowdCalibration(consent.calibration, now);
     if (calibration.measuredAt > consent.effectiveFrom) return refuse('calibration postdates permission scope');
     return calibration;
@@ -200,15 +202,17 @@ export function qualifyCrowdRow(
             row.lon,
             zones.map((zone) => ({ ...zone, radius_m: zone.radius_m + Math.SQRT2 * CROWD_LIMITS.cellMetres })),
         )
-    )
+    ) {
         return refuse('original UTC, reference, quality or current privacy check failed');
+    }
     const reported = source.meta.surface_to_transducer_m;
     if (
         reported !== undefined &&
         (!finite(reported, 0, 10) ||
             Math.abs(reported - calibration.waterlineToTransducerM) > calibration.offsetUncertaintyM)
-    )
+    ) {
         return refuse('instrument offset differs from explicit calibration');
+    }
     return calibration;
 }
 
@@ -234,8 +238,9 @@ export function reduceCrowdRow(source: CrowdSource, row: SeabedRow, tide: CrowdT
         !finite(tide.uncertaintyM, 0.01, 0.5) ||
         !Array.isArray(tide.samples) ||
         tide.samples.length !== 2
-    )
+    ) {
         return refuse('qualified original tide and explicit datum/region required');
+    }
     const [a, b] = tide.samples;
     if (
         !Array.isArray(a) ||
@@ -249,8 +254,9 @@ export function reduceCrowdRow(source: CrowdSource, row: SeabedRow, tide: CrowdT
         !(a[0] <= row.timeMs && row.timeMs <= b[0]) ||
         b[0] <= a[0] ||
         b[0] - a[0] > 3600000
-    )
+    ) {
         return refuse('original tide UTC does not bracket the sounding');
+    }
     const level = a[1] + ((b[1] - a[1]) * (row.timeMs - a[0])) / (b[0] - a[0]);
     // T is below the transducer; W is already below the waterline. Draft is
     // never added and a waterline offset is never applied twice.

@@ -341,3 +341,8 @@ verify_jwt = true
 # Public weather uses requireAuthenticatedOrPublicQuota inside the function;
 # requests reach only the fixed owned origin and original sea-cell projection.
 verify_jwt = false
+
+[functions.crowd-sounding-export]
+# Held private worker export: dedicated 256-bit token SHA verifier before any
+# service-only read. No service key leaves Edge. No browser/public quota path.
+verify_jwt = false

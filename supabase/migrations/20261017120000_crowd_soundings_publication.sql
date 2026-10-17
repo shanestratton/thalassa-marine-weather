@@ -175,3 +175,19 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog 
 $$;
 REVOKE ALL ON FUNCTION public.read_crowd_sounding_candidate(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.read_crowd_sounding_candidate(uuid,text) TO service_role;
+
+CREATE INDEX seabed_crowd_candidate_order ON public.seabed_batches(id,eligible_after);
+CREATE OR REPLACE FUNCTION public.list_crowd_sounding_candidates(p_purpose text,p_after uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
+    WITH candidates AS (
+        SELECT b.id FROM public.seabed_batches b
+        WHERE p_purpose IN ('map','dcdb') AND (p_after IS NULL OR b.id>p_after)
+            AND b.eligible_after<=now()
+            AND public.read_crowd_sounding_candidate(b.id,p_purpose) IS NOT NULL
+        ORDER BY b.id LIMIT 33
+    ), page AS (SELECT id FROM candidates ORDER BY id LIMIT 32)
+    SELECT jsonb_build_object('schema',1,'ids',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM page),'[]'::jsonb),
+        'hasMore',(SELECT count(*)>32 FROM candidates),'nextCursor',(SELECT max(id::text) FROM page));
+$$;
+REVOKE ALL ON FUNCTION public.list_crowd_sounding_candidates(text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.list_crowd_sounding_candidates(text,uuid) TO service_role;

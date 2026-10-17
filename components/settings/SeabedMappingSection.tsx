@@ -45,6 +45,8 @@ import {
 } from '../../services/seabed/SeabedSettingsService';
 import { HOME_DEFAULT_RADIUS_M, zoneMinRadiusM, type SeabedZone } from '../../services/seabed/seabedCore';
 
+const CrowdSoundingConsentSheet = React.lazy(() => import('./CrowdSoundingConsentSheet'));
+
 const RADII = [500, 1000, 2000];
 const CHIP = 'min-h-11 rounded-lg border border-white/10 px-3 text-xs font-semibold text-gray-200 disabled:opacity-40';
 const CHIP_ON = 'min-h-11 rounded-lg border border-sky-400/60 bg-sky-500/20 px-3 text-xs font-semibold text-sky-100';
@@ -101,6 +103,8 @@ export const SeabedMappingSection: React.FC = () => {
     const [note, setNote] = useState(() => readSeabedLocal()?.sounderNote ?? '');
     const [message, setMessage] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [publicSettings, setPublicSettings] = useState(false);
+    const closePublicSettings = useCallback(() => setPublicSettings(false), []);
     const piPaired = getPairing() !== null;
     const me = seabedDeviceId();
 
@@ -290,13 +294,29 @@ export const SeabedMappingSection: React.FC = () => {
                     boat&rsquo;s own depth sounder helps chart it: once a second while you&rsquo;re under way, Thalassa
                     records the depth below the transducer with the time and position, on your Pi if you have one,
                     otherwise on this phone while it&rsquo;s connected to the boat&rsquo;s instruments, never from the
-                    phone&rsquo;s own GPS. The soundings stay private in your account. Nothing is shared yet: later
-                    we&rsquo;ll ask before sending them, under an anonymous boat ID, to the IHO&rsquo;s public seabed
-                    database (Seabed 2030), where they may become free for anyone to use. Nothing is kept near your home
-                    berth, your private places, or where each trip starts and ends.
+                    phone&rsquo;s own GPS. This capture switch keeps soundings private in your account. Public map and
+                    IHO DCDB contribution require separate owner choices and calibration in Public contribution
+                    settings. Nothing is kept near your home berth, your private places, or where each trip starts and
+                    ends.
                 </p>
                 <Toggle checked={on} onChange={(v) => void toggle(v)} label="Help map the seabed" />
             </div>
+            {boatId && (
+                <button type="button" className={`${CHIP} mt-3 w-full`} onClick={() => setPublicSettings(true)}>
+                    Public contribution settings
+                </button>
+            )}
+            {publicSettings && boatId && (
+                <React.Suspense
+                    fallback={
+                        <p role="status" className="text-xs text-gray-400">
+                            Opening public settings…
+                        </p>
+                    }
+                >
+                    <CrowdSoundingConsentSheet key={boatId} boatId={boatId} onClose={closePublicSettings} />
+                </React.Suspense>
+            )}
 
             {on && (
                 <div className="mt-3 space-y-3 border-t border-white/6 pt-3">
