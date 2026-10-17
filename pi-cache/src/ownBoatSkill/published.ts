@@ -2,7 +2,7 @@
 import { outboundFetch, resolveTrustedSupabaseOrigin } from '../outboundHttp.js';
 import { OWN_BOAT_MODELS, OWN_BOAT_SKILL, ownBoatClock, type OwnBoatModel } from '../ownBoatSkillWire.js';
 import { decodeOwnWindForecast, type CapturedWindForecast } from './forecast.js';
-import type { SkillOwnerFetch } from './owner.js';
+import type { SkillOwnerFetch, SkillReplyReader } from './owner.js';
 export class OwnPublishedWindReader {
     private readonly origin: string;
     private pending = 0;
@@ -49,7 +49,7 @@ export class OwnPublishedWindReader {
         const timer = setTimeout(stop, timeoutMs);
         let stopped = false,
             charged = true;
-        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        let reader: SkillReplyReader | undefined;
         let response: Awaited<ReturnType<SkillOwnerFetch>> | undefined;
         const release = () => {
             if (charged) {

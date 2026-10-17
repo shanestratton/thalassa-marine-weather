@@ -8,10 +8,13 @@ export interface VerifiedSkillOwner {
     vesselName: string;
     verifiedAt: number;
 }
+// Only byte reads and cancellation are consumed. DOM and Node/undici streams
+// expose these alike; unrelated pipeThrough overloads need not match.
+export type SkillReplyReader = Pick<ReadableStreamDefaultReader<Uint8Array>, 'read' | 'cancel'>;
 interface Reply {
     status: number;
     headers: { get(name: string): string | null };
-    body: ReadableStream<Uint8Array> | null;
+    body: { getReader(): SkillReplyReader; cancel(): Promise<void> } | null;
 }
 export type SkillOwnerFetch = (
     url: string,
@@ -94,7 +97,7 @@ export class SkillOwnerVerifier {
             let charged = true,
                 finished = false,
                 acquired: Reply | undefined;
-            let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+            let reader: SkillReplyReader | undefined;
             const release = () => {
                 if (charged) {
                     charged = false;
