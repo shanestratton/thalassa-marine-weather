@@ -23,8 +23,10 @@ import initSqlJs from 'sql.js';
  *
  * This retains coverage of the bounded legacy Cache reader. Build142's
  * separate private Directory.Data library has its own import/owner tests.
- * The fixture saves a real Cache file so type/size admission happens before
- * the intercepted getUri fetch; no Filesystem metadata method is mocked.
+ * The fixture saves/readbacks a real base64 Cache entry. A test-only native
+ * stat facade for this sole fictional path verifies those bytes and returns
+ * their raw length; the real web adapter's encoded size is recorded separately.
+ * Native file I/O is simulated; actual production reader/CSP gates run unchanged.
  */
 
 const ROOT = process.cwd();
@@ -105,6 +107,8 @@ type Report = {
     ready: boolean;
     open: string;
     savedFile: { bytes: number; type: string } | null;
+    savedBytesMatch: boolean;
+    nativeFile: { bytes: number; type: string } | null;
     blobUrlsHanded: number;
     violations: Array<{ directive: string; blockedURI: string }>;
     mapErrors: string[];
@@ -154,7 +158,14 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
 
         expect(refusals, 'nothing in the chain is refused by the CSP').toEqual([]);
         expect(report.violations).toEqual([]);
-        expect(report.savedFile, 'a real saved file passes exact type and byte admission').toEqual({
+        expect(report.savedFile, 'the real web adapter reports its conservative base64 storage length').toEqual({
+            bytes: mbtiles.toString('base64').length,
+            type: 'file',
+        });
+        expect(report.savedBytesMatch, 'the real browser file contains every original fictional SQLite byte').toBe(
+            true,
+        );
+        expect(report.nativeFile, 'the sole fictional native path reports its verified raw-byte length').toEqual({
             bytes: mbtiles.byteLength,
             type: 'file',
         });

@@ -17,8 +17,31 @@
  */
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MBTilesService, TRANSPARENT_TILE_DATA_URL } from '../../services/MBTilesService';
-import { Directory, Filesystem } from '@capacitor/filesystem';
+import { registerPlugin } from '@capacitor/core';
+import type { FilesystemPlugin } from '@capacitor/filesystem';
+import { Directory } from '@capacitor/filesystem/dist/esm/definitions';
+import { FilesystemWeb } from '@capacitor/filesystem/dist/esm/web';
+import { FICTIONAL_CHART_MAX_BYTES, FICTIONAL_CHART_PATH, fictionalNativeStat } from './mbtiles-native-stat';
+
+const Filesystem = new FilesystemWeb();
+let originalBytes: Uint8Array | undefined;
+let tiles: typeof import('../../services/MBTilesService') | undefined;
+const nativeStat = fictionalNativeStat(
+    { stat: Filesystem.stat.bind(Filesystem), readFile: Filesystem.readFile.bind(Filesystem) },
+    () => originalBytes,
+);
+// The actual CSP/SQLite reader sees native raw-byte metadata for this one
+// verified fictional file. All other operations retain the real web adapter.
+registerPlugin<FilesystemPlugin>('Filesystem', {
+    web: () =>
+        new Proxy(Filesystem, {
+            get(target, key) {
+                if (key === 'stat') return nativeStat;
+                const value = Reflect.get(target, key, target);
+                return typeof value === 'function' ? value.bind(target) : value;
+            },
+        }),
+});
 
 const FILE = 'fictional-ocean-test.mbtiles';
 const SOURCE = `local-mbtiles-${FILE}`;
@@ -28,6 +51,8 @@ const state = {
     ready: false,
     open: 'pending' as string,
     savedFile: null as { bytes: number; type: string } | null,
+    savedBytesMatch: false,
+    nativeFile: null as { bytes: number; type: string } | null,
     blobUrlsHanded: 0,
     violations: [] as Violation[],
     mapErrors: [] as string[],
@@ -70,10 +95,10 @@ const map = new mapboxgl.Map({
     testMode: true,
     // useMapInit's mbtiles.local branch, verbatim in effect.
     transformRequest: (url: string, resourceType?: string) => {
-        if (resourceType === 'Tile' && /^https?:\/\/mbtiles\.local\//i.test(url)) {
+        if (tiles && resourceType === 'Tile' && /^https?:\/\/mbtiles\.local\//i.test(url)) {
             const match = url.match(/mbtiles\.local\/([^/]+)\/(\d+)\/(\d+)\/(\d+)/);
             if (match) {
-                const blobUrl = MBTilesService.getTileBlobUrl(
+                const blobUrl = tiles.MBTilesService.getTileBlobUrl(
                     decodeURIComponent(match[1]),
                     Number(match[2]),
                     Number(match[3]),
@@ -83,7 +108,7 @@ const map = new mapboxgl.Map({
                     state.blobUrlsHanded += 1;
                     return { url: blobUrl };
                 }
-                return { url: TRANSPARENT_TILE_DATA_URL };
+                return { url: tiles.TRANSPARENT_TILE_DATA_URL };
             }
         }
         return { url };
@@ -102,18 +127,36 @@ map.on('load', async () => {
         // fictional bytes the spec serves; an HTTP route alone is not a file.
         const response = await fetch(`/CACHE/chart_downloads/${FILE}`);
         if (!response.ok) throw new Error('Fictional chart fixture unavailable.');
-        const bytes = await response.blob();
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length > FICTIONAL_CHART_MAX_BYTES)
+            throw new Error('Fictional chart fixture exceeds its small-file bound.');
+        // Use Filesystem's supported binary/base64 API. Its browser adapter
+        // stores the encoded string because WebKit cannot persist Blob/File
+        // in IndexedDB. Its reported size is that conservative encoded size.
+        let binary = '';
+        for (let at = 0; at < bytes.length; at += 8192) binary += String.fromCharCode(...bytes.subarray(at, at + 8192));
         await Filesystem.writeFile({
-            path: `chart_downloads/${FILE}`,
+            path: FICTIONAL_CHART_PATH,
             directory: Directory.Cache,
-            data: bytes,
+            data: btoa(binary),
             recursive: true,
         });
-        const saved = await Filesystem.stat({ path: `chart_downloads/${FILE}`, directory: Directory.Cache });
+        const read = await Filesystem.readFile({
+            path: FICTIONAL_CHART_PATH,
+            directory: Directory.Cache,
+        });
+        const decoded = typeof read.data === 'string' ? atob(read.data) : '';
+        state.savedBytesMatch =
+            decoded.length === bytes.length && bytes.every((byte, index) => decoded.charCodeAt(index) === byte);
+        const saved = await Filesystem.stat({ path: FICTIONAL_CHART_PATH, directory: Directory.Cache });
         state.savedFile = { bytes: saved.size, type: saved.type };
-        if (saved.type !== 'file' || saved.size !== bytes.size)
+        if (!state.savedBytesMatch || saved.type !== 'file' || saved.size !== 4 * Math.ceil(bytes.length / 3))
             throw new Error('Fictional chart fixture was not saved exactly.');
-        const chart = await MBTilesService.open(FILE);
+        originalBytes = bytes;
+        const native = await nativeStat({ path: FICTIONAL_CHART_PATH, directory: Directory.Cache });
+        state.nativeFile = { bytes: native.size, type: native.type };
+        tiles = await import('../../services/MBTilesService');
+        const chart = await tiles.MBTilesService.open(FILE);
         state.open = `ok ${chart.metadata.format} z${chart.metadata.minzoom}-${chart.metadata.maxzoom}`;
         // As useLocalCharts adds it.
         map.addSource(SOURCE, {
