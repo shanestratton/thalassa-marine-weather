@@ -20,6 +20,7 @@ import urllib.request
 import zipfile
 from urllib.parse import urlparse
 import build
+import world_policy
 
 LIMIT = 24 * 1024**3
 TRANSPORT_LIMIT = 128 * 1024**3
@@ -30,15 +31,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def validate(plan):
     if set(plan) != {"schema", "dataset", "coverage", "sources"} or plan["schema"] != 1 or plan["dataset"] not in build.LICENCES or not isinstance(plan["coverage"], str) or not 1 <= len(plan["coverage"]) <= 300 or not 1 <= len(plan["sources"]) <= 8:
         raise ValueError("Invalid acquisition plan")
-    expected = {"places": "geonames-zip", "osm": "osm-pbf", "facilities": "osm-pbf", "noaa": "noaa-zip"}[plan["dataset"]]
+    expected = {"places": "geonames-zip", "osm": "osm-pbf", "facilities": "osm-pbf", "facilities-world": "osm-pbf", "noaa": "noaa-zip"}[plan["dataset"]]
     for s in plan["sources"]:
         if set(s) != {"url", "format", "maxBytes", "maxExpandedBytes"}:
             raise ValueError("Unexpected source plan fields")
         u = urlparse(s["url"])
         paths = {"places": r"/export/dump/(?:allCountries|[A-Z]{2})\.zip", "osm": r"/[a-z0-9/_-]+-(?:latest|\d{6})\.osm\.pbf", "noaa": r"/ENCs/(?:All_ENCs|US[A-Z0-9]+)\.zip"}
-        if u.scheme != "https" or u.hostname != build.HOSTS[plan["dataset"]] or u.query or u.fragment or u.username or u.password or not re.fullmatch(paths["osm" if plan["dataset"] == "facilities" else plan["dataset"]], u.path) or s["format"] != expected:
+        if u.scheme != "https" or u.hostname != build.HOSTS[plan["dataset"]] or u.query or u.fragment or u.username or u.password or not re.fullmatch(paths["osm" if plan["dataset"] in ("facilities", "facilities-world") else plan["dataset"]], u.path) or s["format"] != expected:
             raise ValueError("Source host/path/format refused")
-        dated = re.search(r"-(\d{6})\.osm\.pbf$", u.path) if plan["dataset"] in ("osm", "facilities") else None
+        dated = re.search(r"-(\d{6})\.osm\.pbf$", u.path) if plan["dataset"] in ("osm", "facilities", "facilities-world") else None
         if dated:
             dt.datetime.strptime(dated[1], "%y%m%d")  # Reject impossible calendar dates in reviewed snapshot URLs.
         if any(type(s[k]) is not int or s[k] <= 0 or s[k] > (64 * 1024**3 if k == "maxBytes" else LIMIT) for k in ("maxBytes", "maxExpandedBytes")):
@@ -47,6 +48,7 @@ def validate(plan):
         raise ValueError("Whole acquisition exceeds transport/expansion cap")
     if plan["dataset"] == "facilities" and (sum(s["maxBytes"] for s in plan["sources"]) > 512 * 1024**2 or sum(s["maxExpandedBytes"] for s in plan["sources"]) > 2 * 1024**3):
         raise ValueError("Facilities acquisition exceeds512MiB transport/2GiB expansion cap")
+    if plan["dataset"] == "facilities-world": world_policy.validate_sources(plan["sources"])
     return plan
 
 def verify_noaa_agreement(opener=None):
@@ -205,11 +207,12 @@ def acquire(plan, directory):
                 if len(files) != 1: raise ValueError("Missing GeoNames TSV")
                 output = stage / f"public-{index}.txt"; shutil.move(files[0], output)
             elif source["format"] == "osm-pbf":
-                if plan["dataset"] == "facilities":
+                if plan["dataset"] in ("facilities", "facilities-world"):
                     source_at = osm_source_clock(raw, work)
                     receipts[-1]["sourceAt"] = source_at
                 filtered, sequence = work / "marine.osm.pbf", work / "marine.geojsonseq"
                 selectors = (["nwr/leisure=marina", "nwr/waterway=fuel", "nwr/seamark:type=small_craft_facility,bunker_station"] if plan["dataset"] == "facilities" else ["nwr/seamark:type=anchorage,anchor_berth,mooring", "nwr/mooring=buoy", "nwr/seamark:buoy_special_purpose:category=mooring", "nwr/anchorage=yes"])
+                if plan["dataset"] == "facilities-world": selectors = list(world_policy.SELECTORS)
                 run_osmium(["tags-filter", str(raw), *selectors, "-o", str(filtered)], source["maxExpandedBytes"])
                 if filtered.stat().st_size > source["maxExpandedBytes"]: raise ValueError("Filtered OSM file exceeds cap")
                 run_osmium(["export", str(filtered), "--attributes=type,id", "-f", "geojsonseq", "-o", str(sequence)], source["maxExpandedBytes"])
@@ -224,7 +227,7 @@ def acquire(plan, directory):
             with output.open("rb") as stream: sha = hashlib.file_digest(stream, "sha256").hexdigest()
             inputs.append({"path": output.name, "sourceUrl": source["url"], "bytes": output.stat().st_size, "sha256": sha, **({"sourceAt": source_at} if source_at is not None else {})})
             shutil.rmtree(work)
-        manifest = {"schema": 1, "dataset": plan["dataset"], "coverage": plan["coverage"], "licence": build.LICENCES[plan["dataset"]], "sourceAt": min(s["sourceAt"] for s in inputs) if plan["dataset"] == "facilities" else dt.datetime.now(dt.timezone.utc).isoformat(), "inputs": inputs}
+        manifest = {"schema": 1, "dataset": plan["dataset"], "coverage": plan["coverage"], "licence": build.LICENCES[plan["dataset"]], "sourceAt": min(s["sourceAt"] for s in inputs) if plan["dataset"] in ("facilities", "facilities-world") else dt.datetime.now(dt.timezone.utc).isoformat(), "inputs": inputs}
         (stage / "input.json").write_text(json.dumps(manifest), encoding="utf-8")
         (stage / "transport-receipts.json").write_text(json.dumps(receipts), encoding="utf-8")
         os.replace(stage, destination)
