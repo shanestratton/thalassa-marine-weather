@@ -31,6 +31,8 @@ export interface BuildTacticalStateDeps {
     setAnchorageVisible: Dispatch<SetStateAction<boolean>>;
     mooringsVisible?: boolean;
     setMooringsVisible?: Dispatch<SetStateAction<boolean>>;
+    facilitiesVisible?: boolean;
+    setFacilitiesVisible?: Dispatch<SetStateAction<boolean>>;
     lightningVisible: boolean;
     setLightningVisible: Dispatch<SetStateAction<boolean>>;
     weatherInspectMode: boolean;
@@ -63,6 +65,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        facilitiesVisible,
+        setFacilitiesVisible,
         lightningVisible,
         setLightningVisible,
         weatherInspectMode,
@@ -209,6 +213,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         onToggleAnchorage: () => setAnchorageVisible((v) => !v),
         mooringsVisible,
         onToggleMoorings: setMooringsVisible ? () => setMooringsVisible((v) => !v) : undefined,
+        facilitiesVisible,
+        onToggleFacilities: setFacilitiesVisible ? () => setFacilitiesVisible((v) => !v) : undefined,
         mobActive,
         onOpenMob: () => setPage('mob'),
         // Marine Protected Areas — only surface in the

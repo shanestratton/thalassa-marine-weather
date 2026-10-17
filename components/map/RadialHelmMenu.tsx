@@ -102,6 +102,8 @@ export interface RadialHelmMenuProps {
         onToggleAnchorage?: () => void;
         mooringsVisible?: boolean;
         onToggleMoorings?: () => void;
+        facilitiesVisible?: boolean;
+        onToggleFacilities?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
         mpaVisible?: boolean;
         onToggleMpa?: () => void;
@@ -443,6 +445,20 @@ function buildCategories(
                                   label: 'Anchorages',
                                   icon: <AnchorageIcon />,
                                   action: tacticalState.onToggleAnchorage,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleFacilities
+                        ? [
+                              {
+                                  id: 'facilities',
+                                  label: 'Facilities',
+                                  icon: (
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                          <path d="M4 21V8h12v13M2 21h20M7 4h6v4M7 12h6M7 16h6M16 10h3l2 4v4a2 2 0 0 1-4 0v-3" />
+                                      </svg>
+                                  ),
+                                  action: tacticalState.onToggleFacilities,
                               },
                           ]
                         : []),
@@ -868,6 +884,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
             if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
             if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
+            if (tacticalState?.facilitiesVisible) tacticalState.onToggleFacilities?.();
             // Also clear any chart sources.
             chartsState?.sources?.forEach((s) => {
                 if (!s.enabled) return;
@@ -1007,6 +1024,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
             if (item.id === 'anchorages') return tacticalState?.anchorageVisible ?? false;
             if (item.id === 'moorings') return tacticalState?.mooringsVisible ?? false;
+            if (item.id === 'facilities') return tacticalState?.facilitiesVisible ?? false;
             if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
             if (item.id.startsWith('chart-')) {
@@ -1030,6 +1048,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.tideStationsVisible) count++;
         if (tacticalState?.anchorageVisible) count++;
         if (tacticalState?.mooringsVisible) count++;
+        if (tacticalState?.facilitiesVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
         if (chartsState?.sources) {
             for (const s of chartsState.sources) if (s.enabled) count++;

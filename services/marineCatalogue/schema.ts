@@ -1,5 +1,17 @@
 /** Public gazetteer/reference records only. Never accepts chart meshes or boat positions. */
-export type CatalogueDataset = 'places' | 'osm' | 'noaa' | 'facilities';
+export type CatalogueDataset = 'places' | 'osm' | 'noaa' | 'facilities' | 'facilities-world';
+export type FacilityKind = 'marina' | 'fuel' | 'boat_ramp' | 'pump_out';
+/** Exact monthly world input cohorts; regional facilities retain their own contract. */
+export const WORLD_FACILITY_COHORTS = [
+    'africa',
+    'antarctica',
+    'asia',
+    'australia-oceania',
+    'central-america',
+    'europe',
+    'north-america',
+    'south-america',
+].map((region) => `https://download.geofabrik.de/${region}`);
 export type CatalogueKind =
     | 'island'
     | 'bay'
@@ -10,7 +22,9 @@ export type CatalogueKind =
     | 'anchorage'
     | 'mooring'
     | 'marina'
-    | 'fuel';
+    | 'fuel'
+    | 'boat_ramp'
+    | 'pump_out';
 export interface MarinePlace {
     id: string;
     name: string;
@@ -25,8 +39,8 @@ export interface MarinePlace {
     colours?: string[];
     /** Only admitted from the exact point's optional public coastline model. */
     fetchLandNM?: number[];
-    /** Only in the opt-in facilities dataset; one source object may offer both. */
-    facilityKinds?: ('marina' | 'fuel')[];
+    /** Explicit source tags only, in the separately opted-in facility datasets. */
+    facilityKinds?: FacilityKind[];
 }
 export interface CatalogueManifest {
     schema: 1;
@@ -65,6 +79,10 @@ export const LICENCES = {
     places: { label: 'GeoNames · CC BY 4.0', url: 'https://creativecommons.org/licenses/by/4.0/' },
     osm: { label: '© OpenStreetMap contributors · ODbL', url: 'https://opendatacommons.org/licenses/odbl/1-0/' },
     facilities: { label: '© OpenStreetMap contributors · ODbL', url: 'https://opendatacommons.org/licenses/odbl/1-0/' },
+    'facilities-world': {
+        label: '© OpenStreetMap contributors · ODbL',
+        url: 'https://opendatacommons.org/licenses/odbl/1-0/',
+    },
     noaa: {
         label: 'NOAA-derived reference · not official ENC',
         url: 'https://charts.noaa.gov/ENCs/ENC_Agreement.shtml',
@@ -116,7 +134,7 @@ export function nearbyAreaKeys(lat: number, lon: number, radiusNM = 50): string[
     return [...keys];
 }
 export function cataloguePath(path: string): boolean {
-    return /^(places|osm|noaa|facilities)\/(?:manifest\.json|[a-z0-9-]{8,48}\/(?:areas\/(?:[0-8]?\d)_(?:1[0-7]\d|[0-9]?\d)(?:-[0-3]{1,8})?|names\/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json)$/.test(
+    return /^(places|osm|noaa|facilities|facilities-world)\/(?:manifest\.json|[a-z0-9-]{8,48}\/(?:areas\/(?:[0-8]?\d)_(?:1[0-7]\d|[0-9]?\d)(?:-[0-3]{1,8})?|names\/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json)$/.test(
         path,
     );
 }
@@ -180,7 +198,7 @@ export function validMarinePlace(p: MarinePlace, dataset: CatalogueDataset): boo
     const id =
         dataset === 'places'
             ? /^geonames:[1-9]\d{0,11}$/
-            : dataset === 'osm' || dataset === 'facilities'
+            : dataset === 'osm' || dataset === 'facilities' || dataset === 'facilities-world'
               ? /^osm-(node|way|relation)[1-9]\d{0,15}$/
               : /^noaa:[a-fA-F0-9]{16}$/;
     return (
@@ -205,14 +223,21 @@ export function validMarinePlace(p: MarinePlace, dataset: CatalogueDataset): boo
         id.test(p.id) &&
         string(p.name, 200) &&
         validPosition(p.lat, p.lon) &&
-        (dataset === 'facilities'
-            ? ['marina', 'fuel'].includes(p.kind) &&
+        (dataset === 'facilities' || dataset === 'facilities-world'
+            ? (dataset === 'facilities' ? ['marina', 'fuel'] : ['marina', 'fuel', 'boat_ramp', 'pump_out']).includes(
+                  p.kind,
+              ) &&
               Array.isArray(p.facilityKinds) &&
               p.facilityKinds.length >= 1 &&
-              p.facilityKinds.length <= 2 &&
+              p.facilityKinds.length <= (dataset === 'facilities' ? 2 : 4) &&
               new Set(p.facilityKinds).size === p.facilityKinds.length &&
-              p.facilityKinds.every((k) => ['marina', 'fuel'].includes(k)) &&
-              p.facilityKinds.includes(p.kind as 'marina' | 'fuel')
+              p.facilityKinds.every((k) =>
+                  (dataset === 'facilities'
+                      ? ['marina', 'fuel']
+                      : ['marina', 'fuel', 'boat_ramp', 'pump_out']
+                  ).includes(k),
+              ) &&
+              p.facilityKinds.includes(p.kind as FacilityKind)
             : p.facilityKinds === undefined &&
               (dataset === 'places'
                   ? ['island', 'bay', 'cove', 'harbour', 'reef', 'headland', 'anchorage', 'mooring'].includes(p.kind)
@@ -243,7 +268,7 @@ export function parseManifest(value: unknown, dataset: CatalogueDataset): Catalo
     const source =
         dataset === 'places'
             ? 'https://download.geonames.org/'
-            : dataset === 'osm' || dataset === 'facilities'
+            : dataset === 'osm' || dataset === 'facilities' || dataset === 'facilities-world'
               ? 'https://download.geofabrik.de/'
               : 'https://www.charts.noaa.gov/';
     if (
@@ -283,7 +308,7 @@ export function parseManifest(value: unknown, dataset: CatalogueDataset): Catalo
         m.shards.length > 50000 ||
         new Set(m.shards).size !== m.shards.length ||
         !m.shards.every((key) => cataloguePath(`${dataset}/${m.generation}/${key}.json`)) ||
-        (dataset === 'facilities'
+        (dataset === 'facilities' || dataset === 'facilities-world'
             ? !Array.isArray(m.cohorts) ||
               m.cohorts.length < 1 ||
               m.cohorts.length > 32 ||
@@ -298,7 +323,10 @@ export function parseManifest(value: unknown, dataset: CatalogueDataset): Catalo
                       Date.parse(v.sourceAt) <= Date.parse(m.builtAt) &&
                       /^[a-f0-9]{64}$/.test(v.sha256),
               ) ||
-              m.sourceAt !== [...m.cohorts].map((v) => v.sourceAt).sort()[0]
+              m.sourceAt !== [...m.cohorts].map((v) => v.sourceAt).sort()[0] ||
+              (dataset === 'facilities-world' &&
+                  (m.cohorts.length !== WORLD_FACILITY_COHORTS.length ||
+                      !m.cohorts.every((v) => WORLD_FACILITY_COHORTS.includes(v.id))))
             : m.cohorts !== undefined) ||
         (dataset === 'noaa' ? !/^[a-f0-9]{64}$/.test(m.agreementSha256 ?? '') : m.agreementSha256 !== undefined)
     )
