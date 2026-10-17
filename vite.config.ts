@@ -25,7 +25,7 @@ import {
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { shareClassNames } from './scripts/share-class-names.mjs';
-import { shareUiStrings } from './scripts/share-ui-strings.mjs';
+import { shareUiDisplayTemplates, shareUiStrings } from './scripts/share-ui-strings.mjs';
 import { inertUiData, inertUiDataWorkerFence } from './scripts/inert-ui-data.mjs';
 import { inertPreloadData } from './scripts/inert-preload-data.mjs';
 import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
@@ -644,6 +644,7 @@ export default defineConfig(({ mode }) => {
             shareSvgPaths(__dirname, { data: packedUiData }),
             shareClassNames(__dirname, { data: packedUiData }),
             shareUiStrings(__dirname, { data: packedUiData }),
+            shareUiDisplayTemplates(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),

@@ -34,6 +34,7 @@ const root = process.cwd();
 // One immutable compiler-cooked snapshot serves both independent selections.
 const literalCounts = collectUiLiteralCounts(root);
 const legacy: string[][] = collectUiStringPools(root, { legacy: true, literalCounts });
+const beforeTemplates: string[][] = collectUiStringPools(root, { literalCounts, displayTemplates: false });
 const pools: string[][] = collectUiStringPools(root, { literalCounts });
 const legacyPaths: string[] = collectLegacySvgPaths(root);
 const paths: string[] = collectSvgPaths(root, { uiCounts: literalCounts });
@@ -67,6 +68,8 @@ it('retains every original selected UI/SVG value and restores all five actual ta
     expect(original.length).toBeGreaterThanOrEqual(8531);
     const current = new Set([...pools.flat(), ...paths]);
     expect(original.filter((value) => !current.has(value))).toEqual([]);
+    expect(beforeTemplates.flat().length).toBeGreaterThanOrEqual(10559);
+    expect(beforeTemplates.flat().filter((value) => !current.has(value))).toEqual([]);
     expect(pools).toHaveLength(4);
     expect(paths).toHaveLength(374);
     expect(legacyPaths).toHaveLength(80);
@@ -78,6 +81,14 @@ it('retains every original selected UI/SVG value and restores all five actual ta
         expect(restored.packed.encoded.length).toBeLessThanOrEqual(64000);
         expect(values.length).toBeLessThanOrEqual(4096);
         expect(values.reduce((sum, value) => sum + value.length, 0)).toBeLessThanOrEqual(240000);
+        expect(() =>
+            decodeClassNames(
+                restored.packed.encoded,
+                restored.packed.bytes,
+                restored.packed.count,
+                restored.packed.checksum ^ 1,
+            ),
+        ).toThrow();
     }
     const decoder = originalDecoderHash();
     expect(decoder).toBe('a221b18976fe54913e67e915f9af23b5390444e3637266b81a03f739b19a7a8e');

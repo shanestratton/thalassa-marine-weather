@@ -6,6 +6,7 @@ import MagicString from 'magic-string';
 import { collectClassNames, packClassNames, packCompactStringData } from './share-class-names.mjs';
 import { collectSvgPaths, collectLegacySvgPaths } from './share-svg-paths.mjs';
 import { collectUiLiteralCounts, isUiSourceFile } from './static-ui-literals.mjs';
+import { collectUiDisplayTemplateCounts, rewriteUiDisplayTemplates } from './ui-display-templates142.mjs';
 import {
     collectStaticCssCounts,
     compiledCssRanges,
@@ -49,7 +50,10 @@ export function selectUiStrings(counts, { minLength = 80, compact = false } = {}
 
 // An explicit compiler-cooked snapshot lets the baseline/current proof share
 // one read without a process-global cache. The normal build always reads source.
-export function collectUiStringPools(root, { legacy = false, literalCounts = collectUiLiteralCounts(root) } = {}) {
+export function collectUiStringPools(
+    root,
+    { legacy = false, literalCounts = collectUiLiteralCounts(root), displayTemplates = true } = {},
+) {
     const counts = new Map(literalCounts);
     const classes = new Set([
         ...collectClassNames(root),
@@ -65,6 +69,40 @@ export function collectUiStringPools(root, { legacy = false, literalCounts = col
         pools.push(values);
         for (const value of values) counts.delete(value);
     }
+    if (legacy || !displayTemplates) return pools;
+    const templates = [...collectUiDisplayTemplateCounts(root).keys()].filter((value) => !classes.has(value));
+    return templates.length ? regroupUiStringPools([...pools.flat(), ...templates]) : pools;
+}
+
+/** Keep every existing value. Ordering is a representation choice only; no
+ * candidate is dropped when four unchanged tables cannot hold the cohort. */
+export function regroupUiStringPools(input) {
+    const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+    const ordered = [...new Set(input)].sort(
+        (a, b) => compare(a.trimStart().split(/\s/)[0], b.trimStart().split(/\s/)[0]) || compare(a, b),
+    );
+    const pools = [];
+    let at = 0;
+    while (at < ordered.length && pools.length < UI_STRING_POOL_LIMIT) {
+        let low = 1,
+            high = Math.min(4096, ordered.length - at),
+            best = 0;
+        while (low <= high) {
+            const count = (low + high) >> 1;
+            try {
+                packCompactStringData(ordered.slice(at, at + count));
+                best = count;
+                low = count + 1;
+            } catch (error) {
+                if (!/^Embedded class (?:table|encoding) exceeds reviewed bounds$/.test(error.message)) throw error;
+                high = count - 1;
+            }
+        }
+        if (!best) break;
+        pools.push(ordered.slice(at, at + best));
+        at += best;
+    }
+    if (at !== ordered.length) throw Error('Display templates exceed the unchanged four UI tables');
     return pools;
 }
 
@@ -221,6 +259,32 @@ export function shareUiStrings(root, { data, standalone = false } = {}) {
         },
         buildEnd() {
             if (enabled) this.info(`shared ${values.length} static UI strings across ${replacements} literals`);
+        },
+    };
+}
+
+/** Source AST hook precedes JSX lowering. It shares the existing table owner;
+ * the original post-JSX literal/CSS transform and worker seam stay intact.
+ * @param {string} root @returns {import('vite').Plugin} */
+export function shareUiDisplayTemplates(root) {
+    let enabled = false,
+        values = [];
+    return {
+        name: 'share-cooked-jsx-display-templates',
+        apply: 'build',
+        enforce: 'pre',
+        configResolved(config) {
+            enabled = config.isProduction && !config.isWorker;
+        },
+        buildStart() {
+            if (enabled) values = collectUiStringPools(root).flat();
+        },
+        transform(code, id) {
+            if (!enabled || id.includes('?')) return null;
+            const relative = path.relative(root, id).replaceAll('\\', '/');
+            if (relative.startsWith('../') || relative.includes('node_modules/')) return null;
+            const result = rewriteUiDisplayTemplates(code, relative, values);
+            return result && { code: result.code, map: result.map };
         },
     };
 }
