@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
@@ -14,6 +13,10 @@ import {
 } from '../scripts/native-identity140.mjs';
 
 const baseline = execFileSync('git', ['show', `${NATIVE_BASE139}:${NATIVE_PROJECT140}`]);
+// Historical proof must remain valid when the current checkout advances to141.
+// The actual checkout is separately admitted by the strict frozen-source CLI.
+const PINNED_NATIVE_SNAPSHOT140 = 'a09a5cff088fbd90101fa42ccbb850455a56a87f';
+const captured140 = execFileSync('git', ['show', `${PINNED_NATIVE_SNAPSHOT140}:${NATIVE_PROJECT140}`]);
 const expected = expectedNativeProject140(baseline);
 const fixture =
     (changes = {}) =>
@@ -29,9 +32,9 @@ const fixture =
             },
         );
 
-test('current140 project is exactly four version fields beyond the pinned final139 baseline', () => {
+test('captured140 project is exactly four version fields beyond the reviewed139 native baseline', () => {
     assert.equal(createHash('sha256').update(baseline).digest('hex'), NATIVE_PROJECT139_SHA256);
-    assert.ok(readFileSync(NATIVE_PROJECT140).equals(expected));
+    assert.ok(captured140.equals(expected));
     const proof = fixture()();
     assert.equal(proof.appBuild, 140);
     assert.equal(proof.buildChanges, 4);
