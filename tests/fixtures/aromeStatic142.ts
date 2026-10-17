@@ -22,7 +22,7 @@ export async function aromeStaticFixture(
     const domain = AROME_DOMAINS[0];
     const nx = Math.ceil(domain.width / 32);
     const ny = Math.ceil(domain.height / 32);
-    const target = aromeTileShape(model, Math.floor(400 / 32), Math.floor(400 / 32))!;
+    const target = aromeTileShape(model, Math.floor(300 / 32), Math.floor(240 / 32))!;
     const cells = target.width * target.height;
     const manifest: AromeStaticManifest = {
         schema: 1,
@@ -80,7 +80,7 @@ export async function aromeStaticFixture(
     for (let index = 0; index < cells; index++) {
         const i = target.i0 + (index % target.width);
         const j = target.j0 + Math.floor(index / target.width);
-        view.setFloat64(start + index * 8, options.mask?.(i, j) ?? (i === 400 && j === 400 ? 0 : 1), true);
+        view.setFloat64(start + index * 8, options.mask?.(i, j) ?? (i === 300 && j === 240 ? 0 : 1), true);
         for (let field = 0; field < 5; field++)
             for (let hour = 0; hour < 49; hour++) {
                 const fallback = [-5.144444444444445, 0, 101234.567891, 290.123456789, 72.3456789][field];

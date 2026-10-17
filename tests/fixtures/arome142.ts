@@ -19,8 +19,8 @@ export function aromePointFixture(): AromePointForecast {
         seaCell: {
             latitude: -20,
             longitude: 166,
-            i: 400,
-            j: 400,
+            i: 300,
+            j: 240,
             landFraction: 0,
             method: 'nearest-original-sea-cell',
         },

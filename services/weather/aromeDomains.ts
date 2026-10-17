@@ -1,4 +1,5 @@
-/** Météo-France AROME-OM regular grids, technical description 2024-06-25.
+/** Météo-France AROME-OM candidate grids. NCALED matches the captured original
+ * 2026-10-17T00:00Z SP1 headers; other grids retain the 2024-06-25 description.
  * These are our ingest IDs, never Open-Meteo model aliases. Boxes only select
  * a candidate; a current original cohort and its sea mask must admit a point.
  */
@@ -7,9 +8,9 @@ export const AROME_DOMAINS = [
         id: 'thalassa_arome_om_ncaled_025',
         domain: 'NCALED',
         name: 'AROME New Caledonia / Vanuatu',
-        region: [-30, -10, 156, 174],
-        width: 721,
-        height: 801,
+        region: [-26, -13.75, 158.5, 171.5],
+        width: 521,
+        height: 491,
     },
     {
         id: 'thalassa_arome_om_polyn_025',
