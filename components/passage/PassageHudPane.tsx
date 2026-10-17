@@ -1403,8 +1403,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             ? 'Course over ground: not making way, no course to show'
             : `Course over ground ${fmtBearing(cogMetric)} true`;
 
-    // LOOK AHEAD / back to LIVE. For a preview it is the departure control, in
-    // half the bottom row: there the word alone, with no arrow (62 px at 320).
+    // LOOK AHEAD / back to LIVE. Preview departure and followed-route Ahead
+    // share the bottom row with Hide: the word alone, with no arrow (62px at 320).
     const renderLookAhead = (layout: string, half = false) => (
         <button
             type="button"
@@ -1448,6 +1448,56 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                     />
                 </svg>
             )}
+        </button>
+    );
+
+    const renderShowPassage = (layout: string) => (
+        <button
+            type="button"
+            data-testid="hud-show-passage"
+            disabled={!(followingRoute || voyageActive || recordingAvailable) || overlayOn}
+            aria-pressed={overlayOn}
+            aria-label={
+                overlayOn
+                    ? `${followingRoute ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
+                    : followingRoute || voyageActive || recordingAvailable
+                      ? followingRoute
+                          ? 'Show route and track on the chart'
+                          : 'Show recorded track on the chart'
+                      : 'Show route and track on the chart — cast off or follow a route first'
+            }
+            title={
+                overlayOn
+                    ? 'On the chart — turn off with Passage in the layer button'
+                    : followingRoute
+                      ? 'Show route & track'
+                      : 'Show recorded track'
+            }
+            onClick={() => {
+                void triggerHaptic('light');
+                // The skipper's ask: the whole route framed (a Layers toggle never is).
+                askPassageOverview();
+                setPassageOverlay(true);
+            }}
+            className={`flex items-center justify-center active:scale-95 disabled:active:scale-100 ${layout}`}
+        >
+            <svg
+                className={`h-5 w-5 ${
+                    overlayOn
+                        ? 'text-sky-300'
+                        : followingRoute || voyageActive || recordingAvailable
+                          ? 'text-white'
+                          : 'text-white/40'
+                }`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.2}
+            >
+                <circle cx="6" cy="18" r="2.2" />
+                <circle cx="18" cy="6" r="2.2" />
+                <path strokeLinecap="round" strokeDasharray="3 3" d="M8 17c4-1 3-8 8-10" />
+            </svg>
         </button>
     );
 
@@ -1911,6 +1961,19 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                             )}
                         </>
                     )}
+                    {/* Optional route actions scroll with the readings. Keeping these
+                        outside exhausted the short phone's fixed strip and clipped Hide. */}
+                    {followingRoute && (
+                        <>
+                            {renderShowPassage('min-h-[44px] w-full border-t border-white/10')}
+                            <React.Suspense fallback={null}>
+                                <RouteReplanControl
+                                    xteNm={fix && fix.source !== 'phone-old' ? fix.progress.offTrackNm : null}
+                                    etaMs={liveEta.arrivalMs}
+                                />
+                            </React.Suspense>
+                        </>
+                    )}
                 </div>
 
                 {/* Warnings remain outside the readings' last-resort scroller,
@@ -1938,85 +2001,21 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                     </div>
                 )}
 
-                {/* LOOK AHEAD / back to LIVE. Entering draws the route too — the
-                same explicit ON as the button below: a ghost with no line to
-                ride is a boat adrift on the chart. OFF still lives in the
-                layer button. A preview keeps it in the bottom row instead. */}
-                {followingRoute && renderLookAhead('h-10 border-t border-white/10')}
-                {followingRoute && (
-                    <React.Suspense fallback={null}>
-                        <RouteReplanControl
-                            xteNm={fix && fix.source !== 'phone-old' ? fix.progress.offTrackNm : null}
-                            etaMs={liveEta.arrivalMs}
-                        />
-                    </React.Suspense>
-                )}
-
                 <div className="flex shrink-0 border-t border-white/10">
-                    {/* A preview's departure shares this row: the strip's fixed height
-                    is what a 320 x 568 phone under two credits can least spare. Its
-                    route is already on the chart, and the Passage overlay would put
-                    the followed line there in its place, so it has no Route & track. */}
-                    {previewing ? (
-                        renderLookAhead('h-11 w-1/2 border-r border-white/10', true)
-                    ) : (
-                        // Route & track: the same ON the layer button performs. OFF lives
-                        // there, because only MapHub's own path clears what it drew.
-                        <button
-                            type="button"
-                            data-testid="hud-show-passage"
-                            disabled={!(followingRoute || voyageActive || recordingAvailable) || overlayOn}
-                            aria-pressed={overlayOn}
-                            aria-label={
-                                overlayOn
-                                    ? `${followingRoute ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
-                                    : followingRoute || voyageActive || recordingAvailable
-                                      ? followingRoute
-                                          ? 'Show route and track on the chart'
-                                          : 'Show recorded track on the chart'
-                                      : 'Show route and track on the chart — cast off or follow a route first'
-                            }
-                            title={
-                                overlayOn
-                                    ? 'On the chart — turn off with Passage in the layer button'
-                                    : followingRoute
-                                      ? 'Show route & track'
-                                      : 'Show recorded track'
-                            }
-                            onClick={() => {
-                                void triggerHaptic('light');
-                                // The skipper's ask: the whole route framed (a Layers toggle never is).
-                                askPassageOverview();
-                                setPassageOverlay(true);
-                            }}
-                            className="flex h-11 w-1/2 items-center justify-center border-r border-white/10 active:scale-95 disabled:active:scale-100"
-                        >
-                            <svg
-                                className={`h-5 w-5 ${
-                                    overlayOn
-                                        ? 'text-sky-300'
-                                        : followingRoute || voyageActive || recordingAvailable
-                                          ? 'text-white'
-                                          : 'text-white/40'
-                                }`}
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={2.2}
-                            >
-                                <circle cx="6" cy="18" r="2.2" />
-                                <circle cx="18" cy="6" r="2.2" />
-                                <path strokeLinecap="round" strokeDasharray="3 3" d="M8 17c4-1 3-8 8-10" />
-                            </svg>
-                        </button>
-                    )}
+                    {/* Departure/Ahead and Hide keep one fixed 44px row. The optional
+                    route actions above scroll instead of pushing this row out of the strip. */}
+                    {previewing || followingRoute
+                        ? renderLookAhead('h-[44px] w-1/2 border-r border-white/10', true)
+                        : // Route & track: the same ON the layer button performs. OFF lives
+                          // there, because only MapHub's own path clears what it drew.
+                          renderShowPassage('h-[44px] w-1/2 border-r border-white/10')}
                     <button
                         type="button"
                         onClick={onToggle}
                         aria-label="Hide passage instruments"
                         aria-expanded
                         data-testid="passage-hud-toggle"
-                        className="flex h-11 w-1/2 items-center justify-center active:scale-95"
+                        className="flex h-[44px] w-1/2 items-center justify-center active:scale-95"
                     >
                         <svg
                             className="h-5 w-5 text-white/70"
