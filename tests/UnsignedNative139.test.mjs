@@ -75,16 +75,21 @@ test('Swift, project whitespace/configuration changes and post-sync tracked muta
     assert.throws(fixture({ dirty: true }));
 });
 
-test('workflow is owner-only manual unsigned compile, fixed source and public vars only', () => {
+test('workflow is owner-only bounded-trigger unsigned compile, fixed source and public vars only', () => {
     const text = readFileSync('.github/workflows/unsigned-native-139.yml', 'utf8');
     const workflow = yaml.parse(text),
         job = workflow.jobs.unsigned;
-    assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+    assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch', 'push']);
+    assert.deepEqual(workflow.on.push, {
+        branches: ['codex/build-139-unsigned-native'],
+        paths: ['.github/workflows/unsigned-native-139.yml'],
+    });
     assert.deepEqual(workflow.permissions, { contents: 'read' });
     assert.equal(job['runs-on'], 'macos-26');
     assert.equal(job.env.DEVELOPER_DIR, '/Applications/Xcode_26.6.app/Contents/Developer');
     assert.equal(job.env.VITE_APP_BUILD, '139');
     assert.match(job.if, /github.actor == 'shanestratton'/);
+    assert.match(job.if, /github.ref == 'refs\/heads\/codex\/build-139-unsigned-native'/);
     assert.doesNotMatch(
         text,
         /secrets\.|ASC_|IOS_DEV_CERT|allowProvisioningUpdates|authenticationKey|exportArchive|archivePath|sourcemaps:upload|altool|notarytool/,
