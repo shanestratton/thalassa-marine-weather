@@ -97,6 +97,37 @@ async function paintedPartitions(page: Page, dialog: Locator) {
         }
     expect(color).toBeGreaterThan(100);
 }
+async function paintedText(page: Page, element: Locator) {
+    const samples: number[] = [];
+    await expect
+        .poll(
+            async () => {
+                const box = (await element.boundingBox())!;
+                const pixels = decode(await page.screenshot(), { checkCrc: true });
+                const scale = pixels.width / page.viewportSize()!.width;
+                noOpaqueTile(pixels, page.viewportSize()!.width);
+                let ink = 0;
+                for (
+                    let y = Math.max(0, Math.ceil(box.y * scale));
+                    y < Math.min(pixels.height, (box.y + box.height) * scale);
+                    y++
+                )
+                    for (
+                        let x = Math.max(0, Math.ceil(box.x * scale));
+                        x < Math.min(pixels.width, (box.x + box.width) * scale);
+                        x++
+                    ) {
+                        const i = (y * pixels.width + x) * pixels.channels;
+                        if (pixels.data[i] > 130 && pixels.data[i + 1] > 130 && pixels.data[i + 2] > 130) ink++;
+                    }
+                samples.push(ink);
+                return ink;
+            },
+            { timeout: 2000, intervals: [50, 100, 250] },
+        )
+        .toBeGreaterThan(10);
+    return samples;
+}
 for (const width of [300, 375])
     for (const large of [false, true])
         test(`private comfort and sea partitions at ${width}px ${large ? '130%' : 'normal'}`, async ({
@@ -182,6 +213,14 @@ for (const width of [300, 375])
             const back = seaDialog.getByRole('button', { name: 'Show sea partitions', exact: true });
             await target(back);
             expect(await panel.boundingBox()).toEqual(partitionBounds);
+            const textPaint = {
+                range: await paintedText(page, seaDialog.getByText('5-day range', { exact: true })),
+                back: await paintedText(page, back),
+            };
+            await info.attach('summary-native-text-paint', {
+                body: JSON.stringify(textPaint),
+                contentType: 'application/json',
+            });
             noOpaqueTile(
                 decode(await page.screenshot({ path: info.outputPath('forecast-summary.png') }), { checkCrc: true }),
                 width,
