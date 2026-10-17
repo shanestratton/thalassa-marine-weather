@@ -140,10 +140,11 @@ export default function NearbyModelSkill({ coordinates }: { coordinates?: Eviden
                             <p className="font-semibold text-slate-100">
                                 {nearest.station.label} · {nearest.distanceNm.toFixed(0)} nm
                             </p>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
                                 <label className="min-w-0">
                                     Measure
                                     <select
+                                        style={{ colorScheme: 'dark', backgroundColor: '#0f172a', color: '#e2e8f0' }}
                                         aria-label="Skill measure"
                                         value={metric}
                                         onChange={(e) => setMetric(e.target.value as SkillMetric)}
@@ -156,6 +157,7 @@ export default function NearbyModelSkill({ coordinates }: { coordinates?: Eviden
                                 <label className="min-w-0">
                                     Forecast lead
                                     <select
+                                        style={{ colorScheme: 'dark', backgroundColor: '#0f172a', color: '#e2e8f0' }}
                                         aria-label="Skill forecast lead"
                                         value={lead}
                                         onChange={(e) => setLead(e.target.value as SkillLead)}

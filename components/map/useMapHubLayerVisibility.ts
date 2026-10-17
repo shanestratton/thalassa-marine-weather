@@ -28,6 +28,11 @@ export function useMapHubLayerVisibility({
     // Never restore yesterday's overlays from device storage.
     const [aisVisible, setAisVisible] = useState(false);
     const [receiverCoverageVisible, setReceiverCoverageVisible] = useState(false);
+    const [measuredBuoysVisible, setMeasuredBuoysVisible] = useState(false);
+    const [measuredBuoysLoaded, setMeasuredBuoysLoaded] = useState(false);
+    useEffect(() => {
+        if (measuredBuoysVisible) setMeasuredBuoysLoaded(true);
+    }, [measuredBuoysVisible]);
     const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
@@ -90,6 +95,7 @@ export function useMapHubLayerVisibility({
 
     const browseAisVisible = aisVisible && !planningSurface;
     const browseReceiverCoverageVisible = receiverCoverageVisible && !planningSurface;
+    const browseMeasuredBuoysVisible = measuredBuoysVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
@@ -109,6 +115,10 @@ export function useMapHubLayerVisibility({
         receiverCoverageVisible,
         setReceiverCoverageVisible,
         browseReceiverCoverageVisible,
+        measuredBuoysVisible,
+        setMeasuredBuoysVisible,
+        measuredBuoysLoaded,
+        browseMeasuredBuoysVisible,
         chokepointVisible,
         setChokepointVisible,
         cycloneVisible,

@@ -200,10 +200,38 @@ describe('caller-owned public weather original-byte reader', () => {
     });
     it('bounds a fetch that never honours AbortSignal with the fixed request deadline', async () => {
         vi.useFakeTimers();
-        vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => undefined));
+        let release!: (value: Response) => void;
+        vi.mocked(fetch).mockImplementation(
+            () =>
+                new Promise<Response>((resolve) => {
+                    release = resolve;
+                }),
+        );
         const opened = openWeatherEvidenceSession('buoys', new AbortController().signal);
         const rejected = expect(opened).rejects.toThrow('deadline');
         await vi.advanceTimersByTimeAsync(15_001);
         await rejected;
+        release(new Response('{}'));
+        await Promise.resolve();
+    });
+    it('holds actual native request slots after cancellation and refuses a fifth remount until native settlement', async () => {
+        const release: ((value: Response) => void)[] = [];
+        vi.mocked(fetch).mockImplementation(() => new Promise<Response>((resolve) => release.push(resolve)));
+        for (let i = 0; i < 4; i++) {
+            const owner = new AbortController();
+            const opened = openWeatherEvidenceSession('buoys', owner.signal);
+            const rejected = expect(opened).rejects.toThrow();
+            owner.abort();
+            await rejected;
+        }
+        await expect(openWeatherEvidenceSession('buoys', new AbortController().signal)).rejects.toThrow('capacity');
+        expect(fetch).toHaveBeenCalledTimes(4);
+        for (const settle of release) settle(new Response('{}'));
+        await Promise.resolve();
+        await Promise.resolve();
+        vi.mocked(fetch).mockImplementation(async (url) => response(String(url)));
+        const recovered = await openWeatherEvidenceSession('buoys', new AbortController().signal);
+        expect(recovered.isCurrent()).toBe(true);
+        recovered.close();
     });
 });

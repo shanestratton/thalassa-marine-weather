@@ -17,6 +17,21 @@ import {
 const BASE = 'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/weather/';
 const LIFETIME = 15 * 60_000;
 const REQUEST_MS = 15_000;
+// Aborting a native fetch need not settle it. Its slot remains charged until
+// the actual native promise settles, including across panel/layer remounts.
+let outstandingFetches = 0;
+function admittedFetch(url: string, options: RequestInit): Promise<Response> {
+    if (outstandingFetches >= 4) return Promise.reject(new Error('Weather evidence request capacity unavailable'));
+    outstandingFetches++;
+    try {
+        return Promise.resolve(fetch(url, options)).finally(() => {
+            outstandingFetches--;
+        });
+    } catch (error) {
+        outstandingFetches--;
+        return Promise.reject(error);
+    }
+}
 export type EvidenceDetail = MeasuredBuoyDetail | StationSkillDetail;
 export interface WeatherEvidenceSession {
     readonly index: EvidenceIndex;
@@ -123,7 +138,7 @@ export async function openWeatherEvidenceSession(
         try {
             request.signal.throwIfAborted();
             response = await owned(
-                fetch(BASE + EVIDENCE_PREFIX[kind] + '/' + path + (hash ? '?v=' + hash : ''), {
+                admittedFetch(BASE + EVIDENCE_PREFIX[kind] + '/' + path + (hash ? '?v=' + hash : ''), {
                     cache: 'no-store',
                     credentials: 'omit',
                     redirect: 'error',
