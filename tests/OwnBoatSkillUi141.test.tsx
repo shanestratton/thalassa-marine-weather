@@ -3,32 +3,35 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import OwnBoatSkill from '../components/dashboard/OwnBoatSkill';
 import type { PrivateBoatSession } from '../services/weather/ownBoatSkillTransaction';
+import type { OwnBoatProposal } from '../utils/ownBoatSkill';
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 function fixture() {
     const session: PrivateBoatSession = {
         vesselName: 'Synthetic boat',
         saved: false,
         current: () => true,
-        prepare: vi.fn(async () => ({
-            schema: 1,
-            nonce: 'a'.repeat(64),
-            expiresAt: Date.now() + 60_000,
-            binding: {
-                ownerId: ID,
-                vesselId: ID,
-                vesselRevision: 1,
-                piDeviceId: ID,
-                controllerId: ID,
-                pairingRevision: 'a'.repeat(64),
-                enrollmentRevision: 'b'.repeat(64),
-                selfKey: 'c'.repeat(64),
-                windSourceKey: 'd'.repeat(64),
-                positionSourceKey: 'e'.repeat(64),
-            },
-            vesselName: 'Synthetic boat',
-            windSource: 'synthetic.wind',
-            positionSource: 'synthetic.gps',
-        })),
+        prepare: vi.fn(
+            async (): Promise<OwnBoatProposal> => ({
+                schema: 1,
+                nonce: 'a'.repeat(64),
+                expiresAt: Date.now() + 60_000,
+                binding: {
+                    ownerId: ID,
+                    vesselId: ID,
+                    vesselRevision: 1,
+                    piDeviceId: ID,
+                    controllerId: ID,
+                    pairingRevision: 'a'.repeat(64),
+                    enrollmentRevision: 'b'.repeat(64),
+                    selfKey: 'c'.repeat(64),
+                    windSourceKey: 'd'.repeat(64),
+                    positionSourceKey: 'e'.repeat(64),
+                },
+                vesselName: 'Synthetic boat',
+                windSource: 'synthetic.wind',
+                positionSource: 'synthetic.gps',
+            }),
+        ),
         confirm: vi.fn(async () => {
             session.saved = true;
             return {} as never;

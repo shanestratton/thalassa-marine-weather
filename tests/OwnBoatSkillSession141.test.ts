@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
         activeVesselId: '',
         vesselFleet: [] as {
             id: string;
-            name: string;
+            profile: { name: string };
             owner_id: string;
             revision: number;
             archived_at: null;
@@ -98,7 +98,14 @@ beforeEach(() => {
     mocks.state = {
         activeVesselId: ID,
         vesselFleet: [
-            { id: ID, name: 'Synthetic boat', owner_id: ID, revision: 2, archived_at: null, releasedAt: null },
+            {
+                id: ID,
+                profile: { name: 'Synthetic boat' },
+                owner_id: ID,
+                revision: 2,
+                archived_at: null,
+                releasedAt: null,
+            },
         ],
     };
     mocks.revision = 1;
@@ -121,6 +128,7 @@ afterEach(() => {
 describe('actual private phone adapter', () => {
     it('persists only the opaque grant in the actual owner/pinned-Pi namespace and uses enrolled pinned transport', async () => {
         const session = await openOwnBoatSkillReview();
+        expect(session.vesselName).toBe('Synthetic boat');
         expect(mocks.pinned).not.toHaveBeenCalled();
         await session.prepare();
         await session.confirm(false);

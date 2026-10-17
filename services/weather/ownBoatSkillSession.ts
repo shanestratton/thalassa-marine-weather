@@ -116,7 +116,7 @@ export async function openOwnBoatSkillReview(): Promise<PrivateBoatSession> {
         ownerId: scope.userId,
         vesselId: vessel.id,
         vesselRevision: vessel.revision!,
-        vesselName: vessel.name,
+        vesselName: vessel.profile.name,
         piDeviceId: pair.deviceId,
         controllerId,
         current,
