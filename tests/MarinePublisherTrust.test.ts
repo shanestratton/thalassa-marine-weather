@@ -24,8 +24,6 @@ import {
 } from '../services/weather/api/cmemsGridTrust';
 import {
     clearMpaDatasetCache,
-    borrowRetainedMpaDataset,
-    retainedMpaRoutingContextKey,
     fetchVerifiedMpaGeoJson,
     getVerifiedMpaDatasetStatus,
     MPA_CACHE_TTL_MS,
@@ -35,6 +33,12 @@ import {
     type MpaManifest,
     type MpaProperties,
 } from '../services/weather/api/mpaDataset';
+
+import {
+    borrowRetainedMpaDataset,
+    retainedMpaRoutingContextKey,
+    registerVerifiedMpaRetainedOwner,
+} from '../services/weather/api/mpaRetained';
 
 const NOW = Date.parse('2026-08-05T12:00:00Z');
 const WIDTH = 1440;
@@ -457,6 +461,7 @@ describe('MPA schema-v2 client trust boundary', () => {
         const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
         expect(lease.status).toBe('available');
         expect(lease.data?.features[0]).toBe(loaded?.features[0]);
+        expect(() => registerVerifiedMpaRetainedOwner(() => ({ entry: null, epoch: 0 }))).toThrow(/already registered/);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         vi.setSystemTime(NOW + MPA_CACHE_TTL_MS);
         expect(retainedMpaRoutingContextKey()).not.toBe(sourceKey);
@@ -512,6 +517,30 @@ describe('MPA schema-v2 client trust boundary', () => {
         const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
         expect(lease.status).toBe('bounded-out');
         expect(lease.data).toBeUndefined();
+        lease.release();
+    });
+    it('bounds complete retained selection by actual UTF-8 bytes, without publishing a partial view', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const collection = mpaCollection();
+        collection.features = Array.from({ length: 1000 }, () => {
+            const feature = structuredClone(collection.features[0]);
+            for (const key of ['name', 'type', 'iucn', 'zone', 'authority', 'state'] as const)
+                feature.properties[key] = '海'.repeat(300);
+            return feature;
+        });
+        const bundle = await mpaNetworkBundle(collection);
+        bundle.manifest.dimensions.feature_count = 1000;
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+            .mockResolvedValueOnce(geoJsonResponse(bundle.asset));
+        vi.stubGlobal('fetch', fetchMock);
+        expect(await fetchVerifiedMpaGeoJson()).not.toBeNull();
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.status).toBe('bounded-out');
+        expect(lease.data).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
         lease.release();
     });
     afterEach(() => {

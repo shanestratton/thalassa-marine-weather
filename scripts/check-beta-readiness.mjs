@@ -437,6 +437,7 @@ const cmemsWebglSafetySource = read('components/map/cmemsWebglSafety.ts');
 const cmemsRendererFailureTest = read('tests/CmemsRendererFailure.test.ts');
 const marineLayerVisualContractTest = read('tests/MarineLayerVisualContract.test.ts');
 const mpaDataset = read('services/weather/api/mpaDataset.ts');
+const mpaRetained = read('services/weather/api/mpaRetained.ts');
 const mpaLayer = read('components/map/MpaLayer.ts');
 const mapHubSource = read('components/map/MapHub.tsx');
 const marinePublisherTrustTest = read('tests/MarinePublisherTrust.test.ts');
@@ -1118,7 +1119,6 @@ check(
     'MPA client validates one bounded immutable asset, releases ownership, and aborts stale work before Mapbox',
     includesAll(mpaDataset, [
         'export const MPA_ASSET_MAX_BYTES = 16 * 1024 * 1024',
-        'export const MPA_CACHE_TTL_MS = 30 * 60 * 1000',
         'value.schema_version === 2',
         'value.dimensions.feature_count',
         '`${API_BASE}/mpa/manifest-v2.json`',
@@ -1133,6 +1133,23 @@ check(
         'cache.publishedAt = manifest.published_at',
         "'force-cache'",
     ]) &&
+        includesAll(mpaRetained, [
+            'export const MPA_CACHE_TTL_MS = 30 * 60 * 1000',
+            'ownerReader === reader',
+            'now.entry === captured',
+            'now.epoch === epoch',
+            'captured.checkedAt === checkedAt',
+            'now >= entry.checkedAt',
+            'now - entry.checkedAt < MPA_CACHE_TTL_MS',
+            'bytes > OVERLAY_INPUT_BYTES',
+            'features.length >= OVERLAY_MAX_FEATURES',
+            'vertices > OVERLAY_MAX_VERTICES',
+            "signal?.removeEventListener('abort', release)",
+        ]) &&
+        includesAll(mpaDataset, [
+            'const readRetainedOwner = () => ({ entry: cache, epoch: ownershipEpoch })',
+            'registerVerifiedMpaRetainedOwner(readRetainedOwner)',
+        ]) &&
         !mpaDataset.includes('/manifest.json') &&
         cmemsGridTrust.includes("cache: RequestCache = 'no-store'") &&
         includesInOrder(mpaDatasetOwnershipBoundary, [

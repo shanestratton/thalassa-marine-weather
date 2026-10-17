@@ -201,6 +201,7 @@ describe('the dev server and tests still read the env var at run time', () => {
 
 /** Gate files the fold proof builds, and the layers that are ON in production. */
 const GATE_ENTRIES = {
+    routeAreas: 'services/routing/routingExclusions.ts',
     waves: 'components/map/useOceanWaveParticleLayer.ts',
     seaice: 'components/map/useSeaIceRasterLayer.ts',
     mld: 'components/map/useMldRasterLayer.ts',
@@ -307,6 +308,9 @@ describe('the committed profile compiles the switched-off layers out, and flippi
         const committed = await miniBuild(committedDefines);
         for (const rel of COMPILED_OFF_MODULES) expect(committed.rendered(rel), rel).toBe(0);
         for (const rel of SHIPPED_RENDERERS) expect(committed.rendered(rel), rel).toBeGreaterThan(1_000);
+        expect(committed.rendered('services/routing/routingExclusions.ts')).toBeGreaterThan(100);
+        expect(committed.rendered('services/weather/api/mpaRetained.ts')).toBeGreaterThan(100);
+        expect(committed.code).not.toContain('/mpa/manifest-v2.json');
         // No path in the gated code can reach Blitzortung's socket.
         expect(committed.code).not.toContain('.blitzortung.org/');
         // And the build guard agrees.
