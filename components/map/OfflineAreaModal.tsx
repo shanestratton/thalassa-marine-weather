@@ -14,6 +14,7 @@ import {
 } from '../../services/OfflineReliefService';
 import { subscribeOfflineRelief } from '../../services/offlineReliefRuntime';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
+import { RELIEF_DISPLAY_REGIONS } from '../../services/reliefDisplayRegions';
 
 interface OfflineAreaModalProps {
     isOpen: boolean;
@@ -101,8 +102,14 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
         <ModalSheet isOpen={isOpen} onClose={close} title="Offline Relief" maxWidth="max-w-md">
             <div className="space-y-3 text-xs leading-relaxed text-gray-300">
                 <p>
-                    Save the seafloor colours and relief for the visible area. Global relief covers zoom 0–9;
-                    Queensland's GBR terrain adds zoom 8–13. Relief is not a navigation chart.
+                    Save relief for the visible area: global zoom 0–9, Australia 250 m zoom 8–10, GBR 30 m zoom 8–13,
+                    and 61 surveyed New Zealand coastal patches zoom 8–14. Sparse gaps keep coarse fallback; zoom is not
+                    survey accuracy.
+                </p>
+                <p>
+                    Australia is approximately MSL. New Zealand retains native NZVD2016 heights, not MSL; no vertical
+                    conversion. GEBCO fallback is approximately MSL. This mixed-datum display is not for navigation or
+                    depth sampling.
                 </p>
                 <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-amber-100">
                     Mapbox imagery, place labels and public OSM tiles are not stored. Free NOAA and imported public
@@ -127,7 +134,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                         className="block w-full min-h-[44px] accent-sky-400"
                         type="range"
                         min={4}
-                        max={13}
+                        max={Math.max(13, ...RELIEF_DISPLAY_REGIONS.map((region) => region.maxzoom))}
                         step={1}
                         value={detail}
                         disabled={busy}
