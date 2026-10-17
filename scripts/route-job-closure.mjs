@@ -42,7 +42,8 @@ function resolveSpecifier(repo, fromRel, spec) {
     throw new Error(`${fromRel} imports '${spec}', which does not resolve to a file`);
 }
 
-function importsOf(ts, rel, source) {
+/** Shared runtime-only collector: ImportTypeNode expressions are erased. */
+export function importsOf(ts, rel, source) {
     const kind = rel.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
     const file = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, kind);
     const values = [];

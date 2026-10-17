@@ -102,7 +102,7 @@ it('keeps all production DOM classes, prop order and handlers identical after ac
                         return name === id ? source : null;
                     },
                 },
-                ...(enabled ? [shareClassNames(process.cwd())] : []),
+                ...(enabled ? [shareClassNames(process.cwd(), { standalone: true })] : []),
             ],
             build: {
                 write: false,
