@@ -63,6 +63,8 @@ import { resolveTimeZone } from '../../utils/timezone';
 import { useLocationCoords } from '../../stores/LocationStore';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
+const EnsembleBand = React.lazy(() => import('./EnsembleBand'));
+
 // ── Parameter definitions ──
 // Ids match the Glass grid's metric ids so a long-pressed cell maps 1:1.
 
@@ -635,6 +637,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         const [spread, setSpread] = useState<ModelSpreadResult | null>(null);
         const [isLoading, setIsLoading] = useState(false);
         const [failed, setFailed] = useState(false);
+        const [ensembleOpen, setEnsembleOpen] = useState(false);
         const [param, setParam] = useState<MatrixParam>('wind');
         const closeButtonRef = useRef<HTMLButtonElement>(null);
         const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
@@ -647,6 +650,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         // Land on the long-pressed metric's tab each time the sheet opens.
         useEffect(() => {
             if (visible) {
+                setEnsembleOpen(false);
                 setParam(initialParam ?? 'wind');
                 setNowMs(Date.now());
             }
@@ -853,7 +857,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-4 pt-2 pb-1">
+                    <div className="sticky top-0 z-10 flex items-center justify-between bg-slate-900 px-4 pt-2 pb-1">
                         <div>
                             <h2
                                 id="model-comparison-title"
@@ -874,7 +878,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                             ref={closeButtonRef}
                             onClick={onClose}
                             aria-label="Close"
-                            className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                            className="hit-target-44 min-h-[44px] min-w-[44px] shrink-0 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                         >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path
@@ -1303,6 +1307,28 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                             </p>
                         ))
                     )}
+
+                    <div className="px-4 pb-2">
+                        <button
+                            type="button"
+                            aria-expanded={ensembleOpen}
+                            aria-controls="ensemble-band"
+                            disabled={lat == null || lon == null}
+                            onClick={() => setEnsembleOpen(!ensembleOpen)}
+                            className="min-h-[44px] w-full rounded-xl border border-white/10 px-3 text-left text-xs text-sky-300"
+                        >
+                            {ensembleOpen ? 'Hide ensemble bands' : 'Ensemble bands · IFS / EC46'}
+                        </button>
+                        {ensembleOpen && lat != null && lon != null && (
+                            <div id="ensemble-band">
+                                <React.Suspense
+                                    fallback={<p className="text-xs text-gray-400">Loading ensemble panel…</p>}
+                                >
+                                    <EnsembleBand latitude={lat} longitude={lon} />
+                                </React.Suspense>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Attribution — a licence condition, not a courtesy: the models on screen */}
                     {credit && (

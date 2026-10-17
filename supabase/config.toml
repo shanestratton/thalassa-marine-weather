@@ -184,6 +184,10 @@ verify_jwt = false
 # per platform guidance.
 verify_jwt = false
 
+[functions.ensemble-forecast]
+  # Genuine members, fixed products and per-account quota; key remains server-side.
+  verify_jwt = true
+
 [functions.proxy-spoonacular]
 # Server-disabled provider (SPOONACULAR_ENABLED) plus a public quota inside
 # the function; the client uses credentialed functions.invoke. OFF.
