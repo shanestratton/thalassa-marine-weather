@@ -59,6 +59,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 
 /** Cyclone season along the trip (W1-12): the card and its IBTrACS JSON load only when a trip's legs open. */
 const SeasonRiskCard = React.lazy(() => import('./SeasonRiskCard'));
+const ClimateRoseCard = React.lazy(() => import('./ClimateRoseCard'));
 /** The card is optional: if its chunk 404s after a web deploy, show nothing rather than
  *  crash the sheet. (ErrorBoundary treats a null fallback as "show the crash card".) */
 const RENDER_NOTHING = <></>;
@@ -400,6 +401,11 @@ const TripSheet: React.FC<TripSheetProps> = ({ scope, start, onClose, onOpenChar
                 <ErrorBoundary boundaryName="SeasonRiskCard" fallback={RENDER_NOTHING}>
                     <React.Suspense fallback={null}>
                         <SeasonRiskCard routeLegs={seasonLegs} />
+                    </React.Suspense>
+                </ErrorBoundary>
+                <ErrorBoundary boundaryName="ClimateRoseCard" fallback={RENDER_NOTHING}>
+                    <React.Suspense fallback={null}>
+                        <ClimateRoseCard routeLegs={seasonLegs} />
                     </React.Suspense>
                 </ErrorBoundary>
             </div>
