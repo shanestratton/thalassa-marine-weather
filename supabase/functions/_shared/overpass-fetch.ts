@@ -38,7 +38,8 @@ export async function fetchOverpassDocument(
     query: string,
     signal?: AbortSignal,
     fetcher: typeof fetch = fetch,
-    env: (name: string) => string | undefined = (name) => typeof Deno === 'undefined' ? undefined : Deno.env.get(name),
+    env: (name: string) => string | undefined = (name) =>
+        (globalThis as { Deno?: { env: { get: (key: string) => string | undefined } } }).Deno?.env.get(name),
 ): Promise<OverpassDocument & { sourceAt: string }> {
     const document = await fetchOwnedOsmFromWx(ownedOperationForQuery(query), env, signal, fetcher);
     return { ...parseOverpassDocument(JSON.stringify(document)), sourceAt: document.thalassaSource.sourceAt };
