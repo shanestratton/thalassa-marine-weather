@@ -1,0 +1,33 @@
+name: Thalassa 137 read-only beta status
+on:
+  push:
+    branches: ["codex/build-137-tester-status"]
+    paths: [".github/workflows/read-testflight-137-status.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: thalassa-137-beta-status
+  cancel-in-progress: false
+jobs:
+  read:
+    name: Read Apple beta metadata only
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a935bc905b6cbe00b5aaf7473c59fa75fbf9fb6a
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Test read-only destination, identity and pagination checks
+        run: node --test ci/build137/tester-status.test.mjs
+      - name: Read exact build 137 beta state and anonymous group counts
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: node ci/build137/tester-status.mjs --require-ready
