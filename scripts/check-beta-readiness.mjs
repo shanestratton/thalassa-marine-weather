@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from 'vite';
+import { isReviewedUnsignedNative139Workflow } from './unsigned-native139-policy.mjs';
 import {
     PUBLIC_BETA_ENDPOINT_KEYS,
     PUBLIC_BETA_FEATURE_ARTIFACT_FILE,
@@ -519,8 +520,13 @@ check(
         workflowRunnerRecords.every(
             ({ relative, runner }) =>
                 runner === 'ubuntu-24.04' ||
-                // The one macOS job: the iPhone build/TestFlight upload (docs/IOS_TESTFLIGHT_CI.md).
-                (path.basename(relative) === 'ios-testflight.yml' && runner === 'macos-26'),
+                // The existing signed iPhone path, plus the separately fenced unsigned diagnostic.
+                (path.basename(relative) === 'ios-testflight.yml' && runner === 'macos-26') ||
+                (runner === 'macos-26' &&
+                    isReviewedUnsignedNative139Workflow(
+                        relative,
+                        workflowEntries.find(([name]) => name === relative)?.[1] ?? '',
+                    )),
         ) &&
         workflowEntries.every(([, source]) => /^permissions:\s*(?:\{\})?\s*$/m.test(source)) &&
         !workflowEntries.some(([, source]) => /\b(?:read-all|write-all)\b/.test(source.replace(/^\s*#.*$/gm, ''))) &&

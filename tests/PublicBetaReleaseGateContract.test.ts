@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import { isReviewedUnsignedNative139Workflow } from '../scripts/unsigned-native139-policy.mjs';
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
@@ -173,8 +174,11 @@ describe('public-beta release gate contract', () => {
             // upload results on a private repository without paid Code Security.
             expect(writePermissions, `${name} must retain least-privilege writes`).toEqual([]);
             for (const runner of source.matchAll(/^\s*runs-on:\s*([^\s#]+)\s*$/gm)) {
-                // One fixed macOS image, for the iPhone build only (docs/IOS_TESTFLIGHT_CI.md).
-                expect(runner[1], `${name} runner`).toBe(name === 'ios-testflight.yml' ? 'macos-26' : 'ubuntu-24.04');
+                // The existing signed path and one separately fenced unsigned diagnostic.
+                const unsigned = isReviewedUnsignedNative139Workflow(`.github/workflows/${name}`, source);
+                expect(runner[1], `${name} runner`).toBe(
+                    name === 'ios-testflight.yml' || unsigned ? 'macos-26' : 'ubuntu-24.04',
+                );
             }
             for (const action of source.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)(?:\s+#\s*(\S.*?))?\s*$/gm)) {
                 usesCount += 1;
