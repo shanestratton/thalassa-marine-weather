@@ -1,10 +1,11 @@
-# Reviewed real-source observation packet — not dispatched
+# Reviewed first real-source observation packet
 
 The source/UI checkpoint is `eda5ea980fd011b45be2d0b547253b9f361d5d8e`.
 The separate helper and manual workflow in this packet prepare one real-provider
 observation. Root must review and explicitly dispatch its exact frozen source SHA.
-No image has been read by preparing or testing this packet. No live app/server
-feature flag is set by the helper or workflow.
+Preparing/testing this packet performed no image reads. Root subsequently
+dispatched its reviewed source once; the actual result is recorded below. No
+live app/server feature flag is set by the helper or workflow.
 
 ## Exact read plan
 
@@ -81,3 +82,22 @@ Vercel CSP/env, deploys a proxy, publishes assets, installs Pi code, modifies R2
 starts a schedule. Real-source results must be reviewed before any separate
 activation decision. The source/UI licence and clock caveats remain in
 [sharper-satellite.md](sharper-satellite.md).
+
+## Actual first observation
+
+Run 39002448267 / job 117308040081 used source
+`5f9da29ac3fbc86003bb40cbf9de073c22860fba` and isolated control
+`38d74a4ddce90969b2ded47c11b130f36abcc111`. It exited one, with four of six
+products yielding at least one visible PNG; its historical observation criterion
+did not claim usable varying detail. The other products remained held. The
+214,711-byte artifact has SHA-256
+`4342028ad9917150ee032881c213b3f1a701368ce6550c3ec770e626efcb2560`.
+The immutable parent receipt is `outputs/Build14105 satellite first real source
+observation.json`; original XML/PNG/headers and failed process exit remain retained.
+
+Uniformly opaque East imagery does not demonstrate usable detail, so current
+usable-detail evidence covers three products in those windows only. The new
+client pixel hold and exact 334/914-byte regression fixtures are described in the
+source document. Nothing from this partial observation enables the feature,
+widens source clocks, or proves independent acquisition times. No repeated source
+read was made while diagnosing the retained evidence.

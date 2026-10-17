@@ -48,9 +48,11 @@ beforeEach(() => {
         () =>
             ({
                 drawImage: draw,
-                getImageData: (_x: number, _y: number, w: number, h: number) => ({
-                    data: new Uint8ClampedArray(w * h * 4).fill(255),
-                }),
+                getImageData: (_x: number, _y: number, w: number, h: number) => {
+                    const data = new Uint8ClampedArray(w * h * 4).fill(255);
+                    data[0] = 254;
+                    return { data };
+                },
             }) as unknown as CanvasRenderingContext2D,
     );
     vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) =>
@@ -83,6 +85,26 @@ afterEach(() => {
     vi.useRealTimers();
 });
 describe('bounded original satellite viewport and handoff', () => {
+    it.each([0, 255])(
+        'refuses a decoded zero-detail plane (%s) before encoding, URL creation or handoff',
+        async (fill) => {
+            vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({
+                drawImage: draw,
+                getImageData: (_x: number, _y: number, w: number, h: number) => ({
+                    data: new Uint8ClampedArray(w * h * 4).fill(fill),
+                }),
+            } as unknown as CanvasRenderingContext2D);
+            const source = lease(),
+                frame = source.times.frames.at(-1)!,
+                plan = satelliteImagePlan([-1, -1, 1, 1]);
+            await expect(
+                prepareSatelliteFrame(source, frame, plan, new AbortController().signal, () => true),
+            ).rejects.toThrow('coverage unknown');
+            expect(close).toHaveBeenCalledOnce();
+            expect(HTMLCanvasElement.prototype.toBlob).not.toHaveBeenCalled();
+            expect(URL.createObjectURL).not.toHaveBeenCalled();
+        },
+    );
     it('splits a dateline viewport into exactly two bounded sequential Mercator pieces', () => {
         const plan = satelliteImagePlan([170, -10, 190, 10]);
         expect(plan.box).toEqual([170, -10, 190, 10]);

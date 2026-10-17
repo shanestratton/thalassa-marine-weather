@@ -25,6 +25,8 @@ interface ImportMetaEnv {
     readonly VITE_ENABLE_OCEAN_EDDIES?: string;
     /** Bounded atmospheric maps stay off until original-source publication is verified. */
     readonly VITE_ATMOSPHERE_ENABLED?: string;
+    /** Display-only satellite view stays off pending bounded real-source/clock review. */
+    readonly VITE_SHARPER_SATELLITE_ENABLED?: string;
     readonly VITE_MPA_ENABLED: string;
     /** Seafloor relief tile base, e.g. https://<R2 host>/v1 (components/map/reliefBase.ts). Unset = the placeholder there. */
     readonly VITE_RELIEF_TILE_BASE?: string;

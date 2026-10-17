@@ -1,6 +1,11 @@
 import { API_BASE } from '../native/apiBase';
 import { satelliteModeBlocks } from '../networkPolicy';
-import { awaitSatelliteOperation, readSatelliteResponse, validateSatellitePng } from './satelliteViewBytes';
+import {
+    awaitSatelliteOperation,
+    readSatelliteResponse,
+    validateSatellitePng,
+    satelliteViewportAlphaFraction,
+} from './satelliteViewBytes';
 import {
     SATELLITE_IMAGE_MAX,
     SATELLITE_METADATA_LIFETIME_MS,
@@ -310,10 +315,7 @@ export async function prepareSatelliteFrame(
             }
         }
         check();
-        const pixels = context.getImageData(0, 0, plan.width, plan.height).data;
-        let visible = 0;
-        for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 0) visible++;
-        if (!visible) throw Error('Satellite image has no visible source pixels');
+        const alphaFraction = satelliteViewportAlphaFraction(context.getImageData(0, 0, plan.width, plan.height).data);
         const output = await awaitSatelliteOperation(
             new Promise<Blob>((resolve, reject) =>
                 canvas.toBlob(
@@ -326,7 +328,7 @@ export async function prepareSatelliteFrame(
         check();
         if (output.size > SATELLITE_IMAGE_MAX) throw Error('Satellite viewport encoding exceeds bound');
         const url = URL.createObjectURL(output),
-            owned = imageOwner(product, frame, plan, lease.times, visible / (plan.width * plan.height), url, current);
+            owned = imageOwner(product, frame, plan, lease.times, alphaFraction, url, current);
         if (!current()) {
             owned.releaseUnclaimed();
             throw Error('Satellite image retired before handoff');
