@@ -85,6 +85,9 @@ test('workflow is owner-only bounded-trigger unsigned compile, fixed source and 
         paths: ['.github/workflows/unsigned-native-139.yml'],
     });
     assert.deepEqual(workflow.permissions, { contents: 'read' });
+    const actionLines = text.split('\n').filter((line) => /\buses:\s*actions\//.test(line));
+    assert.equal(actionLines.length, 4);
+    assert.ok(actionLines.every((line) => /@[a-f0-9]{40}\s+# v\d+\.\d+\.\d+$/.test(line)));
     assert.equal(job['runs-on'], 'macos-26');
     assert.equal(job.env.DEVELOPER_DIR, '/Applications/Xcode_26.6.app/Contents/Developer');
     assert.equal(job.env.VITE_APP_BUILD, '139');
