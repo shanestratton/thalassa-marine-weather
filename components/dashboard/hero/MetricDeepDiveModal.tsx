@@ -530,6 +530,9 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     const [summaryView, setSummaryView] = React.useState<{ metric: MetricKey; identity: typeof identity } | null>(null);
     const seaMetric = metric === 'wave' || metric === 'period';
     const partitionsView = seaMetric && !(summaryView?.metric === metric && summaryView.identity === identity);
+    const resetViewScroll = React.useCallback((element: HTMLDivElement | null) => {
+        element?.parentElement?.scrollTo(0, 0);
+    }, []);
     React.useEffect(() => {
         setSummaryView(null);
         setShowAll(false);
@@ -742,141 +745,148 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 ) : undefined
             }
         >
-            {partitionsView ? (
-                <SeaPartitionsBlock
-                    marine={marine}
-                    vessel={comfortVessel}
-                    preference={comfortPreference}
-                    hours={hourly}
-                    current={currentMarine}
-                />
-            ) : (
-                <div className="space-y-5">
-                    {/* Now + trend/shift */}
-                    <div className="flex items-end justify-between">
-                        <div>
-                            <div className="text-[11px] uppercase tracking-wider text-white/40">Now</div>
-                            <div
-                                className={`text-5xl font-black tabular-nums ${cfg.accent} drop-shadow-[0_2px_14px_rgba(255,255,255,0.12)]`}
-                            >
-                                {fmt(nowVal)}
-                            </div>
-                        </div>
-                        {isDir ? (
-                            <div
-                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${shiftPill}`}
-                            >
-                                <span className="text-base leading-none">{shiftIcon}</span>
-                                <span className="capitalize">{shift ?? 'steady'}</span>
-                            </div>
-                        ) : vUI ? (
-                            <div
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-black ${vUI.badge}`}
-                            >
-                                <span className="text-base leading-none">{vUI.thumb}</span>
-                                <span>{verdictWord ?? vUI.word}</span>
-                            </div>
-                        ) : (
-                            <div
-                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${trendPill}`}
-                            >
-                                <span className="text-base leading-none">{trendIcon}</span>
-                                <span className="capitalize">{trend}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {isDir ? (
-                        <>
-                            {/* Heading: yesterday / today / tomorrow */}
-                            <div className="flex items-stretch gap-2.5">
-                                <DirCell label="Yesterday" deg={dirInfo?.yesterdayDeg ?? null} />
-                                <DirCell label="Today" deg={dirInfo?.todayDeg ?? null} highlight />
-                                <DirCell label="Tomorrow" deg={dirInfo?.tomorrowDeg ?? null} />
-                            </div>
-
-                            {/* Shift read — accent callout */}
-                            <div className="flex items-start gap-2.5 rounded-xl bg-white/4 border border-white/6 px-3.5 py-3">
-                                <span className="mt-0.5 text-base leading-none text-emerald-300">{shiftIcon}</span>
-                                <p className="text-sm text-white/80 leading-relaxed">{dirRead}</p>
-                            </div>
-
-                            <p className="text-[11px] text-white/50 leading-relaxed">
-                                The cardinal is where the wind blows <em>from</em>; the arrow points where it's heading.
-                                Yesterday needs WeatherKit history; today and tomorrow come from the forecast.
-                            </p>
-                        </>
-                    ) : (
-                        <>
-                            {/* Chart */}
-                            <div className="rounded-xl bg-linear-to-b from-white/5 to-white/1.5 border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                                <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
-                                <div className="flex justify-between text-[10px] text-white/50 px-1 mt-1">
-                                    <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
-                                    {hasHistory ? <span className="text-white/45">Now</span> : null}
-                                    <span>+5 days →</span>
+            <div key={partitionsView ? 'partitions' : 'summary'} ref={resetViewScroll}>
+                {partitionsView ? (
+                    <SeaPartitionsBlock
+                        marine={marine}
+                        vessel={comfortVessel}
+                        preference={comfortPreference}
+                        hours={hourly}
+                        current={currentMarine}
+                    />
+                ) : (
+                    <div className="space-y-5">
+                        {/* Now + trend/shift */}
+                        <div className="flex items-end justify-between">
+                            <div>
+                                <div className="text-[11px] uppercase tracking-wider text-white/40">Now</div>
+                                <div
+                                    className={`text-5xl font-black tabular-nums ${cfg.accent} drop-shadow-[0_2px_14px_rgba(255,255,255,0.12)]`}
+                                >
+                                    {fmt(nowVal)}
                                 </div>
                             </div>
-
-                            {/* Window verdict + 5-day read — the merged hero callout */}
-                            <div
-                                className={`flex items-start gap-3 rounded-xl border px-3.5 py-3 ${
-                                    vUI ? vUI.banner : 'bg-white/4 border-white/6'
-                                }`}
-                            >
-                                {vUI ? (
-                                    <span className="text-2xl leading-none">{vUI.thumb}</span>
-                                ) : (
-                                    <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>{trendIcon}</span>
-                                )}
-                                <div className="min-w-0">
-                                    {vUI ? (
-                                        <div className={`text-xs font-black uppercase tracking-wide ${vUI.text}`}>
-                                            {verdictWord ?? vUI.word}
-                                        </div>
-                                    ) : null}
-                                    <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
+                            {isDir ? (
+                                <div
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${shiftPill}`}
+                                >
+                                    <span className="text-base leading-none">{shiftIcon}</span>
+                                    <span className="capitalize">{shift ?? 'steady'}</span>
                                 </div>
-                            </div>
-
-                            {/* Stat cards */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="rounded-xl bg-white/4 border border-white/6 px-3.5 py-2.5">
-                                    <div className="text-[10px] uppercase tracking-wider text-white/40">
-                                        5-day range
-                                    </div>
-                                    <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
-                                        {fmt(todayMin)} – {fmt(todayMax)}
-                                    </div>
+                            ) : vUI ? (
+                                <div
+                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-black ${vUI.badge}`}
+                                >
+                                    <span className="text-base leading-none">{vUI.thumb}</span>
+                                    <span>{verdictWord ?? vUI.word}</span>
                                 </div>
-                                <div className="rounded-xl bg-white/4 border border-white/6 px-3.5 py-2.5">
-                                    <div className="text-[10px] uppercase tracking-wider text-white/40">Tomorrow</div>
-                                    <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
-                                        {tomorrowStr || '--'}
-                                    </div>
+                            ) : (
+                                <div
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${trendPill}`}
+                                >
+                                    <span className="text-base leading-none">{trendIcon}</span>
+                                    <span className="capitalize">{trend}</span>
                                 </div>
-                            </div>
-
-                            {cfg.marine && (
-                                <p className="text-[11px] text-white/50 leading-relaxed">
-                                    Marine metrics show the forecast window — yesterday history isn’t available for
-                                    waves.
-                                </p>
                             )}
-                        </>
-                    )}
+                        </div>
 
-                    {/* Every metric at once, a week stacked on one clock (131-02). */}
-                    <button
-                        type="button"
-                        aria-haspopup="dialog"
-                        onClick={() => setShowAll(true)}
-                        className="w-full min-h-11 py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold hover:bg-sky-500/20 transition-colors"
-                    >
-                        All metrics
-                    </button>
-                </div>
-            )}
+                        {isDir ? (
+                            <>
+                                {/* Heading: yesterday / today / tomorrow */}
+                                <div className="flex items-stretch gap-2.5">
+                                    <DirCell label="Yesterday" deg={dirInfo?.yesterdayDeg ?? null} />
+                                    <DirCell label="Today" deg={dirInfo?.todayDeg ?? null} highlight />
+                                    <DirCell label="Tomorrow" deg={dirInfo?.tomorrowDeg ?? null} />
+                                </div>
+
+                                {/* Shift read — accent callout */}
+                                <div className="flex items-start gap-2.5 rounded-xl bg-white/4 border border-white/6 px-3.5 py-3">
+                                    <span className="mt-0.5 text-base leading-none text-emerald-300">{shiftIcon}</span>
+                                    <p className="text-sm text-white/80 leading-relaxed">{dirRead}</p>
+                                </div>
+
+                                <p className="text-[11px] text-white/50 leading-relaxed">
+                                    The cardinal is where the wind blows <em>from</em>; the arrow points where it's
+                                    heading. Yesterday needs WeatherKit history; today and tomorrow come from the
+                                    forecast.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                {/* Chart */}
+                                <div className="rounded-xl bg-linear-to-b from-white/5 to-white/1.5 border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                                    <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
+                                    <div className="flex justify-between text-[10px] text-white/50 px-1 mt-1">
+                                        <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
+                                        {hasHistory ? <span className="text-white/45">Now</span> : null}
+                                        <span>+5 days →</span>
+                                    </div>
+                                </div>
+
+                                {/* Window verdict + 5-day read — the merged hero callout */}
+                                <div
+                                    className={`flex items-start gap-3 rounded-xl border px-3.5 py-3 ${
+                                        vUI ? vUI.banner : 'bg-white/4 border-white/6'
+                                    }`}
+                                >
+                                    {vUI ? (
+                                        <span className="text-2xl leading-none">{vUI.thumb}</span>
+                                    ) : (
+                                        <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>
+                                            {trendIcon}
+                                        </span>
+                                    )}
+                                    <div className="min-w-0">
+                                        {vUI ? (
+                                            <div className={`text-xs font-black uppercase tracking-wide ${vUI.text}`}>
+                                                {verdictWord ?? vUI.word}
+                                            </div>
+                                        ) : null}
+                                        <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
+                                    </div>
+                                </div>
+
+                                {/* Stat cards */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="rounded-xl bg-white/4 border border-white/6 px-3.5 py-2.5">
+                                        <div className="text-[10px] uppercase tracking-wider text-white/40">
+                                            5-day range
+                                        </div>
+                                        <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
+                                            {fmt(todayMin)} – {fmt(todayMax)}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl bg-white/4 border border-white/6 px-3.5 py-2.5">
+                                        <div className="text-[10px] uppercase tracking-wider text-white/40">
+                                            Tomorrow
+                                        </div>
+                                        <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
+                                            {tomorrowStr || '--'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {cfg.marine && (
+                                    <p className="text-[11px] text-white/50 leading-relaxed">
+                                        Marine metrics show the forecast window — yesterday history isn’t available for
+                                        waves.
+                                    </p>
+                                )}
+                            </>
+                        )}
+
+                        {/* Every metric at once, a week stacked on one clock (131-02). */}
+                        <button
+                            type="button"
+                            aria-haspopup="dialog"
+                            onClick={() => setShowAll(true)}
+                            className="w-full min-h-11 py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold hover:bg-sky-500/20 transition-colors"
+                        >
+                            All metrics
+                        </button>
+                    </div>
+                )}
+            </div>
             {showAll && (
                 <React.Suspense fallback={null}>
                     <Meteogram

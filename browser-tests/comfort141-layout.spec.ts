@@ -140,6 +140,8 @@ for (const width of [300, 375])
             await summary.focus();
             await page.keyboard.press('Space');
             await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toHaveCount(0);
+            await expect(seaDialog.getByText('Now', { exact: true }).first()).toBeVisible();
+            await seaDialog.getByText('5-day range', { exact: true }).scrollIntoViewIfNeeded();
             await expect(seaDialog.getByText('5-day range', { exact: true })).toBeVisible();
             const back = seaDialog.getByRole('button', { name: 'Show sea partitions', exact: true });
             await target(back);
