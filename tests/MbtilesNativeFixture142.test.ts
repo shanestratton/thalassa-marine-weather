@@ -13,6 +13,7 @@ const encoded = Buffer.from(original).toString('base64');
 
 function fixture() {
     const metadata: StatResult = {
+        name: 'fictional-ocean-test.mbtiles',
         type: 'file',
         size: encoded.length,
         ctime: 17,
