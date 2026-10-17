@@ -163,7 +163,11 @@ test('actual configured public-byte copy preserves hashes and guest boot, withou
 }) => {
     const proof = await (await request.get('/_qa/proof.json')).json();
     expect(proof).toMatchObject({
-        artifact: 'build139-configured-inert-tuples',
+        artifact: process.env.INERT_UI_RELEASE_ARTIFACT === '1' ? 'dist' : 'build139-configured-inert-tuples',
+        sourceMode:
+            process.env.INERT_UI_RELEASE_ARTIFACT === '1'
+                ? 'already-built-release-dist'
+                : 'reviewed-configured-artifact',
         copiedPublicBytesIdentical: true,
         sourceMapsExcludedFromCopy: true,
     });

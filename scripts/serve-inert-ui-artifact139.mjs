@@ -8,7 +8,13 @@ import { createHash } from 'node:crypto';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.resolve(process.env.ACTUAL_INERT_DIST ?? path.resolve(repo, '../build139-configured-inert-tuples'));
 const parent = path.dirname(repo);
-if (!dist.startsWith(parent + path.sep) || !path.basename(dist).startsWith('build139-configured-'))
+const releaseArtifact = process.env.INERT_UI_RELEASE_ARTIFACT === '1';
+if (releaseArtifact && (!process.env.ACTUAL_INERT_DIST || dist !== path.join(repo, 'dist')))
+    throw Error('Release proof requires the explicit already-built repository dist.');
+if (
+    !releaseArtifact &&
+    (!dist.startsWith(parent + path.sep) || !path.basename(dist).startsWith('build139-configured-'))
+)
     throw Error('Pass the explicit configured139 proof artifact.');
 const stage = await fs.mkdtemp(path.join(parent, 'inert-ui139-artifact-copy-')),
     copy = path.join(stage, 'public');
@@ -46,6 +52,7 @@ const webCsp = deployed.headers
 if (!webCsp) throw Error('Actual web CSP unavailable');
 const proof = {
     artifact: path.basename(dist),
+    sourceMode: releaseArtifact ? 'already-built-release-dist' : 'reviewed-configured-artifact',
     publicFiles: sourceInventory.length,
     copiedPublicBytesIdentical: true,
     sourceMapsExcludedFromCopy: true,
