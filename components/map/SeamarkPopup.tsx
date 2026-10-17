@@ -6,6 +6,7 @@
  * in proper nautical formatting with human-readable light descriptions.
  */
 import React from 'react';
+import { lightRhythmHtml, osmLightRhythm } from './lightRhythm';
 
 interface SeamarkPopupProps {
     seamarkType: string;
@@ -269,6 +270,9 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
     const typeLabel = formatType(seamarkType);
     const lightChars = formatLightCharacteristics(tags);
     const lightPlain = formatLightPlainEnglish(tags);
+    const lightPrefixes = findLightPrefixes(tags)
+        .filter((prefix) => tags[`${prefix}character`] || tags[`${prefix}colour`])
+        .slice(0, 8);
     const colourEmoji = getColourIndicator(tags, seamarkType);
     const category = getCategoryLabel(tags, seamarkType);
     const shape = getShape(tags, seamarkType);
@@ -412,6 +416,10 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
                     </span>
                 </>
             </div>
+
+            {lightPrefixes.map((prefix) => (
+                <div key={prefix} dangerouslySetInnerHTML={{ __html: lightRhythmHtml(osmLightRhythm(tags, prefix)) }} />
+            ))}
 
             {/* ── Human-readable light description ── */}
             {lightPlain && (

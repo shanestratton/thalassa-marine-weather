@@ -203,6 +203,15 @@ export interface LocalSighting {
     /** The signed-in user who logged it on this phone; null = logged signed out (Private, local only). */
     ownerUserId: string | null;
     row: SightingRow;
+    /** Owner-only sidecar. Never part of SightingRow, a crew/public DTO or an export. */
+    privateCatch?: PrivateCatch | null;
+    privateCatchSync?: {
+        revision: number;
+        pending: boolean;
+        attempts: number;
+        retryAt: number | null;
+        error: 'not-available' | 'retry' | null;
+    };
     photos: SightingPhotoRef[];
     sync: {
         state: SightingSyncState;
@@ -229,4 +238,10 @@ export interface LocalSighting {
     everSensitive?: boolean;
     createdAtLocal: number;
     updatedAtLocal: number;
+}
+
+export interface PrivateCatch {
+    species: string | null;
+    length_cm: number | null;
+    disposition: 'kept' | 'released' | null;
 }

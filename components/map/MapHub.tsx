@@ -19,6 +19,7 @@
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
+import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/worldFacilities';
 import { useTrackRouteRead } from './useTrackRouteRead';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
@@ -341,6 +342,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const PlaceReviewsHost = React.lazy(() => import('../community/PlaceReviewsHost'));
 const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
 const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
 const UserOverlayLayer = React.lazy(() => import('./UserOverlayLayer'));
@@ -348,6 +350,7 @@ const UserOverlaysSheet = React.lazy(() => import('./UserOverlaysSheet'));
 const ChartDrawingTools = React.lazy(() => import('./drawing/ChartDrawingTools'));
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
+const WorldFacilitiesLayer = React.lazy(() => import('./WorldFacilitiesLayer'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
@@ -2255,6 +2258,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        facilitiesVisible,
+        setFacilitiesVisible,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -2274,9 +2279,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         browseSeamarkVisible,
         browseAnchorageVisible,
         browseMooringsVisible,
+        browseFacilitiesVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     } = useMapHubLayerVisibility({ mapRef, planningSurface });
+    const [facilitiesStatus, setFacilitiesStatus] = useState<WorldFacilitiesStatus | null>(null);
     // Browse charts are opt-in on every fresh OBS, unless Settings →
     // Preferences → Chart → "Show ENC charts when Obs opens" is on (W1-01,
     // off by default; only the Obs chart honours it). The map-base menu keeps
@@ -4334,6 +4341,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setAnchorageVisible,
                             mooringsVisible,
                             setMooringsVisible,
+                            facilitiesVisible,
+                            setFacilitiesVisible,
                             lightningVisible,
                             setLightningVisible,
                             weatherInspectMode,
@@ -5614,6 +5623,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseSeamarkVisible ? 1 : 0) +
                             (browseMooringsVisible ? 1 : 0) +
                             (browseAnchorageVisible ? 1 : 0) +
+                            (browseFacilitiesVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5696,6 +5706,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onShow={anchorageLayer.showAnchorage}
                 />
 
+                {obsShowing && obsCreditsVisible && browseFacilitiesVisible && (
+                    <Suspense fallback={null}>
+                        <WorldFacilitiesLayer map={mapRef.current} mapReady={mapReady} onStatus={setFacilitiesStatus} />
+                    </Suspense>
+                )}
                 {obsCreditsVisible && (
                     <ObsCreditsRollup
                         rain={
@@ -5713,6 +5728,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
                         ais={browseAisVisible}
+                        facilities={obsShowing && browseFacilitiesVisible ? facilitiesStatus : null}
                     />
                 )}
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
@@ -6177,6 +6193,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
             </div>
 
+            <Suspense fallback={null}>
+                <PlaceReviewsHost />
+            </Suspense>
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
             <Suspense fallback={null}>
                 {isHelmSplit && (

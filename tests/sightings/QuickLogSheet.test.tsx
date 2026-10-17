@@ -170,6 +170,21 @@ describe('step 1: what did you see?', () => {
 });
 
 describe('one tap logs', () => {
+    it('fish adds owner-only catch details without changing its private default or shared species', async () => {
+        await openSheet();
+        await screen.findByText('Boat GPS (via Pi)');
+        await tap('Log fish');
+        const species = await screen.findByLabelText('Catch species');
+        fireEvent.change(species, { target: { value: 'Private cod' } });
+        fireEvent.blur(species);
+        await waitFor(async () =>
+            expect((await listLocalSightings(WREN))[0].privateCatch?.species).toBe('Private cod'),
+        );
+        const [saved] = await listLocalSightings(WREN);
+        expect(saved.row.visibility).toBe('private');
+        expect(saved.row.scientific_name).toBeNull();
+        expect(screen.getByRole('radio', { name: 'Private' })).toHaveAttribute('aria-checked', 'true');
+    });
     it('saves the sighting at once, timed when the sheet opened, against the recording voyage', async () => {
         await openSheet();
         await screen.findByText('Boat GPS (via Pi)');

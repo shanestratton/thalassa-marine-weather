@@ -296,7 +296,59 @@ function moonSky(ms: number, lat: number, lon: number) {
     const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
     // Azimuth from south, west positive — SunCalc's convention.
     const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
-    return { alt, az, parallax };
+    return { alt, az, parallax, hourAngle: H };
+}
+
+/** Both meridian crossings on the location's actual calendar day. These are
+ * upper/lower transits, not a claim that the moon reaches the zenith. The
+ * existing Almanac position model supplies hour angle; no library upgrade or
+ * guessed half-day offset is used. An individual crossing can be absent. */
+export function getMoonTransits(
+    date: Date,
+    lat: number,
+    lon: number,
+    tz?: string,
+): { state: 'normal' | 'unavailable'; upper: Date[]; lower: Date[] } {
+    const unavailable = { state: 'unavailable' as const, upper: [], lower: [] };
+    if (
+        !Number.isFinite(date.getTime()) ||
+        !Number.isFinite(lat) ||
+        Math.abs(lat) >= 90 ||
+        !Number.isFinite(lon) ||
+        Math.abs(lon) > 180
+    )
+        return unavailable;
+    if (tz && !zoneFormat(tz)) return unavailable;
+    const start = startOfLocalDay(date, tz).getTime();
+    const end = startOfLocalDay(new Date(start + 26 * HOUR_MS), tz).getTime();
+    if (!Number.isFinite(start) || end - start < 22 * HOUR_MS || end - start > 26 * HOUR_MS) return unavailable;
+    const upper: Date[] = [],
+        lower: Date[] = [];
+    const phase = (at: number) => Math.sin(moonSky(at, lat, lon).hourAngle);
+    // At most 52 half-hour brackets and 24 bisections per crossing. The lunar
+    // hour angle advances far less than half a turn within a bracket.
+    for (let left = start; left < end; left += HOUR_MS / 2) {
+        let a = left,
+            b = Math.min(left + HOUR_MS / 2, end),
+            fa = phase(a);
+        const fb = phase(b);
+        if (!Number.isFinite(fa) || !Number.isFinite(fb)) return unavailable;
+        if (fa !== 0 && fa * fb > 0) continue;
+        for (let step = 0; step < 24 && fa !== 0; step++) {
+            const middle = (a + b) / 2,
+                fm = phase(middle);
+            if (fa * fm <= 0) b = middle;
+            else {
+                a = middle;
+                fa = fm;
+            }
+        }
+        const at = fa === 0 ? a : (a + b) / 2;
+        if (at < start || at >= end) continue;
+        const events = Math.cos(moonSky(at, lat, lon).hourAngle) > 0 ? upper : lower;
+        if (!events.length || at - events[events.length - 1].getTime() > 1000) events.push(new Date(at));
+    }
+    return { state: 'normal', upper, lower };
 }
 
 /** Geocentric altitude above the rise/set line: the upper limb on the

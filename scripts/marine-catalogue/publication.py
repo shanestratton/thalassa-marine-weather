@@ -11,28 +11,30 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import world_policy
 
 PREFIX = "marine-catalogue/v1/"
 MAX_OBJECTS = 100000
 MAX_GENERATION_BYTES = 2 * 1024**3
 
 def owned(key):
-    return bool(re.fullmatch(r"marine-catalogue/v1/(places|osm|noaa|facilities)/(?:manifest\.json|[a-z0-9-]{8,48}/(?:manifest\.json|SOURCE\.json|LICENCE\.txt|NOAA-AGREEMENT\.txt|(?:areas/\d{1,2}_\d{1,3}(?:-[0-3]{1,8})?|names/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json))", key))
+    return bool(re.fullmatch(r"marine-catalogue/v1/(places|osm|noaa|facilities|facilities-world)/(?:manifest\.json|[a-z0-9-]{8,48}/(?:manifest\.json|SOURCE\.json|LICENCE\.txt|NOAA-AGREEMENT\.txt|(?:areas/\d{1,2}_\d{1,3}(?:-[0-3]{1,8})?|names/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json))", key))
 
 def plan(generation, inventory, current):
     generation = Path(generation).resolve()
     m = json.loads((generation / "manifest.json").read_text(encoding="utf-8"))
     dataset, version = m["dataset"], m["generation"]
-    if dataset not in ("places", "osm", "noaa", "facilities") or generation.name != version or not re.fullmatch(r"[a-z0-9-]{8,48}", version):
+    if dataset not in ("places", "osm", "noaa", "facilities", "facilities-world") or generation.name != version or not re.fullmatch(r"[a-z0-9-]{8,48}", version):
         raise ValueError("Invalid generation")
     if current and (current.get("dataset") != dataset or not re.fullmatch(r"[a-z0-9-]{8,48}", current.get("generation", ""))):
         raise ValueError("Invalid active manifest")
-    if dataset == "facilities":
+    if dataset in ("facilities", "facilities-world"):
         def cohorts(value):
             rows = value.get("cohorts")
             if not isinstance(rows, list) or not 1 <= len(rows) <= 32 or not all(isinstance(v, dict) and set(v) == {"id", "sourceAt", "sha256"} and isinstance(v["id"], str) and re.fullmatch(r"https://download\.geofabrik\.de/[a-z0-9/_-]+", v["id"]) and isinstance(v["sha256"], str) and re.fullmatch(r"[a-f0-9]{64}", v["sha256"]) and isinstance(v["sourceAt"], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", v["sourceAt"]) for v in rows):
                 raise ValueError("Invalid facilities regional inventory")
             ids = {v["id"] for v in rows}
+            if dataset == "facilities-world": world_policy.validate_cohorts(rows)
             if len(ids) != len(rows): raise ValueError("Duplicate facilities regional inventory")
             return ids
         included = cohorts(m)

@@ -31,6 +31,7 @@ import type { SightingsSession } from '../../hooks/sightings/useSightingsSession
 import { SightingsSheet } from './SightingsSheet';
 import { GroupChip } from './SightingGlyphs';
 import { SpeciesPicker } from './SpeciesPicker';
+import { PrivateCatchFields } from './PrivateCatchFields';
 import { VisibilityPicker } from './VisibilityPicker';
 import { crewAudience } from './QuickLogSheet';
 import { CALF_GROUPS, CalfAndPhotos, CountStepper, photoAudience } from './RefineControls';
@@ -374,6 +375,7 @@ export const SightingDetail: React.FC<SightingDetailProps> = ({ item, session, c
                 </div>
             </div>
 
+            {record && <PrivateCatchFields key={record.id} record={record} onRecord={setRecord} editable={editing} />}
             {editing && record ? (
                 <div className="mt-3 space-y-3" data-testid="sighting-edit">
                     <button

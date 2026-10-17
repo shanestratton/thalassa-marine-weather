@@ -57,6 +57,7 @@ import { SightingsSheet } from './SightingsSheet';
 import { GroupChip, SightingIcon } from './SightingGlyphs';
 import { SpeciesPicker, rememberRecentSpecies } from './SpeciesPicker';
 import { VisibilityPicker } from './VisibilityPicker';
+import { PrivateCatchFields } from './PrivateCatchFields';
 import { CALF_GROUPS, CalfAndPhotos, CountStepper } from './RefineControls';
 import { compassPoint, forecastCredit, formatClock, formatPosition, POSITION_SOURCE_LABEL } from './sightingsFormat';
 
@@ -542,6 +543,7 @@ export const QuickLogSheet: React.FC<QuickLogSheetProps> = ({ openedAt, onClose,
             </div>
 
             <div className="mt-3">
+                <PrivateCatchFields key={record.id} record={record} onRecord={setRecord} />
                 <CountStepper
                     label="How many?"
                     hint="Best guess is fine"

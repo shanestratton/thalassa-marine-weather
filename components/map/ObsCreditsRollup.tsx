@@ -10,6 +10,11 @@ import { aisCoverageText, useAisCoverage } from '../../services/ais/aisCoverage'
 import { subscribeLightningStatus, type StatusSnapshot } from '../../services/weather/api/blitzortungLightning';
 import { openExternalUrl } from '../../services/externalLinks';
 import { CREDITS_STRIP_POSITION_CLASS } from './creditsStrip';
+import {
+    worldFacilitiesSummary,
+    worldFacilitiesWarning,
+    type WorldFacilitiesStatus,
+} from '../../services/marineCatalogue/worldFacilities';
 
 export interface ObsCreditsRollupProps {
     rain: 'radar' | 'forecast' | null;
@@ -19,6 +24,7 @@ export interface ObsCreditsRollupProps {
     satellite: SatIrState;
     ais: boolean;
     onToggleSatellite: () => void;
+    facilities?: WorldFacilitiesStatus | null;
 }
 /** Presentation only: subscribes to existing feed status, never starts a layer or makes a data request. */
 export default function ObsCreditsRollup({
@@ -29,6 +35,7 @@ export default function ObsCreditsRollup({
     satellite,
     ais,
     onToggleSatellite,
+    facilities,
 }: ObsCreditsRollupProps) {
     const [open, setOpen] = React.useState(false),
         [now, setNow] = React.useState(Date.now),
@@ -64,8 +71,9 @@ export default function ObsCreditsRollup({
                 now - aisTime > 900000 ||
                 aisTime > now + 60000),
         lightningWarning = lightning && lightningStatus?.status !== 'open',
-        warning = satelliteWarning || aisWarning || lightningWarning;
-    const active = !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais;
+        facilitiesWarning = !!facilities && worldFacilitiesWarning(facilities, now),
+        warning = satelliteWarning || aisWarning || lightningWarning || facilitiesWarning;
+    const active = !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais || !!facilities;
     React.useEffect(() => {
         if (!active) setOpen(false);
     }, [active]);
@@ -80,6 +88,7 @@ export default function ObsCreditsRollup({
             ? `Satellite ${satellite.status}; ${satellite.frameTimeMs === null ? 'frame time unknown' : satellite.frameTimeMs > now + 60000 ? 'frame time is in the future' : satIrAgeLabel(satellite.frameTimeMs, now)}. ${satIrCoverageNote(satellite.coverage) ?? ''}`
             : null,
         aisWarning ? aisCoverageText(coverage, now) : null,
+        facilitiesWarning && facilities ? worldFacilitiesSummary(facilities, now) : null,
         lightningWarning
             ? `Lightning feed ${lightningStatus?.status ?? 'connecting'}; absence is not clear sky.`
             : null,
@@ -184,6 +193,26 @@ export default function ObsCreditsRollup({
                             <section aria-label="Internet AIS source">
                                 <h4 className="font-bold text-sky-200">Internet AIS</h4>
                                 <AisCoverageNotice />
+                            </section>
+                        )}
+                        {facilities && (
+                            <section aria-label="Facilities source">
+                                <h4 className="font-bold text-sky-200">Ramps, fuel, pump-outs & marinas</h4>
+                                <p>{worldFacilitiesSummary(facilities, now)}</p>
+                                {facilities.coverage && (
+                                    <p className="mt-2 text-xs">Published coverage: {facilities.coverage}</p>
+                                )}
+                                <p className="mt-2 text-xs">
+                                    Mapped references only. Access, service availability and approach depth are
+                                    unverified.
+                                </p>
+                                <a className="underline" href="https://www.openstreetmap.org/copyright">
+                                    © OpenStreetMap contributors
+                                </a>
+                                {' · '}
+                                <a className="underline" href="https://opendatacommons.org/licenses/odbl/1-0/">
+                                    ODbL
+                                </a>
                             </section>
                         )}
                         <p className="text-xs text-slate-400">

@@ -14,6 +14,29 @@ vi.mock('../components/map/cmemsFeatureAvailability', () => ({
 }));
 
 describe('RadialHelmMenu accessibility', () => {
+    it('offers default-off Facilities under Sea and includes it in Clear all without changing other overlays', async () => {
+        const toggle = vi.fn();
+        const props = { activeLayers: new Set<WeatherLayer>(), toggleLayer: vi.fn(), selectInGroup: vi.fn() };
+        const view = render(
+            <RadialHelmMenu {...props} tacticalState={{ facilitiesVisible: false, onToggleFacilities: toggle }} />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Sea layers' }));
+        const item = await screen.findByRole('menuitemcheckbox', { name: 'Facilities, off' });
+        expect(item).toHaveAttribute('aria-checked', 'false');
+        fireEvent.click(item);
+        expect(toggle).toHaveBeenCalledOnce();
+        view.rerender(
+            <RadialHelmMenu {...props} tacticalState={{ facilitiesVisible: true, onToggleFacilities: toggle }} />,
+        );
+        expect(screen.getByRole('menuitemcheckbox', { name: 'Facilities, on' })).toHaveAttribute(
+            'aria-checked',
+            'true',
+        );
+        fireEvent.keyDown(item, { key: 'Escape' });
+        fireEvent.click(await screen.findByRole('button', { name: /^Clear all · 1/ }));
+        expect(toggle).toHaveBeenCalledTimes(2);
+    });
     it('clears selected routes and tracks without reopening their pickers', async () => {
         const routePicker = vi.fn(),
             trackPicker = vi.fn(),
