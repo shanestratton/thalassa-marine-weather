@@ -309,9 +309,9 @@ describe('model-only weather refresh preserves location intent', () => {
     it('passes the verified exact-point class to the premium precision fallback too', async () => {
         world.premium = true;
         world.fetch.mockRejectedValue(new Error('Primary source unavailable'));
-        const view = render(tree());
-        world.settings = { ...world.settings, offshoreModel: 'ecmwf' };
-        view.rerender(tree());
-        await waitFor(() => expect(world.precision).toHaveBeenCalledWith('Lady Musgrave', MUSGRAVE, false, 'offshore'));
+        render(tree());
+        await act(async () => current.refreshData(true));
+        expect(world.fetch).toHaveBeenCalledExactlyOnceWith(MUSGRAVE.lat, MUSGRAVE.lon, 'Lady Musgrave', 'offshore');
+        expect(world.precision).toHaveBeenCalledExactlyOnceWith('Lady Musgrave', MUSGRAVE, false, 'offshore');
     });
 });

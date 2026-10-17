@@ -58,6 +58,7 @@ import {
     unwrapLongitudes,
 } from '../components/map/logMap';
 import { LAND_IMAGERY_LAYER, RELIEF_ATTRIBUTION, seaBaseLayers } from '../components/map/reliefBase';
+import { RELIEF_DISPLAY_REGIONS } from '../services/reliefDisplayRegions';
 
 const OLD_SATELLITE = /satellite-streets|arcgisonline|World_Imagery/;
 const RELIEF_TILE = 'https://tiles.thalassatiles.com/v1/relief-global/idx/9/251/169.png';
@@ -127,7 +128,20 @@ describe('Relief + Sat, drawn by reliefBase inside dark-v11', () => {
         map.loadStyle();
         const expected = seaBaseLayers('reliefSat');
         expect(expected.length).toBeGreaterThan(5);
+        const sparse = new Set(
+            RELIEF_DISPLAY_REGIONS.filter((region) => region.availability).flatMap((region) => [
+                `relief-${region.id}-tint`,
+                `relief-${region.id}-shade`,
+            ]),
+        );
         for (const [id, visible] of expected) {
+            if (sparse.has(id)) {
+                // This no-viewport fake cannot admit a sparse region. Dense
+                // fallback still renders; the dedicated viewport tests cover
+                // actual finite-source mounting, departure and ownership.
+                expect(map.getLayer(id), id).toBeUndefined();
+                continue;
+            }
             expect(map.visibility(id), id).toBe(visible ? 'visible' : 'none');
         }
         expect(map.visibility(LAND_IMAGERY_LAYER)).toBe('visible');

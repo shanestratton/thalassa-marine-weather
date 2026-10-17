@@ -100,6 +100,16 @@ function callsOf(text: string, name: string): string[] {
     return calls;
 }
 
+function authenticatedLocalUser(definition: { header: string; body: string }): boolean {
+    const { header, body } = definition;
+    return (
+        !/[(,]\s*u\s+/.test(header) &&
+        (body.match(/\bu\s*(?:uuid\s*)?:=/g) ?? []).length === 1 &&
+        (body.match(/\bu\s+uuid\s*:=\s*auth\.uid\(\)\s*;/g) ?? []).length === 1 &&
+        !/\bu\s*=|\bfor\s+u\b|\binto\s+(?:strict\s+)?u\b|\bexecute\s/.test(body)
+    );
+}
+
 /** The guard each helper must open with: about yourself, the service role, or a direct database session. */
 const SELF_FIRST = 'case when check_user is not distinct from auth.uid()';
 const SERVICE = "or auth.role() = 'service_role'";
@@ -107,6 +117,23 @@ const DIRECT =
     "or (session_user <> 'authenticator' and coalesce(current_setting('role', true), 'none') not in ('anon', 'authenticated'))";
 
 describe('the membership question and crew removal (20261010154000)', () => {
+    it('accepts only an immutable auth.uid local alias and rejects caller or later assignment', () => {
+        const valid = {
+            header: 'create function public.example(p_input jsonb)',
+            body: 'declare u uuid:=auth.uid(); begin perform public.is_chat_moderator(u); end',
+        };
+        expect(authenticatedLocalUser(valid)).toBe(true);
+        for (const change of [
+            { ...valid, header: 'create function public.example(u uuid)' },
+            { ...valid, body: valid.body.replace('auth.uid()', "(p_input->>'user')::uuid") },
+            { ...valid, body: valid.body + '; u:=null;' },
+            { ...valid, body: valid.body + '; u = null;' },
+            { ...valid, body: valid.body + '; select id into u from other_users;' },
+            { ...valid, body: valid.body + '; execute p_input;' },
+            { ...valid, body: valid.body + '; for u in select id from other_users loop null; end loop;' },
+        ])
+            expect(authenticatedLocalUser(change)).toBe(false);
+    });
     it('is stamped after the newest live migration and every 126 file before it, and before the other two', () => {
         expect(migrationFiles).toContain(FILE);
         // Live's newest on 2026-10-09 was 20261009172000; 126-11a's stores_boxes is 20261010153000.
@@ -208,8 +235,19 @@ describe('the membership question and crew removal (20261010154000)', () => {
     });
 
     it('costs no caller anything: every policy and function asks about auth.uid(), and no app code asks by RPC', () => {
+        const communityCallers: Record<string, { user: string; photo: string }> = {
+            '20261017030819_community_place_reviews.sql': {
+                user: 'community_reviews',
+                photo: 'community_review_photo',
+            },
+            '20261017030848_community_chart_notes.sql': {
+                user: 'community_chart_notes',
+                photo: 'community_chart_photo',
+            },
+        };
         for (const file of migrationFiles) {
             const sql = squash(sqlOf(`${MIGRATIONS_DIR}/${file}`));
+            const community = communityCallers[file];
             for (const fn of HELPERS) {
                 for (const args of callsOf(sql, fn)) {
                     // The definitions themselves, and the guarded bodies' own self-call.
@@ -219,6 +257,38 @@ describe('the membership question and crew removal (20261010154000)', () => {
                     if (file === FILE || file === '20260723090000_security_hardening_core.sql') {
                         // Inside the helpers: check_user is the argument being guarded.
                         if (user === 'check_user') continue;
+                    }
+                    if (community && fn === 'is_chat_moderator' && user === 'u') {
+                        const review = definitionIn(file, community.user);
+                        expect(review).not.toBeNull();
+                        expect(authenticatedLocalUser(review!)).toBe(true);
+                        expect(callsOf(review!.body, fn).filter((args) => args === 'u')).toHaveLength(
+                            callsOf(sql, fn).filter((args) => args === 'u').length,
+                        );
+                        continue;
+                    }
+                    if (community && fn === 'is_chat_moderator' && user === 'p_user') {
+                        // The photo Edge authenticates its user, then calls a
+                        // service-only RPC. Its service JWT has no auth.uid().
+                        const photo = definitionIn(file, community.photo);
+                        expect(photo?.header).toContain('security definer');
+                        expect(callsOf(photo!.body, fn)).toEqual(['p_user']);
+                        expect(callsOf(sql, fn).filter((args) => args === 'p_user')).toHaveLength(1);
+                        expect(sql).toContain(
+                            `revoke all on function public.${community.photo}(text,uuid,jsonb) from public,anon,authenticated;`,
+                        );
+                        const grants = migrationFiles.flatMap((name) =>
+                            [
+                                ...squash(sqlOf(`${MIGRATIONS_DIR}/${name}`)).matchAll(
+                                    new RegExp(
+                                        String.raw`grant execute on function public\.${community.photo}\(text,\s*uuid,\s*jsonb\) to ([^;]+);`,
+                                        'g',
+                                    ),
+                                ),
+                            ].map((match) => match[1]),
+                        );
+                        expect(grants).toEqual(['service_role']);
+                        continue;
                     }
                     expect(user, `${file}: ${fn}(${args})`).toBe('auth.uid()');
                 }

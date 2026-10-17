@@ -67,9 +67,15 @@ describe('the helm menu dismissal contract', () => {
         //    the menu AND the sheet, and a drawn route could not be exited
         //    (Shane 2026-08-24).
         const literal = [...src.matchAll(/dismissOnSelect: true/g)];
-        expect(literal).toHaveLength(1);
+        expect(literal).toHaveLength(2);
         const storms = src.slice(src.indexOf("id: 'cyclones'"), src.indexOf("id: 'ais'"));
         expect(storms).toContain('dismissOnSelect: true');
+        const privacy = src.slice(
+            src.indexOf("id: 'boat-presence-controls'"),
+            src.indexOf('// ── Operational reference'),
+        );
+        expect(privacy).toContain('action: tacticalState.onOpenBoatPresence');
+        expect(privacy).toContain('dismissOnSelect: true');
         // The mapped form exists exactly once, in the charts-category builder.
         expect([...src.matchAll(/dismissOnSelect: src\.opensSheet === true/g)]).toHaveLength(1);
 
