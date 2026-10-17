@@ -6,6 +6,13 @@ const owners = new WeakMap<object, { stop(): void; owns(id: string): boolean }>(
 export const ownsSparseRelief = (map: object, id: string): boolean => owners.get(map)?.owns(id) === true;
 let sequence = 0;
 export const SPARSE_RELIEF_OWNER = 'thalassaSparseReliefOwner';
+function layerOwner(layer: ReturnType<mapboxgl.Map['getLayer']>): unknown {
+    if (!layer || layer.type === 'custom') return undefined;
+    const metadata = layer.metadata;
+    return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)[SPARSE_RELIEF_OWNER]
+        : undefined;
+}
 /** One map/style owner. Sparse sources leave the GPU cache when the view leaves
  * their actual tile footprint. Foreign sources/layers are never overwritten. */
 export function installSparseReliefOwner(
@@ -32,9 +39,7 @@ export function installSparseReliefOwner(
             sources.some((s, i) => map.getSource(s) && map.getSource(s) !== entry[i]?.deref()) ||
             layers.some((l) => {
                 const layer = map.getLayer(l);
-                return (
-                    layer && (layer.metadata as Record<string, unknown> | undefined)?.[SPARSE_RELIEF_OWNER] !== token
-                );
+                return layer && layerOwner(layer) !== token;
             })
         )
             return;
@@ -95,11 +100,7 @@ export function installSparseReliefOwner(
             return (
                 !!entry &&
                 sourceIds(id).every((s, i) => !!map.getSource(s) && map.getSource(s) === entry[i]?.deref()) &&
-                layerIds(id).every(
-                    (l) =>
-                        (map.getLayer(l)?.metadata as Record<string, unknown> | undefined)?.[SPARSE_RELIEF_OWNER] ===
-                        token,
-                )
+                layerIds(id).every((l) => layerOwner(map.getLayer(l)) === token)
             );
         },
     });

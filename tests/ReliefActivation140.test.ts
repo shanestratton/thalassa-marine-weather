@@ -180,6 +180,19 @@ describe('published AU/NZ illustrative relief', () => {
     });
 });
 describe('current sparse viewport owner', () => {
+    it('refuses a foreign custom layer even when it copied the old metadata marker', () => {
+        const f = mapFixture();
+        f.move(tileBounds(8, 247, 162), 8);
+        addReliefBase(f.map);
+        const old = f.layers.get('relief-nz-tint');
+        expect(ownsSparseRelief(f.map, 'nz')).toBe(true);
+        const custom = { id: 'relief-nz-tint', type: 'custom', metadata: old?.metadata };
+        f.layers.set(custom.id, custom);
+        expect(ownsSparseRelief(f.map, 'nz')).toBe(false);
+        f.move([0, -1, 1, 0], 8);
+        expect(f.layers.get(custom.id)).toBe(custom);
+        expect(f.sources.has('relief-nz-idx')).toBe(true);
+    });
     it('mounts no new sources in a gap, then adds/retires only the current actual cohort', () => {
         const f = mapFixture();
         addReliefBase(f.map);

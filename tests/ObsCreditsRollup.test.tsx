@@ -55,7 +55,7 @@ it('adds relief datum/source details inside the same row and only when the relie
     const view = render(<ObsCreditsRollup {...p} />);
     expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
     expect(screen.getByTestId('obs-credits-rollup').className).toContain('h-[44px]');
-    fireEvent.click(screen.getByRole('button', { name: 'Credits', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: /^Credits$/ }));
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('NZVD2016 native heights; not MSL');
     expect(dialog).toHaveTextContent('No vertical conversion');
@@ -64,7 +64,7 @@ it('adds relief datum/source details inside the same row and only when the relie
         'href',
         'https://data.linz.govt.nz/layer/122508-new-zealand-coastal-lidar-1m-dem/',
     );
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close', exact: true }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Close$/ }));
     view.rerender(<ObsCreditsRollup {...p} relief={false} />);
     expect(screen.queryByTestId('obs-credits-rollup')).toBeNull();
 });
