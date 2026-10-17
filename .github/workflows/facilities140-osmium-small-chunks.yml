@@ -1,0 +1,84 @@
+name: Facilities140 exact low-memory osmium build and native parity
+on:
+  push:
+    branches: [codex/build-140-osmium-small-chunks]
+    paths: [.github/workflows/facilities140-osmium-small-chunks.yml]
+permissions:
+  contents: read
+concurrency:
+  group: facilities140-low-memory-tool
+  cancel-in-progress: false
+jobs:
+  tool:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: osmcode/osmium-tool
+          ref: e2afb9420e489fa5c300b7e4b25b03f235602b93
+          path: upstream
+          persist-credentials: false
+      - name: Install isolated runner compiler dependencies and record actual versions
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ cmake make libboost-program-options-dev libosmium2-dev libprotozero-dev libexpat1-dev zlib1g-dev libbz2-dev liblz4-dev nlohmann-json3-dev time
+          mkdir evidence
+          dpkg-query -W g++ cmake libboost-program-options-dev libosmium2-dev libprotozero-dev libexpat1-dev zlib1g-dev libbz2-dev liblz4-dev nlohmann-json3-dev > evidence/actual-packages.txt
+          test "$(git -C upstream rev-parse HEAD)" = e2afb9420e489fa5c300b7e4b25b03f235602b93
+          test -z "$(git -C upstream status --porcelain)"
+      - name: Compile and test unchanged official1.19.0 baseline
+        run: |
+          set -euo pipefail
+          cmake -S upstream -B build -DCMAKE_BUILD_TYPE=Release -DBoost_USE_STATIC_LIBS=ON -DBUILD_TESTING=ON > evidence/configure.log 2>&1
+          cmake --build build --target osmium -j2 > evidence/baseline-build.log 2>&1
+          cp build/src/osmium evidence/osmium-baseline
+          ctest --test-dir build -R '(^tags-filter-|^help_cmd_tags-filter$)' --output-on-failure > evidence/baseline-tags-filter.log 2>&1
+      - name: Change only two ID-set allocation granularities and rebuild
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          p=Path('upstream/src/command_tags_filter.hpp');b=p.read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='97fe7f6252b76aeb6f940540335311ea60af08e4464f48609f979e40e39cef2b'
+          before=b'IdSetDense<osmium::unsigned_object_id_type>'
+          after=b'IdSetDense<osmium::unsigned_object_id_type, 12>'
+          assert b.count(before)==2
+          p.write_bytes(b.replace(before,after))
+          PY
+          test "$(git -C upstream diff --name-only)" = src/command_tags_filter.hpp
+          git -C upstream diff -- src/command_tags_filter.hpp > evidence/exact-allocation-only.patch
+          cmake --build build --target osmium -j2 > evidence/candidate-build.log 2>&1
+          cp build/src/osmium evidence/osmium-small-chunks
+          ctest --test-dir build -R '(^tags-filter-|^help_cmd_tags-filter$)' --output-on-failure > evidence/candidate-tags-filter.log 2>&1
+          ldd evidence/osmium-small-chunks > evidence/native-library-closure.txt
+          ! grep -q 'not found' evidence/native-library-closure.txt
+          ! grep -q libboost evidence/native-library-closure.txt
+      - name: Prove actual reference closure and native export parity under unchanged2GiB cgroup
+        run: |
+          set -euo pipefail
+          sudo systemd-run --quiet --unit=facilities140-small-chunk-fixture --wait -p Type=exec -p User="$(id -un)" -p MemoryMax=2147483648 -p MemorySwapMax=0 -p TasksMax=16 -p CPUQuota=50% -p RuntimeMaxSec=240 -p LimitCORE=0 -p LimitFSIZE=268435456 /usr/bin/python3 "$PWD/app/ci/facilities140/low-memory-fixture.py" "$PWD/evidence/native-fixture" "$PWD/evidence/osmium-baseline" "$PWD/evidence/osmium-small-chunks"
+          sudo systemctl show facilities140-small-chunk-fixture.service -p Result -p ExecMainStatus -p MemoryPeak -p MemoryMax -p MemorySwapMax -p TasksMax -p CPUQuotaPerSecUSec > evidence/native-cgroup.txt
+          grep -q '^Result=success$' evidence/native-cgroup.txt
+          grep -q '^ExecMainStatus=0$' evidence/native-cgroup.txt
+      - name: Preserve exact original source and evidence inventory
+        if: always()
+        run: |
+          set -euo pipefail
+          git -C upstream archive --format=tar.gz -o "$PWD/evidence/upstream-original-source.tar.gz" e2afb9420e489fa5c300b7e4b25b03f235602b93
+          cp app/ci/facilities140/low-memory-fixture.py evidence/
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: facilities140-low-memory-osmium-original-evidence
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error
