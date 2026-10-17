@@ -51,7 +51,10 @@ function source() {
 Deno.test('actual credential-free Edge entry: quota RPC, fixed transport and Deno import closure', async (t) => {
     const originalServe = Object.getOwnPropertyDescriptor(Deno, 'serve')!;
     const nativeFetch = globalThis.fetch;
-    const originalEnv = new Map(['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'].map((key) => [key, Deno.env.get(key)]));
+    const originalEnv = (['get', 'set', 'delete'] as const).map((key) =>
+        [key, Object.getOwnPropertyDescriptor(Deno.env, key)!] as const
+    );
+    const fixtureEnv = new Map<string, string>();
     let handle: ((request: Request) => Promise<Response>) | undefined;
     const events: string[] = [];
     let allowed: unknown = true;
@@ -65,6 +68,23 @@ Deno.test('actual credential-free Edge entry: quota RPC, fixed transport and Den
             headers: { 'cf-connecting-ip': '198.51.100.2', ...headers },
         });
     try {
+        // The canonical Edge suite grants no environment permission. Keep
+        // synthetic credentials in this scoped fixture, never in the host env.
+        Object.defineProperties(Deno.env, {
+            get: { configurable: true, value: (key: string) => fixtureEnv.get(key) },
+            set: {
+                configurable: true,
+                value: (key: string, value: string) => {
+                    fixtureEnv.set(key, value);
+                },
+            },
+            delete: {
+                configurable: true,
+                value: (key: string) => {
+                    fixtureEnv.delete(key);
+                },
+            },
+        });
         Deno.env.set('SUPABASE_URL', 'https://quota.example');
         Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-fixture-only');
         Object.defineProperty(Deno, 'serve', {
@@ -224,6 +244,6 @@ Deno.test('actual credential-free Edge entry: quota RPC, fixed transport and Den
     } finally {
         globalThis.fetch = nativeFetch;
         Object.defineProperty(Deno, 'serve', originalServe);
-        for (const [key, value] of originalEnv) value === undefined ? Deno.env.delete(key) : Deno.env.set(key, value);
+        for (const [key, descriptor] of originalEnv) Object.defineProperty(Deno.env, key, descriptor);
     }
 });
