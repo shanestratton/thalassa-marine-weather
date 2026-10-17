@@ -1,0 +1,608 @@
+name: Thalassa 141 provenance release validation
+
+# Validation ONLY. No Apple keys, signing, upload, deployment or source writes.
+# Exact source preserves132–140; native141 guard admits four numbers and the single reviewed scoped storage key.
+# No R2/provider access: publisher tests use fictional local stores. No recurring jobs.
+# The optional retained-public-chart browser case requires an external reviewed artifact;
+# its previous local proof is separate from the required synthetic package CI cases.
+on:
+  push:
+    branches: ["codex/build-141-provenance-full-validation"]
+    paths: [".github/workflows/validate-testflight-141-provenance.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thalassa-141-provenance-complete-validation
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: "0c0972c95599351eb73dd055c44615280157db03"
+  PREVIOUS140_SHA: "a6eac4f72ab871c195e518c589378e6020d9c5f2"
+  CI: "true"
+  HUSKY: "0"
+  NODE_OPTIONS: --max-old-space-size=4096
+  PUPPETEER_SKIP_DOWNLOAD: "true"
+  VITE_APP_BUILD: "141"
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+  VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+  VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+  VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+  VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+jobs:
+  full:
+    name: full (${{ matrix.suite }})
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          [
+            unit-coverage,
+            two-browser-e2e,
+            keyboard-1,
+            keyboard-2,
+            keyboard-3,
+            keyboard-pixel,
+            plan-your-day,
+          ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: "0c0972c95599351eb73dd055c44615280157db03"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify exact source and all four build numbers
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11 HEAD
+          git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+          git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
+          git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
+          git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
+          git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+          git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
+          git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+          git merge-base --is-ancestor 5eebfed3280c57b51aacbe3fd665ebc5c25adf51 HEAD
+          git merge-base --is-ancestor 08ede95ed8399e476ed1e7285ebe1f3e8775e0c5 HEAD
+          git merge-base --is-ancestor b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c HEAD
+          git merge-base --is-ancestor 8e6edf36a0c0514c252c347b68e7bb86cc7e0da9 HEAD
+          git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+          git merge-base --is-ancestor 572aaa220277e6b252657f59d1cdf2caebe864d6 HEAD
+          git merge-base --is-ancestor 891c97ee448c25623312fcae5ddc6a23c1e43782 HEAD
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { verifyNative141 } from './scripts/native-identity141.mjs';
+          export const WATCH_FILES139 = Object.freeze({
+          'ios/App/ThalassaWatch Watch App/Models/AnchorSnapshot.swift':
+          'a528ca73ce74e7a614caf5eb282af6e733077e4780393b6bfe670cce3786587a',
+          'ios/App/ThalassaWatch Watch App/Views/AnchorWatchView.swift':
+          '356b06d7ebe9ea91b1f045409661e0af23f69bafde7fee1930bfa363a95d69fa',
+          });
+          const proof = verifyNative141(process.cwd(), process.env.CANDIDATE_SHA);
+          for (const [file, expected] of Object.entries(WATCH_FILES139))
+              assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), expected, `Unreviewed Watch source: ${file}`);
+          console.log(JSON.stringify(proof));
+          NODE
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const matches=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+          if(matches.length!==4 || matches.some(m=>m[1]!=='141')) throw new Error('Expected four build-141 configurations');
+          if(JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw new Error('Unexpected marketing version');
+          NODE
+          echo "Exact release candidate: $CANDIDATE_SHA; iOS 1.2.0 (141)" >> "$GITHUB_STEP_SUMMARY"
+      - run: npm ci
+      - run: npm run check:beta:source
+      - name: All unit tests with coverage
+        if: matrix.suite == 'unit-coverage'
+        run: npx vitest run --reporter=dot --reporter=github-actions --coverage
+      - name: Build production app for both browser engines
+        if: matrix.suite == 'two-browser-e2e'
+        run: |
+          set -euo pipefail
+          npm run check:beta
+          GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+      - name: Install both browser engines
+        if: matrix.suite != 'unit-coverage'
+        run: npx playwright install --with-deps chromium webkit
+      - name: All Chromium and mobile Safari E2E tests
+        if: matrix.suite == 'two-browser-e2e'
+        run: npx playwright test --project=chromium --project=mobile-safari
+      - name: Complete bounded NOAA package browser checks, both engines
+        if: matrix.suite == 'two-browser-e2e'
+        run: |
+          set -euo pipefail
+          npx playwright test --config playwright.noaa-package.config.ts
+          echo "Required fictional package cold-start, renderer, inshore/tracer/leads, tamper and account-isolation checks completed in Chromium and WebKit. Optional external retained-chart proof is reported separately; no provider download is performed." >> "$GITHUB_STEP_SUMMARY"
+      - name: Complete packed-data synthetic entry proofs in both engines
+        if: matrix.suite == 'two-browser-e2e'
+        run: npx playwright test --config playwright.inert-ui-data139.config.ts
+      - name: Complete packed-data actual release entry proofs in both engines
+        if: matrix.suite == 'two-browser-e2e'
+        env:
+          INERT_UI_RELEASE_ARTIFACT: "1"
+        run: ACTUAL_INERT_DIST="$PWD/dist" npx playwright test --config playwright.inert-ui-artifact139.config.ts
+      - name: Complete keyboard, daylight and split-pane shard
+        if: startsWith(matrix.suite, 'keyboard-') && matrix.suite != 'keyboard-pixel'
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: npx playwright test --config playwright.keyboard.config.ts --shard="${SUITE#keyboard-}/3" --grep-invert @pixel
+      - name: Wind pixel checks, one worker
+        if: matrix.suite == 'keyboard-pixel'
+        run: npx playwright test --config playwright.keyboard.config.ts --grep @pixel --workers=1 --retries=1
+      - name: Complete Plan Your Day fit suite
+        if: matrix.suite == 'plan-your-day'
+        run: npx playwright test --config playwright.day-planner.config.ts
+      - name: Record successful full suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: echo "$SUITE PASSED on $CANDIDATE_SHA, build 141" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve unit coverage
+        if: always() && matrix.suite == 'unit-coverage'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-corrected-coverage
+          path: coverage/
+          retention-days: 7
+      - name: Preserve browser failure evidence
+        if: failure() && matrix.suite != 'unit-coverage'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-corrected-failure-${{ matrix.suite }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  quick:
+    name: quick release gates
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: relay_fixture
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      engine-postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: engine-fixture-only-password
+          POSTGRES_DB: engine_fixture
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: "0c0972c95599351eb73dd055c44615280157db03"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify exact application commit and preserved release ancestors
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11 HEAD
+          git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+          git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
+          git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
+          git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
+          git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+          git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
+          git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+          git merge-base --is-ancestor 5eebfed3280c57b51aacbe3fd665ebc5c25adf51 HEAD
+          git merge-base --is-ancestor 08ede95ed8399e476ed1e7285ebe1f3e8775e0c5 HEAD
+          git merge-base --is-ancestor b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c HEAD
+          git merge-base --is-ancestor 8e6edf36a0c0514c252c347b68e7bb86cc7e0da9 HEAD
+          git merge-base --is-ancestor 572aaa220277e6b252657f59d1cdf2caebe864d6 HEAD
+          git merge-base --is-ancestor 891c97ee448c25623312fcae5ddc6a23c1e43782 HEAD
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { verifyNative141 } from './scripts/native-identity141.mjs';
+          export const WATCH_FILES139 = Object.freeze({
+          'ios/App/ThalassaWatch Watch App/Models/AnchorSnapshot.swift':
+          'a528ca73ce74e7a614caf5eb282af6e733077e4780393b6bfe670cce3786587a',
+          'ios/App/ThalassaWatch Watch App/Views/AnchorWatchView.swift':
+          '356b06d7ebe9ea91b1f045409661e0af23f69bafde7fee1930bfa363a95d69fa',
+          });
+          const proof = verifyNative141(process.cwd(), process.env.CANDIDATE_SHA);
+          for (const [file, expected] of Object.entries(WATCH_FILES139))
+              assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), expected, `Unreviewed Watch source: ${file}`);
+          console.log(JSON.stringify(proof));
+          NODE
+      - name: Ephemeral PostgreSQL underway privacy, capability and RLS replay
+        env:
+          PGPASSWORD: fixture-only-password
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/underway-sql-replay"
+          git rev-parse HEAD > "$RUNNER_TEMP/underway-sql-replay/SOURCE_SHA.txt"
+          sha256sum tests/sql/underway-alarm-replay.sql supabase/migrations/20261010120000_pi_alarm_events.sql supabase/held-migrations/20261015220000_underway_alarm_kinds.sql > "$RUNNER_TEMP/underway-sql-replay/SHA256SUMS"
+          psql -X -h 127.0.0.1 -p 5432 -U postgres -d relay_fixture -v ON_ERROR_STOP=1 -f tests/sql/underway-alarm-replay.sql 2>&1 | tee "$RUNNER_TEMP/underway-sql-replay/REPLAY.txt"
+      - name: Preserve ephemeral PostgreSQL replay evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-underway-sql-replay
+          path: ${{ runner.temp }}/underway-sql-replay/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Ephemeral AIS PostGIS privacy, fleet budget and concurrency replay
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGDATABASE: ais_fixture
+          PGPASSWORD: fixture-only-password
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ais-sql-replay"
+          git rev-parse HEAD > "$RUNNER_TEMP/ais-sql-replay/SOURCE_SHA.txt"
+          sha256sum tests/sql/ais-fleet-replay.sql tests/sql/ais-fleet-concurrency.mjs supabase/migrations/20260318080000_ais_vessels.sql supabase/migrations/20261016072703_ais_fleet_budget.sql > "$RUNNER_TEMP/ais-sql-replay/SHA256SUMS"
+          createdb --maintenance-db=postgres ais_fixture
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/ais-fleet-replay.sql 2>&1 | tee "$RUNNER_TEMP/ais-sql-replay/REPLAY.txt"
+          node tests/sql/ais-fleet-concurrency.mjs 2>&1 | tee "$RUNNER_TEMP/ais-sql-replay/CONCURRENCY.txt"
+      - name: Preserve ephemeral AIS PostgreSQL replay evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-ais-sql-replay
+          path: ${{ runner.temp }}/ais-sql-replay/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Ephemeral engine-hour confirmation and concurrency replay
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5433"
+          PGUSER: postgres
+          PGDATABASE: engine_fixture
+          PGPASSWORD: engine-fixture-only-password
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/engine-sql-replay"
+          git rev-parse HEAD > "$RUNNER_TEMP/engine-sql-replay/SOURCE_SHA.txt"
+          sha256sum tests/sql/engine-hours-confirmation.sql tests/sql/engine-hours-race.py supabase/migrations/20261016175740_confirmed_voyage_engine_hours.sql > "$RUNNER_TEMP/engine-sql-replay/SHA256SUMS"
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/engine-hours-confirmation.sql 2>&1 | tee "$RUNNER_TEMP/engine-sql-replay/REPLAY.txt"
+          python3 tests/sql/engine-hours-race.py 2>&1 | tee "$RUNNER_TEMP/engine-sql-replay/CONCURRENCY.txt"
+      - name: Preserve ephemeral engine-hour replay evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-engine-sql-replay
+          path: ${{ runner.temp }}/engine-sql-replay/
+          retention-days: 7
+          if-no-files-found: error
+      - run: npm ci
+      - name: Dependency audits and both release gates
+        run: |
+          set -euo pipefail
+          node scripts/audit-gate.mjs
+          npm ls --all
+          node scripts/check-deps.mjs
+          npm run check:beta:source
+          npm run check:beta
+      - name: Lint, migration, route, formatting, mirror and type checks
+        run: |
+          set -euo pipefail
+          npm run lint
+          npm run lint:routes
+          npm run format:check
+          node pi-cache/scripts/sync-router-engine.mjs --check
+          node pi-cache/scripts/sync-collision-rule.mjs --check
+          node pi-cache/scripts/sync-senc-engine.mjs --check
+          node pi-cache/scripts/sync-lookahead-rule.mjs --check
+          node pi-cache/scripts/sync-offline-weather-sources.mjs --check
+          node pi-cache/scripts/sync-polar-rule.mjs --check
+          node pi-cache/scripts/sync-wake-rule.mjs --check
+          node pi-cache/scripts/sync-radar-target.mjs --check
+          node pi-cache/scripts/sync-weather-position.mjs --check
+          node pi-cache/scripts/sync-anchor-zone.mjs --check
+          node pi-cache/scripts/sync-noaa-edition-policy.mjs --check
+          npx tsc --noEmit
+      - name: Portable Signal K protocol type and mirror proof
+        run: |
+          set -euo pipefail
+          node pi-cache/scripts/sync-signalk-protocol.mjs --check
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import {execFileSync} from 'node:child_process';
+          const config=path.join(process.env.RUNNER_TEMP,'signalk-no-node.json');
+          fs.writeFileSync(config,JSON.stringify({compilerOptions:{target:'ES2022',module:'ESNext',moduleResolution:'bundler',lib:['ES2022','DOM'],types:[],strict:true,skipLibCheck:true,noEmit:true},files:[path.resolve('utils/signalkProtocol.ts')]}));
+          execFileSync(process.execPath,['node_modules/typescript/bin/tsc','-p',config],{stdio:'inherit'});
+          NODE
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.9.4
+      - name: Edge formatting, types and all behavior tests
+        run: |
+          set -euo pipefail
+          deno fmt --check supabase/functions
+          cd supabase/functions
+          deno check */index.ts
+          deno test */*_test.ts
+      - name: Network-denied actual send-push handler cases
+        working-directory: supabase/functions
+        run: |
+          set -euo pipefail
+          deno test --no-config --no-lock --no-remote --deny-net \
+            --allow-read=send-push,_shared,../../utils \
+            --import-map=send-push/testing/import-map.json \
+            --allow-env=SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,APNS_KEY_ID,APNS_TEAM_ID,APNS_KEY_P8,APNS_PRODUCTION,APNS_CRITICAL_ALERTS_ENABLED,APNS_BUNDLE_ID \
+            send-push/testing/handler.case.ts
+      - name: Offline publisher, catalogue and regional relief validators
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/noaa-enc -p test_pipeline.py -v
+          python3 -m unittest discover -s scripts/marine-catalogue -p 'test_*.py' -v
+          python3 -m unittest discover -s tools/relief -p 'test_*.py' -v
+      - name: Guard tests
+        run: |
+          set -euo pipefail
+          npx vitest run tests/noProtectedChartData.test.ts tests/retiredChartFixtures.ledger.test.ts tests/MarineReleaseSourceGates.test.ts tests/PublicBetaReleaseGateContract.test.ts tests/ReleaseAssetProxy.test.ts
+          node --test tests/UnsignedNative139.test.mjs tests/UnsignedNative140.test.mjs tests/UnsignedNative141.test.mjs
+      - name: Update 5 staged-source and anchor-lease guard tests
+        run: node --test pi-cache/scripts/update5.test.mjs
+      - name: Update 6 staged-source and confirmed-engine guard tests
+        run: node --test pi-cache/scripts/update6.test.mjs
+      - name: Update 7 staged-source and wake/radar guard tests
+        run: node --test pi-cache/scripts/update7.test.mjs
+      - name: Production build, hidden-map cleanup and artifact checks
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$(git rev-parse HEAD)" SENTRY_SOURCEMAPS=1 npm run build
+          npm run sourcemaps:upload
+          npm run check:web-release
+          npm run check:bundle
+      - name: Install Lighthouse browser
+        run: npx puppeteer browsers install chrome
+      - name: Lighthouse budgets
+        id: lighthouse
+        timeout-minutes: 5
+        run: node scripts/run-lighthouse-audit.mjs
+      - name: Assert Lighthouse audited the real application shell
+        if: always() && steps.lighthouse.outcome != 'skipped'
+        run: node scripts/assert-lighthouse-audited-app.mjs
+      - name: Preserve Lighthouse evidence
+        if: always() && steps.lighthouse.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-corrected-lighthouse
+          path: .lighthouseci/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
+
+  packages:
+    name: package (${{ matrix.package }})
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: ais-ingest
+            directory: workers/ais-ingest
+          - package: deepgram-proxy
+            directory: cloudflare-worker
+          - package: pi-cache
+            directory: pi-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: "0c0972c95599351eb73dd055c44615280157db03"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      - name: Verify exact application commit and preserved release ancestors
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor c14828e1f0180fcdc6f59b7080fa8ab8e5a52a11 HEAD
+          git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+          git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
+          git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
+          git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
+          git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+          git merge-base --is-ancestor 9c0d9f2f2e5ca3a00226bc023b44a850e3666225 HEAD
+          git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+          git merge-base --is-ancestor 5eebfed3280c57b51aacbe3fd665ebc5c25adf51 HEAD
+          git merge-base --is-ancestor 08ede95ed8399e476ed1e7285ebe1f3e8775e0c5 HEAD
+          git merge-base --is-ancestor b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c HEAD
+          git merge-base --is-ancestor 8e6edf36a0c0514c252c347b68e7bb86cc7e0da9 HEAD
+          git merge-base --is-ancestor 572aaa220277e6b252657f59d1cdf2caebe864d6 HEAD
+          git merge-base --is-ancestor 891c97ee448c25623312fcae5ddc6a23c1e43782 HEAD
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { verifyNative141 } from './scripts/native-identity141.mjs';
+          export const WATCH_FILES139 = Object.freeze({
+          'ios/App/ThalassaWatch Watch App/Models/AnchorSnapshot.swift':
+          'a528ca73ce74e7a614caf5eb282af6e733077e4780393b6bfe670cce3786587a',
+          'ios/App/ThalassaWatch Watch App/Views/AnchorWatchView.swift':
+          '356b06d7ebe9ea91b1f045409661e0af23f69bafde7fee1930bfa363a95d69fa',
+          });
+          const proof = verifyNative141(process.cwd(), process.env.CANDIDATE_SHA);
+          for (const [file, expected] of Object.entries(WATCH_FILES139))
+              assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), expected, `Unreviewed Watch source: ${file}`);
+          console.log(JSON.stringify(proof));
+          NODE
+      - name: Install, audit and validate independent dependency tree
+        working-directory: ${{ matrix.directory }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npm audit --audit-level=high
+          npm ls --all
+      - name: Build and test package
+        if: matrix.package != 'deepgram-proxy'
+        working-directory: ${{ matrix.directory }}
+        run: |
+          set -euo pipefail
+          npm run build
+          npm test
+      - name: Type-check Deepgram proxy
+        if: matrix.package == 'deepgram-proxy'
+        working-directory: ${{ matrix.directory }}
+        run: ./node_modules/.bin/tsc --noEmit
+      - name: Prove all three actual-source Pi staging guards refuse before release
+        if: matrix.package == 'pi-cache'
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import assert from 'node:assert/strict';
+          import {execFileSync,spawnSync} from 'node:child_process';
+          import {stageUpdate5} from './pi-cache/scripts/stage-update5.mjs';
+          import {stageUpdate6} from './pi-cache/scripts/stage-update6.mjs';
+          import {stageUpdate7} from './pi-cache/scripts/stage-update7.mjs';
+          const repository=process.cwd(),commit=process.env.CANDIDATE_SHA,previous=process.env.PREVIOUS140_SHA;
+          const git=(args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          assert.equal(git(['rev-parse','HEAD']),commit);
+          const master=git(['rev-parse','refs/remotes/origin/master^{commit}']);
+          assert.equal(master,previous,'Fetched master must be exact shipped140');
+          const nativeBuilds=[...fs.readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+          assert.equal(nativeBuilds.length,4);
+          assert.ok(nativeBuilds.every(value=>value[1]==='141'));
+          assert.equal(spawnSync('git',['merge-base','--is-ancestor',master,commit]).status,0);
+          assert.equal(spawnSync('git',['merge-base','--is-ancestor',commit,master]).status,1);
+          const proof=path.join(process.env.RUNNER_TEMP,'pi-pre-release-refusal');
+          fs.mkdirSync(proof,{recursive:false});
+          const attempts=[];
+          for(const [update,stage,expected] of [[5,stageUpdate5,/Exactly four matching native build-133, build-134 or build-135 configurations are required/],[6,stageUpdate6,null],[7,stageUpdate7,null]]){
+            const output=path.join(process.env.RUNNER_TEMP,`pi-update${update}-must-remain-absent`);
+            assert.equal(fs.existsSync(output),false);
+            let error;
+            try {stage({repository,commit,output});}catch(caught){error=caught;}
+            assert.ok(error,`Update ${update} incorrectly staged an unshipped build141`);
+            if(expected)assert.match(error.message,expected);else {assert.equal(error.status,1);assert.match(error.message,/merge-base --is-ancestor/);}
+            assert.equal(fs.existsSync(output),false,'Refusal must precede all bundle output');
+            attempts.push({update,refused:true,noOutput:true,reason:update===5?'Native141 is outside existing update5 allowlist':'Candidate141 is not yet an ancestor of shipped master'});
+          }
+          fs.writeFileSync(path.join(proof,'REFUSAL.json'),JSON.stringify({commit,master,pinned140:previous,attempts,hardwareContact:false},null,2)+'\n');
+          NODE
+          sha256sum pi-cache/scripts/stage-update5.mjs pi-cache/scripts/update5.mjs pi-cache/scripts/stage-update6.mjs pi-cache/scripts/update6.mjs pi-cache/scripts/stage-update7.mjs pi-cache/scripts/update7.mjs > "$RUNNER_TEMP/pi-pre-release-refusal/SHA256SUMS"
+      - name: Preserve actual-source pre-release staging refusal evidence
+        if: matrix.package == 'pi-cache'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pi-build141-pre-release-refusal
+          path: ${{ runner.temp }}/pi-pre-release-refusal/
+          retention-days: 7
+          if-no-files-found: error
+
+  anchor:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: anchor_area139_test
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SOURCE_SHA: 0c0972c95599351eb73dd055c44615280157db03
+      THALASSA_DISPOSABLE_ANCHOR_AREA_TEST: "1"
+      ANCHOR_AREA_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/anchor_area139_test
+    steps:
+      - name: Require an exact reviewed source
+        shell: bash
+        run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 0c0972c95599351eb73dd055c44615280157db03
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify exact source and isolated anchor PostgreSQL identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor 8e6edf36a0c0514c252c347b68e7bb86cc7e0da9 HEAD
+          git merge-base --is-ancestor 4d22c003bb5493b3573b1d0f394a5a3dc74f4b07 HEAD
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { verifyNative141 } from './scripts/native-identity141.mjs';
+          export const WATCH_FILES139 = Object.freeze({
+          'ios/App/ThalassaWatch Watch App/Models/AnchorSnapshot.swift':
+          'a528ca73ce74e7a614caf5eb282af6e733077e4780393b6bfe670cce3786587a',
+          'ios/App/ThalassaWatch Watch App/Views/AnchorWatchView.swift':
+          '356b06d7ebe9ea91b1f045409661e0af23f69bafde7fee1930bfa363a95d69fa',
+          });
+          const proof = verifyNative141(process.cwd(), process.env.CANDIDATE_SHA);
+          for (const [file, expected] of Object.entries(WATCH_FILES139))
+              assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), expected, `Unreviewed Watch source: ${file}`);
+          console.log(JSON.stringify(proof));
+          NODE
+          mkdir -p "$RUNNER_TEMP/anchor-area141-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/anchor-area141-proof/SOURCE_SHA.txt"
+          node --version > "$RUNNER_TEMP/anchor-area141-proof/NODE_VERSION.txt"
+          docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/anchor-area141-proof/POSTGRES_IMAGE_ID.txt"
+          sha256sum supabase/tests/anchor-safe-area* supabase/migrations/20261017005140_anchor_safe_area.sql supabase/migrations/20260829090000_anchor_relay_sessions.sql supabase/migrations/20261010130000_anchor_watch_keeper_heartbeat.sql > "$RUNNER_TEMP/anchor-area141-proof/SHA256SUMS"
+      - name: Install only pinned isolated PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/anchor-area141-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          test "$(node -p "require('$RUNNER_TEMP/anchor-area141-pg/node_modules/pg/package.json').version")" = 8.16.3
+          sha256sum "$RUNNER_TEMP/anchor-area141-pg/package-lock.json" > "$RUNNER_TEMP/anchor-area141-proof/CLIENT_LOCK_SHA256.txt"
+      - name: Execute actual migration, RLS, legacy and competing transactions
+        env:
+          PG_MODULE_PATH: ${{ runner.temp }}/anchor-area141-pg/node_modules/pg/lib/index.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          node supabase/tests/anchor-safe-area-postgres.mjs 2>&1 | tee "$RUNNER_TEMP/anchor-area141-proof/POSTGRES.txt"
+      - name: Preserve success or failure proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-anchor-safe-area-database-proof
+          path: ${{ runner.temp }}/anchor-area141-proof/
+          retention-days: 7
+          if-no-files-found: error
+    name: anchor safe-area database
