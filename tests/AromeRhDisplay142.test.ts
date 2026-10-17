@@ -43,6 +43,8 @@ describe('142 optional RH display unavailable, unchanged actual consumer', () =>
             time: new Date(time * 1000).toISOString(),
             temperature: 90,
             windSpeed: 99,
+            waveHeight: null,
+            condition: 'Fictional global supplement',
             humidity: 88,
         }));
         const report = aromeReport(base, point, f.point, now, supplement)!;
