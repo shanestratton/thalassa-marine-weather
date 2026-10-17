@@ -1,0 +1,80 @@
+name: Held build142 lightning database proof
+on:
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source; disposable database only
+                required: true
+                type: string
+permissions:
+    contents: read
+concurrency:
+    group: lightning142-proof-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    database:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 6
+        services:
+            postgres:
+                image: postgres:17.6
+                env:
+                    POSTGRES_PASSWORD: disposable-fixture-only
+                    POSTGRES_DB: lightning142_test
+                ports: ['5432:5432']
+                options: >-
+                    --memory=512m --memory-swap=512m --cpus=1 --pids-limit=96
+                    --health-cmd='pg_isready -U postgres'
+                    --health-interval=5s --health-timeout=5s --health-retries=10
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha }}
+            PGHOST: 127.0.0.1
+            PGPORT: '5432'
+            PGUSER: postgres
+            PGDATABASE: lightning142_test
+            PGPASSWORD: disposable-fixture-only
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: ${{ inputs.source_sha }}
+                  persist-credentials: false
+            - name: Verify isolated source and preserve inputs
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/lightning142-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/lightning142-proof/SOURCE_SHA.txt"
+                  sha256sum tests/sql/lightning-watch142.sql supabase/migrations/20261017103100_licensed_lightning_watch.sql supabase/migrations/20261005160000_tombstone_fence_fails_closed.sql > "$RUNNER_TEMP/lightning142-proof/SHA256SUMS"
+                  psql -X -At -v ON_ERROR_STOP=1 -c "SELECT current_setting('server_version'),current_database()" > "$RUNNER_TEMP/lightning142-proof/DATABASE.txt"
+            - name: Observe actual disposable database caps
+              shell: bash
+              env:
+                  DATABASE_CONTAINER: ${{ job.services.postgres.id }}
+              run: |
+                  set -euo pipefail
+                  test -n "$DATABASE_CONTAINER"
+                  docker exec "$DATABASE_CONTAINER" sh -c 'cat /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max /sys/fs/cgroup/pids.max /sys/fs/cgroup/cpu.max' > "$RUNNER_TEMP/lightning142-proof/ACTUAL_CGROUP.txt"
+                  python3 - "$RUNNER_TEMP/lightning142-proof/ACTUAL_CGROUP.txt" <<'PY'
+                  import pathlib,sys
+                  values=pathlib.Path(sys.argv[1]).read_text().splitlines()
+                  assert values[:3]==['536870912','0','96'],values
+                  quota,period=map(int,values[3].split())
+                  assert quota==period and quota>0,values
+                  PY
+            - name: Execute actual held migration, role ACLs, RLS and queue atomicity
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  timeout 90s psql -X -v ON_ERROR_STOP=1 -f tests/sql/lightning-watch142.sql 2>&1 | tee "$RUNNER_TEMP/lightning142-proof/REPLAY.txt"
+                  grep -q '^LIGHTNING142_POSTGRES_REPLAY_PASSED$' "$RUNNER_TEMP/lightning142-proof/REPLAY.txt"
+            - name: Preserve success or failure proof only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build142-lightning-postgres-proof
+                  path: ${{ runner.temp }}/lightning142-proof/
+                  retention-days: 7
+                  if-no-files-found: error

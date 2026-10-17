@@ -346,3 +346,8 @@ verify_jwt = false
 # Fixed operation families and per-client public quota precede the owned gateway.
 # Original database clocks, bounded bodies and missing admission fail closed.
 verify_jwt = false
+
+[functions.licensed-lightning-watch]
+# Held service-only polling requires gateway JWT and exact service-role POST.
+# No cron or provider entitlement is enabled by this declaration.
+verify_jwt = true

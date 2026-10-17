@@ -23,8 +23,10 @@ import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publ
  * legacy-secret gateway check. The rationale names the guard.
  */
 const FUNCTION_GUARDED_OFF = {
-    'owned-overpass': 'requireAuthenticatedOrPublicQuota before fixed owned OSM operations and original-clock validation',
-    'regional-arome': 'requireAuthenticatedOrPublicQuota bounds public weather; fixed owned origin and original sea-cell contract',
+    'owned-overpass':
+        'requireAuthenticatedOrPublicQuota before fixed owned OSM operations and original-clock validation',
+    'regional-arome':
+        'requireAuthenticatedOrPublicQuota bounds public weather; fixed owned origin and original sea-cell contract',
     'elevenlabs-tts': 'requireAuthenticatedQuota verifies the signed-in session',
     'fetch-wind-grid': 'per-client public quota; app and Pi-cache callers',
     'fetch-wind-velocity': 'per-client public quota; no client caller remains',
@@ -45,8 +47,10 @@ const FUNCTION_GUARDED_OFF = {
 
 /** Already true on both sides; kept explicit with a caller rationale. */
 const EXISTING_PROTECTED_FUNCTIONS = {
+    'licensed-lightning-watch': 'gateway JWT and exact service-role POST; current owner leases and shared paid budget',
     'ensemble-forecast': 'gateway JWT plus signed-in quota before paid fixed-point ensemble access',
-    'licensed-lightning': 'gateway JWT plus signed-in quota, current licence and shared atomic paid-request reservations',
+    'licensed-lightning':
+        'gateway JWT plus signed-in quota, current licence and shared atomic paid-request reservations',
     'pi-internet-ais': 'gateway anon JWT plus current scoped Pi relay, owner quota and deletion/revocation rechecks',
     'morning-briefing': 'held weather work requires gateway JWT and exact service-role POST',
     'nowcast-watch': 'held weather work requires gateway JWT and exact service-role POST',

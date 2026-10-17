@@ -51,6 +51,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createWakeDeliveryGuard, type WakeDeliveryDecision } from './wake-delivery.ts';
 import { createWeatherWatchDeliveryGuard } from './weather-watch-delivery.ts';
+import { createLightningDeliveryGuard } from './lightning-delivery.ts';
 import { createRadarDeliveryGuard } from './radar-delivery.ts';
 import { createBuddyDeliveryGuard } from './buddy-delivery.ts';
 import { createOverdueDeliveryGuards } from './overdue-delivery.ts';
@@ -404,6 +405,29 @@ serve(async (req: Request) => {
                 });
             }
         }
+        const lightningGuard = notification_type === 'lightning_nearby'
+            ? createLightningDeliveryGuard(id, data ?? {}, async (queueId) => {
+                const result = await supabase.rpc('lightning_watch_delivery_current', { p_queue_id: queueId });
+                return result.error ? null : result.data;
+            })
+            : undefined;
+        if (lightningGuard) {
+            const decision = await lightningGuard();
+            if (decision === 'unavailable') {
+                await releaseClaim('Lightning delivery check unavailable');
+                return new Response(JSON.stringify({ error: 'Lightning delivery check unavailable' }), { status: 503 });
+            }
+            if (decision === 'retire') {
+                await supabase.from('push_notification_queue').update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'Lightning notice no longer current',
+                }).eq('id', id);
+                return new Response(JSON.stringify({ sent: 0, message: 'Lightning notice no longer current' }), {
+                    status: 200,
+                });
+            }
+        }
         const weatherGuard = notification_type === 'weather_alert' && data && Object.hasOwn(data, 'weather_watch')
             ? createWeatherWatchDeliveryGuard(id, data, async (queueId) => {
                 const result = await supabase.rpc('weather_watch_delivery_current', { p_queue_id: queueId });
@@ -531,10 +555,13 @@ serve(async (req: Request) => {
             threadId: getThreadId(notification_type),
             collapseId: getCollapseId(notification_type, data || {}),
             badge: (badgeCount ?? 0) + 1,
-            ...(wakeGuard || radarGuard || weatherGuard || buddyGuard || overdueGuards
-                ? { beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard ?? buddyGuard ?? overdueGuards?.current }
+            ...(wakeGuard || radarGuard || weatherGuard || buddyGuard || overdueGuards || lightningGuard
+                ? {
+                    beforeAttempt: wakeGuard ?? radarGuard ?? weatherGuard ?? buddyGuard ?? overdueGuards?.current ??
+                        lightningGuard,
+                }
                 : {}),
-            ...(overdueGuards ? { beforeHttp: overdueGuards.beforeHttp } : {}),
+            ...(overdueGuards || lightningGuard ? { beforeHttp: overdueGuards?.beforeHttp ?? lightningGuard } : {}),
         };
 
         // ── Send push to all registered devices ──
