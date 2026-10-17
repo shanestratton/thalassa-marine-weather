@@ -1244,7 +1244,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     {hasData && shown ? (
                         <div
                             data-testid="matrix-day-verdict"
-                            className="mx-4 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-sky-400/20 flex items-center gap-2"
+                            className="mx-4 mb-1 px-3 py-0.5 rounded-xl bg-white/3 border border-sky-400/20 flex items-center gap-2"
                         >
                             {shown.level !== 'none' && (
                                 <div
@@ -1291,7 +1291,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     ) : (
                         hasData &&
                         (overallLevel ? (
-                            <div className="mx-4 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2">
+                            <div className="mx-4 mb-1 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2">
                                 <div
                                     className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${LEVEL_DISC[overallLevel]}`}
                                 >
@@ -1318,7 +1318,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 </div>
                             </div>
                         ) : (
-                            <p className="mx-4 mb-2 px-3 py-0.5 text-[11px] text-gray-400 text-center">
+                            <p className="mx-4 mb-1 px-3 py-0.5 text-[11px] text-gray-400 text-center">
                                 {overallLabel}.
                             </p>
                         ))
@@ -1338,7 +1338,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
                     {/* Attribution — a licence condition, not a courtesy: the models on screen */}
                     {credit && (
-                        <div className="px-4 pb-2">
+                        <div className="px-4 pb-1">
                             <p data-testid="matrix-credit" className="text-[9px] text-gray-400 text-center">
                                 {/* ECCC's licence asks for a link to it where possible. */}
                                 {credit.split(ECCC_LICENCE).map((part, i) => (
