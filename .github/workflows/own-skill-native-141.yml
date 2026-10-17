@@ -67,7 +67,7 @@ jobs:
                     -p RuntimeMaxSec=90 -p TimeoutStopSec=5 -p KillMode=control-group -p SendSIGKILL=yes \
                     -p PrivateNetwork=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= \
                     -p ProtectHome=read-only -p ProtectSystem=strict -p PrivateTmp=yes \
-                    -p WorkingDirectory="$GITHUB_WORKSPACE/pi-cache" \
+                    -p User="$(id -un)" -p WorkingDirectory="$GITHUB_WORKSPACE/pi-cache" \
                     /usr/bin/env -i PATH="$(dirname "$node_path"):/usr/bin:/bin" \
                     THALASSA_DISPOSABLE_OWN_SKILL_TEST=1 \
                     "$node_path" --max-old-space-size=128 --import tsx scripts/own-boat-skill-native-proof.mts \
