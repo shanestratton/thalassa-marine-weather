@@ -14,6 +14,7 @@ import type { FleetConsentStore } from './store.js';
 import type { PiIdentity } from '../identity.js';
 export interface FleetRawInput {
     setContext(key: string | null): void;
+    snapshot?(): { configured: boolean; connected: boolean; lastReceivedAt: number | null };
 }
 export interface FleetForwardDeps {
     store: FleetConsentStore;
@@ -54,6 +55,7 @@ export class FleetForwarder {
             lastAcknowledgedAt: this.lastAcknowledgedAt,
             deliveryConfirmed: false,
             operatorConfigured: this.deps.operatorEnabled,
+            receiver: this.deps.input.snapshot?.() ?? null,
         };
     }
     /** A line is accepted only from the currently admitted read-only raw-input generation. */
@@ -148,7 +150,7 @@ export class FleetForwarder {
                 (row) => row.receivedAt <= this.now() && this.now() - row.receivedAt <= LIMIT.observationAgeMs,
             );
             if (!this.queue.length || this.now() - this.lastAttemptAt < 60_000) {
-                this.state = 'listening';
+                this.state = this.deps.input.snapshot?.().connected === false ? 'receiver-unavailable' : 'listening';
                 return;
             }
             const now = this.now(),

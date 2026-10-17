@@ -67,6 +67,8 @@ export function currentFleetContext(input: {
     };
 }
 export class FleetAisInput {
+    private connected = false;
+    private lastReceivedAt: number | null = null;
     private context: string | null = null;
     private socket: Socket | null = null;
     private retry: ReturnType<typeof setTimeout> | null = null;
@@ -83,6 +85,8 @@ export class FleetAisInput {
         if (key === this.context) return;
         this.generation++;
         this.context = key;
+        this.connected = false;
+        this.lastReceivedAt = null;
         if (this.retry) clearTimeout(this.retry);
         this.retry = null;
         const socket = this.socket;
@@ -90,11 +94,17 @@ export class FleetAisInput {
         socket?.destroy();
         if (key && this.port !== null) this.connect(this.generation, key);
     }
+    snapshot() {
+        return { configured: this.port !== null, connected: this.connected, lastReceivedAt: this.lastReceivedAt };
+    }
     private connect(generation: number, key: string): void {
         if (!this.port || generation !== this.generation || key !== this.context) return;
         const socket = createConnection({ host: '127.0.0.1', port: this.port });
         this.socket = socket;
         const current = () => this.socket === socket && generation === this.generation && key === this.context;
+        socket.on('connect', () => {
+            if (current()) this.connected = true;
+        });
         let line = '',
             discard = false,
             bytes = 0,
@@ -115,7 +125,10 @@ export class FleetAisInput {
             for (const byte of chunk) {
                 if (byte === 10) {
                     const value = line.endsWith('\r') ? line.slice(0, -1) : line;
-                    if (!discard && validFleetAisSentence(value)) this.receive(value, at, key);
+                    if (!discard && validFleetAisSentence(value)) {
+                        this.lastReceivedAt = at;
+                        this.receive(value, at, key);
+                    }
                     line = '';
                     discard = false;
                 } else if (!discard) {
@@ -133,6 +146,7 @@ export class FleetAisInput {
         socket.on('close', () => {
             if (!current()) return;
             this.socket = null;
+            this.connected = false;
             this.retry = setTimeout(() => {
                 this.retry = null;
                 this.connect(generation, key);

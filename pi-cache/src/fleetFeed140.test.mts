@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, createHmac, createPublicKey, verify } from 'node:crypto';
 import { FleetConsentStore } from './fleetFeed/store.js';
 import { FleetFeedKeeper, type FleetKeeperDeps } from './fleetFeed/keeper.js';
 import { FleetForwarder, type FleetForwardDeps } from './fleetFeed/forwarder.js';
@@ -12,17 +12,42 @@ import { FleetAisInput, currentFleetContext, localFleetSource } from './fleetFee
 import { fleetWorkerEndpoint } from './fleetFeed/transport.js';
 import { verifyFleetReceipt, type FleetPiContext } from './fleetFeed/contract.js';
 import { loadOrCreateIdentity } from './identity.js';
-import { AIS_FLEET_FORWARDING as LIMIT, type FleetForwardConsent } from './fleetFeedWire.js';
-import {
-    fleetConsentReceipt,
-    fleetRelayTokenHash,
-    verifyFleetPiPayload,
-} from '../../workers/ais-ingest/fleetCrypto.js';
+import { AIS_FLEET_FORWARDING as LIMIT, fleetForwardConsentBytes, type FleetForwardConsent } from './fleetFeedWire.js';
 import { fleetConsentProposalBytes } from './fleetFeedWire.js';
 import express from 'express';
 import { createFleetFeedRoutes } from './routes/fleetFeed.js';
 import { createAppJsonParser } from './appJson.js';
 import type { BoatLanView } from './encDevices.js';
+// Synthetic server fixtures; cross-package receipt bytes are independently
+// checked below without pulling worker TypeScript outside this package root.
+const fleetRelayTokenHash = (value: string) => createHash('sha256').update(value).digest('hex');
+const fleetConsentReceipt = (consent: FleetForwardConsent, tokenHash: string, nonce: string) => ({
+    consent,
+    nonce,
+    mac: createHmac('sha256', Buffer.from(tokenHash, 'hex'))
+        .update('thalassa-pi-fleet-consent-v1\n' + fleetForwardConsentBytes(consent) + '\n' + nonce)
+        .digest('hex'),
+});
+const verifyFleetPiPayload = (spki: string, body: string, path: string, at: number, signature: string) =>
+    verify(
+        'sha256',
+        Buffer.from(`payload|${createHash('sha256').update(body).digest('hex')}|${path}|${at}`),
+        {
+            key: createPublicKey({ key: Buffer.from(spki, 'base64'), format: 'der', type: 'spki' }),
+            dsaEncoding: 'ieee-p1363',
+        },
+        Buffer.from(signature, 'base64'),
+    );
+test('Pi verifies the committed actual-worker receipt bytes without importing another package into its compiled root', () => {
+    const fixture = JSON.parse(
+        fs.readFileSync(new URL('../../tests/fixtures/ais-fleet140/receipt.json', import.meta.url), 'utf8'),
+    );
+    assert.equal(fixture.testOnly, true);
+    assert.equal(
+        verifyFleetReceipt(fixture.receipt, fixture.tokenCharacter.repeat(64), fixture.at)?.mac,
+        fixture.receipt.mac,
+    );
+});
 
 const lan: BoatLanView = {
     gateways: ['192.168.44.1'],
@@ -226,6 +251,9 @@ test('durable receipt remains private, bounded and cannot be replaced by a boole
     const file = path.join(f.dir, 'consent.json');
     fs.writeFileSync(file, 'x'.repeat(13000));
     assert.throws(() => f.store.read(now));
+    assert.equal(f.keeper.status().state, 'unavailable');
+    f.keeper.off();
+    assert.equal(f.keeper.status().state, 'off');
     f.store.off(now);
     assert.equal(f.store.read(now).receipt, null);
 });
@@ -462,10 +490,15 @@ test(
             await new Promise<void>((resolve) => server.close(() => resolve()));
         });
         assert.equal(connections.length, 0);
+        assert.equal(input.snapshot().connected, false);
         input.setContext('fixture-admitted-context');
         const deadline = Date.now() + 2000;
         while (accepted.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
         assert.deepEqual(accepted, [sentence, own]);
+        assert.equal(input.snapshot().connected, true);
+        assert.equal(typeof input.snapshot().lastReceivedAt, 'number');
         input.setContext(null);
+        assert.equal(input.snapshot().connected, false);
+        assert.equal(input.snapshot().lastReceivedAt, null);
     },
 );

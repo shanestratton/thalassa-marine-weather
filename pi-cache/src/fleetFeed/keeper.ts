@@ -43,12 +43,17 @@ export class FleetFeedKeeper {
         else this.deps.forwarder.changed();
     }
     status() {
-        const local = this.deps.store.read(this.now());
-        return {
-            ...this.deps.forwarder.status(),
-            consent: local.receipt?.consent ?? null,
-            lastLocalRevision: local.receipt?.consent.revision ?? local.blockedRevision,
-        };
+        try {
+            const local = this.deps.store.read(this.now());
+            return {
+                ...this.deps.forwarder.status(),
+                consent: local.receipt?.consent ?? null,
+                lastLocalRevision: local.receipt?.consent.revision ?? local.blockedRevision,
+            };
+        } catch {
+            this.deps.forwarder.changed();
+            return { ...this.deps.forwarder.status(), state: 'unavailable', consent: null, lastLocalRevision: null };
+        }
     }
     async prepare(raw: unknown, device: ChartDevicePublic) {
         this.pending = null;

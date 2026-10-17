@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createHash, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
 import {
     fleetConsentReceipt,
@@ -9,6 +10,19 @@ import {
 import { AIS_FLEET_FORWARDING, type FleetForwardConsent } from './fleetForwardingWire.js';
 
 const now = 1_800_000_000_000;
+it('actual worker HMAC matches the committed shared Pi receipt fixture exactly', () => {
+    const fixture = JSON.parse(
+        readFileSync(new URL('../../tests/fixtures/ais-fleet140/receipt.json', import.meta.url), 'utf8'),
+    );
+    expect(fixture.testOnly).toBe(true);
+    expect(
+        fleetConsentReceipt(
+            fixture.receipt.consent,
+            fleetRelayTokenHash(fixture.tokenCharacter.repeat(64)),
+            fixture.receipt.nonce,
+        ),
+    ).toEqual(fixture.receipt);
+});
 const token = 'e'.repeat(64);
 const consent: FleetForwardConsent = {
     schema: 1,
