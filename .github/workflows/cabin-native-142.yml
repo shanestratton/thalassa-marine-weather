@@ -16,18 +16,18 @@ concurrency:
     cancel-in-progress: false
 jobs:
     sqlite:
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        if: github.event_name == 'push' && github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
         runs-on: ubuntu-24.04
         timeout-minutes: 14
         env:
-            SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+            SOURCE_SHA: 5daf8d5d7e055cfc7d515485fe335c2bfa12883b
         steps:
             - name: Require exact source
               shell: bash
               run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ inputs.source_sha || github.sha }}
+                  ref: 5daf8d5d7e055cfc7d515485fe335c2bfa12883b
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
