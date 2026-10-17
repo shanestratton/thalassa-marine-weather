@@ -1,6 +1,8 @@
-"""Lossless local native-grid to immutable tiles; zero network/publication.
+"""Local original-grid qualified display tiles; zero network/publication.
 
 49 local original SP1 packets plus the original constant-mask packet are required.
+Finite upper RH is explicitly unavailable in the qualified display view. Original
+GRIBs and grid locations remain intact; not every original numeric RH is retained.
 Fresh output and per-file fsync/drop-advice bound dirty-page charge without global
 kernel tuning. Actual filesystem/cgroup admission remains required before wx use.
 """
@@ -16,7 +18,7 @@ import time
 from pathlib import Path
 
 from catalogue import DOMAINS, HOURS, MAX_COHORT_BYTES, MAX_PACKET_BYTES, require, digest, original_run, packet_url
-from native import FIELDS, UNITS, decode_packet
+from native import FIELDS, UNITS, RH_DISPLAY_POLICY, decode_packet
 
 CORE, HALO = 32, 3
 MAX_TILE_BYTES = 3 * 1024**2
@@ -178,9 +180,28 @@ def build_static(plan, sources, mask_source, out, clock=None):
         facts.append({'offsetHours': offset, 'url': source['url'], 'sha256': source['sha256'], 'bytes': source['bytes'], 'fields': metadata})
         hours.append(path)
         del fields, metadata, raw
+    rh_qa = [fact['fields']['rh2m']['displayQualification'] for fact in facts]
+    upper_rh = sum(qa['upperDisplayUnavailableCells'] for qa in rh_qa)
+    rh_available = sum(qa['displayAvailableCells'] for qa in rh_qa)
+    rh_cells = sum(qa['sourceCells'] for qa in rh_qa)
+    science = {name: digest(read_local(Path(__file__).with_name(name), 128 * 1024)) for name in
+               ('native.py', 'static_tiles.py', 'catalogue.py', 'native-requirements.lock')}
     native_proof = encoded({'schema': 1, 'model': spec['model'], 'runUtc': run_utc, 'decoder': 'ecCodes',
                             'maskSha256': mask_source['sha256'], 'maskFields': mask_facts,
-                            'packets': facts, 'allOriginalCellsPreserved': True, 'providerRequests': 0,
+                            'packets': facts, 'allOriginalGridLocationsPreserved': True,
+                            'originalSourceGribBytesModified': False, 'scientificFilesSha256': science,
+                            'optionalDisplayQualification': {'policy': RH_DISPLAY_POLICY, 'field': 'rh2m',
+                                'reason': 'upper-rh-outside-display-domain' if upper_rh else None,
+                                'sourceCells': rh_cells, 'upperDisplayUnavailableCells': upper_rh,
+                                'sourceMissingCells': sum(qa['sourceMissingCells'] for qa in rh_qa),
+                                'sourceBitmapMissingCells': sum(qa['sourceBitmapMissingCells'] for qa in rh_qa),
+                                'sourceUnmarkedMissingCells': sum(qa['sourceUnmarkedMissingCells'] for qa in rh_qa),
+                                'displayAvailableCells': rh_available, 'displayMissingCells': rh_cells - rh_available,
+                                'displayAvailability': 'complete' if rh_available == rh_cells
+                                    else 'partial' if rh_available else 'unavailable',
+                                'unchangedNumericFields': ['u10', 'v10', 'msl', 't2m'],
+                                'upperValuesClamped': False, 'roundingNormalizationApplied': False},
+                            'providerRequests': 0,
                             'published': False})
     native_proof_sha256 = digest(native_proof)
     require(len(native_proof) <= 1024**2, 'original native proof metadata bound')

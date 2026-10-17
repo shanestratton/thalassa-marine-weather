@@ -34,6 +34,68 @@ INTEGER_KEYS = ('edition', 'centre', 'Ni', 'Nj', 'numberOfPoints', 'iScansNegati
 DOUBLE_KEYS = ('iDirectionIncrementInDegrees', 'jDirectionIncrementInDegrees',
                'latitudeOfFirstGridPointInDegrees', 'latitudeOfLastGridPointInDegrees',
                'longitudeOfFirstGridPointInDegrees', 'longitudeOfLastGridPointInDegrees')
+RH_DISPLAY_POLICY = 'upper-rh-display-unavailable-v1'
+
+
+def rh_display_qa(cells, missing, upper, minimum, maximum, upper_minimum=None, upper_maximum=None,
+                  bitmap_missing=0):
+    """Qualified-view availability, not a diagnosis of the original upper RH.
+
+    Every finite upper value is unavailable, however large. It is never accepted
+    numerically, clamped, called packing error or used to expand the display
+    domain. Negative/infinite present RH still refuses the original packet.
+    """
+    require(type(cells) is int and 0 < cells <= max(d['width'] * d['height'] for d in DOMAINS.values())
+            and type(missing) is int and 0 <= missing <= cells
+            and type(upper) is int and 0 <= upper <= cells - missing
+            and type(bitmap_missing) is int and 0 <= bitmap_missing <= missing, 'RH display QA cardinality')
+    present = cells - missing
+    if present:
+        require(type(minimum) in (int, float) and type(maximum) in (int, float)
+                and math.isfinite(minimum) and math.isfinite(maximum)
+                and 0 <= minimum <= maximum, 'original field physical range')
+        require((maximum > 100) == (upper > 0)
+                and (minimum > 100) == (upper == present), 'RH display QA extrema/count mismatch')
+    else:
+        require(minimum is None and maximum is None and upper == 0, 'RH display QA missing extrema')
+    if upper:
+        require(type(upper_minimum) in (int, float) and type(upper_maximum) in (int, float)
+                and math.isfinite(upper_minimum) and math.isfinite(upper_maximum)
+                and 100 < upper_minimum <= upper_maximum == maximum
+                and minimum <= upper_minimum, 'RH display QA upper extrema')
+    else:
+        require(upper_minimum is None and upper_maximum is None, 'RH display QA unexpected upper extrema')
+    available = present - upper
+    return {'schema': 1, 'policy': RH_DISPLAY_POLICY, 'displayDomainPercent': [0, 100],
+            'sourceCells': cells, 'sourceMissingCells': missing, 'sourceFiniteCells': present,
+            'sourceBitmapMissingCells': bitmap_missing, 'sourceUnmarkedMissingCells': missing - bitmap_missing,
+            'sourceFiniteMinimum': minimum, 'sourceFiniteMaximum': maximum,
+            'upperSourceMinimum': upper_minimum, 'upperSourceMaximum': upper_maximum,
+            'upperDisplayUnavailableCells': upper, 'displayAvailableCells': available,
+            'displayMissingCells': missing + upper,
+            'displayAvailability': 'complete' if available == cells else 'partial' if available else 'unavailable',
+            'reason': 'upper-rh-outside-display-domain' if upper else None,
+            'upperRhCause': 'unproven' if upper else None,
+            'upperValuesClamped': False, 'roundingNormalizationApplied': False}
+
+
+def qualify_rh_display(values, np, bitmap_missing=0):
+    """Return a separate display view; keep the supplied decoded array intact."""
+    present = ~np.isnan(values)
+    source = values[present]
+    require(np.all(np.isfinite(source)) and np.all(source >= 0), 'original field physical range')
+    upper = values > 100
+    count = int(np.count_nonzero(upper))
+    upper_values = values[upper]
+    qa = rh_display_qa(int(values.size), int(values.size - source.size), count,
+                       float(np.min(source)) if source.size else None,
+                       float(np.max(source)) if source.size else None,
+                       float(np.min(upper_values)) if count else None,
+                       float(np.max(upper_values)) if count else None, bitmap_missing)
+    if count:
+        values = np.array(values, dtype='<f8', copy=True)
+        values[upper] = np.nan
+    return values, qa
 
 
 def longitude(value):
@@ -133,12 +195,17 @@ def decode_packet(raw, domain, run_utc=None, offset=None, mask_only=False):
             spec = DOMAINS[domain]
             values = np.asarray(eccodes.codes_get_values(handle), dtype='<f8')
             require(values.ndim == 1 and values.size == spec['width'] * spec['height'], 'original field cardinality')
+            bitmap_missing = 0
             if metadata['bitmapPresent'] == 1:
                 bitmap = np.asarray(eccodes.codes_get_array(handle, 'bitmap'))
                 require(bitmap.ndim == 1 and bitmap.size == values.size
                         and np.all((bitmap == 0) | (bitmap == 1)), 'original bitmap cardinality/values')
+                bitmap_missing = int(np.count_nonzero(bitmap == 0))
                 values[bitmap == 0] = np.nan
             low, high = RANGES[field]
+            if field == 'rh2m':
+                values, qa = qualify_rh_display(values, np, bitmap_missing)
+                metadata['displayQualification'] = qa
             present = ~np.isnan(values)
             require(np.all(np.isfinite(values[present])) and np.all(values[present] >= low)
                     and np.all(values[present] <= high), 'original field physical range')
