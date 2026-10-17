@@ -161,3 +161,83 @@ for (const width of [300, 375])
             contentType: 'application/json',
         });
     });
+
+test('actual local ImageSource URL retires only after proven removal', async ({ page }, info) => {
+    await page.setViewportSize({ width: 375, height: 780 });
+    const external: string[] = [];
+    page.on('request', (request) => {
+        const url = new URL(request.url());
+        if (
+            !['http:', 'blob:', 'data:'].includes(url.protocol) ||
+            (url.protocol === 'http:' && !['127.0.0.1', 'localhost'].includes(url.hostname))
+        )
+            external.push(url.origin);
+    });
+    await page.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        return ['127.0.0.1', 'localhost'].includes(url.hostname) || ['blob:', 'data:'].includes(url.protocol)
+            ? route.continue()
+            : route.abort();
+    });
+    await page.goto('/e2e/fixtures/owned-image141.html');
+    const status = page.getByTestId('owned-image-status');
+    await expect(status).toHaveText('off');
+    const first = await page.evaluate(() => window.__ownedImage141.start());
+    await expect(status).toHaveText('ready');
+    expect(await page.evaluate(async (url) => (await fetch(url)).ok, first)).toBe(true);
+    await page.evaluate(() => window.__ownedImage141.off());
+    await expect(status).toHaveText('off');
+    await info.attach('first-image-retired.json', {
+        body: JSON.stringify(await page.evaluate(() => window.__ownedImage141.evidence()), null, 2),
+        contentType: 'application/json',
+    });
+    const cachedAfterRevoke = await page.evaluate(
+        async (url) =>
+            fetch(url, { cache: 'no-store' })
+                .then((response) => response.ok)
+                .catch(() => false),
+        first,
+    );
+    const neverReadAfterRevoke = await page.evaluate(async () => {
+        const url = URL.createObjectURL(new Blob(['fresh never-read control']));
+        URL.revokeObjectURL(url);
+        return fetch(url, { cache: 'no-store' })
+            .then((response) => response.ok)
+            .catch(() => false);
+    });
+    expect(neverReadAfterRevoke).toBe(false);
+    const second = await page.evaluate(() => window.__ownedImage141.start());
+    await expect(status).toHaveText('ready');
+    await page.evaluate(() => {
+        window.__ownedImage141.stick();
+        window.__ownedImage141.off();
+    });
+    await expect(status).toHaveText('stuck-visible');
+    expect(await page.evaluate(async (url) => (await fetch(url)).ok, second)).toBe(true);
+    const evidence = (await page.evaluate(() => window.__ownedImage141.evidence())) as {
+        releases: { url: string; sourcePresent: boolean | null }[];
+        errors: string[];
+    };
+    expect(evidence.releases).toEqual([{ url: first, sourcePresent: false }]);
+    expect(evidence.errors).toEqual([]);
+    expect(external).toEqual([]);
+    await info.attach('url-retirement.json', {
+        body: JSON.stringify({ ...evidence, cachedAfterRevoke, neverReadAfterRevoke }, null, 2),
+        contentType: 'application/json',
+    });
+    await page.evaluate(() => window.__ownedImage141.remove());
+    await expect(status).toHaveText('off');
+    const cachedAfterSceneRemoval = await page.evaluate(
+        async (url) =>
+            fetch(url, { cache: 'no-store' })
+                .then((response) => response.ok)
+                .catch(() => false),
+        second,
+    );
+    const removed = (await page.evaluate(() => window.__ownedImage141.evidence())) as { releases: { url: string }[] };
+    expect(removed.releases.map((item) => item.url)).toEqual([first, second]);
+    await info.attach('removed-scene.json', {
+        body: JSON.stringify({ removed, cachedAfterSceneRemoval }, null, 2),
+        contentType: 'application/json',
+    });
+});
