@@ -83,6 +83,18 @@ jobs:
               run: |
                   set -euo pipefail
                   GITHUB_SHA="$(git rev-parse HEAD)" node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/ship-beta.txt" npm run ship:beta
+                  node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/post-sync-project-diff.txt" git diff -- ios/App/App.xcodeproj/project.pbxproj
+                  node --input-type=module <<'NODE'
+                  import fs from 'node:fs';
+                  import {execFileSync} from 'node:child_process';
+                  import {createHash} from 'node:crypto';
+                  const file='ios/App/App.xcodeproj/project.pbxproj';
+                  const before=execFileSync('git',['show','HEAD:'+file],{maxBuffer:2*1024*1024}),after=fs.readFileSync(file);
+                  if(before.length>2*1024*1024||after.length>2*1024*1024)throw Error('Native project capture exceeds bound');
+                  const describe=bytes=>({bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),crlf:(bytes.toString('utf8').match(/\r\n/g)??[]).length,lf:(bytes.toString('utf8').match(/\n/g)??[]).length});
+                  const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+                  fs.writeFileSync(process.env.RUNNER_TEMP+'/native139-evidence/post-sync-project.json',JSON.stringify({source,file,before:describe(before),after:describe(after),guardUnchanged:true},null,2)+'\n');
+                  NODE
                   node ../controls/scripts/native-identity139.mjs "$PWD"
                   node ../controls/scripts/public-copy-proof139.mjs dist ios/App/App/public "$RUNNER_TEMP/native139-evidence/capacitor-public-copy.json"
             - name: Compile unsigned iOS Simulator
