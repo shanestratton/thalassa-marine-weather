@@ -6182,13 +6182,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                         Radar by RainViewer
                     </a>
                 )}
+                <Suspense fallback={null}>
+                    {browseCommunityNotesVisible && !embedded && !pickerMode && !isPinView && (
+                        <CommunityChartNotesLayer mapRef={mapRef} mapReady={mapReady} />
+                    )}
+                </Suspense>
             </div>
 
             <Suspense fallback={null}>
                 <PlaceReviewsHost />
-                {browseCommunityNotesVisible && !embedded && !pickerMode && !isPinView && (
-                    <CommunityChartNotesLayer mapRef={mapRef} mapReady={mapReady} />
-                )}
             </Suspense>
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
             <Suspense fallback={null}>
