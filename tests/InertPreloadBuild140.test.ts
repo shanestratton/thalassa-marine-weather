@@ -3,6 +3,8 @@ import { afterAll, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
 import { inertPreloadData } from '../scripts/inert-preload-data.mjs';
 import { inertUiDataWorkerFence } from '../scripts/inert-ui-data.mjs';
@@ -30,7 +32,7 @@ for (const kind of ['a', 'b']) {
     );
     fs.writeFileSync(path.join(source, `${kind}.css`), `button{color:${kind === 'a' ? 'red' : 'blue'}}`);
 }
-async function compile(label: string, jsEntry = false) {
+async function compile(label: string, jsEntry = false, collapsed = false) {
     const output = path.join(root, label);
     await build({
         configFile: false,
@@ -42,11 +44,14 @@ async function compile(label: string, jsEntry = false) {
         build: {
             outDir: output,
             sourcemap: 'hidden',
+            modulePreload: collapsed ? { polyfill: false } : undefined,
             minify: 'terser',
             rollupOptions: {
-                input: jsEntry
-                    ? path.join(source, 'a.js')
-                    : { a: path.join(source, 'a.html'), b: path.join(source, 'b.html') },
+                input: collapsed
+                    ? path.join(source, 'collapsed.html')
+                    : jsEntry
+                      ? path.join(source, 'a.js')
+                      : { a: path.join(source, 'a.html'), b: path.join(source, 'b.html') },
                 output: {
                     manualChunks(id) {
                         if (id.endsWith('/utils/readPreloadData.ts')) return 'preload-data';
@@ -111,6 +116,32 @@ it('preserves cached asset identity, local document ownership and source mapping
     expect(third.files.has(bEntry)).toBe(false);
     for (const [name, code] of second.files)
         if (third.files.has(name)) expect(third.files.get(name), `immutable after reader edit ${name}`).toBe(code);
+}, 20_000);
+
+it('executes a dynamic import collapsed into its already-loaded entry with Vite’s actual absent preload list', async () => {
+    fs.writeFileSync(
+        path.join(source, 'collapsed.html'),
+        '<html><head><meta charset="utf-8"></head><body><script type="module" src="/collapsed.js"></script></body></html>',
+    );
+    fs.writeFileSync(path.join(source, 'collapsed-shared.js'), "export const value='same-loaded-module';");
+    fs.writeFileSync(
+        path.join(source, 'collapsed.js'),
+        "import{value}from'./collapsed-shared.js';globalThis.collapsedValue=value;globalThis.loadCollapsed=()=>import('./collapsed-shared.js').then(m=>m.value);",
+    );
+    const result = await compile('collapsed', false, true);
+    const entry = [...result.files.keys()].find((name) => /^collapsed-/.test(name))!;
+    expect(result.files.get(entry)).toContain('(void 0)');
+    const html = fs.readFileSync(path.join(result.output, 'collapsed.html'), 'utf8');
+    expect(html).not.toContain('id="thalassa-preload-');
+    const runner = path.join(root, 'run-collapsed.mjs');
+    fs.writeFileSync(
+        runner,
+        `globalThis.window={dispatchEvent(){return true}};await import(${JSON.stringify(pathToFileURL(path.join(result.output, 'assets', entry)).href)});console.log(JSON.stringify([globalThis.collapsedValue,await globalThis.loadCollapsed()]));`,
+    );
+    const run = spawnSync(process.execPath, [runner], { encoding: 'utf8' });
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual(['same-loaded-module', 'same-loaded-module']);
 }, 20_000);
 
 it('refuses a bare JavaScript entry instead of creating a document-data fallback', async () => {

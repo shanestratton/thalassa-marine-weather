@@ -18,6 +18,16 @@ function insert(record: ReturnType<typeof preloadRecord>, text = record.text) {
 const read = (record: ReturnType<typeof preloadRecord>) =>
     readPreloadData(record.id, record.text.length, record.count, record.checksum);
 describe('lazy local preload data', () => {
+    it('preserves Vite’s absent preload list without reading document data', () => {
+        expect(readPreloadData(undefined as never)).toBeUndefined();
+        expect(document.body.childElementCount).toBe(0);
+    });
+    it.each([null, 3, {}, false])('refuses a non-list/non-record value', (value) => {
+        expect(() => readPreloadData(value as never)).toThrow('Bundled preload data unavailable');
+    });
+    it('refuses an absent record key when compiled metadata is supplied', () => {
+        expect(() => readPreloadData(undefined as never, 2, 1, 1)).toThrow('Bundled preload data unavailable');
+    });
     it('reads only the requested local array, keeps JS/CSS order and removes only its record', () => {
         const a = preloadRecord('assets/a-hash.js', paths),
             b = preloadRecord('assets/b-hash.js', paths);

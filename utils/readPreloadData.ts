@@ -1,10 +1,10 @@
 /** Build-owned local Vite paths only. No network, app imports or general codec. */
 export function readPreloadData(
-    key: string | readonly string[],
+    key: string | readonly string[] | undefined,
     length?: number,
     count?: number,
     checksum?: number,
-): readonly string[] {
+): readonly string[] | undefined {
     const fail = (): never => {
         if (
             typeof document !== 'undefined' &&
@@ -30,7 +30,15 @@ export function readPreloadData(
     };
     // The source transform retains this normal bundler dependency while Vite
     // materialises its preload calls. Their already-resolved arrays stay exact.
-    if (typeof key !== 'string') return Array.isArray(key) ? key : fail();
+    // Rollup can fold a lazy import into its current chunk; Vite then supplies
+    // `void 0` for the legitimately absent list, which must stay absent.
+    if (typeof key !== 'string')
+        return (key === undefined || Array.isArray(key)) &&
+            length === undefined &&
+            count === undefined &&
+            checksum === undefined
+            ? key
+            : fail();
     if (
         typeof document === 'undefined' ||
         !/^thalassa-preload-[0-9a-f]{64}$/.test(key) ||
