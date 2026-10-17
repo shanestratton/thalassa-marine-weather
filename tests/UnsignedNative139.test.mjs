@@ -1,0 +1,175 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { Buffer } from 'node:buffer';
+import os from 'node:os';
+import path from 'node:path';
+import {
+    assertNative139,
+    NATIVE_BASE138,
+    NATIVE_PROJECT139,
+    UNSIGNED_SOURCE139,
+    WATCH_FILES139,
+} from '../scripts/native-identity139.mjs';
+import { assertPublicCopy139 } from '../scripts/public-copy-proof139.mjs';
+
+const yaml = createRequire(import.meta.url)('yaml');
+const show = (ref, file) => execFileSync('git', ['show', `${ref}:${file}`]);
+const fixture = (changes = {}) => {
+    const names = changes.names ?? [NATIVE_PROJECT139, ...Object.keys(WATCH_FILES139)];
+    return () =>
+        assertNative139(
+            (file) => changes.read?.(file) ?? show(UNSIGNED_SOURCE139, file),
+            (_command, args) => {
+                if (args[0] === 'show') return show(NATIVE_BASE138, NATIVE_PROJECT139);
+                if (args.includes('--name-only')) return names.join('\n') + '\n';
+                if (changes.dirty) throw Error('Tracked native mutation');
+                return Buffer.alloc(0);
+            },
+        );
+};
+
+test('exact frozen139 has four build-number edits plus two reviewed compiled Watch files', () => {
+    assert.equal(fixture()().appBuild, 139);
+    assert.equal(execFileSync('git', ['diff', NATIVE_BASE138, UNSIGNED_SOURCE139, '--', 'ios/WatchApp']).length, 0);
+});
+test('old WatchApp, signing, other native files and missing permitted files are refused', () => {
+    for (const names of [
+        [NATIVE_PROJECT139],
+        [NATIVE_PROJECT139, ...Object.keys(WATCH_FILES139), 'ios/WatchApp/Views/AnchorWatchView.swift'],
+        [NATIVE_PROJECT139, ...Object.keys(WATCH_FILES139), 'ios/App/App/App.entitlements'],
+    ])
+        assert.throws(fixture({ names }));
+});
+test('Swift, project whitespace/configuration changes and post-sync tracked mutation are refused', () => {
+    const watch = Object.keys(WATCH_FILES139)[0];
+    assert.throws(
+        fixture({
+            read: (file) =>
+                file === watch ? Buffer.concat([show(UNSIGNED_SOURCE139, file), Buffer.from('\n')]) : undefined,
+        }),
+    );
+    assert.throws(
+        fixture({
+            read: (file) =>
+                file === NATIVE_PROJECT139
+                    ? Buffer.concat([show(UNSIGNED_SOURCE139, file), Buffer.from('\n')])
+                    : undefined,
+        }),
+    );
+    assert.throws(
+        fixture({
+            read: (file) =>
+                file === NATIVE_PROJECT139
+                    ? Buffer.from(
+                          show(UNSIGNED_SOURCE139, file)
+                              .toString()
+                              .replace('CURRENT_PROJECT_VERSION = 139;', 'CURRENT_PROJECT_VERSION = 138;'),
+                      )
+                    : undefined,
+        }),
+    );
+    assert.throws(fixture({ dirty: true }));
+});
+
+test('workflow is owner-only manual unsigned compile, fixed source and public vars only', () => {
+    const text = readFileSync('.github/workflows/unsigned-native-139.yml', 'utf8');
+    const workflow = yaml.parse(text),
+        job = workflow.jobs.unsigned;
+    assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+    assert.deepEqual(workflow.permissions, { contents: 'read' });
+    assert.equal(job['runs-on'], 'macos-26');
+    assert.equal(job.env.DEVELOPER_DIR, '/Applications/Xcode_26.6.app/Contents/Developer');
+    assert.equal(job.env.VITE_APP_BUILD, '139');
+    assert.match(job.if, /github.actor == 'shanestratton'/);
+    assert.doesNotMatch(
+        text,
+        /secrets\.|ASC_|IOS_DEV_CERT|allowProvisioningUpdates|authenticationKey|exportArchive|archivePath|sourcemaps:upload|altool|notarytool/,
+    );
+    assert.equal(job.steps.filter((step) => step.with?.ref === UNSIGNED_SOURCE139).length, 1);
+    const copyStep = job.steps.find((step) => step.name === 'Build production web and sync Capacitor');
+    assert.match(copyStep.run, /npm run ship:beta/);
+    assert.match(copyStep.run, /native-identity139/);
+    for (const name of ['Compile unsigned iOS Simulator', 'Compile unsigned actual Watch target']) {
+        const run = job.steps.find((step) => step.name === name).run;
+        assert.match(run, /CODE_SIGNING_ALLOWED=NO build/);
+        assert.doesNotMatch(run, /(?:^|\s)archive(?:\s|$)/);
+    }
+    assert.match(
+        job.steps.find((step) => step.name === 'Compile unsigned iOS Simulator').run,
+        /generic\/platform=iOS Simulator/,
+    );
+    assert.match(
+        job.steps.find((step) => step.name === 'Compile unsigned actual Watch target').run,
+        /-target 'ThalassaWatch Watch App'/,
+    );
+    const artifact = job.steps.filter((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    assert.equal(artifact.length, 1);
+    assert.deepEqual(artifact[0].with.path.trim().split('\n'), [
+        '${{ runner.temp }}/native139-evidence/*.txt',
+        '${{ runner.temp }}/native139-evidence/*.json',
+    ]);
+    assert.equal(artifact[0].if, 'always()');
+    for (const value of Object.values(job.env).filter((value) => String(value).includes('${{')))
+        assert.match(value, /^\$\{\{ vars\.VITE_[A-Z_]+ \}\}$/);
+});
+
+test('public copy proves exact HTML/assets and refuses missing, corrupt, map or native extras', async () => {
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'native139-copy-test-'));
+    const source = path.join(temp, 'dist'),
+        copy = path.join(temp, 'public');
+    try {
+        await fs.mkdir(path.join(source, 'assets'), { recursive: true });
+        for (const [name, text] of [
+            ['index.html', '<html>Index exact inert data</html>'],
+            ['logs.html', '<html>Logs</html>'],
+            ['assets/x.js', 'export const exact = 1;'],
+        ])
+            await fs.writeFile(path.join(source, name), text);
+        await fs.cp(source, copy, { recursive: true });
+        await fs.writeFile(path.join(copy, 'cordova.js'), '');
+        const proof = await assertPublicCopy139(source, copy);
+        assert.equal(proof.sourceFiles, 3);
+        assert.equal(proof.added.length, 1);
+        await fs.writeFile(path.join(copy, 'index.html'), 'stale');
+        await assert.rejects(assertPublicCopy139(source, copy), /Public copy differs/);
+        await fs.copyFile(path.join(source, 'index.html'), path.join(copy, 'index.html'));
+        for (const name of ['assets/x.js.map', 'x.ipa', 'unexpected.txt']) {
+            await fs.writeFile(path.join(copy, name), 'fixture');
+            await assert.rejects(assertPublicCopy139(source, copy));
+            await fs.unlink(path.join(copy, name));
+        }
+        await fs.unlink(path.join(copy, 'logs.html'));
+        await assert.rejects(assertPublicCopy139(source, copy), /Public copy differs/);
+    } finally {
+        await fs.rm(temp, { recursive: true, force: true });
+    }
+});
+
+test('native logger retains at most2MiB and propagates failure exit status', async () => {
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'native139-log-test-'));
+    try {
+        const log = path.join(temp, 'bounded.txt');
+        const result = spawnSync(
+            process.execPath,
+            [
+                'scripts/bounded-native-log139.mjs',
+                log,
+                process.execPath,
+                '-e',
+                "process.stdout.write('x'.repeat(3*1024*1024));process.stderr.write('END');process.exitCode=7",
+            ],
+            { maxBuffer: 128 * 1024 },
+        );
+        assert.equal(result.status, 7);
+        const bytes = await fs.readFile(log);
+        assert.equal(bytes.length, 2 * 1024 * 1024);
+        assert.ok(bytes.includes(Buffer.from('END')));
+        assert.ok(result.stdout.length < 128 * 1024);
+    } finally {
+        await fs.rm(temp, { recursive: true, force: true });
+    }
+});
