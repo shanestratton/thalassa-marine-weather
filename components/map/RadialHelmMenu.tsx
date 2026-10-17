@@ -88,6 +88,8 @@ export interface RadialHelmMenuProps {
         onToggleAis?: () => void;
         receiverCoverageVisible?: boolean;
         onToggleReceiverCoverage?: () => void;
+        crowdSoundingsVisible?: boolean;
+        onToggleCrowdSoundings?: () => void;
         measuredBuoysVisible?: boolean;
         onToggleMeasuredBuoys?: () => void;
         cycloneVisible?: boolean;
@@ -525,6 +527,16 @@ function buildCategories(
                                   label: 'Measured seas',
                                   icon: <WavesIcon />,
                                   action: tacticalState.onToggleMeasuredBuoys,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleCrowdSoundings
+                        ? [
+                              {
+                                  id: 'crowd-soundings',
+                                  label: 'Crowd soundings',
+                                  icon: <TideIcon />,
+                                  action: tacticalState.onToggleCrowdSoundings,
                               },
                           ]
                         : []),
@@ -978,6 +990,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             toggleLayer('none');
             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
             if (tacticalState?.receiverCoverageVisible) tacticalState.onToggleReceiverCoverage?.();
+            if (tacticalState?.crowdSoundingsVisible) tacticalState.onToggleCrowdSoundings?.();
             if (tacticalState?.measuredBuoysVisible) tacticalState.onToggleMeasuredBuoys?.();
             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
@@ -1124,6 +1137,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             // directly for its pulse.
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
             if (item.id === 'receiver-coverage') return tacticalState?.receiverCoverageVisible ?? false;
+            if (item.id === 'crowd-soundings') return tacticalState?.crowdSoundingsVisible ?? false;
             if (item.id === 'measured-buoys') return tacticalState?.measuredBuoysVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
@@ -1155,6 +1169,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         let count = activeLayers.size;
         if (tacticalState?.aisVisible) count++;
         if (tacticalState?.receiverCoverageVisible) count++;
+        if (tacticalState?.crowdSoundingsVisible) count++;
         if (tacticalState?.measuredBuoysVisible) count++;
         if (tacticalState?.cycloneVisible) count++;
         if (tacticalState?.squallVisible) count++;

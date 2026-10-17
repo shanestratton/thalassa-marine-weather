@@ -296,8 +296,8 @@ export const SeabedMappingSection: React.FC = () => {
                     otherwise on this phone while it&rsquo;s connected to the boat&rsquo;s instruments, never from the
                     phone&rsquo;s own GPS. This capture switch keeps soundings private in your account. Public map and
                     IHO DCDB contribution require separate owner choices and calibration in Public contribution
-                    settings. Nothing is kept near your home berth, your private places, or where each trip starts and
-                    ends.
+                    settings. Public releases may be copied and used by anyone under CC0. Nothing is kept near your home
+                    berth, your private places, or where each trip starts and ends.
                 </p>
                 <Toggle checked={on} onChange={(v) => void toggle(v)} label="Help map the seabed" />
             </div>

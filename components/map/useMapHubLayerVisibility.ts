@@ -28,6 +28,7 @@ export function useMapHubLayerVisibility({
     // Never restore yesterday's overlays from device storage.
     const [aisVisible, setAisVisible] = useState(false);
     const [receiverCoverageVisible, setReceiverCoverageVisible] = useState(false);
+    const [crowdSoundingsVisible, setCrowdSoundingsVisible] = useState(false);
     const [measuredBuoysVisible, setMeasuredBuoysVisible] = useState(false);
     const [measuredBuoysLoaded, setMeasuredBuoysLoaded] = useState(false);
     useEffect(() => {
@@ -95,6 +96,7 @@ export function useMapHubLayerVisibility({
 
     const browseAisVisible = aisVisible && !planningSurface;
     const browseReceiverCoverageVisible = receiverCoverageVisible && !planningSurface;
+    const browseCrowdSoundingsVisible = crowdSoundingsVisible && !planningSurface;
     const browseMeasuredBuoysVisible = measuredBuoysVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
@@ -113,6 +115,9 @@ export function useMapHubLayerVisibility({
         aisVisible,
         setAisVisible,
         receiverCoverageVisible,
+        crowdSoundingsVisible,
+        setCrowdSoundingsVisible,
+        browseCrowdSoundingsVisible,
         setReceiverCoverageVisible,
         browseReceiverCoverageVisible,
         measuredBuoysVisible,

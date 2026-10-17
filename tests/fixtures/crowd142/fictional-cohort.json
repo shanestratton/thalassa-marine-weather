@@ -1,0 +1,9 @@
+{
+    "fictional": true,
+    "now": 1792231200000,
+    "pointer": "{\"expiresAt\":1792234800000,\"generatedAt\":1792231200000,\"generation\":\"cc19d527f4e783904f1d357ffb136329ab050cb69599c2e39a5278c2ae62f597\",\"indexBytes\":710,\"indexSha256\":\"cc19d527f4e783904f1d357ffb136329ab050cb69599c2e39a5278c2ae62f597\",\"kind\":\"thalassa-crowd-soundings-v1\",\"schema\":1}",
+    "objects": {
+        "cc19d527f4e783904f1d357ffb136329ab050cb69599c2e39a5278c2ae62f597/tile-334-63.json": "{\"features\":[{\"geometry\":{\"coordinates\":[[154,-27],[154.001,-27]],\"type\":\"LineString\"},\"properties\":{\"contourIntervalM\":0.5,\"datumId\":\"fixture-MLLW-epoch\",\"depthM\":10.5,\"hydroRegion\":\"fixture-reviewed-region\",\"independentBoats\":3,\"label\":\"Crowd soundings · unverified · not for navigation\",\"navigationAuthority\":false,\"uncertaintyM\":1,\"utcDays\":3},\"type\":\"Feature\"}],\"type\":\"FeatureCollection\"}",
+        "cc19d527f4e783904f1d357ffb136329ab050cb69599c2e39a5278c2ae62f597/index.json": "{\"contourIntervalM\":0.5,\"coverage\":\"qualified-historical-cells-with-gaps\",\"datums\":[{\"hydroRegion\":\"fixture-reviewed-region\",\"id\":\"fixture-MLLW-epoch\"}],\"expiresAt\":1792234800000,\"generatedAt\":1792231200000,\"kind\":\"thalassa-crowd-soundings-v1\",\"label\":\"Crowd soundings · unverified · not for navigation\",\"licence\":\"CC0-1.0\",\"licenceUrl\":\"https://creativecommons.org/publicdomain/zero/1.0/\",\"minimumIndependentBoats\":3,\"minimumIndependentOwners\":3,\"minimumUncertaintyM\":1,\"minimumUtcDays\":3,\"navigationAuthority\":false,\"projectedGridMetres\":100,\"schema\":1,\"sourceCount\":3,\"tiles\":{\"334-63\":{\"bytes\":396,\"sha256\":\"4f1873d0ce7f773c12b6b8d646751461633caae94394a2357760762a1ced3223\"}},\"utcDayRange\":[20695,20697]}"
+    }
+}

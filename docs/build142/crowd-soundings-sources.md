@@ -99,3 +99,26 @@ owner RLS, future-only/30day admission, independent permissions, CAS, actual
 blocking observations and archive/deletion/release/owner A/B/A tests. This
 workflow is prepared, **not dispatched**; Node syntax and disposable-connection
 refusals pass locally. These are not yet actual PostgreSQL proof results.
+
+The optional Obs layer is lazy and defaultOFF. It reads only the owned
+`crowd/v1` public prefix after an explicit toggle, foreground/network-policy
+admission and sufficient zoom. A viewport may borrow at most9 tiles,512 line
+segments and1.2MB per session; two native fetch slots stay charged until the
+actual promises settle. Original expiry, account transitions, cancellation,
+clock rollback and network-policy changes remove the owned overlay. The
+existing Credits rollup contains its source/datum/uncertainty warning. Nothing
+from this layer enters routing, depth clearance or alarms.
+
+Final local source proof:48 Vitest cases across6 suites and2 disposable-URL
+Node cases pass; scoped lint, canonical mirror check and diff check pass.
+The real Chrome/WebKit phone fixture passes4 cases at300/375px,130% text and
+667px height. It checks44px controls, horizontal ancestor clipping, pinned
+footer reachability after scrolling, Hide all and unchanged page/map extent.
+The fixture uses explicitly fictional source bytes and a synthetic map host,
+not a real account, live map paint, provider data or deployed public product.
+Screenshots were inspected at the narrow sizes. Earlier selector failures,
+fixture wrapping and canceled-animation failures remain preserved; the real
+fieldset min-content overflow exposed during that work was corrected.
+Ordinary keyboard browser configuration includes these cases. Whole-app
+TypeScript, configured bundle size, actual PostgreSQL, Linux native QA and
+physical hardware remain root-owned pending proofs; no size PASS is inferred.

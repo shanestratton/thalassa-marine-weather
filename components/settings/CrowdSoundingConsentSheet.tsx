@@ -11,7 +11,10 @@ import {
 import { parseCrowdCalibration, type CrowdCalibration } from '../../services/seabed/crowdPolicy';
 
 const button = 'min-h-11 min-w-0 rounded-lg border border-white/20 px-3 text-sm text-white disabled:opacity-40';
-const field = 'mt-1 min-h-11 w-full rounded-lg border border-white/20 bg-slate-950 px-3 text-sm text-white';
+const field =
+    'mt-1 min-h-11 min-w-0 w-full max-w-full rounded-lg border border-white/20 bg-slate-950 px-3 text-sm text-white';
+const defaultActions = { flushCrowdRevoke, readCrowdPermission, revokeCrowdPermission, saveCrowdPermission };
+export type CrowdConsentActions = typeof defaultActions;
 const numericFields = [
     ['waterlineToTransducerM', 'Measured waterline to transducer (m)'],
     ['offsetUncertaintyM', 'Offset uncertainty bound (m)'],
@@ -43,7 +46,15 @@ function formFor(value: CrowdCalibration | null): Form {
 }
 
 /** Mounted only by an explicit settings opener. Private capture has its own switch. */
-export default function CrowdSoundingConsentSheet({ boatId, onClose }: { boatId: string; onClose: () => void }) {
+export default function CrowdSoundingConsentSheet({
+    boatId,
+    onClose,
+    actions = defaultActions,
+}: {
+    boatId: string;
+    onClose: () => void;
+    actions?: CrowdConsentActions;
+}) {
     const [owned, setOwned] = useState<CrowdOwnedPermission | null>(null);
     const [form, setForm] = useState<Form>({ ...empty });
     const [map, setMap] = useState(false),
@@ -72,8 +83,8 @@ export default function CrowdSoundingConsentSheet({ boatId, onClose }: { boatId:
             setBusy(true);
             setConfirmed(false);
             try {
-                await flushCrowdRevoke(boatId);
-                const value = await readCrowdPermission(boatId, abort.signal);
+                await actions.flushCrowdRevoke(boatId);
+                const value = await actions.readCrowdPermission(boatId, abort.signal);
                 if (!alive || turn !== epoch.current) return;
                 setOwned(value);
                 setMap(value.pendingRevoke ? false : !!value.permission?.mapEnabled);
@@ -98,7 +109,7 @@ export default function CrowdSoundingConsentSheet({ boatId, onClose }: { boatId:
             unsubscribe();
             window.removeEventListener('online', load);
         };
-    }, [boatId, onClose, retire]);
+    }, [boatId, onClose, retire, actions]);
 
     const off = async () => {
         const turn = ++epoch.current;
@@ -109,7 +120,7 @@ export default function CrowdSoundingConsentSheet({ boatId, onClose }: { boatId:
         setBusy(true);
         setConfirmed(false);
         try {
-            const status = await revokeCrowdPermission(boatId);
+            const status = await actions.revokeCrowdPermission(boatId);
             if (turn !== epoch.current) return;
             setMessage(
                 status === 'saved'
@@ -150,7 +161,7 @@ export default function CrowdSoundingConsentSheet({ boatId, onClose }: { boatId:
                 },
                 Date.now(),
             );
-            const permission = await saveCrowdPermission(
+            const permission = await actions.saveCrowdPermission(
                 {
                     boatId,
                     expectedRevision: owned.permission?.revision ?? null,
@@ -250,8 +261,14 @@ export default function CrowdSoundingConsentSheet({ boatId, onClose }: { boatId:
                     public, including external archives, cannot be recalled. No owner name or vessel track is included
                     in the map. DCDB requires a persistent anonymous platform identifier.
                 </p>
-                <fieldset disabled={busy || !owned} className="space-y-3 border-t border-white/10 pt-3">
-                    <legend className="font-semibold text-white">Measured sounder calibration</legend>
+                <fieldset
+                    disabled={busy || !owned}
+                    className="min-w-0 space-y-3 border-t border-white/10 pt-3"
+                    style={{ colorScheme: 'dark' }}
+                >
+                    <legend className="max-w-full break-words font-semibold text-white">
+                        Measured sounder calibration
+                    </legend>
                     <p>
                         Vessel draft confirmation is insufficient. Use the instrument’s exact output source and
                         reference, a measured offset and an independent sounder check. Unknown UTC, datum or calibration

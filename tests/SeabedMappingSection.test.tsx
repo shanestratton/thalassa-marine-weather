@@ -129,8 +129,9 @@ describe('Help map the seabed', () => {
         const toggle = await screen.findByRole('switch', { name: 'Help map the seabed' });
         expect(toggle).toHaveAttribute('aria-checked', 'false');
         expect(screen.getByText(/never from the phone.s own GPS/)).toBeInTheDocument();
-        expect(screen.getByText(/Nothing is shared yet/)).toBeInTheDocument();
-        expect(screen.getByText(/where they may become free for anyone to use/)).toBeInTheDocument();
+        expect(screen.getByText(/This capture switch keeps soundings private in your account/)).toBeInTheDocument();
+        expect(screen.getByText(/require separate owner choices and calibration/)).toBeInTheDocument();
+        expect(screen.getByText(/Public releases may be copied and used by anyone under CC0/)).toBeInTheDocument();
         expect(
             screen.getByText(/home berth, your private places, or where each trip starts and ends/),
         ).toBeInTheDocument();
