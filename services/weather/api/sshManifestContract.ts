@@ -24,7 +24,8 @@ function requireSsh(ok: unknown, reason: string): asserts ok {
 }
 function exact(value: unknown, keys: readonly string[], label: string): asserts value is Record<string, unknown> {
     requireSsh(record(value), label);
-    const actual = Object.keys(value).sort(), expected = [...keys].sort();
+    const actual = Object.keys(value).sort(),
+        expected = [...keys].sort();
     requireSsh(actual.length === expected.length && actual.every((key, i) => key === expected[i]), `${label} fields`);
 }
 function utc(value: unknown): number {
@@ -36,45 +37,102 @@ function utc(value: unknown): number {
 export function sshGeneration(dataStart: string, hashes: readonly string[]): string {
     const ms = utc(dataStart);
     requireSsh(hashes.length === 1 && /^[0-9a-f]{64}$/.test(hashes[0]), 'one exact asset digest');
-    const material = new TextEncoder().encode(JSON.stringify({ data_start: dataStart, dataset: 'ssh', sha256: [...hashes] }));
+    const material = new TextEncoder().encode(
+        JSON.stringify({ data_start: dataStart, dataset: 'ssh', sha256: [...hashes] }),
+    );
     return `g-${new Date(ms).toISOString().replace(/[-:]/g, '').replace('.000Z', 'Z')}-${sha256Hex(material).slice(0, 12)}`;
 }
 export interface SshManifest {
     readonly generation: string;
     readonly sourceTimeMs: number;
     readonly publishedAtMs: number;
+    readonly validUntilMs: number;
     readonly filename: string;
     readonly sha256: string;
 }
 export function parseSshManifest(value: unknown, nowMs = Date.now(), requireCurrent = true): SshManifest {
-    exact(value, ['schema_version', 'dataset', 'generation', 'generated_at', 'published_at', 'data_start', 'data_end',
-        'cadence_hours', 'dimensions', 'bounds', 'producer', 'files', 'metadata'], 'manifest');
+    exact(
+        value,
+        [
+            'schema_version',
+            'dataset',
+            'generation',
+            'generated_at',
+            'published_at',
+            'data_start',
+            'data_end',
+            'cadence_hours',
+            'dimensions',
+            'bounds',
+            'producer',
+            'files',
+            'metadata',
+        ],
+        'manifest',
+    );
     requireSsh(value.schema_version === 2 && value.cadence_hours === 24, 'schema/daily cadence');
     exact(value.dataset, ['key', 'id'], 'dataset');
     requireSsh(value.dataset.key === 'ssh' && value.dataset.id === SSH_DATASET, 'non-demo dataset identity');
     exact(value.dimensions, ['width', 'height'], 'dimensions');
     requireSsh(value.dimensions.width === SSH_WIDTH && value.dimensions.height === SSH_HEIGHT, 'exact display grid');
     exact(value.bounds, Object.keys(SSH_BOUNDS), 'bounds');
-    for (const [key, expected] of Object.entries(SSH_BOUNDS)) requireSsh(value.bounds[key] === expected, 'cell-centre bounds');
+    for (const [key, expected] of Object.entries(SSH_BOUNDS))
+        requireSsh(value.bounds[key] === expected, 'cell-centre bounds');
     exact(value.metadata, Object.keys(SSH_METADATA), 'metadata');
-    for (const [key, expected] of Object.entries(SSH_METADATA)) requireSsh(value.metadata[key] === expected, 'provenance/units/credit');
-    const source = utc(value.data_start), end = utc(value.data_end), generated = utc(value.generated_at), published = utc(value.published_at);
-    requireSsh(source >= Date.UTC(2020, 0, 1) && source <= Date.UTC(2100, 0, 1) && source % DAY === 0 && end === source, 'original daily observation date');
-    requireSsh(generated >= source && generated - source <= 4 * DAY && published >= generated, 'observation chronology');
+    for (const [key, expected] of Object.entries(SSH_METADATA))
+        requireSsh(value.metadata[key] === expected, 'provenance/units/credit');
+    const source = utc(value.data_start),
+        end = utc(value.data_end),
+        generated = utc(value.generated_at),
+        published = utc(value.published_at);
+    requireSsh(
+        source >= Date.UTC(2020, 0, 1) && source <= Date.UTC(2100, 0, 1) && source % DAY === 0 && end === source,
+        'original daily observation date',
+    );
+    requireSsh(
+        generated >= source && generated - source <= 4 * DAY && published >= generated,
+        'observation chronology',
+    );
     if (requireCurrent) {
-        requireSsh(Number.isFinite(nowMs) && source <= nowMs && nowMs - source <= 4 * DAY, 'observation is stale or future');
-        requireSsh(generated <= nowMs + 900_000 && published <= nowMs + 900_000 && nowMs - generated <= 2 * DAY, 'publication is stale or future');
+        requireSsh(
+            Number.isFinite(nowMs) && source <= nowMs && nowMs - source <= 4 * DAY,
+            'observation is stale or future',
+        );
+        requireSsh(
+            generated <= nowMs + 900_000 && published <= nowMs + 900_000 && nowMs - generated <= 2 * DAY,
+            'publication is stale or future',
+        );
     }
     exact(value.producer, ['commit', 'run_id', 'run_attempt'], 'producer');
-    requireSsh(typeof value.producer.commit === 'string' && /^[0-9a-f]{40}$/.test(value.producer.commit), 'producer commit');
-    for (const key of ['run_id', 'run_attempt']) requireSsh(Number.isSafeInteger(value.producer[key]) && Number(value.producer[key]) > 0, 'producer run');
+    requireSsh(
+        typeof value.producer.commit === 'string' && /^[0-9a-f]{40}$/.test(value.producer.commit),
+        'producer commit',
+    );
+    for (const key of ['run_id', 'run_attempt'])
+        requireSsh(Number.isSafeInteger(value.producer[key]) && Number(value.producer[key]) > 0, 'producer run');
     requireSsh(Array.isArray(value.files) && value.files.length === 1, 'one observed frame');
     const file: unknown = value.files[0];
     exact(file, ['step', 'offset_hours', 'data_time', 'filename', 'bytes', 'sha256', 'content_type'], 'file');
-    requireSsh(file.step === 0 && file.offset_hours === 0 && file.data_time === value.data_start, 'no forecast or retimed frame');
-    requireSsh(file.bytes === SSH_FILE_BYTES && file.content_type === 'application/octet-stream', 'exact immutable binary');
+    requireSsh(
+        file.step === 0 && file.offset_hours === 0 && file.data_time === value.data_start,
+        'no forecast or retimed frame',
+    );
+    requireSsh(
+        file.bytes === SSH_FILE_BYTES && file.content_type === 'application/octet-stream',
+        'exact immutable binary',
+    );
     requireSsh(typeof file.sha256 === 'string' && /^[0-9a-f]{64}$/.test(file.sha256), 'asset digest');
     const generation = sshGeneration(value.data_start as string, [file.sha256]);
-    requireSsh(value.generation === generation && file.filename === `${generation}-h000.bin`, 'generation/content binding');
-    return Object.freeze({ generation, sourceTimeMs: source, publishedAtMs: published, filename: file.filename as string, sha256: file.sha256 });
+    requireSsh(
+        value.generation === generation && file.filename === `${generation}-h000.bin`,
+        'generation/content binding',
+    );
+    return Object.freeze({
+        generation,
+        sourceTimeMs: source,
+        publishedAtMs: published,
+        validUntilMs: Math.min(source + 4 * DAY, generated + 2 * DAY),
+        filename: file.filename as string,
+        sha256: file.sha256,
+    });
 }

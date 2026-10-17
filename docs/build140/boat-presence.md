@@ -1,0 +1,45 @@
+# 140-04 · Optional Thalassa boats
+
+Source preparation only. No live migration, expiry timer, flag, provider change or deployment was performed by this packet. Native versions remain unchanged. ChatPage is untouched. Root owns composition and release.
+
+The actual Obs Live menu offers **Thalassa boats** (view only) and **Boat privacy**. Preferences has a separate privacy/friends opener. The credits rollup keeps its existing single 44px strip and opens the same controls. A circle within a diamond distinguishes these app positions from AIS. No presence position enters AIS, CPA, alarms, routing or track history.
+
+## Consent and precision
+
+- New accounts and fresh maps start off. Saving crew/friends/nearby consent never starts publication. Each foreground publication session requires another explicit tap in Obs.
+- Every tier uses 0.05° cell centres (about 3NM north–south). Crew and friends receive the same rounded, delayed coordinates. No headings, speeds, precise source coordinates or trail are returned.
+- Nearby snapshots have an opaque viewer-bound handle and generic boat label; no raw owner, vessel or source identifiers. Friends/crew may see the hull name. A five-minute source bucket is shown, not a claim of an exact live fix.
+- Crew admission intersects current `boat_members` with live accepted `vessel_crew`; neither an owner-created member row alone nor a pending invitation qualifies. No future tier or `user_metadata` role is invented.
+- Friends use a 32-byte cryptographic token, stored only as SHA256. It expires after one hour (schema maximum24h), needs an explicit recipient review/acceptance, and is consumed atomically once. Max10 outstanding invitations and100 grants per source/recipient. Either participant may revoke an accepted grant. Thalassa sends no invitation message.
+
+## Clocks, races and lifetime
+
+`GpsService.getLastKnownPosition()` supplies the existing phone fix and its original acquisition timestamp. Presence starts no extra GPS watcher, uses no map pin, LocationStore receipt clock or persisted held fix, and never claims authenticated physical presence aboard. A forged client GPS remains possible; these are explicitly self-reported positions.
+
+The server admits fixes at most30s old and5s in the future, and requires their original timestamp to advance. It stores one latest rounded private query context, one pending first fix, and one published first fix per owner. Repeated heartbeats cannot replace the pending fix or postpone its first-receipt clock. Promotion waits at least5min after that receipt. Original source clocks are preserved separately: read admission and each viewer lease end strictly before the source becomes15min old, including when it was already29s old on receipt.
+
+Public sharing and private viewing use separate45s foreground sessions. Viewing may supply a fresh rounded query context while the publication tier is off. The bounded query accepts no arbitrary bbox/radius/centre; it uses that server-recorded fresh context and the caller's current active owned vessel, within25NM and at most100 returned points. Control/fix/read quotas are30/6/6 successful calls per minute per account; SQL statement/lock deadlines are5s/500ms.
+
+Consent and vessel changes rotate a configuration UUID plus increasing server sequence. Reader/publisher revisions and client-generated nonces separately fence session starts/stops. A stop that overtakes its in-flight start invalidates the old revision; a stop arriving after its start matches the known nonce. Neither can cancel a later different session. Sorted account advisory locks share the existing account-deletion fence order; actual active-vessel and owner/archive/release triggers retire old configurations, including A→B→A. Private boat UUID references are deliberately not FK locks: every call/read checks actual ownership and active context, while retirement triggers avoid a boats-row→config / config→boat key-share inversion.
+
+Client promises capture synchronous auth/vessel generations, then verify the actual Supabase session before a bounded RPC. Account/vessel/Satellite/offline/page-hide and native app-state changes retire RAM and sessions immediately. Returning foreground never restarts publication. A lost network leaves at most45s server lease; readers retain responses for at most30s, reduced by request latency and original source expiry using a monotonic clock. No presence data/outbox is written to IndexedDB, localStorage or Preferences. Existing app GPS retention is a separate pre-existing service, not a presence archive.
+
+The implementation is a definer function with empty search path in non-exposed `private_presence`, behind an authenticated public invoker wrapper. Four private RLS tables have no direct client table grants and are absent from Realtime. Tombstoning deletes source configuration/samples/invitations and recipient grants; auth deletion independently cascades. Accepted grants are bound to an exact source hull and checked against current ownership, not a pasted recipient UUID.
+
+## Deployment prerequisite: bounded expiry
+
+Session/read leases hide expired data without a maintenance job. Physical cleanup is separate and must be reviewed and enabled before live rollout. `private_presence.expire_batch()` deletes at most64 sample rows per call using the existing expiry index and `FOR UPDATE SKIP LOCKED`; normal RPCs also call that bounded cleanup. Explicit stop/off/context retirement clears source positions immediately. Abandoned sample rows are candidates15min after last activity; this is not a promise of an immediate physical purge at the public source-age deadline.
+
+`supabase/operations/boat_presence_expiry.example.sql` is a **held operator template**, not an automatic migration. It refuses before changes without an explicit operator review marker, actual postgres role, existing pg_cron and the reviewed migration, and refuses duplicate jobs or a changed private-publication policy. Proposed job: one64-row batch per minute, no HTTP/webhook or credentials. It logs a row count only. That can retire3840 abandoned rows/hour; root must check actual fleet demand/backlog, service runtime and pg_cron permissions before enabling. Nothing silently increases quotas, changes an existing job or contacts a Pi.
+
+Release sequence: independently review/apply the canonical migration; inspect real permissions/publications; review and dry-run bounded expiry; install/observe the separately reviewed job; perform owner/crew/friend/off/account-switch live checks with consenting test accounts; then release the composed UI. Do not describe the held template or isolated service-container proof as a live deployment. Rollback needs sharing retired first, then the named job unscheduled after inspection; never remove another job by a guessed ID.
+
+## Evidence
+
+- Canonical CLI-generated migration `20261017015015_boat_presence.sql`; reviewed SQL source48b06c68317a50d19009bba62fbedfb9e1be9deb, migration SHA256 `f7bdbca08ec64a2ea41fe81a21d5f7c2413e754ccaf0b5586fd414255f9523d5`.
+- Actual isolated Linux PostgreSQL17.6: run38994291249/job117283263645, definition0cad7e7c63668c0ea27c3a5e96d628a7c9464078. **73 SQL checks,26 concurrency checks across7 known-gate competing paths,22 disposable-environment guard cases pass.** Original source age and actual `pg_blocking_pids` admission are retained. Root receipt: `outputs/Build14004 real Linux PostgreSQL proof.json`, SHA256 `a0eb3285bb167600544d80ac4e9bce915b73be7a479cb28f736c15c179acabe7`.
+- PGlite73 is a separate local check, never a substitute for that actual server proof. Native iOS lifecycle/GPS hardware behavior remains a real-device release check; these source/browser proofs do not impersonate a boat or radio.
+- Frontend controller/transport/stop-during-start plus existing Credits/menu regressions:58 cases in7 suites pass. A separate9-check PGlite maintenance proof verifies held-template refusal,64-row batch bound and preservation of a fresh private context, without installing cron. Scoped lint has0 errors and the same3 existing MapHub warnings.
+- Frontend and exact final phone evidence are recorded in the separate source proof receipt. Original failing fixture/phone traces are retained. The controlled Windows WebKit geolocation fixture emitted a1000× acquisition timestamp; its test-only wrapper divides that original timestamp only for the proven ratio/current-time bound and records raw/scaled values. Product GPS guards and the Chrome callback are unchanged; no receipt-time restamping is used.
+
+Primary references: [Supabase definer/RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security), [PostgreSQL17 lock order](https://www.postgresql.org/docs/17/explicit-locking.html), [pgcrypto random bytes](https://www.postgresql.org/docs/17/pgcrypto.html), [W3C Geolocation acquisition timestamp](https://www.w3.org/TR/geolocation/), [EpochTimeStamp milliseconds](https://www.w3.org/TR/hr-time-3/), [Playwright controlled WebKit source](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/webkit/wkBrowser.ts).

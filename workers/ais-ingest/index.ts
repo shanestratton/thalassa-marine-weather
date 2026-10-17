@@ -26,6 +26,9 @@ import { resolveBoundingBoxes } from './boundingBox.js';
 import { fleetFeedCorsHeaders, getFleetFeedStats, handleFleetFeed, setFleetFeedCors } from './fleetFeed.js';
 import { createClient } from '@supabase/supabase-js';
 import { getFleetAisStats, postgresFleetPollStore, startFleetAishubPoller } from './fleetAishub.js';
+import { createPiFleetHttp } from './piFleetHttp.js';
+import { postgresPiFleetStore } from './piFleetStore.js';
+import { scheduleCrowdAisLine } from './fleetFeed.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -298,8 +301,48 @@ const FLEET_FEED_ANON_KEY = process.env.SUPABASE_ANON_KEY;
  *  station's position and uptime stats (Shane, 2026-08-23). */
 const AISHUB_FORWARD_HOST = process.env.AISHUB_HOST;
 const AISHUB_FORWARD_PORT = parseInt(process.env.AISHUB_PORT || '0', 10) || undefined;
+const piFleetUrl = process.env.SUPABASE_URL,
+    piFleetKey = process.env.SUPABASE_SERVICE_KEY;
+const piFleetStore =
+    piFleetUrl && piFleetKey
+        ? postgresPiFleetStore(
+              createClient(piFleetUrl, piFleetKey, {
+                  auth: { persistSession: false, autoRefreshToken: false },
+              }),
+          )
+        : null;
+const piFleetHttp = createPiFleetHttp({
+    store: piFleetStore,
+    operatorEnabled: process.env.PI_FLEET_FEED_ENABLED === 'true' && !!AISHUB_FORWARD_HOST && !!AISHUB_FORWARD_PORT,
+    origins: process.env.FLEET_FEED_ORIGINS,
+    authenticateOwner: async (authorization, signal) => {
+        if (!piFleetUrl || !FLEET_FEED_ANON_KEY) return null;
+        const client = createClient(piFleetUrl, FLEET_FEED_ANON_KEY, {
+            auth: { persistSession: false, autoRefreshToken: false },
+            global: {
+                headers: { Authorization: authorization },
+                fetch: (input, init) => fetch(input, { ...init, signal }),
+            },
+        });
+        const { data, error } = await client.auth.getUser();
+        return error ? null : (data.user?.id ?? null);
+    },
+    enqueue: (record) => db.enqueue(record),
+    scheduleForward: (line) => {
+        if (AISHUB_FORWARD_HOST && AISHUB_FORWARD_PORT)
+            scheduleCrowdAisLine(line, AISHUB_FORWARD_HOST, AISHUB_FORWARD_PORT);
+    },
+});
 
 const healthServer = http.createServer((req, res) => {
+    if (
+        req.url === '/pi-fleet-feed/v1' ||
+        req.url === '/pi-fleet-consent/v1' ||
+        req.url === '/pi-fleet-consent/status/v1'
+    ) {
+        void piFleetHttp(req, res);
+        return;
+    }
     // ── Punter crowd-feed (authorized: AISHub 2026-03-18, port for all
     // feeds). Requires SUPABASE_ANON_KEY for user-token verification —
     // absent, the endpoint answers 503 and the rest of the worker is

@@ -86,6 +86,8 @@ export interface RadialHelmMenuProps {
         onOpenMob?: () => void;
         aisVisible?: boolean;
         onToggleAis?: () => void;
+        receiverCoverageVisible?: boolean;
+        onToggleReceiverCoverage?: () => void;
         cycloneVisible?: boolean;
         onToggleCyclones?: () => void;
         squallVisible?: boolean;
@@ -106,6 +108,9 @@ export interface RadialHelmMenuProps {
         onToggleMoorings?: () => void;
         facilitiesVisible?: boolean;
         onToggleFacilities?: () => void;
+        boatPresenceVisible?: boolean;
+        onToggleBoatPresence?: () => void;
+        onOpenBoatPresence?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
         mpaVisible?: boolean;
         onToggleMpa?: () => void;
@@ -371,8 +376,36 @@ function buildCategories(
             action: tacticalState.onToggleAis,
         });
     }
+    if (tacticalState?.onToggleBoatPresence)
+        tactical.push({
+            id: 'boat-presence',
+            label: 'Thalassa boats',
+            icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="m12 2 10 10-10 10L2 12Z" />
+                    <circle cx="12" cy="12" r="4" />
+                </svg>
+            ),
+            action: tacticalState.onToggleBoatPresence,
+        });
+    if (tacticalState?.onOpenBoatPresence)
+        tactical.push({
+            id: 'boat-presence-controls',
+            label: 'Boat privacy',
+            icon: <span aria-hidden>⚙</span>,
+            action: tacticalState.onOpenBoatPresence,
+            dismissOnSelect: true,
+        });
 
     // ── Operational reference (lower in the fan) ──
+    if (tacticalState?.onToggleReceiverCoverage) {
+        tactical.push({
+            id: 'receiver-coverage',
+            label: 'Who’s listening',
+            icon: <AisIcon />,
+            action: tacticalState.onToggleReceiverCoverage,
+        });
+    }
     // Marks / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
     // Tide stations now live under Sea, beside the other water layers.
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
@@ -893,6 +926,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             e.stopPropagation();
             toggleLayer('none');
             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
+            if (tacticalState?.receiverCoverageVisible) tacticalState.onToggleReceiverCoverage?.();
             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
             if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
@@ -903,6 +937,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.communityNotesVisible) tacticalState.onToggleCommunityNotes?.();
             if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
             if (tacticalState?.facilitiesVisible) tacticalState.onToggleFacilities?.();
+            if (tacticalState?.boatPresenceVisible) tacticalState.onToggleBoatPresence?.();
             // Also clear any chart sources.
             chartsState?.sources?.forEach((s) => {
                 if (!s.enabled) return;
@@ -1034,6 +1069,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             // always-visible button, which reads tacticalState.mobActive
             // directly for its pulse.
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
+            if (item.id === 'receiver-coverage') return tacticalState?.receiverCoverageVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
             if (item.id === 'lightning') return tacticalState?.lightningVisible ?? false;
@@ -1044,6 +1080,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'community-notes') return tacticalState?.communityNotesVisible ?? false;
             if (item.id === 'moorings') return tacticalState?.mooringsVisible ?? false;
             if (item.id === 'facilities') return tacticalState?.facilitiesVisible ?? false;
+            if (item.id === 'boat-presence') return tacticalState?.boatPresenceVisible ?? false;
             if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
             if (item.id.startsWith('chart-')) {
@@ -1059,6 +1096,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const totalActive = useMemo(() => {
         let count = activeLayers.size;
         if (tacticalState?.aisVisible) count++;
+        if (tacticalState?.receiverCoverageVisible) count++;
         if (tacticalState?.cycloneVisible) count++;
         if (tacticalState?.squallVisible) count++;
         if (tacticalState?.lightningVisible) count++;
@@ -1069,6 +1107,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.mooringsVisible) count++;
         if (tacticalState?.communityNotesVisible) count++;
         if (tacticalState?.facilitiesVisible) count++;
+        if (tacticalState?.boatPresenceVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
         if (chartsState?.sources) {
             for (const s of chartsState.sources) if (s.enabled) count++;

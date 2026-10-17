@@ -28,6 +28,7 @@ export default defineConfig({
         'course136-layout.spec.ts',
         'timezone136.spec.ts',
         'ais-fleet-layout.spec.ts',
+        'receiver-coverage140-layout.spec.ts',
         'marine-places-layout.spec.ts',
         'paper-charts-layout.spec.ts',
         'noaa-catalogue-layout.spec.ts',
