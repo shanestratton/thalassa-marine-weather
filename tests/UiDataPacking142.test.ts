@@ -357,7 +357,12 @@ it('keeps UI tables and CSS owners out of worker/route closures and disables wor
         throw Error('Expected callable plugin hooks');
     // Vite resolves no table or transform in its separate worker build.
     plugin.configResolved.call({} as never, { isProduction: true, isWorker: true } as never);
-    expect(plugin.resolveId.call({} as never, 'virtual:thalassa-ui-strings', undefined, { isEntry: false })).toBeNull();
+    expect(
+        plugin.resolveId.call({} as never, 'virtual:thalassa-ui-strings', undefined, {
+            isEntry: false,
+            attributes: {},
+        }),
+    ).toBeNull();
     expect(plugin.load.call({} as never, '\0virtual:thalassa-ui-strings')).toBeNull();
     expect(
         plugin.transform.call({} as never, 'export const text="unchanged";', path.join(root, 'components/Proof.tsx')),
