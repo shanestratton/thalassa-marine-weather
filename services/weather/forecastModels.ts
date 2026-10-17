@@ -219,7 +219,7 @@ export const WAVE_SPREAD_MODELS: { id: string; label: string; provider: string; 
  *  Canada" and, where possible, a link to the licence. */
 export const ECCC_LICENCE = 'ECCC Data Services End-use Licence';
 export const ECCC_LICENCE_URL = 'https://eccc-msc.github.io/open-data/licence/readme_en/';
-export const AROME_LICENCE_URL = 'https://www.etalab.gouv.fr/licence-ouverte-open-licence/';
+export const AROME_LICENCE_URL = 'https://www.data.gouv.fr/pages/legal/licences/etalab-2.0';
 const ECCC_STATEMENT = 'Data Source: Environment and Climate Change Canada';
 
 const LICENCES = ['CC BY 4.0', 'CC BY-SA 4.0', 'public domain', ECCC_LICENCE, 'Etalab-2.0'] as const;

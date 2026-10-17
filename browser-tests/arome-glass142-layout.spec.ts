@@ -103,7 +103,7 @@ for (const width of [300, 375, 430])
                 if (state === 'native')
                     await expect(licence).toHaveAttribute(
                         'href',
-                        'https://www.etalab.gouv.fr/licence-ouverte-open-licence/',
+        'https://www.data.gouv.fr/pages/legal/licences/etalab-2.0',
                     );
                 else await expect(dialog.getByRole('link', { name: /AROME-OM.*Etalab-2.0/ })).toHaveCount(0);
                 await reachable(licence, width);
