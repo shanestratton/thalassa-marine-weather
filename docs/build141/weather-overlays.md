@@ -185,3 +185,33 @@ were inspected again. The generic arrow shape in unit tests is synthetic;
 actual SSH source/arrows are integrated separately by the parent. Full compiler,
 configured bundle, native device memory and real atmosphere publication remain
 separate requirements.
+
+## Shared prepared-image owner
+
+`useOwnedImageOverlay` now owns the same ImageSource lifecycle as the scalar
+renderer. `useScalarGridOverlay` is a grid→512² PNG adapter; its original 51
+renderer/ownership cases and assertions are byte-unchanged and pass. A prepared
+image has bounded dimensions, local PNG/data or same-origin blob URL, Mercator-safe
+rectangular corners, original owner/revision/current-source proof and an optional
+idempotent release. No remote URL reaches Mapbox. The source still needs actual
+content followed by loaded/owned presentation, with the original ten-second
+deadline. Equivalent inline proof callbacks do not recreate a healthy image.
+
+The generic owner prepares one frame and reuses it after a style replacement.
+A blob release transfers to the renderer and occurs only after proven source
+absence or scene removal; proven-hidden residual sources retain their URL until
+resource absence too. Failed factories release unpresented URLs. Foreign or
+stuck-visible ownership retains its original attributed warning after unmount.
+Twelve added unit cases cover these URL, lifetime, bounds and handoff paths.
+
+The final actual browser run passed six cases: the original four atmospheric
+phone cases plus a real local PNG/blob ImageSource lifetime case in Chrome and
+WebKit. It requires exact native release after source absence, continued blob
+readability while removal/hiding are deliberately stuck, and scene-removal
+release. A fresh never-read URL revoked before its first read must fail in both
+engines. Cached post-revocation reads are attached as diagnostics: WebKit can
+serve a previously read blob response after revocation, so this proof does not
+claim browser cache erasure. The first cached-read and missing fixture-token
+failures remain preserved. Fictional Mapbox session/telemetry requests are handled
+locally as in the accepted atmosphere fixture; no provider request was made.
+The final log is `work/validation141-owned-image-final-six.log`.
