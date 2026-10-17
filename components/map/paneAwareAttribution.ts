@@ -27,11 +27,14 @@ export function installPaneAwareAttribution(map: mapboxgl.Map, container: HTMLEl
         const shortLandscape = height > 0 && height <= SHORT_LANDSCAPE_MAX_HEIGHT_PX && width > height;
         // Large desktop panes have room for the full line; only the compact
         // chart/control layout needs the extra headroom above Mapbox's cutoff.
-        const compact = width <= 640 || shortLandscape || (split && width < 960);
+        // Plotting needs the chart's full press surface: regional source
+        // credits can wrap across the place a skipper is dropping a waypoint.
+        const compact =
+            container.dataset.mapCreditMode === 'compact' || width <= 640 || shortLandscape || (split && width < 960);
         if (control && compact === wasCompact) return;
         const previous = control;
         // undefined retains Mapbox's own responsive behaviour on roomy maps.
-        // Never force a permanently collapsed attribution on a full-size map.
+        // Plotting retains the native opener and every source link at any width.
         control = new mapboxgl.AttributionControl(compact ? { compact: true } : {});
         map.addControl(control, 'bottom-right');
         if (previous) map.removeControl(previous);
@@ -42,6 +45,8 @@ export function installPaneAwareAttribution(map: mapboxgl.Map, container: HTMLEl
         container.dataset.attributionLayout = compact ? 'compact' : 'strip';
     };
     refresh();
+    map.on('resize', refresh);
+    map.on('remove', () => map.off('resize', refresh));
     // The map's existing ResizeObserver calls this alongside map.resize(),
     // so turning the phone re-measures both sides.
     // Mapbox owns removal of the final native control when map.remove() runs.

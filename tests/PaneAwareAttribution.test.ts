@@ -82,6 +82,26 @@ function chart(width: number, split = false, height = 0) {
 beforeEach(() => document.body.replaceChildren());
 
 describe('pane-aware native map attribution', () => {
+    it('keeps every native source link behind its opener while plotting on a wide chart', () => {
+        const map = chart(1024, false, 768);
+        expect(map.container.dataset.attributionLayout).toBe('strip');
+        map.container.dataset.mapCreditMode = 'compact';
+        map.emit('resize');
+        expect(map.controls).toHaveLength(1);
+        expect(map.container.dataset.attributionLayout).toBe('compact');
+        const toggle = map.container.querySelector('button')!;
+        expect(map.container.querySelector('.mapboxgl-ctrl-attrib')).not.toHaveClass('mapboxgl-compact-show');
+        toggle.click();
+        expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        expect(map.container.querySelector('a[href="https://www.openstreetmap.org/copyright"]')).toHaveTextContent(
+            'OpenStreetMap',
+        );
+        expect(map.container.querySelector('a[href="https://www.mapbox.com/about/maps/"]')).toHaveTextContent('Mapbox');
+        delete map.container.dataset.mapCreditMode;
+        map.emit('resize');
+        expect(map.container.dataset.attributionLayout).toBe('strip');
+        expect(map.controls).toHaveLength(1);
+    });
     it('collapses a 700px iPad split map even though the native 640px cutoff misses it', () => {
         const map = chart(700, true);
         expect(map.controls).toHaveLength(1);
