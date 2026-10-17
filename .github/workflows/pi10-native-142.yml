@@ -1,11 +1,8 @@
 name: Build142 isolated Pi10 package and SQLite proof
 on:
-    workflow_dispatch:
-        inputs:
-            source_sha:
-                description: Exact reviewed source commit
-                required: true
-                type: string
+    push:
+        branches: ['codex/build-142-pi10-native-proof']
+        paths: ['.github/workflows/pi10-native-142.yml']
 permissions:
     contents: read
 concurrency:
@@ -17,14 +14,14 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 18
         env:
-            SOURCE_SHA: ${{ inputs.source_sha }}
+            SOURCE_SHA: f4da2a338ffbecbf938d9e6b2d201374f3f3594d
         steps:
             - name: Require exact source
               shell: bash
               run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ inputs.source_sha }}
+                  ref: f4da2a338ffbecbf938d9e6b2d201374f3f3594d
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
