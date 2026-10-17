@@ -133,7 +133,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     displayMode: 'auto-night',
     preferredModel: 'best_match',
     forecastModel: 'dwd_icon',
-    offshoreModel: 'sg',
+    offshoreModel: 'auto',
     aiPersona: 50,
     heroMetric: 'temp',
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
@@ -322,9 +322,11 @@ export function awaitSettingsLoaded(): Promise<void> {
 export const RETIRED_SETTINGS_KEYS = ['heroWidgets', 'detailsWidgets', 'rowOrder', 'topHeroWidget'] as const;
 
 function withoutRetiredSettings<T extends object>(settings: T): T {
-    if (!RETIRED_SETTINGS_KEYS.some((key) => key in settings)) return settings;
+    const legacyOffshore = 'offshoreModel' in settings && settings.offshoreModel === 'sg';
+    if (!legacyOffshore && !RETIRED_SETTINGS_KEYS.some((key) => key in settings)) return settings;
     const kept = { ...settings } as Record<string, unknown>;
     for (const key of RETIRED_SETTINGS_KEYS) delete kept[key];
+    if (legacyOffshore) kept.offshoreModel = 'auto';
     return kept as T;
 }
 

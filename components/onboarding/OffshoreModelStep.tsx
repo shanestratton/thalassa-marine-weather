@@ -1,5 +1,5 @@
 /**
- * OffshoreModelStep — Onboarding step for selecting the default Stormglass
+ * OffshoreModelStep — Onboarding step for selecting the offshore atmosphere
  * NWP model used when the vessel crosses the 20 nm offshore boundary.
  *
  * Skipper-only (owner tier).
@@ -35,34 +35,34 @@ const MODEL_OPTIONS: {
     detail: string;
 }[] = [
     {
-        value: 'sg',
-        label: 'Stormglass AI',
-        tag: 'Recommended',
+        value: 'auto',
+        label: 'Auto · ECMWF',
+        tag: 'Default',
         tagColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-        desc: 'Blends the best of all the major forecasts',
-        detail: "Mixes ECMWF, GFS and several others into one tuned forecast. The right pick if you're not sure which to trust.",
+        desc: 'ECMWF atmosphere with Météo-France sea forecast',
+        detail: 'Uses ECMWF IFS 0.25° for the atmosphere. Waves, water temperature and currents have separate marine sources.',
     },
     {
         value: 'ecmwf',
         label: 'ECMWF',
         tag: 'European Standard',
         tagColor: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
-        desc: 'What professional ocean routers trust most',
-        detail: 'European Centre for Medium-Range Weather Forecasts — 9 km global resolution. Most-trusted single model worldwide for offshore work.',
+        desc: 'European global atmospheric forecast',
+        detail: 'ECMWF IFS 0.25° for wind and weather, paired with the same independent marine forecast.',
     },
     {
         value: 'gfs',
         label: 'GFS / NOAA',
         tag: 'American Standard',
         tagColor: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-        desc: 'Free US-government model — refreshes every 6 hours',
-        detail: '25 km global resolution from NOAA. Less precise than ECMWF but updates often. Good fallback if other sources are slow.',
+        desc: 'American atmospheric forecast',
+        detail: 'NOAA GFS seamless for wind and weather, paired with the same independent marine forecast.',
     },
     {
         value: 'icon',
         label: 'ICON',
-        desc: 'German model — strong in the Southern Ocean',
-        detail: "DWD's 13 km global model. Particularly good in mid-latitudes and Southern Ocean sailing where European models can sag.",
+        desc: 'German global atmospheric forecast',
+        detail: 'DWD ICON for wind and weather, paired with the same independent marine forecast.',
     },
 ];
 

@@ -62,7 +62,8 @@ export const fetchStormGlassWeather = async (
     existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
     modelSnapshot?: OffshoreModel,
 ): Promise<MarineWeatherReport> => {
-    const offshoreSource = resolveOffshoreModel(modelSnapshot ?? useSettingsStore.getState().settings.offshoreModel);
+    const resolved = resolveOffshoreModel(modelSnapshot ?? useSettingsStore.getState().settings.offshoreModel);
+    const offshoreSource = resolved === 'auto' ? 'sg' : resolved;
     // 135-03: old cache rows may contain station-overridden forecast values.
     const cacheIdentity = `forecast-only-v2:${offshoreSource}:${existingLocationType || 'auto'}`;
     // 1. CHECK CACHE (3h TTL — model data updates every 6h)

@@ -2,6 +2,7 @@ import React from 'react';
 import { usePassageHudInfo, usePassageSquallInfoVisible } from '../../stores/passageHudInfoStore';
 import { SquallLegend } from '../map/SquallLegend';
 import { providerLicence } from '../../services/weather/forecastModels';
+import { MarineDataCredit } from '../weather/MarineDataCredit';
 
 /** Explanations belong in the existing blue ℹ panel, not below the chart slider. */
 export const PassageHudInfoCard: React.FC = () => {
@@ -55,6 +56,9 @@ export const PassageHudInfoCard: React.FC = () => {
                     </div>
                     <div className="space-y-1 border-t border-white/10 pt-2 text-xs text-slate-300">
                         <p data-testid="route-scrub-credit">Forecast data: {info.credited.join(', ')}</p>
+                        <p>
+                            <MarineDataCredit />
+                        </p>
                         <p>
                             Weather data via{' '}
                             <a

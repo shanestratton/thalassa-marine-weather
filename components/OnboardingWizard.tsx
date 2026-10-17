@@ -132,7 +132,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     const [prefWaveHeight, setPrefWaveHeight] = useState<LengthUnit>('m'); // Default to Meters per user request
     const [prefVolume, setPrefVolume] = useState<VolumeUnit>(defaults.volume || 'gal');
     const [preferredModel, _setPreferredModel] = useState<WeatherModel>('best_match');
-    const [offshoreModel, setOffshoreModel] = useState<OffshoreModel>('sg');
+    const [offshoreModel, setOffshoreModel] = useState<OffshoreModel>('auto');
 
     // Display preferences
     const [prefAlwaysOn, setPrefAlwaysOn] = useState(false);

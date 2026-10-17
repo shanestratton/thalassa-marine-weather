@@ -1361,7 +1361,7 @@ describe('Sources and limits', () => {
         expect(within(sources).getByText(/— 7 of 7 answered for today$/)).toBeTruthy();
         for (const credit of [
             /^Forecast data: /,
-            'Waves: Météo-France (MFWAM)',
+            'Marine: Météo-France; E.U. Copernicus Marine Service Information, © Mercator Ocean, via Open-Meteo (CC BY 4.0).',
             'Tides: WorldTides, Harbour Gauge, metres above LAT, approx. ±0.3 m',
             // The coastline too: each stop's picture draws its land from it (132-PYD-9).
             'Places and coastline: © OpenStreetMap contributors (ODbL)',

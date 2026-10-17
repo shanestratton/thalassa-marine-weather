@@ -143,8 +143,75 @@ export function applyMarineModel(
     return report;
 }
 
+/** Recheck original clocks at the display boundary, including startup/history
+ * and delayed enrichment. Persisting a report never renews a marine receipt. */
+export function marineForecastForDisplay(input: MarineWeatherReport, now = Date.now()): MarineWeatherReport {
+    const missing = display(empty(), false);
+    const { waterTemperature: _water, currentSpeed: _speed, currentDirection: _direction, ...waves } = missing;
+    const motion = { waterTemperature: null, currentSpeed: null, currentDirection: undefined };
+    const meta = input.current.marine;
+    const hasValues = (slot: typeof input.current | (typeof input.hourly)[number] | (typeof input.forecast)[number]) =>
+        Object.keys(missing).some((key) => (slot as unknown as Record<string, unknown>)[key] != null) ||
+        Object.values(slot.marine?.parts ?? {}).some(Boolean);
+    const freshEnvelope =
+        meta?.waveModel === 'meteofrance_wave' &&
+        meta.motionModel === 'best_match' &&
+        typeof meta.fetchedAtMs === 'number' &&
+        Number.isFinite(meta.fetchedAtMs) &&
+        meta.fetchedAtMs <= now + 5000 &&
+        now - meta.fetchedAtMs <= 3_600_000 &&
+        !!input.coordinates &&
+        !!meta.requested &&
+        Math.round(input.coordinates.lat * 10000) / 10000 === meta.requested.latitude &&
+        Math.round(input.coordinates.lon * 10000) / 10000 === meta.requested.longitude;
+    if (!freshEnvelope) {
+        if (![input.current, ...input.hourly, ...input.forecast].some(hasValues)) return input;
+        return applyMarineModel(input, null, meta?.status === 'enclosed');
+    }
+    const freshCurrent = (time: number | null) =>
+        time !== null && Number.isFinite(time) && time <= now + 300_000 && now - time <= 1_800_000;
+    const wavesOk = freshCurrent(meta.waveValidAtMs),
+        motionOk = freshCurrent(meta.motionValidAtMs);
+    const clearWave =
+        !wavesOk &&
+        (Object.keys(waves).some((key) => (input.current as unknown as Record<string, unknown>)[key] != null) ||
+            Object.values(meta.parts).some(Boolean));
+    const clearMotion =
+        !motionOk &&
+        (input.current.waterTemperature != null ||
+            input.current.currentSpeed != null ||
+            input.current.currentDirection != null);
+    if (!clearWave && !clearMotion) return input;
+    const report = structuredClone(input);
+    report.current = {
+        ...report.current,
+        ...(clearWave ? waves : {}),
+        ...(clearMotion ? motion : {}),
+        marine: {
+            ...meta,
+            parts: clearWave ? emptyParts() : meta.parts,
+            waveValidAtMs: clearWave ? null : meta.waveValidAtMs,
+            motionValidAtMs: clearMotion ? null : meta.motionValidAtMs,
+            status: meta.status === 'enclosed' ? 'enclosed' : clearWave ? 'unavailable' : meta.status,
+            reason:
+                meta.status === 'enclosed'
+                    ? meta.reason
+                    : clearWave
+                      ? 'The original current sea sample has expired.'
+                      : meta.reason,
+        },
+    };
+    for (const [key, value] of Object.entries({ ...waves, ...motion })) {
+        const stale = key in motion ? clearMotion : clearWave;
+        const prior = report.current.sources?.[key];
+        if (stale && prior) report.current.sources![key] = { ...prior, value };
+    }
+    return report;
+}
+
 /** Forecast alerts/advice follow the final merged numbers, after all source and shelter decisions. */
-export function finalizeMarineForecast(report: MarineWeatherReport): MarineWeatherReport {
+export function finalizeMarineForecast(input: MarineWeatherReport, now = Date.now()): MarineWeatherReport {
+    const report = marineForecastForDisplay(input, now);
     report.alerts = generateSafetyAlerts(report.current, report.forecast[0]?.highTemp, report.forecast);
     report.boatingAdvice = generateTacticalAdvice(
         report.current,

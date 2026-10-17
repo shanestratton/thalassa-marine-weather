@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { MarineWeatherReport } from '../types';
-import { applyMarineModel, finalizeMarineForecast } from '../services/weather/applyMarineModel';
+import {
+    applyMarineModel,
+    finalizeMarineForecast,
+    marineForecastForDisplay,
+} from '../services/weather/applyMarineModel';
 import { mapMarineModelV2 } from '../services/weather/marineModelV2';
 import { marineEnvelopeV2 } from '../supabase/functions/_shared/marine-v2';
 import { marineFixtureSource, MARINE_FIXTURE_AT as at, MARINE_FIXTURE_POINT as point } from './fixtures/marineV2141';
@@ -143,7 +147,8 @@ describe('final source-qualified marine report enrichment', () => {
     it('recomputes actual sea alerts after the final merge and never describes unknown seas as calm', () => {
         const input = report();
         input.alerts = ['Dangerous seas from the replaced source'];
-        const known = finalizeMarineForecast(applyMarineModel(input, source()));
+        const known = finalizeMarineForecast(applyMarineModel(input, source()), at);
+        expect(known.current.waveHeight).toBe(4.92);
         expect(known.alerts?.join(' ')).not.toMatch(/dangerous seas|rough seas/i);
         const unknown = finalizeMarineForecast(applyMarineModel(input, null));
         expect(unknown.current.waveHeight).toBeNull();
@@ -151,5 +156,40 @@ describe('final source-qualified marine report enrichment', () => {
         expect(unknown.boatingAdvice).not.toMatch(/Tranquil|Mirror-like|Excellent for all|Good conditions for sailing/);
         input.current.windSpeed = 55;
         expect(finalizeMarineForecast(applyMarineModel(input, null)).alerts?.join(' ')).toMatch(/storm-force/i);
+    });
+    it('retains a fresh source without renewing clocks or changing identity', () => {
+        const input = applyMarineModel(report(), source());
+        expect(marineForecastForDisplay(input, at)).toBe(input);
+        expect(input.current.marine?.fetchedAtMs).toBe(at);
+    });
+    it('expires original current sea independently from newer motion while retaining the same-cohort forecast', () => {
+        const sourceValue = source();
+        sourceValue.fetchedAtMs = at + 600000;
+        sourceValue.motionCurrentAtMs = at + 600000;
+        const input = applyMarineModel(report(), sourceValue);
+        const output = marineForecastForDisplay(input, at + 1800001);
+        expect(output.current.waveHeight).toBeNull();
+        expect(output.current.marine?.parts.total).toBeNull();
+        expect(output.current.marine?.waveValidAtMs).toBeNull();
+        expect(output.current.waterTemperature).toBe(21);
+        expect(output.current.currentSpeed).toBe(1);
+        expect(output.current.marine?.motionValidAtMs).toBe(at + 600000);
+        expect(output.current.marine?.fetchedAtMs).toBe(at + 600000);
+        expect(output.hourly[0].waveHeight).toBe(4.92);
+        expect(input.current.waveHeight).toBe(4.92);
+    });
+    it('expires a whole persisted source cohort from its original receipt at one hour plus1ms', () => {
+        const input = applyMarineModel(report(), source());
+        const output = marineForecastForDisplay(input, at + 3600001);
+        expect(output.current.waveHeight).toBeNull();
+        expect(output.current.currentSpeed).toBeNull();
+        expect(output.hourly.every((hour) => hour.waveHeight === null)).toBe(true);
+        expect(output.forecast.every((day) => day.waveHeight === null)).toBe(true);
+    });
+    it('refuses legacy placeholders and another coordinate cohort at the display boundary', () => {
+        expect(marineForecastForDisplay(report(), at).current.waveHeight).toBeNull();
+        const input = applyMarineModel(report(), source());
+        input.coordinates!.lat += 0.01;
+        expect(marineForecastForDisplay(input, at).current.waveHeight).toBeNull();
     });
 });

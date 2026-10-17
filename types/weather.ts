@@ -33,7 +33,8 @@ export type WeatherModel =
  *  - `gfs`   — GFS / NOAA (American standard, 25 km global)
  *  - `icon`  — DWD ICON (German global hi-res, 13 km)
  */
-export type OffshoreModel = 'sg' | 'ecmwf' | 'gfs' | 'icon';
+/** `sg` is a stored legacy preference, migrated to `auto` on read. */
+export type OffshoreModel = 'auto' | 'sg' | 'ecmwf' | 'gfs' | 'icon';
 
 export type WeatherConditionKey = 'rain' | 'storm' | 'fog' | 'cloudy' | 'night' | 'sunny' | 'default';
 
