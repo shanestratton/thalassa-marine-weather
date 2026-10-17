@@ -10,7 +10,7 @@
         "VITE_CMEMS_MLD_ENABLED": false,
         "VITE_ATMOSPHERE_ENABLED": true,
         "VITE_ENABLE_OCEAN_EDDIES": true,
-        "VITE_SHARPER_SATELLITE_ENABLED": false,
+        "VITE_SHARPER_SATELLITE_ENABLED": true,
         "VITE_MPA_ENABLED": false,
         "VITE_APPLE_SIGN_IN_ENABLED": true,
         "VITE_APPLE_WEB_SIGN_IN_ENABLED": true,

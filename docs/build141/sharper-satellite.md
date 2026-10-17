@@ -1,7 +1,9 @@
 # Build 141-05 sharper satellite source
 
 This is a display-only, separately lazy component for the existing capped Obs
-layer key and credit rollup. It has not been enabled or deployed. Both
+layer key and credit rollup. Its owned public Edge service and candidate release
+profile are admitted by the [actual public-read checkpoint](satellite-public-admission.md).
+Both
 `VITE_SHARPER_SATELLITE_ENABLED` and the server's `SATELLITE_VIEW_ENABLED` require
 the literal value `true`; their default is off. The existing hourly mosaic stays
 available to the parent integration. Satellite Mode blocks these image reads.
@@ -36,7 +38,7 @@ to the shared image owner; URL revocation requires actual source absence or map
 removal. Uncertain visible removal keeps the original provider credit and warning.
 Source refresh does not renew an old viewport or metadata lifetime.
 
-The new proxy uses the existing same-origin/native API base. Existing web/native
+The proxy uses the fixed owned Supabase public endpoint. Existing web/native
 CSP already permits local blob images; no provider browser origins were added.
 The API rejects malformed requests before any network read, follows no redirects,
 sends no credentials, and shares one 25-second request deadline. The native image
