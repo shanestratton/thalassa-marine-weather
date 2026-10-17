@@ -85,7 +85,7 @@ def expected9f(field, metadata, native):
         actual = metadata.get(key)
         compare = native.longitude(actual) if key.startswith('longitude') and type(actual) in (float, int) else actual
         equal = (type(compare) in (float, int) and abs(compare - want) <= 1e-7
-                 if isinstance(want, float) else compare == want)
+                 if key in native.DOUBLE_KEYS else compare == want)
         if not equal:
             differences.append({'key': key, 'expected': want, 'actual': actual})
     allowed = {'units': list(native.UNIT_SPELLINGS[field]), 'bitmapPresent': [0, 1],

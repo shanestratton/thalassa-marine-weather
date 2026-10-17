@@ -83,6 +83,17 @@ class ScalarInspection(unittest.TestCase):
                 self.assertIn(key, [entry['key'] for entry in comparison['differences']])
                 self.assertFalse(comparison['unchanged9fScalarGate']['accepted'])
 
+    def test_explanatory_corner_differences_follow_unchanged_native_tolerance(self):
+        for delta, accepted in ((1e-8, True), (1e-6, False)):
+            with self.subTest(delta=delta):
+                row = valid()
+                row['latitudeOfFirstGridPointInDegrees'] += delta
+                result = subject.inspect_headers(message(), Scalars([row]), native)
+                comparison = result['messages'][0]['comparison9f']['u10']
+                self.assertEqual(comparison['unchanged9fScalarGate']['accepted'], accepted)
+                self.assertEqual('latitudeOfFirstGridPointInDegrees' in
+                                 [entry['key'] for entry in comparison['differences']], not accepted)
+
     def test_unselected_parameter_inventory_and_original_units_are_preserved(self):
         row = valid()
         row.update(parameterNumber=99, units='W m**-2', name='Fictional unselected radiation')
