@@ -2235,6 +2235,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setIsoProgress,
     });
     const planningSurface = shouldSuppressChartOverlays(cleanPlanningMap, coordCaptureMode, passage.showPassage);
+    useEffect(() => {
+        if (mapReady) mapRef.current?.resize();
+    }, [mapReady, planningSurface]);
     const ownshipStartup = !embedded && !pickerMode && !planningSurface && !isPinView;
     const planChartKeyVisible = shouldShowPlanChartKey(
         cleanPlanningMap,
@@ -4117,6 +4120,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <div
                     ref={containerRef}
                     data-map-pane={isHelmSplit ? 'split' : undefined}
+                    data-map-credit-mode={planningSurface ? 'compact' : undefined}
                     className="thalassa-chart-map w-full h-full"
                 />
                 <ObsClearViewChrome view={clearView} />
