@@ -30,6 +30,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
 import { PartlyCloudyIcon, XIcon } from '../Icons';
 const NearbyModelSkill = lazy(() => import('./NearbyModelSkill'));
+const OwnBoatSkill = lazy(() => import('./OwnBoatSkill'));
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -367,6 +368,9 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                     </details>
                     <Suspense fallback={<p className="p-3 text-xs text-slate-400">Loading station skill…</p>}>
                         <NearbyModelSkill coordinates={coordinates} />
+                    </Suspense>
+                    <Suspense fallback={<p className="p-3 text-xs text-slate-400">Loading private scorecard…</p>}>
+                        <OwnBoatSkill />
                     </Suspense>
                 </div>
 

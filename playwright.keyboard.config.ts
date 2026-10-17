@@ -31,6 +31,7 @@ export default defineConfig({
         'receiver-coverage140-layout.spec.ts',
         'weather-agreement141-layout.spec.ts',
         'weather-evidence141-layout.spec.ts',
+        'own-boat-skill141-layout.spec.ts',
         'obs-credits141-footer.spec.ts',
         'marine-places-layout.spec.ts',
         'paper-charts-layout.spec.ts',
