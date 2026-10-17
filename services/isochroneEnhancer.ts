@@ -361,6 +361,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 };
             }
         } catch (e) {
+            validationAbort.abort();
             if (isRoutingExclusionFailure(e)) throw e;
             // Cancellation/unknown validation failure supplies no private-policy proof.
             throw new RoutingExclusionFailure(
@@ -369,7 +370,6 @@ export async function enhanceVoyagePlanWithIsochrone(
             );
         } finally {
             clearTimeout(validationTimer);
-            validationAbort.abort();
         }
 
         // ── 6. Map isochrone result back to VoyagePlan ──
