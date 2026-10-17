@@ -18,6 +18,10 @@ an operator assertion. It does not verify any installed Signal K plugin or MFD.
 Actual Signal K/plotter acceptance remains pending; unsupported consumers stay
 off. Existing ordinary boat telemetry and radio watch continue independently.
 
+The final own-fix read checks current source identity and original age. It does
+not observe an independent epoch for a transient selected GPS A→B→A within one
+poll. This is no continuous instrument/source-authority proof.
+
 The existing Pi radio reader excludes known internet-selected dynamic leaves.
 Where the actual Signal K document provides a recent non-internet alternative,
 the reader uses that original value and timestamp without mutating the source.

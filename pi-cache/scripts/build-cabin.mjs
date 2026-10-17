@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { readCabinAssets } from './cabin-package.mjs';
 
 /** Separate LAN display artifact. It is never imported by the phone entry or copied into its dist. */
 export async function buildCabin({ repository, output }) {
@@ -19,6 +19,8 @@ export async function buildCabin({ repository, output }) {
     await build({
         root: path.join(repository, 'pi-cache/cabin'),
         configFile: false,
+        envDir: false,
+        publicDir: false,
         base: '/',
         logLevel: 'warn',
         build: {
@@ -31,29 +33,7 @@ export async function buildCabin({ repository, output }) {
             rollupOptions: { output: { inlineDynamicImports: true } },
         },
     });
-    const assets = [];
-    const walk = (directory) => {
-        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-            const file = path.join(directory, entry.name);
-            if (entry.isDirectory()) walk(file);
-            else {
-                if (!entry.isFile() || entry.isSymbolicLink()) throw Error('Cabin asset type refused');
-                const bytes = fs.readFileSync(file);
-                assets.push({
-                    file: path.relative(output, file).replaceAll('\\', '/'),
-                    bytes: bytes.length,
-                    sha256: createHash('sha256').update(bytes).digest('hex'),
-                });
-            }
-        }
-    };
-    walk(output);
-    if (
-        assets.length > 16 ||
-        assets.some((file) => file.bytes > 2 * 1024 * 1024) ||
-        assets.reduce((sum, file) => sum + file.bytes, 0) > 4 * 1024 * 1024
-    )
-        throw Error('Cabin artifact exceeds its separate bounds');
+    const assets = readCabinAssets(output);
     return { schema: 1, assets: assets.sort((a, b) => a.file.localeCompare(b.file)), phoneBundle: false };
 }
 
