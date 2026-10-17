@@ -1,6 +1,6 @@
 # Anchor safe area: staged Pi 8 and relay contract
 
-This source checkpoint follows the canonical foundation `506c8c455` and phone checkpoint `6d1c20ea3`. It completes the source path for a manually drawn boundary to be handed to a compatible paired Pi, recovered privately, checked by its GPS watch, and published through an owner-authorised relay. The additive canonical database change and JWT-preserving Edge version9 have since been deployed and read back; custom admission remains held pending version drain and compatible Pi installation. This source packet does not install Pi update8.
+This source checkpoint follows the canonical foundation `506c8c455` and phone checkpoint `6d1c20ea3`. It completes the source path for a manually drawn boundary to be handed to a compatible paired Pi, recovered privately, checked by its GPS watch, and published through an owner-authorised relay. The additive canonical database change and JWT-preserving Edge version9 have since been deployed and read back; custom admission was enabled after a measured428.102-second version drain. Compatible Pi installation and real handoff acceptance remain pending. This source packet does not install Pi update8.
 
 ## Boundary and identity
 
