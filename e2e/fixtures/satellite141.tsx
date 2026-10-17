@@ -38,6 +38,10 @@ async function image(url: URL) {
         phase = [...(url.searchParams.get('time') ?? '')].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 255;
     context.fillStyle = `rgb(${phase},100,150)`;
     context.fillRect(0, 0, canvas.width, canvas.height);
+    if (url.searchParams.get('layers') !== 'global_longwave_imagery_mosaic') {
+        context.fillStyle = `rgb(${(phase + 30) % 255},120,160)`;
+        context.fillRect(Math.floor(canvas.width / 2), 0, Math.ceil(canvas.width / 2), canvas.height);
+    }
     context.clearRect(0, 0, Math.ceil(canvas.width / 8), canvas.height);
     const blob = await new Promise<Blob>((resolve, reject) =>
         canvas.toBlob((value) => (value ? resolve(value) : reject(Error('Fixture PNG failed'))), 'image/png'),

@@ -35,6 +35,8 @@ export interface BuildTacticalStateDeps {
     setCommunityNotesVisible?: Dispatch<SetStateAction<boolean>>;
     sshMode?: 'off' | 'sla' | 'adt';
     setSshMode?: (mode: 'off' | 'sla' | 'adt') => void;
+    sharperSatelliteVisible?: boolean;
+    onToggleSharperSatellite?: () => void;
     mooringsVisible?: boolean;
     setMooringsVisible?: Dispatch<SetStateAction<boolean>>;
     facilitiesVisible?: boolean;
@@ -82,6 +84,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setCommunityNotesVisible,
         sshMode,
         setSshMode,
+        sharperSatelliteVisible,
+        onToggleSharperSatellite,
         boatPresenceVisible,
         setBoatPresenceVisible,
         setBoatPresenceControlsOpen,
@@ -97,6 +101,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
     return {
         sshMode,
         onChangeSshMode: setSshMode,
+        sharperSatelliteVisible,
+        onToggleSharperSatellite,
         aisVisible,
         receiverCoverageVisible,
         onToggleReceiverCoverage: setReceiverCoverageVisible ? () => setReceiverCoverageVisible((v) => !v) : undefined,

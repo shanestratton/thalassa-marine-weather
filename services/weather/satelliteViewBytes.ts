@@ -89,3 +89,21 @@ export function validateSatellitePng(bytes: Uint8Array, width: number, height: n
     )
         throw new Error('Satellite PNG dimensions refused');
 }
+
+/** Decoded viewport RGBA only: transparent or uniform visible RGB supplies no usable image detail. */
+export function satelliteViewportAlphaFraction(pixels: Uint8ClampedArray): number {
+    if (!pixels.length || pixels.length % 4 || pixels.length > 1024 * 1024 * 4)
+        throw new Error('Satellite decoded pixel bound');
+    let visible = 0,
+        first = -1,
+        variation = false;
+    for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index + 3] === 0) continue;
+        visible++;
+        const rgb = (pixels[index] << 16) | (pixels[index + 1] << 8) | pixels[index + 2];
+        if (first < 0) first = rgb;
+        else if (rgb !== first) variation = true;
+    }
+    if (!visible || !variation) throw new Error('Satellite image has no visible source detail; coverage unknown');
+    return visible / (pixels.length / 4);
+}

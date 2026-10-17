@@ -93,3 +93,59 @@ attached. Earlier fixture/effect failures also remain in the local evidence.
 This checkpoint establishes source/UI behaviour, not real-provider availability,
 complete world coverage, independent acquisition clocks, live activation or an
 Apple/TestFlight build. A separate reviewed bounded real-source check is required.
+
+## Parent integration and first real-source follow-up
+
+The actual MapHub now has a literal-gated lazy mount, one optional Sky → Sharper
+sat menu item, and an ephemeral shared selection hook. The original Sat cloud
+hourly layer and sharper imagery are mutually exclusive. Explicit Hourly mosaic
+returns to the original GMGSI hook; non-menu hourly activation also retires
+sharper. Neither selection is persisted by this hook. Clear all clears the one
+sharper selection/count. Embedded, picker, planning, pin and MOB surfaces do not
+activate sharper imagery. Satellite Mode remains enforced by the actual source
+and component lifetimes.
+
+Controls join the existing capped LegendDock and credits join the existing
+44 px rollup. A loading-key placeholder preserves the open key through a mode
+handoff. The first parent phone run exposed a disappearing controls region after
+hourly → sharper despite a ready native image; its trace and timings remain
+preserved. The repaired flow retains the existing key while controls initialize.
+The parent fixture uses the actual shared selection hook, menu, both satellite
+hooks, original hourly key, LegendDock and credits. It is not a full MapHub mount;
+MapHub's actual wiring is present in source and remains for parent whole-app
+compilation/release review.
+
+Root's first real-source read (run 39002448267, exact source `5f9da29ac`, definition
+`38d74a4dd`) exited one with four of six products producing a visible PNG. It
+consumed 408,471 body bytes across 28 requests. Himawari/GOES West and GOES East's
+04:00 frame returned the same fully transparent 334-byte PNG despite remaining
+listed. East's 03:50 frame was an opaque, uniformly black 914-byte PNG: a valid
+PNG observation, not evidence of usable cloud detail. Only Meteosat, VIIRS and
+upper-water-vapour images demonstrated varying visible detail in those small
+windows. The original four-of-six observation receipt is immutable; it has not
+been relabelled a six-product success or deployment approval.
+
+The client now refuses zero alpha **or a single visible RGB value** before
+encoding, URL creation or presentation ownership. Hidden RGB changes and varying
+alpha do not create detail. This conservative display hold does not claim a
+uniform view is physically impossible; its detail/coverage remains unknown.
+The exact retained 334/914-byte originals are fixtures, with fixed SHA checks and
+critical CRC decoding, and both fail the actual client pixel guard. Synthetic
+nonuniform and partial-alpha images continue to pass. The original source's
+metadata age/admission rules are unchanged. A separate bounded older-advertised
+diagnostic, if reviewed, must keep those same clocks and original membership.
+
+The source/UI fixture now supplies nonuniform fictional imagery so it remains a
+valid detail example under that guard. Native parent checks separately feed
+transparent and opaque uniform PNGs and require an unavailable status with no
+native satellite layer before testing explicit fallback, return to sharper,
+Satellite Mode, and delayed Clear all retirement. All imagery in these phone
+fixtures is fictional; the retained provider originals are separately verified
+by the source-byte/pixel tests.
+
+The final combined run passes all eight single-attempt Chrome/WebKit cases
+(original source controls plus the parent composition, 300/375 px, 130% text).
+The final focused packet passes 124 cases in ten suites, including the original
+shared community/menu, weather-control and credit regressions; scoped lint is
+zero. These results supersede no failed evidence. Whole-app compilation,
+configured production budget and physical-device memory remain parent checks.
