@@ -351,3 +351,8 @@ verify_jwt = false
 # Held service-only polling requires gateway JWT and exact service-role POST.
 # No cron or provider entitlement is enabled by this declaration.
 verify_jwt = true
+
+[functions.forecast-assets]
+# Bare read-only app fetches: fixed public GitHub datasets only, with an HMAC
+# per-client public quota before upstream access; no user credential is required.
+verify_jwt = false

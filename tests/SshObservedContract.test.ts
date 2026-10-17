@@ -130,6 +130,10 @@ describe('independent observed SSH trust boundary', () => {
         vi.stubGlobal('fetch', fetcher);
         await expect(fetchSshObservation(new AbortController().signal)).rejects.toThrow(/SHA-256/);
         expect(fetcher).toHaveBeenCalledTimes(2);
+        expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+            'https://pcisdplnodrphauixcau.supabase.co/functions/v1/forecast-assets/ssh/manifest-v2.json',
+            `https://pcisdplnodrphauixcau.supabase.co/functions/v1/forecast-assets/ssh/${manifest().files[0].filename}`,
+        ]);
     });
     it('never begins a request for a retired map lease', async () => {
         const fetcher = vi.fn();

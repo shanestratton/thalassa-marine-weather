@@ -8,6 +8,27 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('public-beta release gate contract', () => {
+    it('keeps the shared legacy bridge closed without Node and after its original sunset', () => {
+        const proxy = read('api/_releaseAssetProxy.ts');
+        const declaration =
+            'const node = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;';
+        const helper = proxy.match(/function legacyCmemsBridgeEnabled\(\): boolean \{[\s\S]*?\n\}/)?.[0];
+        expect(helper).toContain(declaration);
+        const code = helper!.replace('(): boolean', '()').replace(declaration, 'const node = globalThis.process;');
+        const sunset = Date.parse('2026-08-20T00:00:00Z');
+        const evaluate = (process: unknown, now: number) =>
+            runInNewContext(`${code}; legacyCmemsBridgeEnabled()`, {
+                ...(process === undefined ? {} : { process }),
+                Date: { now: () => now },
+                CMEMS_V1_BRIDGE_SUNSET_MS: sunset,
+            });
+        for (const process of [undefined, {}, { env: {} }, { env: { THALASSA_CMEMS_V1_BRIDGE_ENABLED: 'false' } }])
+            expect(evaluate(process, sunset - 1)).toBe(false);
+        const opted = { env: { THALASSA_CMEMS_V1_BRIDGE_ENABLED: 'true' } };
+        expect(evaluate(opted, sunset - 1)).toBe(true);
+        expect(evaluate(opted, sunset)).toBe(false);
+        expect(evaluate(opted, Date.UTC(2026, 9, 17))).toBe(false);
+    });
     it('runs the actual v3 privacy predicate and holds missing community rights, privacy or moderation clauses', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const expression = gate.match(

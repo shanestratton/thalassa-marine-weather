@@ -58,7 +58,12 @@ Object.assign(window, {
         ready: true,
         maps,
         taps: { count: 0 },
-        expected: seaBaseLayers('reliefSat'),
+        // Solent/Fiji are outside the frozen sparse AU/NZ footprints. Absence
+        // is asserted explicitly rather than ignoring the new regional layers.
+        expected: seaBaseLayers('reliefSat').map(([id, on]): [string, boolean | null] => [
+            id,
+            /^relief-(?:au250|nz)-/.test(id) ? null : on,
+        ]),
         boat: [items[0].longitude, items[0].latitude],
         spots: {},
         boatIndex: 0,

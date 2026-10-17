@@ -20,7 +20,10 @@ let delayed = false;
 window.fetch = async (input, options) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, location.href);
-    if (url.pathname.startsWith('/api/ssh/')) {
+    if (
+        url.origin === 'https://pcisdplnodrphauixcau.supabase.co' &&
+        url.pathname.startsWith('/functions/v1/forecast-assets/ssh/')
+    ) {
         requests.push(url.pathname);
         // A deliberately uncooperative completed transport exercises late source rejection.
         const response = await nativeFetch(input, { ...options, signal: undefined });

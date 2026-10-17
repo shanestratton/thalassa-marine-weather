@@ -4,8 +4,8 @@ import {
     canonicalAtmosGeneration,
     validateAtmosManifest,
     type AtmosDataset,
-} from '../services/weather/api/atmosContract';
-import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract';
+} from '../services/weather/api/atmosContract.ts';
+import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract.ts';
 
 function contract(dataset: AtmosDataset): SpecializedReleaseContract {
     const source = ATMOS_DATASETS[dataset];

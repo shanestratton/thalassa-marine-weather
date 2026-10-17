@@ -12,6 +12,11 @@ export const PUBLIC_BETA_FEATURE_FLAG_KEYS = Object.freeze([
     'VITE_CMEMS_CHL_ENABLED',
     'VITE_CMEMS_SEAICE_ENABLED',
     'VITE_CMEMS_MLD_ENABLED',
+    // Build 141: original GFS/IFS and daily mapped SSH cohorts qualified
+    // through the deployed public forecast reader. Satellite admission is held.
+    'VITE_ATMOSPHERE_ENABLED',
+    'VITE_ENABLE_OCEAN_EDDIES',
+    'VITE_SHARPER_SATELLITE_ENABLED',
     'VITE_MPA_ENABLED',
     'VITE_APPLE_SIGN_IN_ENABLED',
     'VITE_APPLE_WEB_SIGN_IN_ENABLED',

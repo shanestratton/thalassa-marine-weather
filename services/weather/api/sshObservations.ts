@@ -1,5 +1,5 @@
 /** Original dated observations, fetched only while an owned Obs layer needs them. No durable cache. */
-import { API_BASE } from '../../native/apiBase';
+import { FORECAST_ASSETS_URL } from './forecastAssetsEndpoint';
 import type { ScalarGrid } from '../scalarGridImage';
 import { decodeUtf8Json, fetchBoundedPublisherBytes, verifyPublisherAsset } from './cmemsGridTrust';
 import {
@@ -81,7 +81,7 @@ export function decodeSshObservation(bytes: Uint8Array, manifest: SshManifest): 
 export async function fetchSshObservation(signal: AbortSignal): Promise<SshObservation> {
     signal.throwIfAborted();
     const manifestBytes = await fetchBoundedPublisherBytes(
-        `${API_BASE}/ssh/manifest-v2.json`,
+        `${FORECAST_ASSETS_URL}/ssh/manifest-v2.json`,
         32 * 1024,
         'application/json',
         signal,
@@ -89,7 +89,7 @@ export async function fetchSshObservation(signal: AbortSignal): Promise<SshObser
     signal.throwIfAborted();
     const manifest = parseSshManifest(decodeUtf8Json(manifestBytes));
     const bytes = await fetchBoundedPublisherBytes(
-        `${API_BASE}/ssh/${manifest.filename}`,
+        `${FORECAST_ASSETS_URL}/ssh/${manifest.filename}`,
         SSH_FILE_BYTES,
         'application/octet-stream',
         signal,

@@ -1,5 +1,5 @@
 /** A caller-owned public atmospheric cohort. Two raw frames maximum; no durable/global cache. */
-import { API_BASE } from '../../native/apiBase';
+import { FORECAST_ASSETS_URL } from './forecastAssetsEndpoint';
 import { assertNetworkAllowed } from '../../networkPolicy';
 import { sampleScalarGrid, type ScalarGrid } from '../scalarGridImage';
 import { decodeUtf8Json, fetchBoundedPublisherBytes, verifyPublisherAsset } from './cmemsGridTrust';
@@ -99,12 +99,11 @@ export async function openAtmosSession(
             throw error;
         }
     };
-    const model = ATMOS_DATASETS[dataset].model;
-    const base = `${API_BASE}/atmos`;
+    const base = `${FORECAST_ASSETS_URL}/${dataset}`;
     try {
         check();
         const bytes = await fetchBoundedPublisherBytes(
-            `${base}/manifest-v2.json?model=${model}`,
+            `${base}/manifest-v2.json`,
             32 * 1024,
             'application/json',
             parent.signal,
@@ -157,7 +156,7 @@ export async function openAtmosSession(
                 if (retained) return retained;
                 const file = cohort.files[step];
                 const bytes = await fetchBoundedPublisherBytes(
-                    `${base}/${file.filename}?model=${model}`,
+                    `${base}/${file.filename}`,
                     file.bytes,
                     'application/octet-stream',
                     read.signal,

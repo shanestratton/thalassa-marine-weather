@@ -444,7 +444,9 @@ export default defineConfig(({ mode }) => {
     return {
         // Lazy ENC contours otherwise introduce this dependency during a
         // browser test and Vite reloads every open page halfway through input.
-        optimizeDeps: { include: ['delaunator'] },
+        // Overlay parsing can first request fflate inside its worker. Prebundle
+        // it before a dev session so that first import cannot reload the page.
+        optimizeDeps: { include: ['delaunator', 'fflate'] },
         server: {
             port: 3000,
             // Localhost by default. LAN exposure is an explicit developer opt-in.

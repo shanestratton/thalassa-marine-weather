@@ -74,8 +74,8 @@ for (const width of [300, 375])
             overlayIds: string[];
         };
         expect(before.overlayIds.length).toBe(5); // Two GFS image layers and three pressure-symbol layers.
-        expect(before.requests.filter((url) => url.endsWith('?model=gfs') && url.includes('.bin'))).toHaveLength(2);
-        expect(before.requests.filter((url) => url.endsWith('?model=ecmwf') && url.includes('.bin'))).toHaveLength(2);
+        expect(before.requests.filter((url) => url.includes('/gfs-atmos/') && url.endsWith('.bin'))).toHaveLength(2);
+        expect(before.requests.filter((url) => url.includes('/ifs-pressure/') && url.endsWith('.bin'))).toHaveLength(2);
         const extent = async () => {
             const state = (await page.evaluate(() => window.__atmos141.evidence())) as Record<string, unknown>;
             expect(state.scrollWidth).toBe(width);

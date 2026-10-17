@@ -3,8 +3,8 @@ import {
     sshGeneration,
     SSH_DATASET,
     SSH_FILE_BYTES,
-} from '../services/weather/api/sshManifestContract';
-import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract';
+} from '../services/weather/api/sshManifestContract.ts';
+import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract.ts';
 
 export const SSH_RELEASE_CONTRACTS = {
     ssh: {
