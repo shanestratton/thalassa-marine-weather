@@ -56,6 +56,7 @@ import {
     localDayStarts,
     median,
     windAgreementForDays,
+    scalarAgreementForDays,
     type AgreementLevel,
 } from '../../services/weather/dayAgreement';
 import { resolveTimeZone } from '../../utils/timezone';
@@ -478,6 +479,15 @@ export function agreementByDay(
                 };
             },
         );
+    }
+    if (param === 'rain' || param === 'wave') {
+        return scalarAgreementForDays(series, starts, length, param).map((day) => ({
+            variance: day.spread,
+            level: day.level ? LEVEL_OF[day.level] : 'none',
+            members: day.members,
+            thin: day.thin,
+            ...(day.level ? { peak: day.peak } : {}),
+        }));
     }
     const spec = specFor(param);
     const counts = memberCounts(series, length);

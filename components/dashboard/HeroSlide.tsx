@@ -42,8 +42,8 @@ import type { GlassForecastRange } from './hero/heroSlideHelpers';
 import { DailySummaryCard, type DayAgreementChip } from './hero/DailySummaryCard';
 import { WindVsTideView } from './tide/WindVsTideView';
 import { useSettingsStore } from '../../stores/settingsStore';
-// The day card's agreement chip (W1-09): one chain with the desk's wind panel.
-import { useWindAgreementAt } from '../../hooks/useWindAgreementAt';
+// The day card combines wind, rain and waves; the desk remains wind-only.
+import { useWeatherAgreementAt } from '../../hooks/useWeatherAgreementAt';
 import { localNoon } from '../../utils/celestial';
 
 // Stable fallback: `weatherData?.forecast || []` minted a fresh array on every
@@ -466,7 +466,7 @@ const HeroSlideComponent = ({
         [index, data, hourlyToRender, forecast, timeZone],
     );
 
-    // The day overview's sun & moon row and the models' wind verdict (W1-09).
+    // The day overview's sun & moon row and the scoped weather agreement.
     const overviewIso = index > 0 && slides[0]?.type === 'daily' ? slides[0].daily?.isoDate : undefined;
     const skyLat = coordinates?.lat;
     const skyLon = coordinates?.lon;
@@ -474,7 +474,7 @@ const HeroSlideComponent = ({
         () => (overviewIso && skyLat != null && skyLon != null ? daySky(overviewIso, skyLat, skyLon, timeZone) : null),
         [overviewIso, skyLat, skyLon, timeZone],
     );
-    const dayVerdict = useWindAgreementAt(
+    const dayVerdict = useWeatherAgreementAt(
         coordinates,
         overviewIso ? localNoon(overviewIso, timeZone).getTime() : null,
         index > 0 && isVisible && !showMapInstead,
@@ -490,13 +490,15 @@ const HeroSlideComponent = ({
                     members: dayVerdict.members,
                     peak: dayVerdict.peak,
                     thin: dayVerdict.thin,
+                    driver: dayVerdict.driver,
+                    components: dayVerdict.components,
                 }
               : null;
     const compareDay = useCallback(() => {
         if (!dayVerdict) return;
         requestModelComparison({
             dayMs: (dayVerdict.startMs + dayVerdict.endMs) / 2,
-            param: dayVerdict.driver === 'dir' ? 'dir' : 'wind',
+            param: dayVerdict.driver ?? 'wind',
         });
     }, [dayVerdict]);
 
