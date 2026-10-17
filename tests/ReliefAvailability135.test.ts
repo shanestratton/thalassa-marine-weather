@@ -151,7 +151,7 @@ describe('exact regional relief availability', () => {
             return {
                 ...actual,
                 RELIEF_DISPLAY_REGIONS: [
-                    ...actual.RELIEF_DISPLAY_REGIONS,
+                    ...actual.RELIEF_DISPLAY_REGIONS.filter((region) => region.id !== 'nz'),
                     {
                         id: 'nz',
                         version: 'v2',

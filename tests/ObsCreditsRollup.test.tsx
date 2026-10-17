@@ -44,6 +44,30 @@ function props(): ObsCreditsRollupProps {
         onToggleSatellite: vi.fn(),
     };
 }
+it('adds relief datum/source details inside the same row and only when the relief base is selected', () => {
+    const p = props();
+    p.rain = null;
+    p.wind = null;
+    p.cmems = [];
+    p.ais = false;
+    p.satellite.status = 'off';
+    p.relief = true;
+    const view = render(<ObsCreditsRollup {...p} />);
+    expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+    expect(screen.getByTestId('obs-credits-rollup').className).toContain('h-[44px]');
+    fireEvent.click(screen.getByRole('button', { name: /^Credits$/ }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('NZVD2016 native heights; not MSL');
+    expect(dialog).toHaveTextContent('No vertical conversion');
+    expect(dialog).toHaveTextContent('not whole-country');
+    expect(within(dialog).getByRole('link', { name: 'New Zealand · 61 surveyed coastal patches' })).toHaveAttribute(
+        'href',
+        'https://data.linz.govt.nz/layer/122508-new-zealand-coastal-lidar-1m-dem/',
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Close$/ }));
+    view.rerender(<ObsCreditsRollup {...p} relief={false} />);
+    expect(screen.queryByTestId('obs-credits-rollup')).toBeNull();
+});
 beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
