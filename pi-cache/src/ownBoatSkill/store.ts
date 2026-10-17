@@ -18,7 +18,8 @@ import {
     type OwnBoatConsent,
 } from '../ownBoatSkillWire.js';
 import { decodeOwnWindForecast, type CapturedWindForecast, type VerifiedWindIssue } from './forecast.js';
-import type { OwnInstrumentSource } from './source.js';
+import type { PrivateWindSample } from './source.js';
+export type { PrivateWindSample } from './source.js';
 export interface SkillControl {
     schema: 1;
     generation: string;
@@ -32,7 +33,6 @@ export interface SkillControl {
         loggingApproved: boolean;
     } | null;
 }
-export type PrivateWindSample = OwnInstrumentSource['sample'];
 const APP_ID = 0x544f5753;
 const MAX_DB = 36 * 1024 * 1024;
 const MAX_CAPTURES = 1024;

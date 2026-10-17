@@ -10,6 +10,8 @@ export interface OwnInstrumentSource {
     positionSource: string;
     sample: { at: number; receivedAt: number; positionAt: number; cell: string; windMps: number; rawWind: string };
 }
+/** The pure sample contract must not pull the SQLite ledger into app checks. */
+export type PrivateWindSample = OwnInstrumentSource['sample'];
 /** Exact dated true-wind and position leaves only; no parent clocks, held fix or apparent wind. */
 export function readOwnInstrumentSource(document: unknown, now: number): OwnInstrumentSource | null {
     const position = readWeatherPositionLeaf(document, now),
