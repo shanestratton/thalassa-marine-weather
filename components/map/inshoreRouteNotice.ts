@@ -16,7 +16,7 @@ import {
 import { dryRunCaveat, dryRunNoticeTitle, pinDryRunCaveat, savedDryRuns } from '../../services/routing/dryRunWords';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
-import { knownRouteAreaCaveats } from '../../services/routing/routeAreaWords';
+import { knownRouteAreaCaveats, ROUTING_AREA_CAVEATS } from '../../services/routing/routeAreaWords';
 
 export interface InshoreRouteNoticeInput {
     /** The router's per-segment safety classifications arrived intact. */
@@ -276,14 +276,9 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     // the OSM credit — it is the water the whole route stands on.
     const out: string[] = [...waterPackCaveats(input.waterPack)];
     out.push(...knownRouteAreaCaveats(input.routeAreaCaveats));
-    if (input.trafficLaneGuidance === 'charted-flow')
-        out.push(
-            'Planned course follows charted traffic-lane flow or crosses near a right angle. Check traffic and the applicable rules before proceeding.',
-        );
+    if (input.trafficLaneGuidance === 'charted-flow') out.push(ROUTING_AREA_CAVEATS[7], ROUTING_AREA_CAVEATS[9]);
     else if (input.trafficLaneGuidance === 'orientation-unknown')
-        out.push(
-            'Traffic-lane direction is missing, conflicting or ambiguous on this route. Review the current chart and plan the crossing yourself.',
-        );
+        out.push(ROUTING_AREA_CAVEATS[8], ROUTING_AREA_CAVEATS[9]);
     if (input.exclusionsUnchecked)
         out.push(
             'Area restrictions were not fully checked: some charts lack restricted-area, traffic-separation or traffic-lane layers. Check current chart rules before departure.',

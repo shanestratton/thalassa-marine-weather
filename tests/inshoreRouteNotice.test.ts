@@ -17,6 +17,25 @@ import type { SurveyRunInfo } from '../services/engine/types';
 import { inshoreRouteToGeoJSON } from '../services/InshoreRouter';
 
 describe('inshore route notice', () => {
+    it.each(['charted-flow', 'orientation-unknown'] as const)(
+        'keeps the actual-heading caution with %s guidance when a route is reopened',
+        (trafficLaneGuidance) => {
+            const caveats = savedInshoreRouteCaveats({
+                routeGeoJSON: { properties: { source: 'inshore-router', trafficLaneGuidance } },
+            });
+            expect(caveats).toContain(
+                'Wind and current can make the boat’s actual heading differ from this planned course. Check the crossing from aboard.',
+            );
+            expect(caveats.some((words) => words.toLowerCase().includes('traffic-lane'))).toBe(true);
+        },
+    );
+
+    it('does not add a traffic crossing caution to a route with no lane guidance', () => {
+        expect(inshoreRouteCaveats({})).not.toContain(
+            'Wind and current can make the boat’s actual heading differ from this planned course. Check the crossing from aboard.',
+        );
+    });
+
     // Owner decision 8 (2026-09-30): route as normal, with a plain warning —
     // in a skipper's words (round 2), not "structure layers" or "schema".
     it('says plainly that bridges and power lines were not checked on the chart, but known bridges were', () => {
