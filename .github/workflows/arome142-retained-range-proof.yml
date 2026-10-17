@@ -1,0 +1,70 @@
+name: AROME142 retained original physical-range diagnostic only
+on:
+    push:
+        branches: [codex/build-142-arome-retained-range-proof]
+        paths: [.github/workflows/arome142-retained-range-proof.yml]
+permissions:
+    contents: read
+    actions: read
+concurrency:
+    group: arome142-retained-range-diagnostic-v1
+    cancel-in-progress: false
+jobs:
+    diagnostic:
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/build-142-arome-retained-range-proof' && github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            PROOF_SOURCE_SHA: cf21a611c6b22db62449bc1658e7ae8b931476be
+            RANGE_CONTROLLER_SHA: de30eabb7103bc1f4db71c83214820dfb5c48673
+            PYTHONDONTWRITEBYTECODE: '1'
+            OPENBLAS_NUM_THREADS: '1'
+            OMP_NUM_THREADS: '1'
+        steps:
+            - name: Checkout exact reviewed control
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.sha }}
+                  path: controls
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Checkout exact corrected scientific source
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: cf21a611c6b22db62449bc1658e7ae8b931476be
+                  path: source
+                  persist-credentials: false
+            - name: Set up proven Python3.11.15
+              uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+              with:
+                  python-version: '3.11.15'
+            - name: Set up proven Node24
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '24'
+            - name: Retrieve one exact retained artifact without provider reads
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  test "$GITHUB_RUN_ATTEMPT" = 1
+                  umask 077
+                  mkdir "$RUNNER_TEMP/arome142-range-diagnostic-evidence"
+                  test ! -e "$RUNNER_TEMP/arome142-range-retained.zip"
+                  (unset POSIXLY_CORRECT; ulimit -f 163840; timeout --signal=TERM --kill-after=2s 90s env -i PATH=/usr/bin:/bin HOME=/tmp GH_CONFIG_DIR="$RUNNER_TEMP/arome142-range-empty-gh" GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_TOKEN="$GH_TOKEN" /usr/bin/gh api repos/shanestratton/thalassa-marine-weather/actions/artifacts/12104635869/zip) > "$RUNNER_TEMP/arome142-range-retained.zip" 2> "$RUNNER_TEMP/arome142-range-diagnostic-evidence/retained-artifact-download.txt"
+            - name: Compiled fixture preflight then unchanged original range refusal diagnostic
+              shell: bash
+              run: bash controls/ci/arome142-range-diagnostic/run.sh
+            - name: Preserve bounded diagnostic text on every outcome
+              if: always()
+              shell: bash
+              run: python controls/ci/arome142-range-diagnostic/collect.py
+            - name: Preserve diagnostic text without original or runtime copies
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: arome142-range-diagnostic-${{ github.run_id }}
+                  path: ${{ runner.temp }}/arome142-range-diagnostic-artifact
+                  if-no-files-found: error
+                  retention-days: 14

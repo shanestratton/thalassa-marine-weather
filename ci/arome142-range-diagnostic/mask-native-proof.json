@@ -1,0 +1,245 @@
+{
+  "actualEcCodesAPI": "2.50.0",
+  "actualNumpy": "2.4.6",
+  "capturedStaticLastModified": "Thu, 02 Jul 2026 15:21:39 GMT",
+  "conditionalETag": "\"9ce9149bbab869fdf81088046daa695c\"",
+  "constantResourceVersion": "2025-02-17T09:07:14Z",
+  "fractionalOrMissingNeverSea": true,
+  "freshnessRenewed": false,
+  "full49HourCohortAdmitted": false,
+  "inputBytes": 44900,
+  "inputSha256": "b7d5864f26d11f9c82997d8ca8cd16a499c95fd8d9d0adcaf24f1c33b85a4ae2",
+  "inspectedAt": "2026-10-17T14:13:10.573895+00:00",
+  "kernelBeforeNative": {
+    "capabilities": "all-zero",
+    "inheritedFDs": [
+      {
+        "fd": 0,
+        "target": "pipe:[16527]"
+      },
+      {
+        "fd": 1,
+        "target": "pipe:[14952]"
+      },
+      {
+        "fd": 2,
+        "target": "pipe:[14952]"
+      }
+    ],
+    "internetAddressFamiliesDeniedBeforeImport": true,
+    "limits": {
+      "cpu.max": "100000 100000",
+      "memory.max": "2147483648",
+      "memory.swap.max": "0",
+      "pids.max": "16"
+    },
+    "noNewPrivileges": true,
+    "ownCgroup": "/system.slice/arome142-constant-native-39039757963.service",
+    "rlimitAS": [
+      2147483648,
+      2147483648
+    ],
+    "uid": 1001
+  },
+  "mask": {
+    "cells": 255811,
+    "decodedF64LEsha256": "c17c376e1ea34c563da2a71f02c6e3761ea45343ed104fc1d99c54231ce865c4",
+    "exactOneLandCells": 4219,
+    "exactZeroSeaCells": 251592,
+    "finiteCells": 255811,
+    "finiteFractionalNotSeaCells": 0,
+    "maximum": 1.0,
+    "minimum": 0.0,
+    "originalMetadata": {
+      "Ni": 521,
+      "Nj": 491,
+      "alternativeRowScanning": 0,
+      "bitmapPresent": 0,
+      "centre": 85,
+      "dataDate": 20630515,
+      "dataTime": 0,
+      "discipline": 2,
+      "edition": 2,
+      "endStep": 0,
+      "gridType": "regular_ll",
+      "iDirectionIncrementInDegrees": 0.025,
+      "iScansNegatively": 0,
+      "jDirectionIncrementInDegrees": 0.025,
+      "jPointsAreConsecutive": 0,
+      "jScansPositively": 0,
+      "latitudeOfFirstGridPointInDegrees": -13.75,
+      "latitudeOfLastGridPointInDegrees": -26.0,
+      "level": 0,
+      "longitudeOfFirstGridPointInDegrees": 158.5,
+      "longitudeOfLastGridPointInDegrees": 171.5,
+      "numberOfPoints": 255811,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "startStep": 0,
+      "stepType": "instant",
+      "stepUnits": 1,
+      "typeOfFirstFixedSurface": 1,
+      "units": "(0 - 1)",
+      "uvRelativeToGrid": 0,
+      "validityDate": 20630515,
+      "validityTime": 0
+    },
+    "packing": {
+      "bitmapPresent": 0,
+      "bitsPerValue": 24,
+      "packingType": "grid_second_order"
+    },
+    "shape": [
+      491,
+      521
+    ],
+    "unknownCells": 0
+  },
+  "nativeProcessProviderRequests": 0,
+  "noCroppingOrInterpolation": true,
+  "originalForecastExpiresUtc": "2026-10-17T18:00:00Z",
+  "originalForecastRunUtc": "2026-10-17T00:00:00Z",
+  "originalLandSeaMaskAdmitted": true,
+  "originalMessages": [
+    {
+      "bytes": 24521,
+      "identity": [
+        0,
+        3,
+        6,
+        1,
+        0
+      ],
+      "ordinal": 0,
+      "selectedMask": false,
+      "sha256": "cf33f37c09f937b40e831c2d2134c062114210ff36863031cb5dce1503de85fa"
+    },
+    {
+      "bytes": 20379,
+      "identity": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "metadata": {
+        "Ni": 521,
+        "Nj": 491,
+        "alternativeRowScanning": 0,
+        "bitmapPresent": 0,
+        "centre": 85,
+        "dataDate": 20630515,
+        "dataTime": 0,
+        "discipline": 2,
+        "edition": 2,
+        "endStep": 0,
+        "gridType": "regular_ll",
+        "iDirectionIncrementInDegrees": 0.025,
+        "iScansNegatively": 0,
+        "jDirectionIncrementInDegrees": 0.025,
+        "jPointsAreConsecutive": 0,
+        "jScansPositively": 0,
+        "latitudeOfFirstGridPointInDegrees": -13.75,
+        "latitudeOfLastGridPointInDegrees": -26.0,
+        "level": 0,
+        "longitudeOfFirstGridPointInDegrees": 158.5,
+        "longitudeOfLastGridPointInDegrees": 171.5,
+        "numberOfPoints": 255811,
+        "parameterCategory": 0,
+        "parameterNumber": 0,
+        "startStep": 0,
+        "stepType": "instant",
+        "stepUnits": 1,
+        "typeOfFirstFixedSurface": 1,
+        "units": "(0 - 1)",
+        "uvRelativeToGrid": 0,
+        "validityDate": 20630515,
+        "validityTime": 0
+      },
+      "ordinal": 1,
+      "packing": {
+        "bitmapPresent": 0,
+        "bitsPerValue": 24,
+        "packingType": "grid_second_order"
+      },
+      "selectedMask": true,
+      "sha256": "56c6154dd6ad0e34dc2c59b0febe5ea2530f7a671b0f32b1e3b068b201b38f16"
+    }
+  ],
+  "ownMemoryEvents": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+  "ownMemoryPeakBytes": 42684416,
+  "processMaxRSSKiB": 76124,
+  "published": false,
+  "reviewedHeadLastModified": "Thu, 02 Jul 2026 15:21:39 GMT",
+  "rootReadonlyStagedFiles": [
+    {
+      "bytes": 8665,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/source/tools/arome142/native.py",
+      "uid": 0
+    },
+    {
+      "bytes": 6553,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/source/tools/arome142/catalogue.py",
+      "uid": 0
+    },
+    {
+      "bytes": 1355,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/source/tools/arome142/native-requirements.lock",
+      "uid": 0
+    },
+    {
+      "bytes": 7961,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/tools/constant_native.py",
+      "uid": 0
+    },
+    {
+      "bytes": 9339,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/tools/original_pilot_native.py",
+      "uid": 0
+    },
+    {
+      "bytes": 9205,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/tools/corrected_original_native.py",
+      "uid": 0
+    },
+    {
+      "bytes": 17744,
+      "mode": "0o555",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/runtime/bin/python",
+      "uid": 0
+    },
+    {
+      "bytes": 44900,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-input-readonly/original.grib2",
+      "uid": 0
+    },
+    {
+      "bytes": 452,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-input-readonly/result.json",
+      "uid": 0
+    },
+    {
+      "bytes": 655,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-input-readonly/transport.json",
+      "uid": 0
+    },
+    {
+      "bytes": 349,
+      "mode": "0o444",
+      "path": "/home/runner/work/_temp/arome142-constant-readonly/source-manifest.json",
+      "uid": 0
+    }
+  ],
+  "schema": 1,
+  "scientificSource": "cf21a611c6b22db62449bc1658e7ae8b931476be"
+}
