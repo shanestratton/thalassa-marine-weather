@@ -1,5 +1,5 @@
-import { readBoundedResponse } from './api/cmemsGridTrust';
-import { SATELLITE_IMAGE_MAX } from './satelliteViewContract';
+import { readBoundedResponse } from './api/boundedPublisherResponse.ts';
+import { SATELLITE_IMAGE_MAX } from './satelliteViewContract.ts';
 
 /** Race even an uncooperative decoder/fetch promise; late resources have explicit cleanup. */
 export function awaitSatelliteOperation<T>(

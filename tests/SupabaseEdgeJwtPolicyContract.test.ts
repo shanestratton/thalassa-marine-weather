@@ -72,6 +72,7 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 const CREDENTIALLESS_ALLOWLIST = {
     'crowd-sounding-export':
         'held private worker; dedicated 256-bit token SHA verifier precedes privileged reads, no browser/public quota path',
+    'satellite-view': 'fixed display-only provider imagery with bounded queries and a mandatory HMAC public quota',
     'forecast-assets':
         'bare public fixed-dataset reads, HMAC per-client quota before bounded public GitHub release access',
     'anchor-alert-messaging':
@@ -257,7 +258,8 @@ describe('Supabase Edge gateway JWT policy', () => {
         // forecast-assets (141) serves only three fixed public release datasets after an HMAC client quota.
         // crowd-sounding-export (142) has its own private worker token; the
         // gateway policy does not grant a browser access to private soundings.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(25);
+        // satellite-view (141) adds only fixed display imagery after its HMAC client quota.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(26);
     });
 
     it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {

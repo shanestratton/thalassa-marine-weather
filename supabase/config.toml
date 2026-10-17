@@ -361,3 +361,7 @@ verify_jwt = false
 # Held private worker export: dedicated 256-bit token SHA verifier before any
 # service-only read. No service key leaves Edge. No browser/public quota path.
 verify_jwt = false
+
+[functions.satellite-view]
+# Fixed display imagery; mandatory HMAC public quota before reviewed provider reads.
+verify_jwt = false
