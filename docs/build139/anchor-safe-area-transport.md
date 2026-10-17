@@ -26,7 +26,7 @@ An unconfirmed Pi clear remains visibly unknown. Renewal authorises the chosen c
 
 ## Reviewed release sequence
 
-1. Review and apply `supabase/held-migrations/20261017100000_anchor_safe_area.sql`. It adds nullable bounded geometry, revision and selected-vessel columns to the existing relay binding. It changes no RLS policy or grant.
+1. Review the canonical CLI-generated `supabase/migrations/20261017002338_anchor_safe_area.sql` and [atomic backend review](anchor-safe-area-backend-review.md). The original future-dated held file remains preserved and must not also be applied. The canonical packet adds nullable bounded fields and service-only invoker operations; existing table RLS, client grants and the heartbeat implementation remain unchanged. Run the prepared disposable PostgreSQL proof before any live decision.
 2. Deploy the staged `anchor-relay` source and shared canonical mirror, then verify owner/session/relay rejection, strict boundary echoes, stale UUID/frame/vessel rejection, no-fix status and existing expiry/alarm paths.
 3. Include `anchorAreaAdmission.ts`, `anchorZoneContract.ts`, the canonical mirror and modified anchor server/broadcaster/store/command-lock modules in the reviewed Pi update 8 package. Stage only; no live installation is performed here.
 4. After a separately authorised Pi installation, verify the capability, enrolled-device refusal, fresh GPS admission, distinct-fix drag, restart recovery, old-protocol compatibility and phone-to-Pi handoff on real hardware. Confirm exact boundary reports on Shore Watch before relying on the handoff. Existing safe circle watches remain supported.

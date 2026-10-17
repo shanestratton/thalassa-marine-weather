@@ -59,11 +59,6 @@ const SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const RELAY_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 /** A position is small. Anything larger is not an anchor report. */
 const MAX_BODY_BYTES = 8 * 1024;
-/**
- * Lease renewed by authenticated heartbeats, bounded by the owner's existing
- * anchor_watch_sessions expiry. The Pi never extends or creates that session.
- */
-const AUTHORISATION_TTL_MS = 6 * 60 * 60 * 1000;
 
 function json(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), {
@@ -149,14 +144,24 @@ Deno.serve(async (req: Request) => {
         if (!session || session.owner_user_id !== ownerId || Date.parse(session.expires_at) <= now) {
             return json({ error: 'not_authorised_for_session' }, 403);
         }
-        const expiresAt = new Date(Math.min(now + AUTHORISATION_TTL_MS, Date.parse(session.expires_at))).toISOString();
         const explicitArea = Object.prototype.hasOwnProperty.call(body, 'safe_area');
         const parsedArea = body.safe_area == null ? null : parseAnchorBoundary(body.safe_area);
         if (
             explicitArea &&
             (!parsedArea || !validAreaRevision(body.safe_area_revision) || !validAreaVessel(body.safe_area_vessel_id))
-        )
+        ) {
             return json({ error: 'invalid_safe_area' }, 400);
+        }
+        // Deployment alone cannot admit a custom boundary while old relay
+        // requests still run. The release owner enables this only after a
+        // recorded version-specific drain. Circle renewals/clear remain usable.
+        if (
+            explicitArea &&
+            parsedArea?.zone &&
+            Deno.env.get('ANCHOR_SAFE_AREA_ADMISSION') !== 'enabled-after-drain'
+        ) {
+            return json({ error: 'safe_area_not_enabled' }, 503);
+        }
         const { data: prior, error: priorError } = await admin
             .from('pi_anchor_sessions')
             .select('session_code,owner_id,safe_area,safe_area_revision,safe_area_vessel_id')
@@ -169,48 +174,36 @@ Deno.serve(async (req: Request) => {
         const safeAreaVesselId = explicitArea
             ? body.safe_area_vessel_id
             : sameSession
-              ? prior.safe_area_vessel_id
-              : null;
+            ? prior.safe_area_vessel_id
+            : null;
         if (
             safeArea != null &&
             (!parseAnchorBoundary(safeArea) ||
                 !validAreaRevision(safeAreaRevision) ||
                 !validAreaVessel(safeAreaVesselId))
-        )
+        ) {
             return json({ error: 'invalid_saved_safe_area' }, 409);
-        const { error: writeError } = await admin.from('pi_anchor_sessions').upsert(
-            {
-                relay_id: relayId,
-                owner_id: ownerId,
-                session_code: sessionCode,
-                authorised_at: new Date(now).toISOString(),
-                expires_at: expiresAt,
-                last_heartbeat_at: null,
-                contact_alarm_at: null,
-                gps_alarm_at: null,
-                expiry_alarm_at: null,
-                gps_available: false,
-                is_dragging: false,
-                safe_area: safeArea,
-                safe_area_revision: safeAreaRevision,
-                safe_area_vessel_id: safeAreaVesselId,
-            },
-            { onConflict: 'relay_id' },
-        );
+        }
+        // Compare the original binding under its database lock. A late explicit
+        // edit/clear cannot replace a newer area, while old circular clients
+        // renew the CURRENT area without copying their stale read over it.
+        const { data: authorised, error: writeError } = await admin.rpc('authorise_pi_anchor_area', {
+            p_relay_id: relayId,
+            p_owner_id: ownerId,
+            p_session_code: sessionCode,
+            p_expected: prior,
+            p_explicit_area: explicitArea,
+            p_safe_area: explicitArea ? parsedArea : null,
+            p_safe_area_revision: explicitArea ? body.safe_area_revision : null,
+            p_safe_area_vessel_id: explicitArea ? body.safe_area_vessel_id : null,
+        });
         if (writeError) {
             console.error('[anchor-relay] authorise failed:', writeError.message);
             return json({ error: 'unavailable' }, 503);
         }
-        return json({
-            authorised: true,
-            expires_in_ms: Date.parse(expiresAt) - now,
-            expires_at: expiresAt,
-            session_expires_at: session.expires_at,
-            safeZoneVersion: 1,
-            safe_area: safeArea,
-            safe_area_revision: safeAreaRevision,
-            safe_area_vessel_id: safeAreaVesselId,
-        });
+        if (authorised?.conflict) return json({ error: 'safe_area_authorisation_conflict' }, 409);
+        if (!authorised?.authorised) return json({ error: 'not_authorised_for_session' }, 403);
+        return json(authorised);
     }
 
     // ── broadcast: the Pi, with its relay credential ──
@@ -238,21 +231,14 @@ Deno.serve(async (req: Request) => {
     if (body.action === 'stop') {
         // Idempotent and exact-session scoped. A delayed stop for an old watch
         // must never remove the replacement watch on the same Pi.
-        const { error } = await admin
-            .from('pi_anchor_sessions')
-            .delete()
-            .eq('relay_id', relayId)
-            .eq('owner_id', relay.owner_id)
-            .eq('session_code', sessionCode);
-        if (!error) {
-            await admin
-                .from('anchor_alarm_events')
-                .update({ resolved_at: new Date().toISOString() })
-                .eq('session_code', sessionCode)
-                .eq('user_id', relay.owner_id)
-                .is('resolved_at', null);
-        }
-        return error ? json({ error: 'unavailable' }, 503) : json({ stopped: true });
+        const { data: stopped, error } = await admin.rpc('stop_pi_anchor_area', {
+            p_relay_id: relayId,
+            p_session_code: sessionCode,
+            p_owner_id: relay.owner_id,
+            p_expected: binding,
+        });
+        if (error) return json({ error: 'unavailable' }, 503);
+        return stopped ? json({ stopped: true }) : json({ error: 'safe_area_authorisation_conflict' }, 409);
     }
     if (
         !binding ||
@@ -272,16 +258,20 @@ Deno.serve(async (req: Request) => {
     }
     const p = payload as Record<string, unknown>;
     const gpsAvailable = validAnchorGps(p, Date.now());
-    if (!validAreaReport(binding.safe_area, binding.safe_area_revision, p, gpsAvailable, binding.safe_area_vessel_id))
+    if (!validAreaReport(binding.safe_area, binding.safe_area_revision, p, gpsAvailable, binding.safe_area_vessel_id)) {
         return json({ error: 'safe_area_revision_mismatch' }, 409);
+    }
     const vessel = (p.vessel ?? {}) as Record<string, unknown>;
     const finiteOrZero = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : 0);
     // Atomic lease + event write comes BEFORE realtime. A realtime outage must
     // not suppress a drag/GPS alarm that can still reach APNs.
-    const { data: lease, error: heartbeatError } = await admin.rpc('record_pi_anchor_heartbeat', {
+    const { data: lease, error: heartbeatError } = await admin.rpc('record_pi_anchor_area_heartbeat', {
         p_relay_id: relayId,
         p_session_code: sessionCode,
         p_owner_id: relay.owner_id,
+        p_safe_area: binding.safe_area,
+        p_safe_area_revision: binding.safe_area_revision,
+        p_safe_area_vessel_id: binding.safe_area_vessel_id,
         p_gps_available: gpsAvailable,
         p_drag: gpsAvailable && p.isAlarm === true,
         p_distance_m: finiteOrZero(p.distance),

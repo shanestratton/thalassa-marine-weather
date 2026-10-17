@@ -57,7 +57,8 @@ describe('Shore Watch cloud alarm contract', () => {
 
     it('persists watchdog status and alarms before attempting realtime delivery', () => {
         expect(relay).toContain("const action = body.action ?? 'broadcast'");
-        expect(relay.indexOf("admin.rpc('record_pi_anchor_heartbeat'")).toBeLessThan(
+        expect(relay).toContain("admin.rpc('record_pi_anchor_area_heartbeat'");
+        expect(relay.indexOf("admin.rpc('record_pi_anchor_area_heartbeat'")).toBeLessThan(
             relay.indexOf('const response = await fetch'),
         );
         expect(sql).toContain("now() - interval '60 seconds'");
