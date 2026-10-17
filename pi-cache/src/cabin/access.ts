@@ -7,6 +7,7 @@ export interface CabinCodeRecord {
     schema: 1;
     nonce: string;
     codeHash: string;
+    ownerBinding: string;
     issuedAt: number;
     expiresAt: number;
 }
@@ -16,6 +17,18 @@ export interface CabinReadLease {
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
+/** Local credentials mint the binding; a requested owner/JSON claim cannot. No bearer is returned. */
+export function cabinOwnerBinding(value: { ownerId: string; relayId: string; token: string } | null): string | null {
+    if (
+        !value ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.ownerId) ||
+        !/^[A-Za-z0-9_-]{16,128}$/.test(value.relayId) ||
+        !/^[a-f0-9]{64}$/.test(value.token)
+    )
+        return null;
+    return hash(JSON.stringify([1, 'cabin-viewer', value.ownerId, value.relayId, value.token]));
+}
+
 export function validCabinCodeRecord(value: unknown, now: number): value is CabinCodeRecord {
     const record = value as CabinCodeRecord | null;
     return (
@@ -23,6 +36,7 @@ export function validCabinCodeRecord(value: unknown, now: number): value is Cabi
         record.schema === 1 &&
         /^[a-f0-9]{32}$/.test(record.nonce) &&
         /^[a-f0-9]{64}$/.test(record.codeHash) &&
+        /^[a-f0-9]{64}$/.test(record.ownerBinding) &&
         Number.isSafeInteger(record.issuedAt) &&
         Number.isSafeInteger(record.expiresAt) &&
         record.issuedAt <= now + 5_000 &&
@@ -40,11 +54,15 @@ export class CabinAccess {
     private attempts: number[] = [];
     private peers = new Map<string, number[]>();
     private closed = false;
+    private codeNonce: string | null = null;
+    private codeOwnerContext: string | null = null;
+    private codeRetired = false;
     constructor(
         private readonly deps: {
             code(): CabinCodeRecord | null;
             /** Includes the actual process-local authority generation; never merely owner A's name. */
             context(): string | null;
+            binding(): string | null;
             now?: () => number;
         },
     ) {}
@@ -57,8 +75,22 @@ export class CabinAccess {
         try {
             record = this.deps.code();
             const owner = this.deps.context();
-            if (!this.closed && owner && validCabinCodeRecord(record, this.now()))
-                context = hash(owner + '|' + record.nonce);
+            const binding = this.deps.binding();
+            if (this.codeNonce && owner !== this.codeOwnerContext) this.codeRetired = true;
+            if (
+                !this.closed &&
+                owner &&
+                binding &&
+                validCabinCodeRecord(record, this.now()) &&
+                same(binding, record.ownerBinding)
+            ) {
+                if (record.nonce !== this.codeNonce) {
+                    this.codeNonce = record.nonce;
+                    this.codeOwnerContext = owner;
+                    this.codeRetired = false;
+                }
+                if (!this.codeRetired) context = hash(owner + '|' + record.nonce);
+            }
         } catch {
             /* Missing/corrupt state has no read authority. */
         }

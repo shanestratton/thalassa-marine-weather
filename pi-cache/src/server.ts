@@ -25,6 +25,7 @@ import https from 'https';
 import path from 'path';
 import { startCabinRuntime } from './cabin/runtime.js';
 import { refuseCabinViewerOnMainApi } from './cabin/server.js';
+import { cabinOwnerBinding } from './cabin/access.js';
 import { Cache } from './cache.js';
 import { Barometer } from './barometer.js';
 import { WindHistory } from './windHistory.js';
@@ -1470,12 +1471,13 @@ const cabinRuntime = startCabinRuntime({
     assets: path.join(process.cwd(), 'cabin-dist'),
     anchor: () => ({ running: anchorWatch.isRunning(), dragging: anchorWatch.isDragging() }),
     context: () => {
-        const generation = diaryRelayOutbox.readAuthorityGeneration(),
+        const generation = diaryRelayOutbox.readOwnerGeneration(),
             config = diaryRelayOutbox.getConfiguration();
         return generation !== null && config.configured && config.ownerId && config.relayId
             ? `${identity.deviceId}|${config.ownerId}|${config.relayId}|${generation}`
             : null;
     },
+    binding: () => cabinOwnerBinding(diaryRelayOutbox.lendFleetCredentials()),
     read: () =>
         readLanTelemetry({
             fetchImpl: fetch,

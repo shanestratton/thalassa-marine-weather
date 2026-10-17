@@ -443,6 +443,7 @@ export class DiaryRelayOutbox {
     private closed = false;
     /** Process-local read/publisher leases retire even across an A→B→A configuration change. */
     private authorityGeneration = 0;
+    private ownerGeneration = 0;
 
     constructor(cacheDir: string, options: DiaryRelayOutboxOptions) {
         this.trustedRelayEndpoint = canonicalDiaryRelayEndpoint(options.trustedSupabaseOrigin);
@@ -734,14 +735,13 @@ export class DiaryRelayOutbox {
                  WHERE singleton = 1`,
             )
             .run(nextUrl, nextRelayId, nextToken, nextOwnerId, allowInternet ? 1 : 0, now);
-        if (
+        const ownerChanged =
             nextUrl !== current.url ||
             nextRelayId !== current.relayId ||
             nextToken !== current.token ||
-            nextOwnerId !== current.ownerId ||
-            allowInternet !== current.allowInternet
-        )
-            this.authorityGeneration++;
+            nextOwnerId !== current.ownerId;
+        if (ownerChanged) this.ownerGeneration++;
+        if (ownerChanged || allowInternet !== current.allowInternet) this.authorityGeneration++;
         // A refreshed relay token or an explicit opt-in may make old entries
         // immediately deliverable. Wake the worker without waiting 15 seconds.
         void this.flushDue().catch(() => {});
@@ -770,6 +770,10 @@ export class DiaryRelayOutbox {
     /** No credentials leave through this fence; duplicate policy confirmations keep their current generation. */
     readAuthorityGeneration(): number | null {
         return this.closed ? null : this.authorityGeneration;
+    }
+    /** Cabin remains local when internet is switched off; owner/token transitions still retire it. */
+    readOwnerGeneration(): number | null {
+        return this.closed ? null : this.ownerGeneration;
     }
 
     enqueue(envelope: DiaryRelayEnvelope): DiaryRelayPublicRecord {

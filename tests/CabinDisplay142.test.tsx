@@ -90,6 +90,16 @@ describe('actual cabin page read-only lifetime', () => {
     });
 });
 describe('bounded browser response admission', () => {
+    it('refuses a zero-byte chunk stream without a timer-starving read loop', async () => {
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                controller.enqueue(new Uint8Array(0));
+            },
+        });
+        await expect(readCabinJson(new Response(body), 512, new AbortController().signal)).rejects.toThrow(
+            /chunk limit/,
+        );
+    });
     it('accepts an exact bounded body and refuses bytes beyond its cap before parsing', async () => {
         expect(await readCabinJson(json({ ok: true }), 512, new AbortController().signal)).toEqual({ ok: true });
         await expect(readCabinJson(new Response('x'.repeat(513)), 512, new AbortController().signal)).rejects.toThrow(

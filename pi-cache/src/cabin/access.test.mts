@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
     CabinAccess,
+    cabinOwnerBinding,
     CABIN_CODE_TTL_MS,
     CABIN_SESSION_TTL_MS,
     validCabinCodeRecord,
@@ -13,6 +14,7 @@ const record = (): CabinCodeRecord => ({
     schema: 1,
     nonce: 'a'.repeat(32),
     codeHash: createHash('sha256').update('12345678').digest('hex'),
+    ownerBinding: 'c'.repeat(64),
     issuedAt: start,
     expiresAt: start + CABIN_CODE_TTL_MS,
 });
@@ -20,7 +22,12 @@ const setup = () => {
     let now = start,
         context: string | null = 'ownerA:0',
         code: CabinCodeRecord | null = record();
-    const access = new CabinAccess({ now: () => now, context: () => context, code: () => code });
+    const access = new CabinAccess({
+        now: () => now,
+        context: () => context,
+        binding: () => 'c'.repeat(64),
+        code: () => code,
+    });
     return {
         access,
         setNow: (v: number) => {
@@ -34,6 +41,29 @@ const setup = () => {
         },
     };
 };
+test('a code issued before an owner transition cannot mint a fresh viewer for the next owner', () => {
+    const s = setup();
+    assert.ok(s.access.pair('12345678', 'A'));
+    s.setContext('ownerB:1');
+    assert.equal(s.access.pair('12345678', 'B') === null, true);
+});
+test('an old owner-bound code cannot mint a viewer for a different owner even in a fresh process', () => {
+    const access = new CabinAccess({
+        now: () => start,
+        code: () => record(),
+        context: () => 'ownerB:0',
+        binding: () => 'd'.repeat(64),
+    });
+    assert.equal(access.pair('12345678', 'peer'), null);
+    const credential = {
+        ownerId: '11111111-1111-4111-8111-111111111111',
+        relayId: 'synthetic-relay-0001',
+        token: 'a'.repeat(64),
+    };
+    assert.match(cabinOwnerBinding(credential)!, /^[a-f0-9]{64}$/);
+    assert.notEqual(cabinOwnerBinding(credential), cabinOwnerBinding({ ...credential, token: 'b'.repeat(64) }));
+    assert.equal(cabinOwnerBinding({ ...credential, ownerId: '-'.repeat(36) }), null);
+});
 test('only correct current cabin code mints a separate read token, without enrolment or command methods', () => {
     const { access } = setup();
     for (const value of [null, '1234', '12345679', 12345678]) assert.equal(access.pair(value, 'peer'), null);
@@ -59,7 +89,9 @@ test('owner generation change retires captured leases and A→B→A does not res
     s.setContext('ownerA:2');
     assert.equal(s.access.lease(token), null);
     assert.equal(lease.isCurrent(), false);
-    assert.ok(s.access.pair('12345678', 'peer2'));
+    assert.equal(s.access.pair('12345678', 'peer2'), null);
+    s.setCode({ ...record(), nonce: 'b'.repeat(32) });
+    assert.ok(s.access.pair('12345678', 'peer3'));
 });
 test('rotation, missing code, close and clock reversal retire authority immediately', () => {
     for (const retire of ['rotation', 'missing', 'close', 'clock']) {

@@ -35,12 +35,14 @@ test('real dedicated HTTP listener exposes only paired read projection; every co
         reads = 0,
         resolveRead: ((v: LanTelemetryPayload) => void) | null = null;
     const access = new CabinAccess({
+        binding: () => 'c'.repeat(64),
         now: () => clock,
         context: () => `ownerA:${generation}`,
         code: () => ({
             schema: 1,
             nonce: 'a'.repeat(32),
             codeHash: createHash('sha256').update('12345678').digest('hex'),
+            ownerBinding: 'c'.repeat(64),
             issuedAt: now,
             expiresAt: now + 600_000,
         }),
@@ -111,6 +113,8 @@ test('real dedicated HTTP listener exposes only paired read projection; every co
     resolveRead = () => {};
     const pending = fetch(base + '/api/telemetry', { headers });
     for (let n = 0; n < 50 && reads < 2; n++) await new Promise((resolve) => setTimeout(resolve, 2));
+    assert.equal(reads, 2);
+    assert.equal((await fetch(base + '/api/telemetry', { headers })).status, 429);
     assert.equal(reads, 2);
     generation++;
     const finish = resolveRead;

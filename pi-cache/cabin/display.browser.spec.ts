@@ -11,7 +11,8 @@ import type { LanTelemetryPayload } from '../src/lanTelemetry';
 let server: Server,
     origin: string,
     stale = false,
-    generation = 0;
+    generation = 0,
+    codeNonce = 'a'.repeat(32);
 const repository = path.resolve(import.meta.dirname, '../..');
 test.beforeAll(async ({ browserName }, info) => {
     if (!['chromium', 'webkit'].includes(browserName)) throw Error('Reviewed cabin proof requires Chrome or WebKit');
@@ -22,11 +23,13 @@ test.beforeAll(async ({ browserName }, info) => {
     await buildCabin({ repository, output: assets });
     const issued = Date.now();
     const access = new CabinAccess({
+        binding: () => 'c'.repeat(64),
         context: () => `synthetic-owner:${generation}`,
         code: () => ({
             schema: 1,
-            nonce: 'a'.repeat(32),
+            nonce: codeNonce,
             codeHash: createHash('sha256').update('12345678').digest('hex'),
+            ownerBinding: 'c'.repeat(64),
             issuedAt: issued,
             expiresAt: issued + 600_000,
         }),
@@ -100,6 +103,7 @@ for (const width of [300, 375])
     test(`actual read-only cabin at ${width}px and130percent type`, async ({ browser }, info) => {
         stale = false;
         generation++;
+        codeNonce = generation.toString(16).padStart(32, '0');
         const page = await browser.newPage({ viewport: { width, height: 667 } });
         const errors: string[] = [],
             csp: string[] = [],

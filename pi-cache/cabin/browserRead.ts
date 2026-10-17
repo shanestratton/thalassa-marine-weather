@@ -5,7 +5,8 @@ export async function readCabinJson(response: Response, limit: number, signal: A
         throw Error('Cabin response unavailable');
     const reader = response.body.getReader(),
         parts: Uint8Array[] = [];
-    let total = 0;
+    let total = 0,
+        chunks = 0;
     try {
         while (true) {
             if (signal.aborted) throw Error('Cabin response retired');
@@ -29,9 +30,10 @@ export async function readCabinJson(response: Response, limit: number, signal: A
                 );
             });
             if (chunk.done) break;
+            if (++chunks > 256 || chunk.value.byteLength === 0) throw Error('Cabin response chunk limit');
             total += chunk.value.byteLength;
             if (total > limit) throw Error('Cabin response exceeds limit');
-            parts.push(chunk.value);
+            parts.push(chunk.value.slice());
         }
         const bytes = new Uint8Array(total);
         let offset = 0;

@@ -21,7 +21,12 @@ export function readCabinCode(file: string, now = Date.now()): CabinCodeRecord |
 }
 
 /** Local operator command only. The code is returned once; its hash alone is stored. */
-export function rotateCabinCode(file: string, now = Date.now()): { code: string; expiresAt: number } {
+export function rotateCabinCode(
+    file: string,
+    ownerBinding: string,
+    now = Date.now(),
+): { code: string; expiresAt: number } {
+    if (!/^[a-f0-9]{64}$/.test(ownerBinding)) throw Error('A current paired owner is required');
     const parent = path.dirname(file);
     fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
     const directory = fs.lstatSync(parent);
@@ -38,6 +43,7 @@ export function rotateCabinCode(file: string, now = Date.now()): { code: string;
         schema: 1,
         nonce: randomBytes(16).toString('hex'),
         codeHash: createHash('sha256').update(code).digest('hex'),
+        ownerBinding,
         issuedAt: now,
         expiresAt: now + CABIN_CODE_TTL_MS,
     };
@@ -49,4 +55,17 @@ export function rotateCabinCode(file: string, now = Date.now()): { code: string;
         fs.rmSync(temporary, { force: true });
     }
     return { code, expiresAt: record.expiresAt };
+}
+
+/** Enabled listener boot cannot restore an old in-memory authority after restart. No recursive deletion. */
+export function invalidateCabinCode(file: string): void {
+    try {
+        const parent = fs.lstatSync(path.dirname(file));
+        if (!parent.isDirectory() || parent.isSymbolicLink()) throw Error('Cabin access directory unavailable');
+        const stat = fs.lstatSync(file);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512) throw Error('Cabin code file unavailable');
+        fs.unlinkSync(file);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
 }

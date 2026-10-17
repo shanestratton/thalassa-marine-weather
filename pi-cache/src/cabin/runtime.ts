@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { CabinAccess } from './access.js';
-import { readCabinCode } from './codeFile.js';
+import { readCabinCode, invalidateCabinCode } from './codeFile.js';
 import { createCabinApp } from './server.js';
 import { classifyPeer, readBoatLanView } from '../encDevices.js';
 import type { LanTelemetryPayload } from '../lanTelemetry.js';
@@ -15,6 +15,7 @@ export function startCabinRuntime(options: {
     cacheDirectory: string;
     assets: string;
     context(): string | null;
+    binding(): string | null;
     read(): Promise<LanTelemetryPayload>;
     anchor?(): { running: boolean; dragging: boolean } | null;
 }) {
@@ -28,9 +29,17 @@ export function startCabinRuntime(options: {
         console.warn('[cabin] Read-only display port configuration unavailable');
         return null;
     }
+    const codeFile = path.join(options.cacheDirectory, 'cabin', 'access.json');
+    try {
+        invalidateCabinCode(codeFile);
+    } catch {
+        console.warn('[cabin] Read-only display code could not be retired');
+        return null;
+    }
     const access = new CabinAccess({
         context: options.context,
-        code: () => readCabinCode(path.join(options.cacheDirectory, 'cabin', 'access.json')),
+        binding: options.binding,
+        code: () => readCabinCode(codeFile),
     });
     const server = http.createServer(
         createCabinApp({

@@ -7,6 +7,14 @@ import { createHash } from 'node:crypto';
 export async function buildCabin({ repository, output }) {
     if (!path.isAbsolute(repository) || !path.isAbsolute(output) || fs.existsSync(output))
         throw Error('Use an absolute repository and fresh cabin output');
+    for (const phoneDirectory of ['dist', 'public']) {
+        const relative = path.relative(path.join(repository, phoneDirectory), output);
+        if (
+            relative === '' ||
+            (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))
+        )
+            throw Error('Cabin display cannot write into the phone artifact');
+    }
     const { build } = await import('vite');
     await build({
         root: path.join(repository, 'pi-cache/cabin'),
