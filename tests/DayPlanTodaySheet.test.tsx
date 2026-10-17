@@ -1658,12 +1658,20 @@ describe('Route round the land (127-PYD-2)', () => {
     afterEach(() => setStore(undefined, false));
 
     it('owner: one button, a tap routes once, the row says each stage, then the route, the time and the routed times', async () => {
+        const stage = () => {
+            let release!: () => void;
+            const ready = new Promise<void>((resolve) => (release = resolve));
+            return { ready, release };
+        };
+        const deepWater = stage();
+        const roundLand = stage();
+        const finished = stage();
         const route = routes(async (req, signal, onProgress) => {
-            await new Promise((resolve) => setTimeout(resolve, 60));
+            await deepWater.ready;
             onProgress?.('Following deep water…');
-            await new Promise((resolve) => setTimeout(resolve, 30));
+            await roundLand.ready;
             onProgress?.('Routing round the land…');
-            await new Promise((resolve) => setTimeout(resolve, 30));
+            await finished.ready;
             return routedProposal(req);
         });
         const { detail, dialog, io: sources, name } = await openStop({ route });
@@ -1683,8 +1691,16 @@ describe('Route round the land (127-PYD-2)', () => {
         expect(routeRow(detail)!.querySelector('[aria-hidden="true"]')).toBeTruthy();
         // While it routes the main button says so, and waits (127-PYD-3).
         expect(within(detail).getByRole('button', { name: 'Finding the way…' })).toBeDisabled();
+        await act(async () => deepWater.release());
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Following deep water/));
+        expect(routeRow(detail)!.querySelector('[aria-live]')?.textContent).toBe('Following deep water');
+        expect(within(detail).getByRole('button', { name: 'Finding the way…' })).toBeDisabled();
+        await act(async () => roundLand.release());
         await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routing round the land/));
+        expect(routeRow(detail)!.querySelector('[aria-live]')?.textContent).toBe('Routing round the land');
+        expect(within(detail).getByRole('button', { name: 'Finding the way…' })).toBeDisabled();
 
+        await act(async () => finished.release());
         await waitFor(() =>
             expect(routeRow(detail)).toHaveTextContent('Routed on your charts · 16.5 NM each way · 0.3 NM shallow'),
         );
