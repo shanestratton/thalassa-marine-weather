@@ -196,7 +196,11 @@ describe('deleteCurrentAccount', () => {
             'thalassa_history_cache_v3::user%3Aaccount-a',
             'thalassa_next_update::user%3Aaccount-a',
             'thalassa_weather_cache_schema::user%3Aaccount-a',
+            'thalassa_private_comfort_pending_v1::user%3Aaccount-a',
         ]);
+        expect(harness.deleteLargeData).not.toHaveBeenCalledWith(
+            'thalassa_private_comfort_pending_v1::user%3Aaccount-b',
+        );
         expect(harness.deletePhoto).toHaveBeenCalledWith('idb:photo-a');
         expect(harness.deletePhoto).toHaveBeenCalledWith('idb:photo-native');
         expect(harness.deletePhoto).toHaveBeenCalledWith('idb:legacy-photo-a');

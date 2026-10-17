@@ -531,7 +531,11 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     const seaMetric = metric === 'wave' || metric === 'period';
     const partitionsView = seaMetric && !(summaryView?.metric === metric && summaryView.identity === identity);
     const resetViewScroll = React.useCallback((element: HTMLDivElement | null) => {
-        element?.parentElement?.scrollTo(0, 0);
+        const scroller = element?.parentElement;
+        if (scroller) {
+            scroller.scrollTop = 0;
+            scroller.scrollLeft = 0;
+        }
     }, []);
     React.useEffect(() => {
         setSummaryView(null);

@@ -101,8 +101,10 @@ describe('the app starts without the router (131-04)', () => {
         expect(LIBRARY.length).toBeGreaterThanOrEqual(38);
     });
 
-    it("the start-up (index.tsx and the app shell) reaches only the engine's three leaves, and no router", () => {
-        expect(routerReach(['index.tsx', APP_SHELL_ENTRY])).toEqual(START_UP_LEAVES);
+    it('the start-up (index.tsx and the app shell) reaches only the reviewed import-free leaves, and no router', () => {
+        // The Glass/HUD additionally share the canonical import-free comfort leaf;
+        // the saved-route library below must still reach only its original three.
+        expect(routerReach(['index.tsx', APP_SHELL_ENTRY])).toEqual([...START_UP_LEAVES, 'utils/seaComfort.ts']);
         // Walking the app's import graph takes seconds; under coverage on a two-core runner it overran 5 s.
     }, 60_000);
 
