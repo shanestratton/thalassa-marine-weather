@@ -76,18 +76,31 @@ export default function BoatPresenceSheet({ onClose }: { onClose: () => void }) 
                 <p className="font-semibold">{s.config?.vesselName ?? 'No active owned vessel'}</p>
                 <label className="block">
                     Who may see this vessel
-                    <select
-                        aria-label="Presence audience"
-                        value={tier}
-                        onChange={(e) => setTier(e.target.value as PresenceTier)}
-                        className={`${control} mt-1 w-full`}
-                        disabled={!s.config || busy}
-                    >
-                        <option value="off">Off</option>
-                        <option value="crew">Accepted crew only</option>
-                        <option value="friends">Accepted friends only</option>
-                        <option value="nearby">Nearby Thalassa users</option>
-                    </select>
+                    <span className="relative mt-1 block">
+                        <select
+                            aria-label="Presence audience"
+                            value={tier}
+                            onChange={(e) => setTier(e.target.value as PresenceTier)}
+                            className={`${control} w-full appearance-none pr-10`}
+                            style={{ colorScheme: 'dark' }}
+                            disabled={!s.config || busy}
+                        >
+                            <option value="off">Off</option>
+                            <option value="crew">Accepted crew only</option>
+                            <option value="friends">Accepted friends only</option>
+                            <option value="nearby">Nearby Thalassa users</option>
+                        </select>
+                        <svg
+                            aria-hidden="true"
+                            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                        >
+                            <path d="m4 6 4 4 4-4" />
+                        </svg>
+                    </span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                     <button

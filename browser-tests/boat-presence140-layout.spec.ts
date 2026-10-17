@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { decode } from 'fast-png';
+import { contrast } from '../tests/helpers/colourScience';
 for (const width of [300, 375])
     test(`actual private boat controls/layer ${width}px130%`, async ({ page, context, baseURL }, info) => {
         await page.setViewportSize({ width, height: 667 });
@@ -192,6 +194,37 @@ for (const width of [300, 375])
         dialog = page.getByRole('dialog', { name: 'Thalassa boats', exact: true });
         await expect(dialog).toContainText('Off by default');
         await expect(dialog.getByLabel('Presence audience')).toHaveValue('off');
+        const selectPng = await dialog
+            .getByLabel('Presence audience')
+            .screenshot({ path: info.outputPath('presence-audience-select.png') });
+        const selectPixels = decode(selectPng);
+        expect(selectPixels.depth).toBe(8);
+        expect([3, 4]).toContain(selectPixels.channels);
+        expect(selectPixels.width * selectPixels.height).toBeLessThan(500000);
+        const rgb = (x: number, y: number) => {
+            const i = (y * selectPixels.width + x) * selectPixels.channels;
+            return [selectPixels.data[i], selectPixels.data[i + 1], selectPixels.data[i + 2]];
+        };
+        const bg = rgb(Math.floor(selectPixels.width * 0.75), Math.floor(selectPixels.height * 0.5));
+        let fg = [0, 0, 0];
+        for (let y = Math.floor(selectPixels.height * 0.25); y < selectPixels.height * 0.75; y++)
+            for (let x = Math.floor(selectPixels.width * 0.07); x < selectPixels.width * 0.5; x++) {
+                const candidate = rgb(x, y);
+                if (candidate.reduce((a, b) => a + b, 0) > fg.reduce((a, b) => a + b, 0)) fg = candidate;
+            }
+        const hex = (v: number[]) => '#' + v.map((n) => n.toString(16).padStart(2, '0')).join('');
+        const selectContrast = contrast(hex(fg), hex(bg));
+        expect(selectContrast).toBeGreaterThanOrEqual(4.5);
+        await info.attach('actual-audience-select-paint', {
+            body: JSON.stringify({
+                background: bg,
+                foreground: fg,
+                contrast: selectContrast,
+                width: selectPixels.width,
+                height: selectPixels.height,
+            }),
+            contentType: 'application/json',
+        });
         await expect(dialog.getByRole('heading', { name: 'Thalassa boats', exact: true })).toBeInViewport();
         expect(await dialog.locator('[data-modal-sheet]').evaluate((node) => node.scrollTop)).toBe(0);
         await expect(dialog.getByRole('button', { name: 'Publish for this foreground session' })).toBeDisabled();
