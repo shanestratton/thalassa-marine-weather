@@ -1,0 +1,79 @@
+name: Boat Presence 140 Isolated PostgreSQL 17.6
+on:
+  push:
+    branches: ['codex/build-140-boat-presence-db']
+    paths: ['.github/workflows/validate-boat-presence-140.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: boat-presence-140-postgres17-proof
+  cancel-in-progress: false
+jobs:
+  boat-presence-postgres17:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1 && github.ref == 'refs/heads/codex/build-140-boat-presence-db'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CANDIDATE_SHA: 48b06c68317a50d19009bba62fbedfb9e1be9deb
+    services:
+      presence-postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: presence140_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 48b06c68317a50d19009bba62fbedfb9e1be9deb
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify source and preserve isolated runtime identity
+        env:
+          PRESENCE_CONTAINER_ID: ${{ job.services.presence-postgres.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/boat-presence140-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/boat-presence140-proof/source.txt"
+          uname -a > "$RUNNER_TEMP/boat-presence140-proof/linux.txt"
+          node --version > "$RUNNER_TEMP/boat-presence140-proof/node.txt"
+          docker inspect --format '{{.Image}}' "$PRESENCE_CONTAINER_ID" > "$RUNNER_TEMP/boat-presence140-proof/container-image.txt"
+          docker image inspect postgres:17.6 --format '{{json .RepoDigests}}' >> "$RUNNER_TEMP/boat-presence140-proof/container-image.txt"
+      - name: Install only the isolated fixture driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/boat-presence140-driver" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          npm ls --prefix "$RUNNER_TEMP/boat-presence140-driver" --depth=0 --json > "$RUNNER_TEMP/boat-presence140-proof/driver.json"
+          sha256sum "$RUNNER_TEMP/boat-presence140-driver/package-lock.json" > "$RUNNER_TEMP/boat-presence140-proof/driver-lock-sha256.txt"
+      - name: Refusal guards and actual canonical SQL on Linux PostgreSQL 17.6
+        env:
+          THALASSA_DISPOSABLE_PRESENCE_TEST: '1'
+          PRESENCE_TEST_DATABASE_URL: postgres://postgres:fixture-only-password@127.0.0.1:5432/presence140_test
+          PG_MODULE_PATH: ${{ runner.temp }}/boat-presence140-driver/node_modules/pg/lib/index.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test supabase/tests/boat-presence-disposable.test.mjs 2>&1 | tee "$RUNNER_TEMP/boat-presence140-proof/guards.log"
+          node supabase/tests/boat-presence-postgres17.mjs 2>&1 | tee "$RUNNER_TEMP/boat-presence140-proof/postgres17.log"
+          sha256sum supabase/migrations/20261017015015_boat_presence.sql supabase/tests/boat-presence-{cases,disposable,postgres17}.mjs > "$RUNNER_TEMP/boat-presence140-proof/source-sha256.txt"
+      - name: Preserve native database evidence on every outcome
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: boat-presence-140-pg17-48b06c683
+          path: ${{ runner.temp }}/boat-presence140-proof
+          if-no-files-found: warn
+          retention-days: 14
