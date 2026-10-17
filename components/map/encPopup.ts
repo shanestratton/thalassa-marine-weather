@@ -15,6 +15,7 @@ import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
 import { ENC_VEC_LAYERS, encBaseLayerId } from './encLayerIds';
 import { daylightUiColor } from '../../utils/daylightUiColor';
 import { chartBottomNature, seabedNature } from '../../services/enc/seabed';
+import { encLightRhythm, lightRhythmHtml } from './lightRhythm';
 
 /**
  * Escape HTML special chars so feature properties (e.g. `OBJNAM`
@@ -256,7 +257,7 @@ function lightRows(props: Record<string, unknown>): string {
     if (height) out += `<div class="enc-popup-row"><span>Height</span><b>${esc(fmtDepth(height))}</b></div>`;
     if (valnmr) out += `<div class="enc-popup-row"><span>Range</span><b>${esc(valnmr)} NM</b></div>`;
     if (colour) out += `<div class="enc-popup-row"><span>Colour</span><b>${esc(colourNames(colour))}</b></div>`;
-    return out;
+    return out + lightRhythmHtml(encLightRhythm(props));
 }
 
 /**
