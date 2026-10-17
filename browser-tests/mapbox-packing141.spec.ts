@@ -91,7 +91,18 @@ test('packed renderer retains real shaders, public APIs and independently runnin
     browser,
 }, testInfo) => {
     test.setTimeout(60_000);
-    const profiles = [];
+    const profiles: {
+        workerBlobs: string[];
+        workers: number;
+        shaders: string[];
+        workerErrors: unknown[];
+        features: number;
+        version: string;
+        exports: string[];
+        bounds: number[];
+        importMs: number;
+        redPixels: number;
+    }[] = [];
     for (const profile of ['original', 'packed']) {
         const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
         const errors: string[] = [];
