@@ -85,6 +85,7 @@ describe('the router-engine chunk', () => {
             'services/isochrone/polar.ts',
             'services/isochrone/geodesy.ts',
             'services/isochrone/routeSailingStats.ts',
+            'services/weather/currentSeries.ts',
         ]);
         const helpers = ROUTE_ENGINE_SHARED_LEAVES.map((leaf: string) => `/repo/${leaf}`);
         const graph: Record<string, [string[], string[]?]> = {
