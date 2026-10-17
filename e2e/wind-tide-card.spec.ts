@@ -1,5 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test';
 import { ONBOARDED_STORAGE } from './helpers/storageState';
+import type { MarineModelSnapshot } from '../types';
 
 type CardBounds = NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>;
 
@@ -79,6 +80,23 @@ test.describe('Glass wind versus tide card', () => {
                 windDirection: 'NE',
                 currentDirection: 0,
                 currentSpeed: 0,
+                // Synthetic modelled motion needs its own source/point/valid
+                // clocks; a fresh atmosphere cache cannot qualify legacy
+                // marine numbers. This fixture supplies no wave sample.
+                marine: {
+                    parts: { total: null, windSea: null, swell: null, secondarySwell: null },
+                    status: 'unavailable',
+                    reason: 'Synthetic motion-only fixture; wave sample unavailable.',
+                    waveModel: 'meteofrance_wave',
+                    motionModel: 'best_match',
+                    fetchedAtMs: now,
+                    waveValidAtMs: null,
+                    motionValidAtMs: now,
+                    requested: {
+                        latitude: Math.round(weather.coordinates.lat * 10000) / 10000,
+                        longitude: Math.round(weather.coordinates.lon * 10000) / 10000,
+                    },
+                } satisfies MarineModelSnapshot,
             });
             weather.tides = [
                 { time: atHour(-2), height: 0.4, type: 'Low' },
