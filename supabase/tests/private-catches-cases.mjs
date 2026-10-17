@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 export async function runPrivateCatchCases(db) {
     const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
-    const migration = await read('../migrations/20261017003944_private_sighting_catches.sql');
+    const migration = await read('../migrations/20261017030800_private_sighting_catches.sql');
     const old = await read('../migrations/20260806120000_account_deletion_durability.sql');
     const fence = old.match(
         /CREATE OR REPLACE FUNCTION public\.block_tombstoned_account_write\(\)[\s\S]+?REVOKE ALL ON FUNCTION public\.block_tombstoned_account_write\(\) FROM PUBLIC, anon, authenticated;/,

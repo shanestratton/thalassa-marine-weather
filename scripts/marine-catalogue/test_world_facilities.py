@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import io
+from unittest.mock import patch
 import acquire
 import build
 import publication
@@ -81,7 +83,37 @@ class WorldFacilitiesTests(unittest.TestCase):
         self.assertEqual(envelope["extractedByteCap"], 14.125 * 1024**3)
         self.assertEqual(envelope["admissionFreeDiskBytes"], 160.625 * 1024**3)
         self.assertEqual(envelope["serviceFileByteCap"], envelope["largestSourceByteCap"])
-        self.assertEqual(envelope["downloadDeadlineSecondsPerSource"], 3600)
+        self.assertEqual(envelope["downloadDeadlineSecondsPerSource"], 10240)
+        self.assertEqual(envelope["downloadBudgetBytesPerSecond"], 4 * 1024**2)
+        self.assertEqual(len(envelope["downloadDeadlineSecondsBySource"]), 8)
         self.assertEqual(envelope["osmiumDeadlineSecondsPerChild"], 7200)
+
+    def test_world_transfer_budget_matches_original_size_and_has_absolute_ceiling(self):
+        for size, expected in [(1, 3600), (12 * 1024**3, 3600), (24 * 1024**3, 6144), (40 * 1024**3, 10240), (64 * 1024**3, 10800)]:
+            self.assertEqual(world_policy.download_deadline_seconds({"url": "https://download.geofabrik.de/europe-latest.osm.pbf", "maxBytes": size}), expected)
+        for bad in [{"url": "https://other.example/europe-latest.osm.pbf", "maxBytes": 1}, {"url": "https://download.geofabrik.de/europe-latest.osm.pbf", "maxBytes": True}]:
+            with self.assertRaises(ValueError): world_policy.download_deadline_seconds(bad)
+
+    def test_actual_transfer_keeps_regional_hour_and_refuses_world_deadline_overrun(self):
+        url = "https://download.geofabrik.de/europe-latest.osm.pbf"
+        class Response(io.BytesIO):
+            headers = {"Content-Length": "6"}
+            def geturl(self): return url
+        class Opener:
+            def open(self, *args, **kwargs): return Response(b"123456")
+        source = {"url": url, "maxBytes": 40 * 1024**3}
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "source.pbf"
+            with patch.object(acquire.time, "monotonic", side_effect=[0, 4000]):
+                with self.assertRaisesRegex(ValueError, "time cap"): acquire.download(source, target, Opener())
+            self.assertFalse(target.exists())
+            with patch.object(acquire.time, "monotonic", side_effect=[0, 4000]):
+                receipt = acquire.download(source, target, Opener(), timeout_seconds=world_policy.download_deadline_seconds(source))
+            self.assertEqual(receipt["sha256"], hashlib.sha256(b"123456").hexdigest())
+            with patch.object(acquire.time, "monotonic", side_effect=[0, 10241]):
+                with self.assertRaisesRegex(ValueError, "time cap"): acquire.download(source, target, Opener(), timeout_seconds=10240)
+            self.assertFalse(target.exists())
+            for deadline in [True, 3599, 10801]:
+                with self.assertRaisesRegex(ValueError, "deadline"): acquire.download(source, target, Opener(), timeout_seconds=deadline)
 
 if __name__ == "__main__": unittest.main()

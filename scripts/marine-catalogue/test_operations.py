@@ -32,6 +32,14 @@ class Store:
     def delete(self, key): self.calls.append(("delete", key)); del self.objects[key]
 
 class OperationsTests(unittest.TestCase):
+    def test_osmium_child_has_fixed_small_pool_queues_and_no_publisher_credentials(self):
+        with patch.dict(acquire.os.environ, {"PATH": "/isolated/bin:/usr/bin", "LANG": "C.UTF-8", "LD_LIBRARY_PATH": "/isolated/lib", "OSMIUM_POOL_THREADS": "999", "OSMIUM_MAX_INPUT_QUEUE_SIZE": "999", "CATALOGUE_R2_SECRET_ACCESS_KEY": "fictional-secret", "AWS_SECRET_ACCESS_KEY": "fictional-secret", "PYTHONPATH": "/untrusted"}, clear=True):
+            environment = acquire.osmium_environment()
+            self.assertEqual(environment, {"PATH": "/isolated/bin:/usr/bin", "LANG": "C.UTF-8", "LD_LIBRARY_PATH": "/isolated/lib", "OSMIUM_POOL_THREADS": "2", **{"OSMIUM_MAX_" + queue + "_QUEUE_SIZE": "2" for queue in ("INPUT", "OSMDATA", "OUTPUT", "WORK")}})
+            with patch.object(acquire.subprocess, "run") as child:
+                acquire.run_osmium(["cat", "fictional.osm"], 1024)
+                self.assertEqual(child.call_args.kwargs["env"], environment)
+                self.assertEqual(child.call_args.kwargs["timeout"], 7200)
     def generation(self, root):
         return build.build(fixtures.BuildTests().fixture(root, fixtures.geoline()), root / "staged")
     def test_failed_upload_keeps_old_manifest_and_never_deletes(self):

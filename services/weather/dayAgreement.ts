@@ -28,7 +28,7 @@
  * Pure: no React, no fetch. Days are the location's own, so a clock change
  * gives a 23- or 25-hour day.
  */
-import type { AtmosVar, SpreadBlock } from './ModelSpreadService';
+import type { AtmosVar, ModelSpreadResult, SpreadBlock } from './ModelSpreadService';
 
 export type AgreementLevel = 'agree' | 'some' | 'split';
 
@@ -297,10 +297,10 @@ export function windAgreementByDay(block: SpreadBlock<AtmosVar> | null, timeZone
     if (!block || !times.length) return [];
     const speed = block.models
         .filter((m) => !m.displayOnly)
-        .map((m) => ({ id: m.id, values: m.values.wind_speed_10m }));
+        .map((m) => ({ id: m.id, values: m.values.wind_speed_10m ?? [] }));
     const dir = block.models
         .filter((m) => !m.displayOnly)
-        .map((m) => ({ id: m.id, values: m.values.wind_direction_10m }));
+        .map((m) => ({ id: m.id, values: m.values.wind_direction_10m ?? [] }));
     const starts = localDayStarts(times, timeZone);
     const day = dayFormat(timeZone);
     const last = times.length - 1;
@@ -316,6 +316,148 @@ export function windAgreementByDay(block: SpreadBlock<AtmosVar> | null, timeZone
 }
 
 /** The day holding `ms`, or null outside the answer. */
-export function verdictAt(verdicts: readonly WindDayVerdict[], ms: number): WindDayVerdict | null {
+export function verdictAt<T extends { startMs: number; endMs: number }>(verdicts: readonly T[], ms: number): T | null {
     return verdicts.find((v) => ms >= v.startMs && ms < v.endMs) ?? null;
+}
+
+/** Rain and waves share this exact complete-day cohort with the comparison
+ * bars. Mean hourly spread is not a difference between daily totals; rain's
+ * existing threshold is mm per preceding hour, including snow water-equivalent. */
+export interface DayScalarAgreement {
+    start: number;
+    end: number;
+    members: number;
+    peak: number;
+    thin: boolean;
+    spread: number | null;
+    level: AgreementLevel | null;
+}
+
+export function scalarAgreementForDays(
+    series: readonly ModelValues[],
+    starts: readonly number[],
+    length: number,
+    metric: 'rain' | 'wave',
+): DayScalarAgreement[] {
+    const eligible = series.filter((m) => !m.displayOnly);
+    const bounds = [0, ...starts, length];
+    const days = bounds.slice(1).map((end, index) => {
+        const start = bounds[index];
+        const covering = eligible.filter((m) => {
+            if (end <= start) return false;
+            for (let i = start; i < end; i++) {
+                const value = m.values[i];
+                if (value == null || !Number.isFinite(value) || value < 0) return false;
+            }
+            return true;
+        });
+        return { start, end, covering };
+    });
+    const peak = Math.max(0, ...days.map((day) => day.covering.length));
+    return days.map(({ start, end, covering }) => {
+        const members = covering.length;
+        let spread: number | null = null;
+        if (members >= 2) {
+            let total = 0;
+            for (let i = start; i < end; i++) {
+                const values = covering.map((m) => m.values[i] as number);
+                total += Math.max(...values) - Math.min(...values);
+            }
+            spread = total / (end - start);
+        }
+        return {
+            start,
+            end,
+            members,
+            peak,
+            thin: members >= 2 && members < Math.min(THIN_BELOW, peak),
+            spread,
+            level: spread == null ? null : classifySpread(metric, spread),
+        };
+    });
+}
+
+export interface AgreementComponent {
+    metric: 'wind' | 'rain' | 'wave';
+    members: number;
+    peak: number;
+    thin: boolean;
+    level: AgreementLevel | null;
+}
+
+export interface WeatherDayVerdict extends Omit<WindDayVerdict, 'driver'> {
+    driver: 'wind' | 'dir' | 'rain' | 'wave' | null;
+    components: AgreementComponent[];
+}
+
+/** The chip combines independent actual atmospheric and marine cohorts; the
+ * four wave models never inherit the seven atmospheric member count. One
+ * model alone, display-only UKV and missing/partial metrics never vote agree.
+ * Wind-only APIs remain unchanged for the desk's actual wind panel. */
+export function weatherAgreementByDay(spread: ModelSpreadResult, timeZone: string): WeatherDayVerdict[] {
+    const atmos = spread.unreachable?.includes('atmos') ? null : spread.atmos;
+    const marine = spread.unreachable?.includes('marine') ? null : spread.marine;
+    const base = atmos?.times.length ? atmos : marine;
+    if (!base?.times.length) return [];
+    const day = dayFormat(timeZone);
+    const sourceDays = <V extends string>(block: SpreadBlock<V> | null, variable: V, metric: 'rain' | 'wave') => {
+        if (!block?.times.length) return new Map<string, DayScalarAgreement & { startMs: number; endMs: number }>();
+        const last = block.times.length - 1;
+        return new Map(
+            scalarAgreementForDays(
+                block.models.map((m) => ({ id: m.id, displayOnly: m.displayOnly, values: m.values[variable] ?? [] })),
+                localDayStarts(block.times, timeZone),
+                block.times.length,
+                metric,
+            ).map((value) => [
+                day.format(block.times[value.start]),
+                {
+                    ...value,
+                    startMs: block.times[value.start],
+                    endMs: value.end < block.times.length ? block.times[value.end] : block.times[last] + HOUR_MS,
+                },
+            ]),
+        );
+    };
+    const winds = new Map(windAgreementByDay(atmos, timeZone).map((value) => [value.date, value]));
+    const rains = sourceDays(atmos, 'precipitation', 'rain');
+    const waves = sourceDays(marine, 'wave_height', 'wave');
+    // A marine-only answer still has honest local-day bounds/whole flags.
+    const clock = windAgreementByDay({ times: base.times, models: [] } as SpreadBlock<AtmosVar>, timeZone);
+    return clock.map((bounds) => {
+        const wind = winds.get(bounds.date);
+        const sameWindow = (value: { startMs: number; endMs: number } | undefined) =>
+            value?.startMs === bounds.startMs && value.endMs === bounds.endMs;
+        const rain = rains.get(bounds.date);
+        const wave = waves.get(bounds.date);
+        const selected = [
+            sameWindow(wind) ? wind : undefined,
+            sameWindow(rain) ? rain : undefined,
+            sameWindow(wave) ? wave : undefined,
+        ];
+        const components: AgreementComponent[] = (['wind', 'rain', 'wave'] as const).map((metric, i) => ({
+            metric,
+            members: selected[i]?.members ?? 0,
+            peak: selected[i]?.peak ?? 0,
+            thin: selected[i]?.thin ?? false,
+            level: selected[i]?.level ?? null,
+        }));
+        let winner: AgreementComponent | undefined;
+        for (const component of components) {
+            if (component.level && (!winner?.level || RANK[component.level] > RANK[winner.level])) winner = component;
+        }
+        const display =
+            winner ?? components.reduce((best, component) => (component.members > best.members ? component : best));
+        return {
+            // Adopt the actual common day, not a partially overlapping leg.
+            ...bounds,
+            ...(sameWindow(wind) ? wind : {}),
+            members: display.members,
+            peak: display.peak,
+            thin: display.thin,
+            level: winner?.level ?? null,
+            driver: display.metric === 'wind' ? (wind?.driver ?? 'wind') : display.metric,
+            components,
+        };
+    });
 }

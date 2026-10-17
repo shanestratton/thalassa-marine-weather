@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import acquire
 import build
+import world_policy
 
 def review(plan_path):
     raw = Path(plan_path).read_bytes()
@@ -25,7 +26,9 @@ def review(plan_path):
             "retainedSourceSnapshotByteCapEach": acquire.LIMIT,
             "generationByteCap": build.MAX_OUTPUT_BYTES, "remoteOwnedDatasetByteCap": 4 * build.MAX_OUTPUT_BYTES,
             "serviceMemoryBytes": 2 * 1024**3, "serviceDeadlineSeconds": 24 * 3600,
-            "downloadDeadlineSecondsPerSource": 3600, "osmiumDeadlineSecondsPerChild": 7200,
+            "downloadDeadlineSecondsPerSource": max(world_policy.download_deadline_seconds(row) for row in plan["sources"]),
+            "downloadDeadlineSecondsBySource": [{"url": row["url"], "seconds": world_policy.download_deadline_seconds(row)} for row in plan["sources"]],
+            "downloadBudgetBytesPerSecond": 4 * 1024**2, "osmiumDeadlineSecondsPerChild": 7200,
             "sourceClockDeadlineSecondsPerChild": 30, "serviceFileByteCap": 40 * 1024**3,
         },
         "publication": {"prefix": "marine-catalogue/v1/facilities-world/", "manifestLast": True, "conditionalSwap": True, "immutableChecksums": True, "apply": False},

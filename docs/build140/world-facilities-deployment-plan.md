@@ -21,10 +21,14 @@ The no-network review command is `python scripts/marine-catalogue/world_monthly_
 | Local staged generations | At most 3; existing 2 GiB cap each |
 | Remote owned namespace peak before cleanup | Existing 8 GiB cap |
 | Memory / tasks / CPU | 2 GiB / 16 / 50% |
-| Per-download / osmium-child / header deadline | Existing 1 hour / 2 hours / 30 seconds |
+| Per-download / osmium-child / header deadline | World-only size budget at4MiB/s, minimum1 hour and absolute maximum3 hours / 2 hours / 30 seconds |
 | Whole prepared world service deadline | 24 hours, with 2-minute stop timeout |
 
 The per-child worst-case sum can exceed the whole-service deadline. A slow or oversized run therefore stops without publishing; no global coverage claim follows from partial preparation. Initial continental runtime, bandwidth and an explicit dedicated filesystem/project quota must be reviewed before executing. Free-disk admission is not a substitute for an operator-configured quota. These are substantial global downloads, not the old regional 512 MiB workload. The existing regional service/timer and quotas are not modified.
+
+The17 October first wx trial transferred3.576GB in about610 seconds (about5.8MB/s). The dated original Europe file is35,239,521,568 bytes, so the previous one-hour transfer deadline was insufficient. That unpublished trial was stopped early; no partial acquisition is promoted. World downloads now receive a conservative size-derived budget at4MiB/s, with a hard3-hour ceiling (the admitted40GiB source cap gives10,240 seconds). Existing regional/default downloads keep their one-hour limit. Whole-service24h, byte limits,2GiB memory, dedicated180GiB filesystem, source identity and redirect refusal remain unchanged. Actual receipts distinguish this measured correction from a completed global generation.
+
+A separate actual native fixture exposed libosmium's default CPU-sized thread pool exceeding TasksMax16 on24-core wx. Each CLI child now receives a fixed two-thread pool and minimum two-entry input/parsed/output/work queues through a narrow environment that excludes publisher credentials. The task and memory limits are unchanged. These settings follow the [official libosmium runtime configuration](https://osmcode.org/libosmium/manual.html#run-time-configuration). Python's synthetic source/build suites and the actual isolated XML→PBF→filter→GeoJSON extraction proof are recorded separately; a CLI version check alone does not prove extraction.
 
 The supplied **new**, preparation-only `thalassa-facilities-world.service` and `.timer` are reviewable templates. They use the existing catalogue account/root and shared OS lock, but a separate environment-file name and monthly schedule. The service requires an exact reviewed source plan path/hash and cannot publish or delete remote objects. It is not installed/enabled by source delivery.
 

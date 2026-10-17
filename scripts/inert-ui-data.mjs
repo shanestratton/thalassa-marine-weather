@@ -141,19 +141,21 @@ export function inertUiData(root) {
  * @returns {import('vite').Plugin} */
 export function inertUiDataWorkerFence(root) {
     const runtime = reader(root);
+    const preloadRuntime = clean(path.resolve(root, 'utils/readPreloadData.ts'));
+    const isDocumentReader = (id) => [runtime, preloadRuntime].includes(clean(id));
     return {
         name: 'inert-ui-data-worker-fence',
         async resolveId(source, importer, options) {
             if (OWNERS.has('\0' + source)) this.error('A worker cannot import inert UI data.');
-            if (!source.includes('readPackedUiData')) return null;
-            if (clean(source) === runtime) this.error('A worker cannot import the inert UI DOM reader.');
+            if (!source.includes('readPackedUiData') && !source.includes('readPreloadData')) return null;
+            if (isDocumentReader(source)) this.error('A worker cannot import the inert UI DOM reader.');
             const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
-            if (resolved && clean(resolved.id) === runtime)
+            if (resolved && isDocumentReader(resolved.id))
                 this.error('A worker cannot import the inert UI DOM reader.');
             return null;
         },
         load(id) {
-            if (clean(id) === runtime) this.error('A worker cannot import the inert UI DOM reader.');
+            if (isDocumentReader(id)) this.error('A worker cannot import the inert UI DOM reader.');
             return null;
         },
     };
