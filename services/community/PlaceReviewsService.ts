@@ -11,7 +11,7 @@ import {
     type ReviewQueueItem,
 } from './placeReviewsModel';
 import { recordCommunityNotes } from './communitySummary';
-import { jpegSize } from '../../supabase/functions/community-review-photo/codec';
+import { jpegSize } from '../../supabase/functions/_shared/community-review-photo-codec';
 export type { ReviewPlace, ReviewDraft, PlaceReview, ReviewQueueItem };
 export const REVIEWS_EVENT = 'thalassa:place-reviews';
 export function openPlaceReviews(value: unknown) {
