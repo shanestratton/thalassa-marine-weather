@@ -61,7 +61,9 @@ def verify_noaa_agreement(opener=None):
     if len(body) > 65536 or hashlib.sha256(body).hexdigest() != expected:
         raise ValueError("NOAA agreement changed: review source terms and app acceptance version before publication")
 
-def download(source, target, opener=None):
+def download(source, target, opener=None, *, timeout_seconds=3600):
+    if type(timeout_seconds) is not int or not 3600 <= timeout_seconds <= 10800:
+        raise ValueError("Download deadline outside bounded1–3 hour envelope")
     url = urlparse(source["url"])
     dated = re.search(r"-(\d{6})\.osm\.pbf$", url.path) if url.hostname == "download.geofabrik.de" else None
     if dated:
@@ -71,7 +73,7 @@ def download(source, target, opener=None):
             raise ValueError("Old/future OSM snapshot; review a current dated source before acquisition")
     opener = opener or urllib.request.build_opener(NoRedirect())
     request = urllib.request.Request(source["url"], headers={"User-Agent": "ThalassaPublicCatalogue/135", "Accept-Encoding": "identity"})
-    deadline, total = time.monotonic() + 3600, 0
+    deadline, total = time.monotonic() + timeout_seconds, 0
     digest = hashlib.sha256()
     try:
         with opener.open(request, timeout=30) as response, target.open("wb") as output:
@@ -200,7 +202,8 @@ def acquire(plan, directory):
             work = stage / f"source-{index}"; work.mkdir()
             source_at = None
             raw = work / Path(urlparse(source["url"]).path).name
-            receipts.append(download(source, raw))
+            transfer_seconds = world_policy.download_deadline_seconds(source) if plan["dataset"] == "facilities-world" else 3600
+            receipts.append(download(source, raw, timeout_seconds=transfer_seconds))
             output = stage / f"public-{index}.jsonl"
             if source["format"] == "geonames-zip":
                 files = extract_zip(raw, work, source["maxExpandedBytes"])
