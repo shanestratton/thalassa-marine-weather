@@ -30,6 +30,11 @@ export function useMapHubLayerVisibility({
     const [receiverCoverageVisible, setReceiverCoverageVisible] = useState(false);
     const [measuredBuoysVisible, setMeasuredBuoysVisible] = useState(false);
     const [measuredBuoysLoaded, setMeasuredBuoysLoaded] = useState(false);
+    const [ascatVisible, setAscatVisible] = useState(false);
+    const [ascatLoaded, setAscatLoaded] = useState(false);
+    useEffect(() => {
+        if (ascatVisible) setAscatLoaded(true);
+    }, [ascatVisible]);
     useEffect(() => {
         if (measuredBuoysVisible) setMeasuredBuoysLoaded(true);
     }, [measuredBuoysVisible]);
@@ -96,6 +101,7 @@ export function useMapHubLayerVisibility({
     const browseAisVisible = aisVisible && !planningSurface;
     const browseReceiverCoverageVisible = receiverCoverageVisible && !planningSurface;
     const browseMeasuredBuoysVisible = measuredBuoysVisible && !planningSurface;
+    const browseAscatVisible = ascatVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
@@ -119,6 +125,10 @@ export function useMapHubLayerVisibility({
         setMeasuredBuoysVisible,
         measuredBuoysLoaded,
         browseMeasuredBuoysVisible,
+        ascatVisible,
+        setAscatVisible,
+        ascatLoaded,
+        browseAscatVisible,
         chokepointVisible,
         setChokepointVisible,
         cycloneVisible,

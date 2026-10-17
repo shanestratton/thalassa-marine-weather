@@ -370,6 +370,7 @@ const LicensedLightningLayer =
     import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
         ? React.lazy(() => import('./LicensedLightningLayer'))
         : null;
+const AscatObservedLayer = React.lazy(() => import('./AscatObservedLayer'));
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
 const SshObservedLayer =
@@ -416,6 +417,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [licensedLightningCredit, setLicensedLightningCredit] = useState<AtmosCredit | null>(null);
     const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
     const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
+    const [ascatCredit, setAscatCredit] = useState<AtmosCredit | null>(null);
+    const [ascatCardOwnsChart, setAscatCardOwnsChart] = useState(false);
     const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
     const [localLibraryCredit, setLocalLibraryCredit] = useState<AtmosCredit | null>(null);
     const [localLibraryRequested, setLocalLibraryRequested] = useState(false);
@@ -2292,6 +2295,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         setMeasuredBuoysVisible,
         measuredBuoysLoaded,
         browseMeasuredBuoysVisible,
+        ascatVisible,
+        setAscatVisible,
+        ascatLoaded,
+        browseAscatVisible,
         setChokepointVisible,
         cycloneVisible,
         setCycloneVisible,
@@ -2883,14 +2890,22 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!map || !mapReady) return;
         setEncPopupSuppression(
             map,
-            pickerMode || browseWeatherInspectMode || chartDrawingOwnsChart || buoyCardOwnsChart,
+            pickerMode || browseWeatherInspectMode || chartDrawingOwnsChart || buoyCardOwnsChart || ascatCardOwnsChart,
         );
         setEncDepthPopupEnabled(map, cleanPlanningMap);
         return () => {
             setEncPopupSuppression(map, false);
             setEncDepthPopupEnabled(map, true);
         };
-    }, [pickerMode, browseWeatherInspectMode, chartDrawingOwnsChart, buoyCardOwnsChart, cleanPlanningMap, mapReady]);
+    }, [
+        pickerMode,
+        browseWeatherInspectMode,
+        chartDrawingOwnsChart,
+        buoyCardOwnsChart,
+        ascatCardOwnsChart,
+        cleanPlanningMap,
+        mapReady,
+    ]);
     // Picker mode pauses the ENC cloud-hydration walk. Panning the
     // location picker from home water to an un-synced coast (SE QLD →
     // GBR: 74 cells / 95 MB, none on-device) otherwise downloads
@@ -3447,7 +3462,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         !chartFindOpen &&
         !noaaCatalogueOpen &&
         !userOverlaysOpen &&
-        !buoyCardOwnsChart;
+        !buoyCardOwnsChart &&
+        !ascatCardOwnsChart;
     useEffect(() => {
         if (obsShowing) setChartDrawingLoaded(true);
         else {
@@ -3471,7 +3487,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             browseWeatherInspectMode ||
             !!passage.settingPoint ||
             chartDrawingOwnsChart ||
-            buoyCardOwnsChart,
+            buoyCardOwnsChart ||
+            ascatCardOwnsChart,
     });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
@@ -4423,6 +4440,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setReceiverCoverageVisible,
                             measuredBuoysVisible,
                             setMeasuredBuoysVisible,
+                            ascatVisible,
+                            setAscatVisible,
                             cycloneVisible,
                             setCycloneVisible,
                             squallVisible,
@@ -5745,6 +5764,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseFacilitiesVisible ? 1 : 0) +
                             (browseBoatPresenceVisible ? 1 : 0) +
                             (browseMeasuredBuoysVisible ? 1 : 0) +
+                            (browseAscatVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5865,6 +5885,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {ascatLoaded && (
+                    <Suspense fallback={null}>
+                        <AscatObservedLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseAscatVisible}
+                            canInteract={
+                                chartDrawingCanDraw &&
+                                !chartDrawingOwnsChart &&
+                                !chartDrawingOpen &&
+                                !routePickerOpen &&
+                                !trackPickerOpen &&
+                                !boatPresenceControlsOpen &&
+                                !clearView.on
+                            }
+                            onCredit={setAscatCredit}
+                            onInteractionChange={setAscatCardOwnsChart}
+                        />
+                    </Suspense>
+                )}
                 {receiverCoverageVisible && (
                     <Suspense fallback={null}>
                         <ReceiverCoverageLayer
@@ -5894,6 +5934,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ...(sshCredit ? [sshCredit] : []),
                             ...(licensedLightningCredit ? [licensedLightningCredit] : []),
                             ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
+                            ...(ascatCredit ? [ascatCredit] : []),
                             ...(sharperCredit ? [sharperCredit] : []),
                             ...(localLibraryCredit ? [localLibraryCredit] : []),
                         ]}
