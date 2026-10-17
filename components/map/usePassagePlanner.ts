@@ -88,6 +88,8 @@ import { sampleWindGrid } from '../../services/weather/importedGribSample';
 import { useRouteReplanPreview, clearRouteReplanReference } from './useRouteReplanPreview';
 import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
 import { knownRouteAreaCaveats } from '../../services/routing/routeAreaWords';
+import { assertRoutingSourceCurrent } from '../../services/routing/routeSourceLifetime';
+import type { VerifiedOffshoreCandidate } from '../../services/routing/offshoreSelection';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -2119,7 +2121,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 stillCurrent: () => boolean;
                 onHazardReport: (report: RouteHazardReport | null) => void;
             },
-        ): Promise<{ route: IsochroneNode[]; verified: boolean; reason?: string; areaCaveats?: readonly string[] }> => {
+        ): Promise<{
+            route: IsochroneNode[];
+            verified: boolean;
+            reason?: string;
+            areaCaveats?: readonly string[];
+            sourceCurrent?: () => boolean;
+        }> => {
             const [{ validateRouteSegments }, { routingExclusionContextKey }] = await Promise.all([
                 import('../../services/isochrone/landAvoidance'),
                 import('../../services/routing/routingExclusions'),
@@ -2129,6 +2137,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
             let timedOut = false;
             let areaCaveats: readonly string[] = [];
+            let sourceCurrent: (() => boolean) | undefined;
             let timer: ReturnType<typeof setTimeout> | undefined;
             const abort = new AbortController();
             const current = () =>
@@ -2142,7 +2151,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             const outcomeRef: {
                 current: { status: 'verified' | 'unverified'; reason?: string } | null;
             } = { current: null };
-            let validated: IsochroneNode[] | null;
+            let validated: IsochroneNode[] | null = null;
             try {
                 validated = await Promise.race([
                     validateRouteSegments(candidate, {
@@ -2151,8 +2160,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         departureTimeMs,
                         signal: abort.signal,
                         stillCurrent: current,
-                        onRouteAreaCaveats: (notes) => {
-                            if (current()) areaCaveats = knownRouteAreaCaveats(notes);
+                        onRouteAreaCaveats: (notes, currentSource) => {
+                            if (current()) {
+                                areaCaveats = knownRouteAreaCaveats(notes);
+                                sourceCurrent = currentSource;
+                            }
                         },
                         ...(reportOptions
                             ? { publishReport: false, onHazardReport: reportOptions.onHazardReport }
@@ -2172,7 +2184,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 ]);
             } finally {
                 if (timer !== undefined) clearTimeout(timer);
-                abort.abort();
+                // The reader releases its leases internally. A successful
+                // caller signal must remain valid for final source adoption.
+                if (!validated) abort.abort();
             }
 
             if (!validated) return { route: candidate, verified: false, reason: timeoutReason };
@@ -2194,7 +2208,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     reason: outcome?.reason ?? 'chart and depth verification did not complete',
                 };
             }
-            return { route: validated, verified: true, areaCaveats };
+            assertRoutingSourceCurrent(sourceCurrent);
+            return { route: validated, verified: true, areaCaveats, sourceCurrent };
         };
 
         const applyValidatedRoute = (
@@ -2318,6 +2333,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }));
                     let shortRouteVerified = false;
                     let shortRouteAreaCaveats: readonly string[] = [];
+                    let shortRouteSourceCurrent: (() => boolean) | undefined;
                     let shortRouteVerificationReason = 'depth validation did not complete';
                     try {
                         // Feed the validator just the [origin, destination]
@@ -2359,7 +2375,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         );
                         validatedRoute = validation.route.map((n) => ({ lat: n.lat, lon: n.lon }));
                         shortRouteVerified = validation.verified;
-                        if (validation.verified) shortRouteAreaCaveats = validation.areaCaveats ?? [];
+                        if (validation.verified) {
+                            assertRoutingSourceCurrent(validation.sourceCurrent);
+                            shortRouteAreaCaveats = validation.areaCaveats ?? [];
+                            shortRouteSourceCurrent = validation.sourceCurrent;
+                        }
                         shortRouteVerificationReason = validation.reason ?? shortRouteVerificationReason;
                         if (validation.verified) {
                             if (validation.route.length !== seedNodes.length) {
@@ -2414,6 +2434,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const validatedCoords: [number, number][] = validatedRoute.map((p) => [p.lon, p.lat]);
 
                     if (shortRouteVerified) {
+                        assertRoutingSourceCurrent(shortRouteSourceCurrent);
                         setRouteCaveats([...shortRouteAreaCaveats]);
                         commitDisplayedRoute(
                             map,
@@ -2482,6 +2503,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     setRouteAnalysis(updatedResultShort);
 
                     if (shortRouteVerified) {
+                        assertRoutingSourceCurrent(shortRouteSourceCurrent);
                         turnWaypointsRef.current = minimalWps;
                         isoResultRef.current = minimalIsoResult;
                         pushToPassageStore(
@@ -2542,6 +2564,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     computeGenRef.current === gen && mapRef.current === map && comparisonFingerprint() === settingsKey;
                 let comparisonInputs: OffshoreComparisonInputs | null = null;
                 let publishComparisonReport: ((report: RouteHazardReport | null) => void) | null = null;
+                let assertComparisonSourceCurrent: ((candidate: VerifiedOffshoreCandidate) => void) | null = null;
                 const makeComparisonInputs = (
                     bathymetry: NonNullable<Awaited<ReturnType<typeof preloadBathymetry>>>,
                     environment: Awaited<ReturnType<typeof loadIsochroneEnvironment>>,
@@ -2600,11 +2623,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         return comparisonInputs;
                     },
                     verify: async (candidate, job, environment, isCurrent) => {
-                        const [{ verifyOffshoreSelection }, { setLastReport }] = await Promise.all([
-                            import('../../services/routing/offshoreSelection'),
-                            import('../../services/enc/EncHazardReportService'),
-                        ]);
+                        const [{ verifyOffshoreSelection, assertVerifiedOffshoreSourceCurrent }, { setLastReport }] =
+                            await Promise.all([
+                                import('../../services/routing/offshoreSelection'),
+                                import('../../services/enc/EncHazardReportService'),
+                            ]);
                         publishComparisonReport = setLastReport;
+                        assertComparisonSourceCurrent = assertVerifiedOffshoreSourceCurrent;
                         return verifyOffshoreSelection({
                             candidate,
                             job,
@@ -2632,6 +2657,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     commit: (selected, model) => {
                         if (!comparisonCurrent() || selected.verification !== 'verified-final-geometry')
                             throw new Error('Comparison is no longer current.');
+                        if (!assertComparisonSourceCurrent) throw new Error('Comparison source proof is unavailable.');
+                        assertComparisonSourceCurrent(selected);
                         const chosen = selected.result;
                         const features = buildFeatures(chosen.routeCoordinates, chosen.shallowFlags, 'verified', true);
                         if (
@@ -2656,6 +2683,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             useSettingsStore.getState().settings.vessel,
                             chosen.comfort,
                         );
+                        assertComparisonSourceCurrent(selected);
                         commitDisplayedRoute(map, features, 'verified');
                         isoResultRef.current = chosen;
                         turnWaypointsRef.current = wps;
@@ -2678,6 +2706,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 geometry: { type: 'Point', coordinates: [wp.lon, wp.lat] },
                             })),
                         });
+                        assertComparisonSourceCurrent(selected);
                         pushToPassageStore(
                             chosen,
                             wps,
@@ -2725,6 +2754,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             15_000,
                             'fresh verification of the cached route timed out after 15 seconds',
                         );
+                        if (cachedValidation.verified) assertRoutingSourceCurrent(cachedValidation.sourceCurrent);
                         const checkedCached = applyValidatedRoute(
                             cached,
                             cachedValidation.route,
@@ -2757,6 +2787,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             return;
                         }
 
+                        assertRoutingSourceCurrent(cachedValidation.sourceCurrent);
                         commitDisplayedRoute(
                             map,
                             buildFeatures(checkedCached.routeCoordinates, checkedCached.shallowFlags, 'verified', true),
@@ -2786,6 +2817,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         }
                         // Push only after a fresh verification pass. Cache
                         // provenance is never itself a safety verdict.
+                        assertRoutingSourceCurrent(cachedValidation.sourceCurrent);
                         pushToPassageStore(
                             checkedCached,
                             wps,
@@ -3100,6 +3132,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         15_000,
                         'final chart and coarse depth validation timed out after 15 seconds',
                     );
+                    if (directValidation.verified) assertRoutingSourceCurrent(directValidation.sourceCurrent);
                     isoResult = applyValidatedRoute(
                         isoResult,
                         directValidation.route,
@@ -3143,6 +3176,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         return;
                     }
 
+                    assertRoutingSourceCurrent(directValidation.sourceCurrent);
                     commitDisplayedRoute(
                         map,
                         buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'verified', true),
@@ -3188,6 +3222,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     setRoutingPolarLabel(routingPolar.label);
 
                     // Push isochrone route to global PassageStore for Nav Station
+                    assertRoutingSourceCurrent(directValidation.sourceCurrent);
                     pushToPassageStore(
                         isoResult,
                         wps,
@@ -3435,6 +3470,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 15_000,
                                 'whole-route verification of the stitched multi-leg route timed out after 15 seconds',
                             );
+                            if (multiValidation.verified) assertRoutingSourceCurrent(multiValidation.sourceCurrent);
                             isoResult = applyValidatedRoute(
                                 isoResult,
                                 multiValidation.route,
@@ -3489,6 +3525,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 return;
                             }
 
+                            assertRoutingSourceCurrent(multiValidation.sourceCurrent);
                             commitDisplayedRoute(
                                 map,
                                 buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'verified', true),
@@ -3502,6 +3539,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             const multiDepTime = departureTime || new Date().toISOString();
                             const multiWps = detectTurnWaypoints(isoResult.route, multiDepTime);
                             turnWaypointsRef.current = multiWps;
+                            assertRoutingSourceCurrent(multiValidation.sourceCurrent);
                             pushToPassageStore(
                                 isoResult,
                                 multiWps,

@@ -217,3 +217,50 @@ it('enhancer holds an actual auth A/B/A key retirement at the validator return s
         setAuthIdentityScope(original);
     }
 });
+
+it('enhancer holds a retired weak original-chart proof at final adoption', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    const validate = vi.mocked(validateRouteSegments);
+    validate.mockImplementationOnce(async (route, options) => {
+        options?.onRouteAreaCaveats?.([], () => false);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+        code: 'exclusion-unavailable',
+    });
+});
+
+it('enhancer keeps a successful validator signal current until final adoption', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    let signal: AbortSignal | undefined;
+    vi.mocked(validateRouteSegments).mockImplementationOnce(async (route, options) => {
+        signal = options?.signal;
+        options?.onRouteAreaCaveats?.([], () => !signal?.aborted);
+        return route;
+    });
+    const out = await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART);
+    expect(out?.routeGeoJSON?.properties).toMatchObject({ source: 'isochrone' });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(false);
+});
+
+it('enhancer still aborts a failed final validator', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    let signal: AbortSignal | undefined;
+    vi.mocked(validateRouteSegments).mockImplementationOnce(async (_route, options) => {
+        signal = options?.signal;
+        throw Error('Synthetic validation failure');
+    });
+    await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+        code: 'exclusion-unavailable',
+    });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(true);
+});

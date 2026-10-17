@@ -263,6 +263,7 @@ export async function computeConstrainedPassage(input: {
             return verifiedIsochroneRoute(result, route, request.departureTime, input.speed);
         };
         let acceptedAreaKey: string | undefined;
+        let acceptedSourceCurrent: (() => boolean) | undefined;
         const result = await computeVerifiedIsochroneChain({
             ...input,
             computeLeg: makeLeg,
@@ -279,12 +280,15 @@ export async function computeConstrainedPassage(input: {
                     stillCurrent,
                     publishReport: false,
                     signal: abort.signal,
-                    onRouteAreaCaveats: (caveats) => caveats.forEach((note) => notes.add(note)),
+                    onRouteAreaCaveats: (caveats, sourceCurrent) => {
+                        caveats.forEach((note) => notes.add(note));
+                        acceptedSourceCurrent = sourceCurrent;
+                    },
                     onVerificationOutcome: (next) => {
                         outcome.current = next;
                     },
                 });
-                if (routingExclusionContextKey() !== validationAreaKey)
+                if (routingExclusionContextKey() !== validationAreaKey || acceptedSourceCurrent?.() === false)
                     throw new RoutingExclusionFailure(
                         'exclusion-unavailable',
                         'The passage area policy changed before acceptance. Review the route again.',
@@ -316,7 +320,7 @@ export async function computeConstrainedPassage(input: {
                 };
             },
         });
-        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey || acceptedSourceCurrent?.() === false)
             throw new RoutingExclusionFailure(
                 'exclusion-unavailable',
                 'The passage area policy changed before acceptance. Review the route again.',

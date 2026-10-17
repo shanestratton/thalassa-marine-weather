@@ -274,6 +274,7 @@ export async function calculateBerthProposal(
         if (!owned || owned.length !== 2 || !owned[0] || !owned[1])
             throw Error('Complete charted berth portals are unavailable. Review the passage again.');
         let acceptedAreaKey: string | undefined;
+        let acceptedSourceCurrent: (() => boolean) | undefined;
         const mixed = await computeBerthToBerth({
             origin: request.departure,
             destination: request.destination,
@@ -349,8 +350,9 @@ export async function calculateBerthProposal(
                         stillCurrent: () => current() && stillCurrent(),
                         publishReport: false,
                         signal: abort.signal,
-                        onRouteAreaCaveats: (notes) => {
+                        onRouteAreaCaveats: (notes, sourceCurrent) => {
                             areaCaveats = notes;
+                            acceptedSourceCurrent = sourceCurrent;
                         },
                         onVerificationOutcome: (outcome) => {
                             verdict.current = outcome.status;
@@ -359,7 +361,7 @@ export async function calculateBerthProposal(
                     remaining(),
                     'whole berth chart/depth/land check',
                 );
-                if (routingExclusionContextKey() !== validationAreaKey)
+                if (routingExclusionContextKey() !== validationAreaKey || acceptedSourceCurrent?.() === false)
                     throw new RoutingExclusionFailure(
                         'exclusion-unavailable',
                         'The passage area policy changed before acceptance. Review the route again.',
@@ -378,7 +380,7 @@ export async function calculateBerthProposal(
                 };
             },
         });
-        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey || acceptedSourceCurrent?.() === false)
             throw new RoutingExclusionFailure(
                 'exclusion-unavailable',
                 'The passage area policy changed before acceptance. Review the route again.',

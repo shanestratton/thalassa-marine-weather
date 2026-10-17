@@ -202,13 +202,17 @@ describe('the passage planner routes on the resolved polar and names it', () => 
                 route: unknown,
                 opts: {
                     onVerificationOutcome?: (o: { status: 'verified' }) => void;
-                    onRouteAreaCaveats?: (notes: readonly string[]) => void;
+                    onRouteAreaCaveats?: (notes: readonly string[], sourceCurrent?: () => boolean) => void;
+                    signal?: AbortSignal;
                 },
             ) => {
-                opts.onRouteAreaCaveats?.([
-                    'No verified marine park dataset is retained; marine park caution is unavailable.',
-                    'Private chart coordinates 153.5 -27.5 must not persist.',
-                ]);
+                opts.onRouteAreaCaveats?.(
+                    [
+                        'No verified marine park dataset is retained; marine park caution is unavailable.',
+                        'Private chart coordinates 153.5 -27.5 must not persist.',
+                    ],
+                    () => !opts.signal?.aborted,
+                );
                 opts.onVerificationOutcome?.({ status: 'verified' });
                 return route;
             },
@@ -285,6 +289,48 @@ describe('the passage planner routes on the resolved polar and names it', () => 
             expect(rendered.result.current.routeActionsAvailable).toBe(false);
             expect(rendered.result.current.isoResultRef.current).toBeNull();
             expect(mocks.computeIsochrones).toHaveBeenCalledTimes(kind === 'cached' ? 0 : 1);
+            rendered.unmount();
+        },
+    );
+
+    it.each([
+        ['fresh', 2],
+        ['cached', 2],
+        ['short', 2],
+        ['fresh', 3],
+        ['cached', 3],
+        ['short', 3],
+        ['fresh', 4],
+        ['cached', 4],
+        ['short', 4],
+    ] as const)(
+        'a retired source holds the %s route at source check %s before saved adoption',
+        async (kind, retireAt) => {
+            if (kind === 'cached') mocks.getPrecomputedRoute.mockReturnValue(candidate());
+            let checks = 0;
+            mocks.validateRouteSegments.mockImplementationOnce(
+                async (
+                    route: unknown,
+                    opts: {
+                        onVerificationOutcome?: (o: { status: 'verified' }) => void;
+                        onRouteAreaCaveats?: (notes: readonly string[], sourceCurrent?: () => boolean) => void;
+                    },
+                ) => {
+                    opts.onRouteAreaCaveats?.([], () => ++checks < retireAt);
+                    opts.onVerificationOutcome?.({ status: 'verified' });
+                    return route;
+                },
+            );
+            const rendered = await plan(
+                kind === 'short' ? { lat: 43.7, lon: MARSEILLE.lon, name: 'Fictional short port' } : BONIFACIO,
+            );
+            const { PassageStore } = await import('../stores/PassageStore');
+            expect(completes[0]).toMatchObject({ success: false, verified: false });
+            expect(rendered.result.current.routeActionsAvailable).toBe(false);
+            expect(rendered.result.current.isoResultRef.current).toBeNull();
+            expect(PassageStore.setFromRoute).not.toHaveBeenCalled();
+            expect(mocks.computeIsochrones).toHaveBeenCalledTimes(kind === 'fresh' ? 1 : 0);
+            expect(checks).toBe(retireAt);
             rendered.unmount();
         },
     );

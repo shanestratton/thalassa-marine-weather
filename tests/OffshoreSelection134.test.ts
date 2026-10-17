@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runOffshoreJob } from '../services/routing/offshoreJob';
-import { verifyOffshoreSelection } from '../services/routing/offshoreSelection';
+import { verifyOffshoreSelection, assertVerifiedOffshoreSourceCurrent } from '../services/routing/offshoreSelection';
 import type { OffshoreJob } from '../services/routing/offshoreProtocol';
 import type { IsochroneEnvironment } from '../services/routing/isochroneEnvironment';
 function job(): OffshoreJob {
@@ -84,6 +84,42 @@ async function fixture() {
     };
 }
 describe('final offshore candidate promotion', () => {
+    it.each(['false', 'throws'] as const)('holds an original source that %s after final validation', async (kind) => {
+        const opts = await fixture();
+        opts.validate.mockImplementation(async (route) => ({
+            route,
+            verified: true,
+            hazardReport: null as never,
+            sourceCurrent: () => {
+                if (kind === 'throws') throw new Error('retired owner');
+                return false;
+            },
+        }));
+        await expect(verifyOffshoreSelection(opts)).rejects.toMatchObject({ code: 'exclusion-unavailable' });
+    });
+    it('rechecks the weak source after the caller microtask without exporting the callback or accepting DTO copies', async () => {
+        const opts = await fixture();
+        let current = true;
+        opts.validate.mockImplementation(async (route) => ({
+            route,
+            verified: true,
+            hazardReport: null as never,
+            sourceCurrent: () => current,
+        }));
+        const selected = await verifyOffshoreSelection(opts);
+        expect(() => assertVerifiedOffshoreSourceCurrent(selected)).not.toThrow();
+        expect(Object.values(selected).some((value) => typeof value === 'function')).toBe(false);
+        expect(() => assertVerifiedOffshoreSourceCurrent({ ...selected })).toThrow(/original area sources/);
+        expect(() => assertVerifiedOffshoreSourceCurrent(JSON.parse(JSON.stringify(selected)))).toThrow(
+            /original area sources/,
+        );
+        await Promise.resolve().then(() => {
+            current = false;
+        });
+        expect(() => assertVerifiedOffshoreSourceCurrent(selected)).toThrow(/original area sources/);
+        current = true;
+        expect(() => assertVerifiedOffshoreSourceCurrent(selected)).toThrow(/original area sources/);
+    });
     it('adds only current accepted number-free routing-area caveats to the selected result', async () => {
         const opts = await fixture(),
             words = 'No verified marine park dataset is retained; marine park caution is unavailable.';

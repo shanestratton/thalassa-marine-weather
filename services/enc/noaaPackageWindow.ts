@@ -8,6 +8,7 @@ import { getVersion } from './EncCellMetadata';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import { MAX_MERGE_CELLS } from './mergeCap';
 import { captureChartFindCell, indexChartFindCell } from './chartFindMemory';
+import { registerRetainedNoaaWindow } from './noaaRetainedWindow';
 
 const VIEW_BYTES = 16 * 1024 * 1024;
 
@@ -68,7 +69,15 @@ export async function loadNoaaPackageWindow(
         check();
         resize(bytes);
         indexChartFindCell(findToken, blob, 'open');
-        return { blob, bytes, release: lease.release };
+        const retire = registerRetainedNoaaWindow(cell, bounds, blob, bytes);
+        return {
+            blob,
+            bytes,
+            release: () => {
+                retire();
+                lease.release();
+            },
+        };
     } catch (error) {
         lease.release();
         throw error;

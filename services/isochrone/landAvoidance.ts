@@ -14,13 +14,19 @@ import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { failedCellIds } from '../enc/encIndexCache';
 import { GEBCO_MSL_TO_LAT_PESSIMISM_M, regionalGebcoDatumDeltaM } from '../HazardQueryService';
 import { CATZOC_LABELS, type EncAreaGraze, type EncCatzoc } from '../enc/types';
-import { cellsForBBox } from '../enc/EncCellMetadata';
+import { cellsForBBox, getVersion } from '../enc/EncCellMetadata';
+import { encCellContentIdentity } from '../enc/cellContentIdentity';
 import { chartAgeYears, isChartStale } from '../enc/chartCurrency';
 import { RESTRN_ROUTE_CAUTION_CODES, restrnCodes, restrnMeaning } from '../enc/s57Restrn';
 import { grazeOutranks } from '../enc/hazardSeverity';
 import { createLogger } from '../../utils/createLogger';
 import { navigationTideSourceAvailable } from '../tides/navigationUse';
-import { readCurrentRoutingExclusions, type CurrentRoutingExclusions } from '../routing/routingExclusions';
+import {
+    readCurrentRoutingExclusions,
+    routingExclusionContextKey,
+    type CurrentRoutingExclusions,
+} from '../routing/routingExclusions';
+import type { RetainedPassageChartAreas } from '../enc/readRetainedPassageChartAreas';
 import {
     passageRoutingWindow,
     auditPassageRoutingAreas,
@@ -135,7 +141,7 @@ export interface ValidateRouteOptions {
     /** Cancels private reads and all awaited validation work; no late adoption. */
     signal?: AbortSignal;
     /** Current private/retained-source caveats, emitted only after final policy proof. */
-    onRouteAreaCaveats?: (notes: readonly string[]) => void;
+    onRouteAreaCaveats?: (notes: readonly string[], sourceCurrent?: () => boolean) => void;
     /**
      * Vessel draft in metres. Drives the depth threshold used to
      * decide whether a sample point is too shallow. When omitted,
@@ -483,23 +489,48 @@ export async function validateRouteSegments(
         options.onVerificationOutcome?.({ status: 'unverified', reason: 'route has fewer than two points' });
         return route;
     }
+    const originalChartVersion = getVersion();
+    let originalContentKey: string | undefined;
+    let originalWindow: readonly [number, number, number, number] | undefined;
+    const contentKey = () =>
+        originalWindow
+            ? JSON.stringify(
+                  cellsForBBox([...originalWindow]).map((cell) => [
+                      encCellContentIdentity(cell),
+                      cell.sourceHO,
+                      cell.bbox,
+                      cell.usage,
+                      cell.licence,
+                      cell.noaaPackage,
+                  ]),
+              )
+            : undefined;
     const abort = new AbortController();
     const cancel = () => abort.abort(options.signal?.reason);
     if (options.signal?.aborted) cancel();
     else options.signal?.addEventListener('abort', cancel, { once: true });
     let lease: CurrentRoutingExclusions | undefined,
         acquired: CurrentRoutingExclusions | undefined,
+        chartAreas: RetainedPassageChartAreas | undefined,
+        acquiredCharts: RetainedPassageChartAreas | undefined,
         acceptingRead = true;
-    const released = new WeakSet<CurrentRoutingExclusions>();
-    const release = (value: CurrentRoutingExclusions | undefined) => {
+    const released = new WeakSet<{ release(): void }>();
+    const release = (value: { release(): void } | undefined) => {
         if (!value || released.has(value)) return;
         released.add(value);
         value.release();
         if (acquired === value) acquired = undefined;
+        if (acquiredCharts === value) acquiredCharts = undefined;
     };
     const check = () => {
         abort.signal.throwIfAborted();
-        if (!(options.stillCurrent?.() ?? true) || (lease && !lease.isCurrent()))
+        if (
+            getVersion() !== originalChartVersion ||
+            (originalContentKey !== undefined && contentKey() !== originalContentKey) ||
+            !(options.stillCurrent?.() ?? true) ||
+            (lease && !lease.isCurrent()) ||
+            (chartAreas && !chartAreas.isCurrent())
+        )
             throw new RoutingExclusionFailure(
                 'exclusion-unavailable',
                 'The passage or its current area restrictions changed. Review the route again.',
@@ -525,6 +556,8 @@ export async function validateRouteSegments(
         check();
         const snapshot = route.map((p) => ({ ...p })),
             window = passageRoutingWindow(snapshot);
+        originalWindow = window;
+        originalContentKey = contentKey();
         const reading = readCurrentRoutingExclusions({ bbox: window, signal: abort.signal });
         // A non-cooperative/late reader still cannot leak its lease after abort.
         void reading.then(
@@ -568,10 +601,49 @@ export async function validateRouteSegments(
                 check,
             ),
         );
+        // Normal core preloads may warm the same installed content. Acquire
+        // original RAM only after those staged checks, retaining the ORIGINAL
+        // window and initial metadata/content fence through every earlier await.
+        const { readRetainedPassageChartAreas } = await wait(import('../enc/readRetainedPassageChartAreas'));
+        const chartReading = readRetainedPassageChartAreas({
+            bbox: window,
+            signal: abort.signal,
+            assertCurrent: check,
+        });
+        void chartReading.then(
+            (value) => {
+                acquiredCharts = value;
+                if (!acceptingRead || abort.signal.aborted) release(value);
+            },
+            () => {},
+        );
+        chartAreas = await wait(chartReading);
+        check();
         // Acquire publication before final proof; no await may separate that
         // proof from callbacks, global publication and return.
         const publisher = (options.publishReport ?? true) ? await wait(import('../enc/EncHazardReportService')) : null;
-        const notes = auditPassageRoutingAreas(staged, lease, window, check);
+        if (!(await wait(chartAreas.confirmCurrent())))
+            throw new RoutingExclusionFailure(
+                'exclusion-unavailable',
+                'Original chart-area permission changed. Review the passage again.',
+            );
+        const privateNotes = auditPassageRoutingAreas(staged, lease, window, check);
+        const chartVerdict = chartAreas.auditFinishedRoute(
+            staged.map((p): [number, number] => [p.lon, p.lat]),
+            check,
+        );
+        if (chartVerdict.refusal)
+            throw new RoutingExclusionFailure(chartVerdict.refusal.code, chartVerdict.refusal.error);
+        const notes = Object.freeze([...new Set([...privateNotes, ...chartVerdict.notes])]);
+        const privateKey = routingExclusionContextKey(),
+            chartAuthority = chartAreas.authorityCurrent;
+        const sourceCurrent = () => {
+            try {
+                return !options.signal?.aborted && routingExclusionContextKey() === privateKey && chartAuthority();
+            } catch {
+                return false;
+            }
+        };
         if (notes.length) {
             const advisories: RouteAdvisory[] = notes.map((text) => ({ severity: 'note', text }));
             report = report
@@ -579,7 +651,7 @@ export async function validateRouteSegments(
                 : { cellsConsulted: 0, bufferNm: 1, entries: [], advisories };
         }
         check();
-        options.onRouteAreaCaveats?.(notes);
+        options.onRouteAreaCaveats?.(notes, sourceCurrent);
         check();
         if (report !== undefined) {
             options.onHazardReport?.(report);
@@ -604,7 +676,10 @@ export async function validateRouteSegments(
         abort.abort();
         release(lease);
         release(acquired);
+        release(chartAreas);
+        release(acquiredCharts);
         lease = undefined;
+        chartAreas = undefined;
         options.signal?.removeEventListener('abort', cancel);
     }
 }
