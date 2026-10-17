@@ -87,3 +87,29 @@ it('requires explicit inert or standalone packing at every plugin call site', ()
     for (const factory of [shareClassNames, shareUiStrings, shareSvgPaths])
         expect(() => factory(process.cwd())).toThrow(/Choose inert HTML data or explicit standalone/);
 });
+
+it('carries four exact independent UI pools through the actual inert HTML path', async () => {
+    const pools = Array.from({ length: 4 }, (_, pool) => [
+        `Pool ${pool} first exact string with Unicode ☀️`,
+        `Pool ${pool} another exact string with  two spaces`,
+    ]);
+    const { output } = await buildInertUiFixture(
+        path.join(parent, 'four-pools'),
+        path.join(parent, 'four-pools-dist'),
+        {
+            uiPools: pools,
+            write: false,
+        },
+    );
+    if (Array.isArray(output) || !('output' in output)) throw Error('Expected one mini build');
+    const file = output.output.find((file) => file.type === 'asset' && file.fileName === 'index.html');
+    if (!file || file.type !== 'asset') throw Error('Expected HTML');
+    const tuples = [
+        ...String(file.source).matchAll(
+            /<script type="application\/json" id="thalassa-ui-[a-f0-9]{64}">([\s\S]*?)<\/script>/g,
+        ),
+    ].map((match) => JSON.parse(match[1]));
+    expect(tuples).toHaveLength(6);
+    const arrays = tuples.map(([encoded, bytes, count, checksum]) => decodeClassNames(encoded, bytes, count, checksum));
+    expect(arrays.filter((rows) => rows[0]?.startsWith('Pool ')).flat()).toEqual(pools.flat());
+}, 30000);
