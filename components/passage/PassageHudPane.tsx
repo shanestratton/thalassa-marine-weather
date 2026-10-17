@@ -708,35 +708,38 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             const navigation = document.querySelector('nav[aria-label="Main"]');
             if (navigation) furniture.add(navigation);
             const chartBounds = chart.getBoundingClientRect();
-            let bottom = Math.min(chartBounds.bottom, window.innerHeight) - 8;
-            for (const element of furniture) {
-                const box = element.getBoundingClientRect();
-                if (
-                    box.width > 0 &&
-                    box.height > 0 &&
-                    box.left < bounds.right &&
-                    box.right > bounds.left &&
-                    box.top > bounds.top
-                ) {
-                    bottom = Math.min(bottom, box.top - 8);
+            const reconcileHeight = () => {
+                let bottom = Math.min(chartBounds.bottom, window.innerHeight) - 8;
+                for (const element of furniture) {
+                    const box = element.getBoundingClientRect();
+                    if (
+                        box.width > 0 &&
+                        box.height > 0 &&
+                        box.left < bounds.right &&
+                        box.right > bounds.left &&
+                        box.top > bounds.top
+                    ) {
+                        bottom = Math.min(bottom, box.top - 8);
+                    }
                 }
-            }
-            const height = Math.max(0, Math.floor(bottom - bounds.top));
-            if (height !== availableHeight) {
-                availableHeight = height;
-                pane.style.setProperty('--passage-hud-available-height', `${height}px`);
-                // Relax back to the readable default when space is returned.
-                delete pane.dataset.density;
-            }
-            // Keep every category and warning. Only tighten row spacing and
-            // the largest numerals if the available height requires it.
-            // Extremely short/accessibility-scaled panes retain a scroll escape.
-            if (cells.scrollHeight > cells.clientHeight + 1 && !pane.dataset.density) {
-                pane.dataset.density = 'compact';
-            }
-            if (cells.scrollHeight > cells.clientHeight + 1 && pane.dataset.density === 'compact') {
-                pane.dataset.density = 'tight';
-            }
+                const height = Math.max(0, Math.floor(bottom - bounds.top));
+                if (height !== availableHeight) {
+                    availableHeight = height;
+                    pane.style.setProperty('--passage-hud-available-height', `${height}px`);
+                    // Relax back to the readable default when space is returned.
+                    delete pane.dataset.density;
+                }
+                // Keep every category and warning. Only tighten row spacing and
+                // the largest numerals if the available height requires it.
+                // Extremely short/accessibility-scaled panes retain a scroll escape.
+                if (cells.scrollHeight > cells.clientHeight + 1 && !pane.dataset.density) {
+                    pane.dataset.density = 'compact';
+                }
+                if (cells.scrollHeight > cells.clientHeight + 1 && pane.dataset.density === 'compact') {
+                    pane.dataset.density = 'tight';
+                }
+            };
+            reconcileHeight();
             // The chart's open layer panel shares this column, under the strip,
             // and takes only the room the strip leaves at its TIGHTEST
             // (index.css, --passage-hud-reserve-bottom): both then fit wherever
@@ -753,6 +756,11 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             if (reserve !== reserveBottom) {
                 reserveBottom = reserve;
                 chart.style.setProperty('--passage-hud-reserve-bottom', `${reserve}px`);
+                // That reservation changes the weather panel's CSS max-height.
+                // Reconcile its new real bounds now: waiting for another observer
+                // frame exposed a too-tall/too-short HUD while its neighbour had
+                // already settled. One bounded second pass keeps both coherent.
+                reconcileHeight();
             }
             const targets = new Set<Element>([chart, pane, ...cells.children, ...furniture]);
             for (const target of targets) {
