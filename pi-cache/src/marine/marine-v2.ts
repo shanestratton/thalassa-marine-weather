@@ -63,12 +63,12 @@ export function marineFieldUnitV2(field: MarineFieldV2): string {
     return field === 'sea_surface_temperature'
         ? '°C'
         : field === 'ocean_current_velocity'
-        ? 'km/h'
-        : field.endsWith('_direction')
-        ? '°'
-        : field.endsWith('_period')
-        ? 's'
-        : 'm';
+          ? 'km/h'
+          : field.endsWith('_direction')
+            ? '°'
+            : field.endsWith('_period')
+              ? 's'
+              : 'm';
 }
 function admittedValue(field: MarineFieldV2, v: unknown): number | null {
     if (!number(v)) return null;
@@ -123,14 +123,16 @@ export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2
             series = raw.hourly[field];
         const currentOk = raw.current_units[field] === expected,
             hourlyOk = raw.hourly_units[field] === expected;
-        const currentMask = kind === 'waves' &&
+        const currentMask =
+            kind === 'waves' &&
             raw.current.wave_height === 0 &&
             raw.current.wave_period === 0 &&
             raw.current.wave_direction === 0;
         current[field] = currentOk && !currentMask ? admittedValue(field, raw.current[field]) : null;
         hourly[field] = Array.from({ length: times.length }, (_, i) => {
             const h = raw.hourly as Obj;
-            const mask = kind === 'waves' &&
+            const mask =
+                kind === 'waves' &&
                 Array.isArray(h.wave_height) &&
                 h.wave_height[i] === 0 &&
                 Array.isArray(h.wave_period) &&
