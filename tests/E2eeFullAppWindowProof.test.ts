@@ -123,7 +123,10 @@ function buildReceipt() {
             },
         ],
         outputCount: 3,
-        graphPolicyObservations: ['main', 'worker-1', 'worker-2'].map((graph) => ({
+        graphPolicyObservations: [
+            'main',
+            ...WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.map((_, i) => 'worker-' + (i + 1)),
+        ].map((graph) => ({
             graph,
             isWorker: graph !== 'main',
             closedGraphInstances: 1,
@@ -303,6 +306,9 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
         expect(WINDOW_REQUIRED_WORKER_ENTRY_SOURCES).toEqual([
             'services/enc/encParseWorker.ts',
             'services/enc/encGeometryWorker.ts',
+            'services/userOverlays/worker.ts',
+            'services/weather/gribImportWorker.ts',
+            'services/charts/localRasterWorker.ts',
         ]);
         expect(result.workerEntrySourceInputs).toEqual(row.workerEntrySourceInputs);
         expect(Object.isFrozen(result.workerEntrySourceInputs)).toBe(true);
@@ -316,19 +322,21 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
     it('refuses missing, unknown or duplicate worker entries and graph identities', () => {
         const row = buildReceipt(),
             entries = row.workerEntrySourceInputs;
+        const replace = (index: number, entry: unknown) =>
+            entries.map((original, i) => (i === index ? entry : original));
         for (const workerEntrySourceInputs of [
             undefined,
             null,
             [],
             entries.slice(1),
-            [...entries, { ...entries[0], graph: 'worker-3' }],
-            [entries[0], { ...entries[1], path: entries[0].path }],
-            [entries[0], { ...entries[1], graph: entries[0].graph }],
-            [{ ...entries[0], graph: 'worker-3' }, entries[1]],
-            [{ ...entries[0], graph: 'main' }, entries[1]],
-            [{ ...entries[0], graph: 1 }, entries[1]],
-            [{ path: entries[0].path, sha256: digest }, entries[1]],
-            [{ ...entries[0], extra: true }, entries[1]],
+            [...entries, { ...entries[0], graph: 'worker-6' }],
+            replace(1, { ...entries[1], path: entries[0].path }),
+            replace(1, { ...entries[1], graph: entries[0].graph }),
+            replace(0, { ...entries[0], graph: 'worker-6' }),
+            replace(0, { ...entries[0], graph: 'main' }),
+            replace(0, { ...entries[0], graph: 1 }),
+            replace(0, { path: entries[0].path, sha256: digest }),
+            replace(0, { ...entries[0], extra: true }),
         ])
             expect(() => inspectWindowBuildReceipt({ ...row, workerEntrySourceInputs }, checkout)).toThrow(
                 'contract refused',
@@ -377,9 +385,33 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
             expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
         }
     });
-    it('requires exactly one main and two workers with one closed ES graph each', () => {
+    it.each(WINDOW_REQUIRED_WORKER_ENTRY_SOURCES)(
+        'requires the exact compiled worker %s without a subset exception',
+        (name) => {
+            const row = buildReceipt(),
+                path = checkout + '/' + name;
+            expect(() =>
+                inspectWindowBuildReceipt(
+                    {
+                        ...row,
+                        workerEntrySourceInputs: row.workerEntrySourceInputs.filter((entry) => entry.path !== path),
+                    },
+                    checkout,
+                ),
+            ).toThrow('contract refused');
+            expect(() =>
+                inspectWindowBuildReceipt(
+                    { ...row, moduleInventory: row.moduleInventory.filter((module) => module.id !== path) },
+                    checkout,
+                ),
+            ).toThrow('contract refused');
+        },
+    );
+    it('requires exactly one main and five workers with one closed ES graph each', () => {
         const row = buildReceipt(),
             graphs = row.graphPolicyObservations;
+        const replace = (index: number, graph: unknown) =>
+            graphs.map((original, i) => (i === index ? graph : original));
         for (const graphPolicyObservations of [
             undefined,
             [],
@@ -389,19 +421,50 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
             graphs.map((graph) => ({ ...graph, isWorker: false })),
             [{ ...graphs[0], closedGraphInstances: 0 }, ...graphs.slice(1)],
             [{ ...graphs[0], workerFormat: 'iife' }, ...graphs.slice(1)],
-            [graphs[0], { ...graphs[1], closedGraphInstances: 2 }, graphs[2]],
-            [graphs[0], { ...graphs[1], workerFormat: 'iife' }, graphs[2]],
-            [graphs[0], { ...graphs[1], graph: 'worker-3' }, graphs[2]],
-            [graphs[0], graphs[1], { ...graphs[2], graph: 'worker-1' }],
-            [{ ...graphs[0], graph: 'worker-1' }, graphs[1], graphs[2]],
-            [graphs[0], { ...graphs[1], extra: true }, graphs[2]],
+            replace(1, { ...graphs[1], closedGraphInstances: 2 }),
+            replace(1, { ...graphs[1], workerFormat: 'iife' }),
+            replace(1, { ...graphs[1], graph: 'worker-6' }),
+            replace(2, { ...graphs[2], graph: 'worker-1' }),
+            replace(0, { ...graphs[0], graph: 'worker-1' }),
+            replace(1, { ...graphs[1], extra: true }),
             graphs.map(({ graph: _graph, ...observation }) => observation),
         ])
             expect(() => inspectWindowBuildReceipt({ ...row, graphPolicyObservations }, checkout)).toThrow(
                 'contract refused',
             );
-        for (const workerGraphCount of [undefined, 0, 1, 3, '2', NaN])
+        for (const workerGraphCount of [undefined, 0, 1, 2, 3, 4, 6, '2', '5', NaN])
             expect(() => inspectWindowBuildReceipt({ ...row, workerGraphCount }, checkout)).toThrow('contract refused');
+        for (const graph of graphs)
+            expect(() =>
+                inspectWindowBuildReceipt(
+                    {
+                        ...row,
+                        graphPolicyObservations: graphs.filter((observation) => observation.graph !== graph.graph),
+                    },
+                    checkout,
+                ),
+            ).toThrow('contract refused');
+        const sixth = buildReceipt();
+        sixth.workerGraphCount = 6;
+        sixth.graphPolicyObservations.push({
+            graph: 'worker-6',
+            isWorker: true,
+            closedGraphInstances: 1,
+            workerFormat: 'es',
+        });
+        sixth.workerEntrySourceInputs.push({
+            path: checkout + '/services/unknown-worker.ts',
+            sha256: digest,
+            graph: 'worker-6',
+        });
+        sixth.moduleSourceInputs.push({ path: checkout + '/services/unknown-worker.ts', sha256: digest });
+        sixth.moduleInventory.push({
+            graph: 'worker-6',
+            id: checkout + '/services/unknown-worker.ts',
+            virtual: false,
+            transformedCodeSha256: nonce,
+        });
+        expect(() => inspectWindowBuildReceipt(sixth, checkout)).toThrow('contract refused');
     });
     it('requires worker roots in their declared graph and routing modules in the main graph', () => {
         const row = buildReceipt(),

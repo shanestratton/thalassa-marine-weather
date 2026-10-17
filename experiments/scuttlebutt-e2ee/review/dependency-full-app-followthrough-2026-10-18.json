@@ -1,0 +1,352 @@
+{
+    "schemaVersion": 1,
+    "dateBrisbane": "2026-10-18",
+    "category": "verified-dependency-and-current-isolated-full-app-web-recovery-with-native-gates-open",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "sourceBase": "b0343b93e8e5738670d785500a0d2cb38dd6c40f",
+    "incorporatedUpstream": "0a8d33d166004682627e3988285eef6e928f076b",
+    "mergeReady": false,
+    "releaseReady": false,
+    "independentAssessment": false,
+    "ordinaryAndLiveEncryptionDisabled": true,
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts": "515d973fb48ea5c89cbb0c3ca3e4ec12a6910d00a03c7de0bde0f3603f2fde88",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs": "b334b60128fa634ae23b908e64ad4fb2cea7938bfdf038d82c6be9ad8b7e3250",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "dada56b7ce767b301084be9f541e61d7b4dbea1b3f6492ec28e74085197c84b7",
+        "tests/E2eeFullAppAuthProjection.test.ts": "47571d82c66feb279111ec18992365a3a1b219e6a3aece9e0a656e0dfbeeb78a",
+        "tests/E2eeFullAppGraphIsolation.test.ts": "b5bede721a301c6819159af96a91cd6759742cd1a64cd9146bcd84cb4204f333",
+        "tests/E2eeFullAppWindowProof.test.ts": "0d51f3bc9a92eadabcda7beb692a2b0a298b65f43fb7876b28a6fce892aa0580"
+    },
+    "packageSHA256": "ad57e4c76bedad0fb5ab914883de2fd66dcd008a8fbc0040e5183152a256827a",
+    "lockSHA256": "ce2c08065e0018cd9df4fe30dcf07140802aaa5a2e2c7bab9ced463b3f196504",
+    "prerequisiteCorrespondence": {
+        "previousRecord": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/restart-upstream-preparation-2026-10-18.json",
+            "sha256": "280c978bc22af2391d7f9756fbdd4d92b9cfe7cdf55cd31730fa98f4c28be19d"
+        },
+        "sources": 61,
+        "allCurrentBytesMatch": true,
+        "oldCachePinsOrRuntimeGatesChanged": false
+    },
+    "dependencyRecovery": {
+        "receipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/input-recovery-receipt.json",
+            "sha256": "e98e1c3c9f5c8f535ed4cb080077c98084888ba2af28c153a1dfc0ca7d9fa9d7"
+        },
+        "lockedIntegrityMatched": true,
+        "acceptedArchives": [
+            {
+                "name": "@maplibre/maplibre-gl-style-spec@19.3.3",
+                "sha256": "829b009e7234c8d8d9892d30bbc9a4c531e2d384e63bc0f5aa53b5b17a3de6d2",
+                "bytes": 13339696,
+                "method": "preserved overlapping prefix/pieces plus three bounded missing public archive ranges; complete original lockfile SRI matched"
+            },
+            {
+                "name": "mapbox-gl@3.19.0",
+                "sha256": "d321e1a7927b4ef6b4389ec0e63455088506e37334c6eddae19fec44f3aae28b",
+                "bytes": 15179231,
+                "method": "full public archive; original lockfile SRI matched"
+            }
+        ],
+        "lostExecutionReceiptsReconstructed": false
+    },
+    "installAndOriginalStrictTypes": {
+        "receipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/install-type-receipt.json",
+            "sha256": "28cb24b9301a2b4466b9a6aa0d14435719b5c1fb15d24d1c199a6a6bf814fc6a"
+        },
+        "completeHostCompatibleLockedArchives": 819,
+        "offline": true,
+        "packageScripts": false,
+        "sharedDependenciesWritten": false,
+        "primaryCheckoutChanged": false,
+        "previousPrivateLinkPreserved": true,
+        "stages": [
+            {
+                "label": "locked-npm-ci",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 5721
+            },
+            {
+                "label": "strict-types",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 7470
+            }
+        ]
+    },
+    "implementation": {
+        "appleCredentialProjection": "exact isolated upstream export returns null only; no SDK User, native credential lookup, argument reads, mutation or I/O",
+        "workerGraphContract": "all five exact current worker paths, raw digests, compiled roots and one closed ES policy each; unknown sixth/missing/duplicate still refused; runtime worker denial unchanged",
+        "workerSources": [
+            "services/enc/encParseWorker.ts",
+            "services/enc/encGeometryWorker.ts",
+            "services/userOverlays/worker.ts",
+            "services/weather/gribImportWorker.ts",
+            "services/charts/localRasterWorker.ts"
+        ]
+    },
+    "focusedChecks": {
+        "receipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/projection-validation-receipt.json",
+            "sha256": "29cf070f6e4c6d0bd35e246b775740b0feeebe29e7d8338d71fe1b779773e328"
+        },
+        "contracts": {
+            "passed": 183,
+            "failed": 0,
+            "total": 183,
+            "suites": 3
+        },
+        "actualAppJsdomMount": {
+            "passed": 1,
+            "failed": 0,
+            "total": 1,
+            "suites": 1
+        },
+        "stages": [
+            {
+                "label": "named-format-write",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 671
+            },
+            {
+                "label": "named-format-check",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 485
+            },
+            {
+                "label": "named-lint",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1623
+            },
+            {
+                "label": "contracts",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1751
+            },
+            {
+                "label": "mount",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 4174
+            },
+            {
+                "label": "projection-strict-types",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1304
+            }
+        ],
+        "nativeEncryptionOrPhysicalAcceptance": false
+    },
+    "actualBuild": {
+        "receipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-v6-receipt.json",
+            "sha256": "f91dd77880914af17902738ce49de5a706588c8fb36d15ce9cde2066320adba9"
+        },
+        "parent": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-v6-coordinator-receipt.json",
+            "sha256": "0ca4f7bd76d80ff6cddeec123c7abc39a34351591ae7486ff74dcb532de857ed"
+        },
+        "rawModuleInputs": 2284,
+        "graphModuleEntries": 2411,
+        "proofInputs": 6,
+        "outputs": 544,
+        "workerGraphs": 5,
+        "pinnedExplicitAssets": 1,
+        "canaryScans": 5927,
+        "warnings": 40,
+        "loggerErrors": 0,
+        "allGraphConfigurationsObserved": true,
+        "publicDirectoryCopied": false,
+        "envFilesLoaded": false,
+        "inheritedSyntheticCanariesAbsent": true,
+        "generalProcessSandboxClaimed": false
+    },
+    "actualWindow": {
+        "receipt": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-3zY8bI/window-receipt.json",
+            "sha256": "68773a7c642e3123a2a69420bad65c7afdbf2907bdf1f94a4871931b5391b34a"
+        },
+        "parent": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/current-window-coordinator-receipt.json",
+            "sha256": "188806aed7a2bbb81f63de2c2fef41e9281583a73e7de9a3f56be32440c8772a"
+        },
+        "counters": {
+            "documents": 1,
+            "assets": 63,
+            "faviconControls": 1,
+            "cspControls": 0,
+            "refusedRequests": 0,
+            "serverDocuments": 1,
+            "serverAssets": 63,
+            "serverFaviconControls": 1,
+            "serverCspEscapes": 0,
+            "serverRefusals": 0,
+            "requestGateFailures": 0,
+            "pageErrors": 0,
+            "consoleErrors": 6,
+            "expectedCspViolations": 2,
+            "unexpectedCspViolations": 0
+        },
+        "observationPhases": [
+            "last",
+            "cold",
+            "dom",
+            "chat",
+            "closed",
+            "remounted",
+            "cspPolicies",
+            "final",
+            "cspControl",
+            "terminal"
+        ],
+        "actualEntryExecuted": true,
+        "syntheticPagehide": true,
+        "actualOsLifecycleOrBfCacheProved": false,
+        "realSdkLogin": false,
+        "nativeEncryption": false,
+        "physicalDevice": false,
+        "cleanup": {
+            "browserClosed": true,
+            "serverClosed": true,
+            "ownedProfileRemoved": true
+        },
+        "browserPidIndependentlyAbsent": true,
+        "profileIndependentlyAbsent": true
+    },
+    "retainedFailures": {
+        "coordinators": [
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-coordinator-receipt.json",
+                "sha256": "2e73cbbe53b0f794b79d039231e7a26b5dd3a629976b51e530bfd24eba07dfd2"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-v2-coordinator-receipt.json",
+                "sha256": "3fc6169b20b8a06b04427f06398b8ffb10ed7ee15dd7eba4a11f76ff9ce6e245"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-v3-coordinator-receipt.json",
+                "sha256": "60fe5412b17b336f299d1df3a591527e03b4766744db03ca020e04d8f39b61ba"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-v4-coordinator-receipt.json",
+                "sha256": "fa346a848264c5c3e9495ca1545df17145c91484d7640e28de7fcb7f917bf318"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/build-v5-coordinator-receipt.json",
+                "sha256": "dcda8822ae418873141af0b78fcc423dc5af88493db50a2a9e1e6b8ae4bc0c3a"
+            }
+        ],
+        "boundaries": [
+            "initial child failed before build receipt; exact original cause not directly captured",
+            "captured parent/child temporary-root mismatch",
+            "captured overly strict macOS locale-descriptor grammar; bounded hex UID/two decimal fields observed separately",
+            "captured pinned Vite publicDir:false normalization to empty disabled path",
+            "actual App missing currentAppleCredentialAccount isolated export"
+        ],
+        "retriesChangedSpecificDiagnosedCoordinatorOrAppInputs": true,
+        "staticImportScan": {
+            "receipt": {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/projection-import-scan.json",
+                "sha256": "ae18b9e68ea296ad0ff958149727d4469919818d3abeaa266674fbaa01ea6570"
+            },
+            "status": "failed",
+            "checkedTextImports": 705,
+            "typeOnlyFalsePositive": "PluginListenerHandle in BackgroundLocationService.ts is used only in type positions; no runtime projection export added",
+            "compilationEvidence": "separate actual corrected full-App build"
+        }
+    },
+    "nativeRecovery": {
+        "rustManifestChecksumVerified": true,
+        "rustSignatureIndependentlyVerified": false,
+        "rustFailedAttempts": [
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/rust-input-recovery-receipt.json",
+                "sha256": "0e54808ce7544fe336d2d535d2496200bed598ccaf243004747fdea09c4c0a93"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/rust-input-recovery-v2-receipt.json",
+                "sha256": "91a40f24313019e627091ceafc4a265e5c64c7a7f2cab45a5b7a9f6b824270bc"
+            }
+        ],
+        "firstFailure": "narrow manifest parser incorrectly refused unrelated repeated array-table headers; corrected by selecting only six unique wanted tables",
+        "secondFailure": {
+            "exit": 28,
+            "timedOut": true,
+            "durationMs": 60019,
+            "partialArchiveBytes": 9531815,
+            "acceptedArchives": 0
+        },
+        "partialArchiveAccepted": false,
+        "rustCompilerOrInstallerExecuted": false,
+        "sourceBuildDraft": {
+            "published": false,
+            "executed": false,
+            "testsExecuted": false,
+            "location": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/native-source-build-wip",
+            "files": [
+                {
+                    "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/native-source-build-wip/freshProviderBuild.mjs",
+                    "sha256": "bf5bd1d7552dbc4d69fe50c390e4260959efdc383c86582b1c36d699c481d3a5"
+                },
+                {
+                    "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/native-source-build-wip/freshProviderBuildContract.mjs",
+                    "sha256": "979ab7a4c2d7724066b232b23ada8bf219fbcd20d8460b07ab8f53309109ea60"
+                }
+            ],
+            "reviewIssue": "Cargo offline does not enforce whole-process network or external write denial; draft retains unsupported unmeasured false claims and is withheld, not accepted"
+        },
+        "nativeBuildOrLaunchDispatched": false
+    },
+    "sharedMacWaiting": {
+        "throughActualWindowMs": 330,
+        "throughFinalNamedDocumentChecksMs": 377,
+        "limitMs": 120000,
+        "oneCumulativeBudget": true,
+        "remainingBudgetOnlyPassedToChildren": true,
+        "currentRunOvershootMs": 0,
+        "previousRun120005msReceiptStillHistorical": true,
+        "compilerDownloadDurationIsNotSharedSlotWaiting": true
+    },
+    "finalNamedDocumentChecks": {
+        "receipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/.codex/e2ee-followthrough-2026-10-18.nFCxI2/final-followthrough-checks-receipt.json",
+            "sha256": "146da35fce73bbd7b9db5b24f5362dcba27ef2fb4d88c0aa85361edd05f9710d"
+        },
+        "status": "passed",
+        "scope": "Named document formatting and six-source correspondence before this final metadata append; this report's self-hash in that private receipt belongs to its pre-append bytes."
+    },
+    "verification": {
+        "allBuildSourceProofAssetAndOutputBytesRemeasured": 2835,
+        "prerequisiteSourcesRemeasured": 61,
+        "sixChangedSourceBytesMatchFocusedChecks": true,
+        "packageAndLockBytesUnchanged": true
+    },
+    "safety": {
+        "primaryCheckoutOrIosChanged": false,
+        "humanDevicesAccountsKeysChanged": false,
+        "productionDbOrDeployment": false,
+        "testflightTouched": false,
+        "masterMergedOrPushed": false,
+        "privateSourceSharedExternally": false,
+        "newNativeDraftPublished": false
+    },
+    "remainingGates": [
+        "verified complete private Rust toolchain and locked Cargo inputs",
+        "reviewed/enforced source-build process network and write restrictions",
+        "separately versioned genuine provider/HTTPS/framework evidence without repinning old cache gates",
+        "fresh current owned native exchange and bounded launch/authority diagnosis",
+        "current actual UIKit/navigation/opposite-role/cold/recovery and full adapter HTTPS/current Auth evidence",
+        "shipping cutover old clients/private queue/push rollback policies",
+        "device/prekey lifecycle retention scalable sync and recovery policy",
+        "current physical acceptance",
+        "dependency licence and source-binary provenance obligations",
+        "independent security assessment"
+    ]
+}

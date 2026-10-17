@@ -11,7 +11,76 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current restart/upstream preparation — not merge-ready
+## Current 18 October dependency and full-App follow-through — not merge-ready
+
+The [source-bound follow-through record](../experiments/scuttlebutt-e2ee/review/dependency-full-app-followthrough-2026-10-18.json)
+supersedes the missing-dependency/current-web statements in the historical restart
+entry below. Work remains E2EE-only on the clean continuation, based on
+`b0343b93e8e5738670d785500a0d2cb38dd6c40f` and cleaned master `0a8d33d16`.
+The primary checkout/iOS, production and human devices/accounts/keys are untouched.
+
+Both missing public npm archives now match their original lockfile integrity.
+MapLibre used previously retained overlapping bytes plus three exact missing
+ranges; Mapbox was downloaded whole. This recovers package inputs, **not lost
+execution receipts**. A complete **819-archive**, offline, ignore-scripts npm
+install succeeded in new private durable storage. Only this isolated checkout's
+dependency link changed; its previous private link is preserved. Package/lock
+bytes and shared dependencies were not changed. The original narrow strict
+typecheck now passes without map stubs, suppressed errors or relaxed options.
+Every previous failed install/download/type receipt remains failed.
+
+The first current-App build exposed an upstream Apple credential-account export
+missing from the isolated Auth leaf. Its replacement returns only `null`: native
+Research metadata still cannot fabricate an SDK User or authorize an Apple
+credential lookup. Tests retain no mutation, argument inspection, subscription
+or I/O. Upstream added overlay, GRIB-import and local-raster workers. The receipt
+now requires **all five exact worker sources**, raw hashes, compiled graph roots
+and one closed ES graph each; missing/duplicate/unknown sixth graphs still refuse.
+No worker runtime permission or source-subset exception was introduced.
+
+Executed **183 projection/graph/receipt fixture cases in three suites**, a
+separate **one-case actual-App jsdom mount/remount**, narrow strict types and named
+lint/format checks. Fresh combined-source isolated build passed with **2,284 raw
+module inputs / 2,411 graph module entries / six proof inputs / 544 outputs / five
+ES worker graphs / one explicitly pinned icon**. Forty build warnings remain
+counted. All resolved graph configurations were observed, with no public-directory
+copy or env-file loading; injected synthetic environment canaries were absent
+from transformed code and output bytes. This is not a general process sandbox.
+
+The fresh owned **actual unsupported Chrome Window** passed startup, actual Chat
+selection, synthetic pagehide closure, whole-root remount and the unchanged CSP
+positive control. Counts: one document, 63 assets, zero page errors, zero unexpected
+requests/CSP escapes, two expected CSP violations; **six console errors remain**.
+Browser PID absence and owned-profile removal were independently rechecked.
+There was no SDK login, native encryption, real OS/BFCache lifecycle or physical
+acceptance. Prior graph acceptance is not transferred; this is a new source-bound run.
+
+Private coordinator failures remain retained: initial child failure before a
+build receipt (cause not directly captured), temporary-root mismatch, overstrict
+macOS locale-descriptor grammar, and Vite's disabled-publicDir normalization.
+The later real missing-export build stays failed. The corrected coordinator keeps
+sanitized environment, exact disabled paths and all original App acceptance gates.
+A separate static import scan flagged a type-only `PluginListenerHandle`; it is
+not relabelled passed and is not a runtime export requirement.
+
+A separate native source-build draft was withheld in private ignored storage:
+unreviewed/unexecuted and **not published as a working builder**. Review caught
+that Cargo's offline option alone cannot attest process-wide network/write
+denial. No Rust installer/compiler, native app or simulator was dispatched. The public
+Rust input recovery and exact outcomes are recorded separately; compiler inputs
+do not recreate historical artifact/receipt identity or independent provenance.
+All **61 existing provider/HTTPS prerequisite source hashes remain unchanged**.
+
+Next: finish verified private compiler/dependency input recovery, implement and
+test a separately versioned, genuinely restricted source-build lane, then
+legitimately regenerate provider/HTTPS/framework receipts before the current
+owned native exchange/launch diagnosis. Preserve old cache gates and every
+failed receipt. Current native OS/navigation/opposite-role/cold/recovery/live
+Auth/HTTPS, shipping cutover/retention/device-prekey policy, physical acceptance,
+licence/provenance and independent assessment remain open. **Not merge/release
+ready; ordinary/live encryption remains disabled.**
+
+## Historical 18 October restart/upstream preparation — not merge-ready
 
 Shane resumed **E2EE only**, not the separate TestFlight release. The
 [18 October record](../experiments/scuttlebutt-e2ee/review/restart-upstream-preparation-2026-10-18.json)

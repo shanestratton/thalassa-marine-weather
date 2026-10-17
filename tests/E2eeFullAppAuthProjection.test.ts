@@ -18,6 +18,7 @@ import {
 import {
     handleNativeAppleCredentialRevocation,
     fenceSignedOutOnThisDevice,
+    currentAppleCredentialAccount,
     useAuthStore,
 } from '../experiments/scuttlebutt-e2ee/full-app-pilot/authStore';
 import { getAuthIdentityScope } from '../services/authIdentityScope';
@@ -419,6 +420,39 @@ describe('single Research authority presentation projection', () => {
 });
 
 describe('closed main-App AuthStore compatibility', () => {
+    it('never derives an Apple credential account from native Research metadata or reads supplied arguments', () => {
+        expect(currentAppleCredentialAccount()).toBeNull();
+        const source = sourceFixture(authenticated());
+        const handle = attachFullAppResearchAuth(source.source);
+        bindings.push(handle);
+        const getStateCalls = vi.mocked(source.source.getState).mock.calls.length;
+        const scopeBefore = getAuthIdentityScope();
+        const listener = vi.fn();
+        const stop = useAuthStore.subscribe(listener);
+        const getter = vi.fn(() => {
+            throw new Error('Private argument must not be inspected');
+        });
+        try {
+            expect(fullAppAuthProjection.getState().nativeOwner).toEqual({ accountId: OWNER_A, deviceId: DEVICE_A });
+            expect(currentAppleCredentialAccount()).toBeNull();
+            expect(
+                Reflect.apply(currentAppleCredentialAccount, undefined, [
+                    Object.defineProperty({}, 'account', { get: getter }),
+                ]),
+            ).toBeNull();
+            expect(getter).not.toHaveBeenCalled();
+            expect(listener).not.toHaveBeenCalled();
+            expect(source.source.getState).toHaveBeenCalledTimes(getStateCalls);
+            expect(useAuthStore.getState().user).toBeNull();
+            expect(getAuthIdentityScope()).toBe(scopeBefore);
+            handle.deactivate();
+            expect(currentAppleCredentialAccount()).toBeNull();
+            handle.detach();
+            expect(currentAppleCredentialAccount()).toBeNull();
+        } finally {
+            stop();
+        }
+    });
     it('keeps settled browse-only state despite a genuinely current native account', () => {
         const source = sourceFixture(authenticated());
         bindings.push(attachFullAppResearchAuth(source.source));

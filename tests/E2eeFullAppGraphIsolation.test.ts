@@ -268,6 +268,7 @@ describe('explicit unavailable backend and native proxies', () => {
         const id = plugin.resolveId('../../stores/authStore', repo + '/services/auth/SocialAuthService.ts');
         const code = plugin.load(id!);
         expect(code).toContain('fenceSignedOutOnThisDevice');
+        expect(code).toContain('currentAppleCredentialAccount');
         expect(code).toContain('full-app-pilot/authStore.ts');
         expect(code).not.toContain('node_modules');
         expect(() => plugin.load(repo + '/stores/authStore.ts')).toThrow(/Production entry or authority/);

@@ -109,7 +109,12 @@ const modules = new Map(
 );
 modules.set(
     canonicalPath(resolve(repo, 'stores/authStore.ts')),
-    reexport('authStore.ts', names('useAuthStore handleNativeAppleCredentialRevocation fenceSignedOutOnThisDevice')),
+    reexport(
+        'authStore.ts',
+        names(
+            'useAuthStore handleNativeAppleCredentialRevocation fenceSignedOutOnThisDevice currentAppleCredentialAccount',
+        ),
+    ),
 );
 modules.set(
     canonicalPath(resolve(repo, 'services/nativeStorage.ts')),

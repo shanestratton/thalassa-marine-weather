@@ -105,6 +105,9 @@ export const WINDOW_REQUIRED_BUILD_SOURCES = Object.freeze([
 export const WINDOW_REQUIRED_WORKER_ENTRY_SOURCES = Object.freeze([
     'services/enc/encParseWorker.ts',
     'services/enc/encGeometryWorker.ts',
+    'services/userOverlays/worker.ts',
+    'services/weather/gribImportWorker.ts',
+    'services/charts/localRasterWorker.ts',
 ]);
 export const WINDOW_REQUIRED_PROOF_SOURCES = Object.freeze([
     ...['vite.config.mjs', 'graphIsolation.mjs', 'brandAsset.mjs', 'windowProof.mjs', 'windowProofContract.mjs'].map(

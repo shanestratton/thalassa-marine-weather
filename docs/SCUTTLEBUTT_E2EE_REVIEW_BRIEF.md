@@ -51,6 +51,35 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
+The [18 October follow-through record](../experiments/scuttlebutt-e2ee/review/dependency-full-app-followthrough-2026-10-18.json)
+has a complete private offline locked install and passing original narrow types,
+without stubs or relaxed assertions. The exact isolated Auth projection now
+returns no Apple credential account; native Research metadata remains distinct
+from an SDK User. All five current worker graphs are mandatory in the source-
+hashed receipt; runtime worker admission remains denied.
+
+Executed 183 projection/graph/receipt fixture cases, one actual-App jsdom
+mount/remount, strict types, named lint/format, and a fresh isolated full-App build
+(2,284 raw module inputs, 2,411 module entries, 544 outputs, six proof inputs,
+five ES workers and one pinned icon). Forty build warnings remain. A fresh owned
+actual unsupported Chrome startup/Chat/closure/remount/CSP run passed with zero
+page errors or unexpected requests, two expected CSP violations and six retained
+console errors. Its pagehide is synthetic, not OS/native/physical acceptance.
+Exact browser PID/profile absence was checked. Earlier failed coordinator/App
+build receipts are retained rather than promoted.
+
+The separate source-build draft is private, unverified WIP, not a published
+builder or native pass. Cargo offline alone does not enforce process-wide
+network/write denial. Public compiler-input recovery is separate from compiler,
+provider, HTTPS, signing or runtime execution; no lost passed receipt was
+reconstructed. All 61 existing prerequisite sources and old artifact gates remain
+unchanged. Current native/lifecycle, shipping, provenance/licence, physical and
+independent-assessment gates remain open. The Supabase skill informed the
+dependency/Auth-boundary checks; no live Auth or database changes were made.
+**Not merge-ready; ordinary/live encryption remains disabled.**
+
+### Historical 18 October restart preparation
+
 The [18 October restart/upstream record](../experiments/scuttlebutt-e2ee/review/restart-upstream-preparation-2026-10-18.json)
 reconciles cleaned master `0a8d33d16` while preserving private denial, scoped push
 callbacks and current public warning/lightning behavior. Current focused checks

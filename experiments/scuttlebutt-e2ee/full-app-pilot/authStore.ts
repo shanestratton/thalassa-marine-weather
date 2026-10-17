@@ -71,3 +71,7 @@ export const handleNativeAppleCredentialRevocation = async (_appleUserId: string
 /** Exact upstream export, still unavailable here. No native fencing, identity
  * mutation or successful local/production sign-out is claimed by this leaf. */
 export const fenceSignedOutOnThisDevice = async (): Promise<void> => refuseMutation();
+
+/** Ordinary App services have no SDK account in this isolated build. Native
+ * Research metadata cannot authorize an Apple credential/Keychain lookup. */
+export const currentAppleCredentialAccount = (): null => null;
