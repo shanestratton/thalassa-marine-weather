@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: "293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e"
+  CANDIDATE_SHA: "27f6e40478330bae00201ffca537e8479976a80d"
   PREVIOUS138_SHA: "8e6edf36a0c0514c252c347b68e7bb86cc7e0da9"
   CI: "true"
   HUSKY: "0"
@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e"
+          ref: "27f6e40478330bae00201ffca537e8479976a80d"
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -197,7 +197,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e"
+          ref: "27f6e40478330bae00201ffca537e8479976a80d"
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -419,7 +419,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: "293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e"
+          ref: "27f6e40478330bae00201ffca537e8479976a80d"
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -540,7 +540,7 @@ jobs:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      SOURCE_SHA: 293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e
+      SOURCE_SHA: 27f6e40478330bae00201ffca537e8479976a80d
       THALASSA_DISPOSABLE_ANCHOR_AREA_TEST: "1"
       ANCHOR_AREA_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/anchor_area139_test
     steps:
@@ -549,7 +549,7 @@ jobs:
         run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e
+          ref: 27f6e40478330bae00201ffca537e8479976a80d
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
