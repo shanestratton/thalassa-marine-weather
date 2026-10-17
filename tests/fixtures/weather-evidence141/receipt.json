@@ -1,0 +1,36 @@
+{
+    "schema": 1,
+    "source": "Actual second collection-only on wx; original public station cohort bytes, no private users/credentials.",
+    "files": {
+        "pointer-buoys.txt": {
+            "bytes": 357,
+            "sha256": "8c2ad74f4b2784c913ff4f57cf4acc2249f475eb2ab8c83967db5deeeedef62f"
+        },
+        "index-buoys.txt": {
+            "bytes": 18812,
+            "sha256": "e57765ee69e1f89d881cb920699f5485a83d8053fde6434253147bbccb6f34af"
+        },
+        "detail-buoys-ndbc.txt": {
+            "bytes": 3846,
+            "sha256": "d461163b64fbe4eb1ee631e2b9e41ac67e5eb11d6070bcc4de419eefc6825044"
+        },
+        "detail-buoys-qld-des.txt": {
+            "bytes": 4401,
+            "sha256": "868a5ebcbbb207f15fc4ab994b5e38fe9362247fef268163e0bdc208a6beefe9"
+        },
+        "generation-buoys": "e57765ee69e1f89d881cb920699f5485a83d8053fde6434253147bbccb6f34af",
+        "pointer-skill.txt": {
+            "bytes": 357,
+            "sha256": "27885b292d73a06ffbb1f9a8ce7d2406723dcdaa08a74a429971a5db9ffba265"
+        },
+        "index-skill.txt": {
+            "bytes": 10424,
+            "sha256": "8ca0d0c6ec4667bf4ae04c3a73c08c29ee4d728c9ed9bfb565c4d67a5b45b25e"
+        },
+        "detail-skill-ndbc.txt": {
+            "bytes": 2905,
+            "sha256": "1c8c1833bf37514941fde955ee15de326f83086e7903f6c6dc36fcec3b9f8630"
+        },
+        "generation-skill": "8ca0d0c6ec4667bf4ae04c3a73c08c29ee4d728c9ed9bfb565c4d67a5b45b25e"
+    }
+}

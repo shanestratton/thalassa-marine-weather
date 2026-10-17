@@ -10,7 +10,7 @@
  * Follows the MetricPinSheet portal idiom (bottom-anchored, Esc + body
  * scroll lock, backdrop dismiss).
  */
-import React, { useEffect, useId, useRef } from 'react';
+import React, { lazy, Suspense, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
@@ -29,6 +29,7 @@ import { MarineDataCredit } from '../weather/MarineDataCredit';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
 import { PartlyCloudyIcon, XIcon } from '../Icons';
+const NearbyModelSkill = lazy(() => import('./NearbyModelSkill'));
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -57,6 +58,8 @@ interface ModelPickerSheetProps {
      */
     publishedModels?: string[];
     samplingDescription?: string;
+    /** Used only locally to find nearby public measurement stations. */
+    coordinates?: { lat: number; lon: number };
 }
 
 /** Names the credit line uses where 'provider label' would read oddly. */
@@ -163,6 +166,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     spitfireAvailable = false,
     spitfireLocationName,
     samplingDescription,
+    coordinates,
 }) => {
     const portalTarget = usePanePortalTarget();
     const titleId = useId();
@@ -266,10 +270,13 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
                     <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-7 h-7 shrink-0 rounded-full bg-sky-500/20 flex items-center justify-center">
+                            <div className="hidden min-[360px]:flex w-7 h-7 shrink-0 rounded-full bg-sky-500/20 items-center justify-center">
                                 <PartlyCloudyIcon className="w-4 h-4 text-sky-400" />
                             </div>
-                            <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
+                            <h2
+                                id={titleId}
+                                className="min-w-0 break-words text-base font-bold text-white tracking-tight"
+                            >
                                 {offshore ? 'Offshore forecast model' : 'Forecast model'}
                             </h2>
                         </div>
@@ -278,7 +285,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             type="button"
                             onClick={onClose}
                             aria-label={offshore ? 'Close offshore forecast model' : 'Close forecast model'}
-                            className="hit-target-44 shrink-0 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                            className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
                         >
                             <XIcon className="w-4 h-4" />
                         </button>
@@ -358,6 +365,9 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             Ocean models do not resolve berths or enclosed water. Missing values stay unknown.
                         </p>
                     </details>
+                    <Suspense fallback={<p className="p-3 text-xs text-slate-400">Loading station skill…</p>}>
+                        <NearbyModelSkill coordinates={coordinates} />
+                    </Suspense>
                 </div>
 
                 {/* Footer */}

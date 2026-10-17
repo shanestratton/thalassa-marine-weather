@@ -17,6 +17,8 @@ export interface BuildTacticalStateDeps {
     setAisVisible: Dispatch<SetStateAction<boolean>>;
     receiverCoverageVisible?: boolean;
     setReceiverCoverageVisible?: Dispatch<SetStateAction<boolean>>;
+    measuredBuoysVisible?: boolean;
+    setMeasuredBuoysVisible?: Dispatch<SetStateAction<boolean>>;
     cycloneVisible: boolean;
     setCycloneVisible: Dispatch<SetStateAction<boolean>>;
     squallVisible: boolean;
@@ -62,6 +64,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setAisVisible,
         receiverCoverageVisible,
         setReceiverCoverageVisible,
+        measuredBuoysVisible,
+        setMeasuredBuoysVisible,
         cycloneVisible,
         setCycloneVisible,
         squallVisible,
@@ -106,6 +110,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         aisVisible,
         receiverCoverageVisible,
         onToggleReceiverCoverage: setReceiverCoverageVisible ? () => setReceiverCoverageVisible((v) => !v) : undefined,
+        measuredBuoysVisible,
+        onToggleMeasuredBuoys: setMeasuredBuoysVisible ? () => setMeasuredBuoysVisible((v) => !v) : undefined,
         onToggleAis: () => {
             setAisVisible((v) => {
                 if (!v) {
