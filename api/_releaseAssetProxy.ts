@@ -6,9 +6,10 @@ import {
     type MarineDatasetKey,
 } from '../services/weather/api/marineManifestContract';
 import { ATMOS_RELEASE_CONTRACTS } from './_atmosReleaseContract';
+import { SSH_RELEASE_CONTRACTS } from './_sshReleaseContract';
 import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract';
 
-const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS } as const;
+const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS, ...SSH_RELEASE_CONTRACTS } as const;
 type SpecializedDatasetKey = keyof typeof SPECIALIZED_RELEASE_CONTRACTS;
 type DatasetKey = MarineDatasetKey | SpecializedDatasetKey;
 
@@ -54,6 +55,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 export const DATASET_PROXY_SPECS: Record<DatasetKey, DatasetProxySpec> = {
     'gfs-atmos': ATMOS_RELEASE_CONTRACTS['gfs-atmos'].spec,
     'ifs-pressure': ATMOS_RELEASE_CONTRACTS['ifs-pressure'].spec,
+    ssh: SSH_RELEASE_CONTRACTS.ssh.spec,
     currents: {
         id: 'cmems_mod_glo_phy_anfc_merged-uv_PT1H-i',
         releaseTag: 'cmems-currents-latest',
