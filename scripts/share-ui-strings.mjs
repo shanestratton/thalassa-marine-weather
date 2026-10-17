@@ -94,7 +94,8 @@ export function collectUiStrings(root) {
 
 /** Every table retains the existing decoder limits; the aggregate is bounded
  * to four tables, 16,384 entries and 960,000 restored UTF-16 code units. */
-export function packUiStringPools(pools) {
+export function packUiStringPools(pools, { data, standalone = false } = {}) {
+    if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone UI packing');
     if (
         !Array.isArray(pools) ||
         pools.length > UI_STRING_POOL_LIMIT ||
@@ -113,6 +114,7 @@ export function packUiStringPools(pools) {
         throw Error('UI string pools exceed reviewed aggregate bounds');
     const packed = pools.map(packClassNames);
     if (packed.length === 0) return 'export const values=Object.freeze([]);';
+    if (data) return data.moduleSource(RESOLVED, packed);
     if (packed.length === 1) return packed[0].code;
     const calls = packed.map(
         (value) =>
@@ -181,7 +183,8 @@ export function shareUiStringLiterals(code, id, { root, values, parse }) {
 }
 
 /** @param {string} root @returns {import('vite').Plugin} */
-export function shareUiStrings(root) {
+export function shareUiStrings(root, { data, standalone = false } = {}) {
+    if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone UI packing');
     let enabled = false,
         pools = [],
         values = [],
@@ -203,7 +206,7 @@ export function shareUiStrings(root) {
             return id === MODULE ? RESOLVED : null;
         },
         load(id) {
-            return id === RESOLVED ? packUiStringPools(pools) : null;
+            return id === RESOLVED ? packUiStringPools(pools, { data, standalone }) : null;
         },
         transform(code, id) {
             if (!enabled || id === RESOLVED) return null;

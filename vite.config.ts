@@ -26,6 +26,7 @@ import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { shareClassNames } from './scripts/share-class-names.mjs';
 import { shareUiStrings } from './scripts/share-ui-strings.mjs';
+import { inertUiData, inertUiDataWorkerFence } from './scripts/inert-ui-data.mjs';
 import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
 import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
 import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
@@ -411,6 +412,7 @@ function resolveCommitSha(): string {
 }
 
 export default defineConfig(({ mode }) => {
+    const packedUiData = inertUiData(__dirname);
     // 1. Load env vars from local .env files
     const env = loadEnv(mode, __dirname, '');
 
@@ -628,9 +630,10 @@ export default defineConfig(({ mode }) => {
             packTimezoneData(__dirname),
             packPolarArguments(__dirname),
             shareSvgProps(__dirname),
-            shareSvgPaths(__dirname),
-            shareClassNames(__dirname),
-            shareUiStrings(__dirname),
+            packedUiData.plugin,
+            shareSvgPaths(__dirname, { data: packedUiData }),
+            shareClassNames(__dirname, { data: packedUiData }),
+            shareUiStrings(__dirname, { data: packedUiData }),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
@@ -709,7 +712,7 @@ export default defineConfig(({ mode }) => {
         // grids run in the route worker, the main build's engine chunk.)
         worker: {
             format: 'es',
-            plugins: () => [workerSentryNoop()],
+            plugins: () => [workerSentryNoop(), inertUiDataWorkerFence(__dirname)],
         },
         build: {
             outDir: 'dist',

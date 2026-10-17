@@ -155,7 +155,7 @@ describe('workers ship without a second Sentry SDK', () => {
 
     it('wires the no-op into worker builds only', () => {
         expect(viteConfig).toMatch(
-            /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[workerSentryNoop\(\)\],?\s*\}/,
+            /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[workerSentryNoop\(\),\s*inertUiDataWorkerFence\(__dirname\)\],?\s*\}/,
         );
         // Defined once, used once: never in the main build's plugin list.
         expect(viteConfig.match(/(?<!function )\bworkerSentryNoop\(\)/g)).toHaveLength(1);

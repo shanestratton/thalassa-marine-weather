@@ -131,7 +131,9 @@ it('preserves actual rendered DOM, conditional evaluation, property order and ha
             root,
             configFile: false,
             logLevel: 'silent',
-            plugins: enabled ? [decoder, shareClassNames(root), shareUiStrings(root)] : [],
+            plugins: enabled
+                ? [decoder, shareClassNames(root, { standalone: true }), shareUiStrings(root, { standalone: true })]
+                : [],
             build: {
                 write: false,
                 copyPublicDir: false,
@@ -196,7 +198,9 @@ it('preserves compiled JSX entities, whitespace, conditional text and handlers i
             configFile: false,
             logLevel: 'silent',
             esbuild: { jsxFactory: 'h' },
-            plugins: enabled ? [decoder, shareClassNames(root), shareUiStrings(root)] : [],
+            plugins: enabled
+                ? [decoder, shareClassNames(root, { standalone: true }), shareUiStrings(root, { standalone: true })]
+                : [],
             build: {
                 write: false,
                 copyPublicDir: false,
@@ -235,7 +239,7 @@ it('joins bounded tables in exact index order and refuses extra tables or excess
                     if (id === 'virtual:thalassa-class-data-decoder') return path.resolve('utils/decodeClassNames.ts');
                 },
                 load(id) {
-                    if (id === '\0ui-pools-proof') return packUiStringPools(pools);
+                    if (id === '\0ui-pools-proof') return packUiStringPools(pools, { standalone: true });
                 },
             },
         ],
@@ -252,9 +256,12 @@ it('joins bounded tables in exact index order and refuses extra tables or excess
     const module = await import(`data:text/javascript;base64,${Buffer.from(chunks[0].code).toString('base64')}`);
     expect(module.values).toEqual(messages);
     expect(Object.isFrozen(module.values)).toBe(true);
-    expect(() => packUiStringPools(Array.from({ length: UI_STRING_POOL_LIMIT + 1 }, () => [messages[0]]))).toThrow(
-        /aggregate bounds/,
-    );
-    expect(() => packUiStringPools([['word '.repeat(50000)]])).toThrow(/aggregate bounds/);
-    expect(() => packUiStringPools([['x'.repeat(4097)]])).toThrow(/aggregate bounds/);
+    expect(() =>
+        packUiStringPools(
+            Array.from({ length: UI_STRING_POOL_LIMIT + 1 }, () => [messages[0]]),
+            { standalone: true },
+        ),
+    ).toThrow(/aggregate bounds/);
+    expect(() => packUiStringPools([['word '.repeat(50000)]], { standalone: true })).toThrow(/aggregate bounds/);
+    expect(() => packUiStringPools([['x'.repeat(4097)]], { standalone: true })).toThrow(/aggregate bounds/);
 });

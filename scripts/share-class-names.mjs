@@ -228,7 +228,8 @@ export function shareLiteralClassNames(code, id, { root, values, parse }) {
 }
 
 /** @param {string} root @returns {import('vite').Plugin} */
-export function shareClassNames(root) {
+export function shareClassNames(root, { data, standalone = false } = {}) {
+    if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone class packing');
     let enabled = false,
         values = [],
         replacements = 0;
@@ -251,7 +252,11 @@ export function shareClassNames(root) {
             if (id !== RESOLVED) return null;
             const ordinary = classTableSource(values),
                 packed = packClassNames(values);
-            return packed.code.length + 1600 < ordinary.length ? packed.code : ordinary;
+            return packed.code.length + 1600 < ordinary.length
+                ? data
+                    ? data.moduleSource(RESOLVED, [packed])
+                    : packed.code
+                : ordinary;
         },
         transform(code, id) {
             if (!enabled || id === RESOLVED) return null;
