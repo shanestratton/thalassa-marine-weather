@@ -24,6 +24,9 @@ import { selectableForecastModels, SPREAD_EXTRA_MODELS, SELECTABLE_MODELS, WAVE_
 import { refreshCoastalModelCapabilities, supportedRegionalModel } from './coastalModelSupport';
 import { markModelUnavailable } from './modelLiveness';
 import { ECMWF_9KM, regionalModelLabel } from './regionalModels';
+import { isAromeModel, AROME_MAX_SOURCE_AGE_MS } from './aromeDomains';
+import { fetchOwnAromePoint } from './aromeSource';
+import type { AromePointForecast, AromeVariable } from './aromePointContract';
 
 export interface ComparisonModel {
     id: string;
@@ -81,9 +84,49 @@ export interface SpreadModelSeries<V extends string> {
     hex: string;
     horizonHours?: number;
     displayOnly?: boolean;
+    /** Own regional source facts; never inferred from a successful HTTP request. */
+    sourceRunAtMs?: number;
+    sourceCohortSha256?: string;
     /** Per-variable hourly values aligned to the block's `times`. null = the
      *  model doesn't publish that variable (or that hour is missing). */
     values: Record<V, (number | null)[]>;
+}
+
+/** Exact UTC alignment. A short local run never borrows global tail values. */
+export function addAromeSeries(
+    block: SpreadBlock<AtmosVar> | null,
+    own: AromePointForecast,
+    member: ComparisonModel,
+): SpreadBlock<AtmosVar> {
+    const times = block?.times ?? own.hourly.time.map((time) => time * 1000);
+    const positions = new Map(own.hourly.time.map((time, index) => [time * 1000, index]));
+    const values = {} as Record<AtmosVar, (number | null)[]>;
+    for (const variable of ATMOS_VARS) {
+        const samples = own.hourly[variable as AromeVariable];
+        values[variable] = times.map((time) => {
+            const index = positions.get(time);
+            return index !== undefined && samples ? (samples[index] ?? null) : null;
+        });
+    }
+    return {
+        times,
+        models: [
+            ...(block?.models ?? []),
+            { ...member, values, sourceRunAtMs: Date.parse(own.runUtc), sourceCohortSha256: own.cohortSha256 },
+        ],
+    };
+}
+
+function expiredArome(result: ModelSpreadResult): boolean {
+    return (
+        result.atmos?.models.some(
+            (model) =>
+                isAromeModel(model.id) &&
+                (model.sourceRunAtMs === undefined ||
+                    model.sourceRunAtMs > Date.now() ||
+                    Date.now() - model.sourceRunAtMs > AROME_MAX_SOURCE_AGE_MS),
+        ) ?? false
+    );
 }
 
 export interface SpreadBlock<V extends string> {
@@ -177,7 +220,9 @@ async function fetchSpread(
     lon: number,
     requested: ComparisonModel[],
 ): Promise<{ data: ModelSpreadResult; complete: boolean }> {
-    let atmosModels = requested;
+    const ownMember = requested.find((model) => isAromeModel(model.id));
+    const paidModels = requested.filter((model) => !isAromeModel(model.id));
+    let atmosModels = paidModels;
     const common = {
         latitude: lat.toFixed(4),
         longitude: lon.toFixed(4),
@@ -185,16 +230,16 @@ async function fetchSpread(
         timeformat: 'unixtime',
         cell_selection: 'sea',
     };
-    const [atmosRaw, marineRaw] = await Promise.all([
+    const [atmosRaw, marineRaw, own] = await Promise.all([
         fetchOpenMeteoProxy<Record<string, unknown>>('forecast', {
             ...common,
             hourly: ATMOS_VARS.join(','),
-            models: requested.map((m) => m.id).join(','),
+            models: paidModels.map((m) => m.id).join(','),
             wind_speed_unit: 'kn',
         }).catch(async () => {
             // A proxy rollback must not blank the seven established models.
             // Retry once under their real IDs; never relabel ifs025 as 9 km.
-            const newModels = requested.filter((m) => m.id === ECMWF_9KM || m.horizonHours !== undefined);
+            const newModels = paidModels.filter((m) => m.id === ECMWF_9KM || m.horizonHours !== undefined);
             if (!newModels.length) return null;
             newModels.forEach((m) => markModelUnavailable(m.id, { lat, lon }));
             atmosModels = [...SELECTABLE_MODELS, ...SPREAD_EXTRA_MODELS];
@@ -210,22 +255,22 @@ async function fetchSpread(
             hourly: MARINE_VARS.join(','),
             models: WAVE_SPREAD_MODELS.map((m) => m.id).join(','),
         }).catch(() => null),
+        ownMember ? fetchOwnAromePoint(ownMember.id, { lat, lon }) : Promise.resolve(null),
     ]);
 
     const unreachable: ('atmos' | 'marine')[] = [];
-    if (atmosRaw === null) unreachable.push('atmos');
+    if (atmosRaw === null || (ownMember && own === null)) unreachable.push('atmos');
     if (marineRaw === null) unreachable.push('marine');
+    let atmos = parseSuffixedHourly(atmosRaw?.hourly as Record<string, unknown> | undefined, ATMOS_VARS, atmosModels);
+    if (own && ownMember) atmos = addAromeSeries(atmos, own, ownMember);
+    else if (ownMember) markModelUnavailable(ownMember.id, { lat, lon });
     return {
         // Both endpoints ANSWERED (a 200 with legitimately-empty data — e.g.
         // marine inland — still counts). Distinct from data presence: only
         // complete results are safe to memoise.
         complete: unreachable.length === 0,
         data: {
-            atmos: parseSuffixedHourly(
-                atmosRaw?.hourly as Record<string, unknown> | undefined,
-                ATMOS_VARS,
-                atmosModels,
-            ),
+            atmos,
             marine: parseSuffixedHourly(
                 marineRaw?.hourly as Record<string, unknown> | undefined,
                 MARINE_VARS,
@@ -251,16 +296,17 @@ export async function queryModelSpread(
     const models = comparisonModelsFor(lat, lon);
     // Sub-km regional grids cannot share an 11 km memo at the coast. Include
     // the gated catalogue so a pre-deploy answer never survives the swap.
+    const precision = models.some((m) => isAromeModel(m.id)) ? 4 : 3;
     const point = models.some((m) => m.horizonHours !== undefined)
-        ? `${lat.toFixed(3)},${lon.toFixed(3)}`
+        ? `${lat.toFixed(precision)},${lon.toFixed(precision)}`
         : spreadCellKey(lat, lon);
     const key = `sea:${point}:${models.map((m) => m.id).join(',')}`;
     const hit = memo.get(key);
-    if (hit && Date.now() - hit.at < MEMO_TTL_MS) return hit.data;
+    if (hit && Date.now() - hit.at < MEMO_TTL_MS && !expiredArome(hit.data)) return hit.data;
     const pending = inflight.get(key);
     if (pending) return pending;
     const recent = options.passive ? incomplete.get(key) : undefined;
-    if (recent && Date.now() - recent.at < PASSIVE_RETRY_MS) return recent.data;
+    if (recent && Date.now() - recent.at < PASSIVE_RETRY_MS && !expiredArome(recent.data)) return recent.data;
 
     const promise = fetchSpread(lat, lon, models)
         .then(({ data, complete }) => {
