@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const NATIVE_BASE138 = 'e4722dfc5eea78e2a2af8ffd83134da06ce301e0';
-export const UNSIGNED_SOURCE139 = 'bc0a10b834cd33ba8dfb9fde05dc0c7e0cf6154b';
+export const NATIVE_BASE138 = 'a8ba4a8dfeac5d1890206bbfa2edbef9cb22d7e1';
+export const UNSIGNED_SOURCE139 = '1ec8086b64e3c9e10b7c87d5633b0d8e50669365';
 export const NATIVE_PROJECT139 = 'ios/App/App.xcodeproj/project.pbxproj';
 export const WATCH_FILES139 = Object.freeze({
     'ios/App/ThalassaWatch Watch App/Models/AnchorSnapshot.swift':
