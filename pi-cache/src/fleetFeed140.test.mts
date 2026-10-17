@@ -39,6 +39,19 @@ const lan: BoatLanView = {
         ],
     },
 };
+test('actual borrowed relay A/B/A transition persists off before any next authority poll', async (t) => {
+    const f = fixture(t);
+    f.enable();
+    await f.forwarder.tick();
+    const a = { ownerId, relayId: f.consent.binding.relayId, token },
+        b = { ...a, ownerId: boatId };
+    f.keeper.relayChanged(a, b);
+    f.keeper.relayChanged(b, a);
+    await f.forwarder.tick();
+    assert.equal(f.store.read(now).receipt, null);
+    assert.equal(f.store.read(now).blockedRevision, f.consent.revision);
+    assert.equal(f.sent.length, 0);
+});
 for (const mode of ['boat-lan', 'tailnet', 'loopback', 'unenrolled', 'preparsed'] as const)
     test('actual mounted Pi fleet route admission: ' + mode, { timeout: 5000 }, async (t) => {
         const f = fixture(t),

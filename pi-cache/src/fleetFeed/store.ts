@@ -41,7 +41,13 @@ export class FleetConsentStore {
             throw Error('Fleet consent storage unavailable');
         const temporary = this.file + '.' + randomUUID() + '.tmp';
         try {
-            fs.writeFileSync(temporary, text, { flag: 'wx', mode: 0o600 });
+            const fd = fs.openSync(temporary, 'wx', 0o600);
+            try {
+                fs.writeFileSync(fd, text);
+                fs.fsyncSync(fd);
+            } finally {
+                fs.closeSync(fd);
+            }
             fs.renameSync(temporary, this.file);
         } finally {
             if (fs.existsSync(temporary)) fs.unlinkSync(temporary);

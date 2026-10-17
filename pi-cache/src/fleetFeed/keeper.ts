@@ -33,6 +33,15 @@ export class FleetFeedKeeper {
         this.pending = null;
         this.deps.forwarder.off();
     }
+    /** Both snapshots come from the private outbox, never a phone's body. */
+    relayChanged(
+        before: { ownerId: string; relayId: string; token: string } | null,
+        after: { ownerId: string; relayId: string; token: string } | null,
+    ): void {
+        if (before?.ownerId !== after?.ownerId || before?.relayId !== after?.relayId || before?.token !== after?.token)
+            this.off();
+        else this.deps.forwarder.changed();
+    }
     status() {
         const local = this.deps.store.read(this.now());
         return {

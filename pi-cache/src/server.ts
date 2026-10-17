@@ -556,7 +556,11 @@ const fleetForwarder = new FleetForwarder({
     input: fleetInput,
     readContext: async (binding: FleetForwardBinding) => {
         const device = (await chartDevices.list()).find((d) => d.id === binding.controllerId);
-        return device ? fleetContextFor(binding.boatId, device) : null;
+        if (!device) {
+            fleetForwarder.off();
+            return null;
+        }
+        return fleetContextFor(binding.boatId, device);
     },
     send: fleetEndpoint ? fleetBatchSender(fleetEndpoint) : async () => ({ status: 503 }),
 });
@@ -801,8 +805,9 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
 
     radarWatch.stop();
     radarSession.retire();
+    const priorFleetAuthority = diaryRelayOutbox.lendFleetCredentials();
     diaryRelayOutbox.configure(input);
-    fleetForwarder.changed();
+    fleetKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
     return input.allowInternet;
 }
