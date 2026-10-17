@@ -33,6 +33,7 @@ describe('DailySummaryCard readings row (2026-10-02)', () => {
         expect(row.className).not.toMatch(/flex-wrap/);
         expect(row.style.gridTemplateColumns).toBe('repeat(5, minmax(0, 1fr))');
         expect(within(row).getAllByTestId('day-metric')).toHaveLength(5);
+        expect(screen.getByTestId('day-card-content').style.paddingInline).toBe('');
     });
 
     it('puts each unit on its own line under the number', () => {
@@ -193,6 +194,7 @@ describe('DailySummaryCard density', () => {
             expect(chip.textContent).toBe('');
             // Pinned in the card's corner, so it costs the tight card no height.
             expect(chip).toHaveAttribute('data-placement', 'corner');
+            expect(within(card).getByTestId('day-card-content').style.paddingInline).toBe('max(20px, 1.25rem)');
         } finally {
             restore();
         }
@@ -214,6 +216,7 @@ describe('DailySummaryCard density', () => {
             expect(within(card).getByText('8s')).not.toHaveClass('sr-only');
             const chip = within(card).getByRole('button', { name: 'Wind: some spread, 7 models' });
             expect(chip).toHaveAttribute('data-placement', 'corner');
+            expect(within(card).getByTestId('day-card-content').style.paddingInline).toBe('max(20px, 1.25rem)');
             expect(chip.querySelector('svg[data-agreement="some"]')).not.toBeNull();
         } finally {
             restore();
