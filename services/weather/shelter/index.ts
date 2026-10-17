@@ -47,6 +47,14 @@ export async function assessShelter(lat: number, lon: number): Promise<ShelterIn
     assessCache.set(k, info);
     return info;
 }
+/** Qualification must use the actual capture point, not the display cache's
+ * rounded0.1-degree verdict. Reuses the existing bounded coastline source. */
+export async function assessShelterExactPoint(lat: number, lon: number): Promise<ShelterInfo | null> {
+    const coast = await fetchCoastlineSegments(lat, lon);
+    if (!coast) return null;
+    const value = assessFetch(lat, lon, coast);
+    return { enclosed: value.enclosed, maxFetchKm: value.maxFetchKm };
+}
 
 /** Cap one feet-valued wave height at the local fetch. */
 function capFeet(

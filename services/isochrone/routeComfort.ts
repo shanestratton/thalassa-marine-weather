@@ -4,6 +4,7 @@ import { haversineNm, initialBearing, projectPosition } from './geodesy';
 import type { VesselProfile } from '../../types';
 import { seaComfort, type ComfortWord } from '../../utils/seaComfort';
 import { routeSampleFractions } from './routeSampling';
+import type { ComfortPreference } from '../../utils/comfortPreference';
 const WORDS: ComfortWord[] = ['Comfortable', 'Lively', 'Uncomfortable', 'Hard going'];
 export interface RouteComfortSummary {
     maxWaveM: number | null;
@@ -53,6 +54,7 @@ export function combineRouteComfort(
 export function routeComfortForNodes(
     route: readonly IsochroneNode[],
     vessel?: Pick<VesselProfile, 'length' | 'type'> | null,
+    preference?: ComfortPreference | null,
 ): RouteComfortSummary {
     let maxWaveM: number | null = null,
         maxWaveAt: RouteComfortSummary['maxWaveAt'] = null;
@@ -80,6 +82,7 @@ export function routeComfortForNodes(
                 swell: null,
             },
             vessel,
+            preference,
         );
         if (comfort?.word) {
             level = Math.max(level ?? 0, WORDS.indexOf(comfort.word));
@@ -105,6 +108,7 @@ export function inspectRouteEnvironment(
     exclusions: ExclusionField | null | undefined,
     maxWaveM: number | undefined,
     vessel?: Pick<VesselProfile, 'length' | 'type'>,
+    preference?: ComfortPreference | null,
 ): { comfort: RouteComfortSummary; rejected: boolean } {
     const samples: IsochroneNode[] = route.length ? [{ ...route[0] }] : [];
     let rejected = route.length < 2,
@@ -158,7 +162,7 @@ export function inspectRouteEnvironment(
             count++;
         }
     }
-    const comfort = routeComfortForNodes(samples, vessel);
+    const comfort = routeComfortForNodes(samples, vessel, preference);
     const highest = peak as { heightM: number; lat: number; lon: number } | null;
     if (highest) {
         comfort.maxWaveM = highest.heightM;

@@ -73,6 +73,9 @@
  * until the ghost joins; actual map weather retains its own spatial coverage.
  */
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { usePersonalComfort } from '../../hooks/usePersonalComfort';
+import { seaComfort } from '../../utils/seaComfort';
+import { comfortPreferenceLabel } from '../../utils/comfortPreference';
 import { AlongRouteNextUp } from './AlongRouteNextUp';
 import {
     askPassageOverview,
@@ -223,6 +226,8 @@ const tone = (m: HudMetric, forecast = false): string =>
 
 interface CellProps {
     label: string;
+    /** Shares the number's existing height; never adds another grid row. */
+    labelDetail?: string | null;
     value: string;
     unit?: string;
     metric: HudMetric;
@@ -236,7 +241,17 @@ interface CellProps {
 
 const SUB_TONE = { quiet: 'text-gray-400', amber: 'text-amber-300', red: 'text-red-400' } as const;
 
-const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentence, forecast = false, sub = null }) => (
+const Cell: React.FC<CellProps> = ({
+    label,
+    labelDetail,
+    value,
+    unit,
+    metric,
+    testId,
+    sentence,
+    forecast = false,
+    sub = null,
+}) => (
     <div
         className="thalassa-passage-hud-cell grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 border-b border-white/10 px-2 py-1"
         data-testid={testId}
@@ -248,6 +263,14 @@ const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentenc
             className={`text-[13px] font-black uppercase leading-tight ${forecast ? 'text-amber-300/90' : 'text-gray-300'}`}
         >
             {label}
+            {labelDetail && (
+                <span
+                    className="block text-[10px] font-semibold normal-case leading-tight"
+                    data-testid={`${testId}-comfort`}
+                >
+                    {labelDetail}
+                </span>
+            )}
             {!forecast && metric.value !== null && metric.freshness === 'stale' && (
                 <span className="ml-1 text-[9px] text-amber-300">OLD</span>
             )}
@@ -539,6 +562,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const windCoverageHours = usePassageWindCoverageHours();
     const unsyncedLayers = usePassageUnsyncedLayers();
     const vessel = useSettingsStore((st) => st.settings.vessel);
+    const personalComfort = usePersonalComfort();
     const sailOwner = useSyncExternalStore(subscribeSailOwner, getAuthIdentityScope, getAuthIdentityScope);
     const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
     const profileCruiseKts =
@@ -982,6 +1006,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             sea,
             spread,
             comfort,
+            vessel,
+            comfortPreference: personalComfort,
             nowMs: Date.now(),
             modelLabel: model.label,
         });
@@ -999,6 +1025,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         sea,
         spread,
         comfort,
+        vessel,
+        personalComfort,
         nowMs,
         model.label,
         start?.source,
@@ -1235,6 +1263,18 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // three-hour-old wind (review, 2026-09-19). Same grace, same words.
     const seaAgeMs = sea ? Math.max(0, nowMs - sea.fetchedAt) : 0;
     const seaOld = seaAgeMs > FORECAST_TTL_MS + 5 * 60_000;
+    const seaFeel =
+        seaNow && seaNow.waveM !== null && !seaNow.inshore && !seaNow.beyond && !seaOld
+            ? seaComfort(
+                  {
+                      total: { hM: seaNow.waveM, periodS: seaNow.wavePeriodS, fromDeg: seaNow.waveFromDeg },
+                      windSea: null,
+                      swell: null,
+                  },
+                  vessel,
+                  personalComfort,
+              )
+            : null;
     const seaAgeTag =
         seaAgeMs < 2 * 3_600_000
             ? `${Math.round(seaAgeMs / 60_000)}M OLD`
@@ -1677,6 +1717,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                         : 'Sea'
                                 }
                                 value={waveShown === null ? DASH : waveShown.toFixed(1)}
+                                labelDetail={seaFeel?.word ?? 'Comfort unknown'}
                                 unit={waveUnit}
                                 metric={fc(waveShown)}
                                 testId="hud-sea"
@@ -1693,7 +1734,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                               seaNow?.waveFromDeg != null
                                                   ? `, from ${String(Math.round(seaNow.waveFromDeg) % 360).padStart(3, '0')} true`
                                                   : ''
-                                          }, ${SEA_WAVE_PROVIDER} wave model${
+                                          }, ${seaFeel?.word ?? 'comfort unknown'}${seaFeel ? `, ${seaFeel.reason}, ${comfortPreferenceLabel(personalComfort, seaFeel.input)}, comfort not safety` : ''}, ${SEA_WAVE_PROVIDER} wave model${
                                               seaOld ? `, fetched ${seaAgeTag.toLowerCase()}` : ''
                                           }`
                                 }

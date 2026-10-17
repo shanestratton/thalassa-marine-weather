@@ -3,6 +3,7 @@ import { calcTWA, haversineNm, initialBearing, projectPosition } from '../isochr
 import { inspectRouteEnvironment } from '../isochrone/routeComfort';
 import type { DepartureWeatherField } from './departureWeather';
 import type { VesselProfile } from '../../types';
+import type { ComfortPreference } from '../../utils/comfortPreference';
 
 /** Sample the displayed path on its own clock, including conditions between its smoothed nodes. */
 export function departureMetrics(
@@ -15,6 +16,7 @@ export function departureMetrics(
     weather: DepartureWeatherField | null | undefined,
     vessel: VesselProfile,
     maxWaveM?: number,
+    preference?: ComfortPreference | null,
 ) {
     let hours = 0,
         knownWindHours = 0,
@@ -32,7 +34,7 @@ export function departureMetrics(
     let gustComplete = true,
         rainComplete = true,
         currentComplete = true;
-    const inspected = inspectRouteEnvironment(route, waves, exclusions, maxWaveM, vessel);
+    const inspected = inspectRouteEnvironment(route, waves, exclusions, maxWaveM, vessel, preference);
     for (let i = 1; i < route.length; i++) {
         const a = route[i - 1],
             b = route[i];

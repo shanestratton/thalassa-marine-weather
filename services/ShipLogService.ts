@@ -2708,6 +2708,16 @@ class ShipLogServiceClass {
         const last = this.shoreZoneResolver.getLastResolution();
         return last?.confirmed ? last.zone : null;
     }
+    /** Geographic evidence for an explicit private comfort report. The
+     * caller must subtract the offset to its actual retained capture. */
+    getComfortShoreEvidence(): { latitude: number; longitude: number; coastDistanceNm: number } | null {
+        const status = this.getPublishedTrackingStatus();
+        if (!status.isTracking || status.isPaused) return null;
+        const last = this.shoreZoneResolver.getLastResolution();
+        return last?.confirmed && last.coastDistanceNm !== null && Number.isFinite(last.coastDistanceNm)
+            ? { latitude: last.latitude, longitude: last.longitude, coastDistanceNm: last.coastDistanceNm }
+            : null;
+    }
 
     /** UI observers must not treat a pending start's optimistic state as a verified recording. */
     getPublishedTrackingStatus(): TrackingState {
