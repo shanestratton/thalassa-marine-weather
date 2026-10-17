@@ -74,3 +74,14 @@ pairs a viewer and checks A→B→A retirement, fresh rotation and actual privat
 permissions. The job has read-only repository access and no provider credentials,
 Pi connection or installer action. This definition is prepared for review; it is
 not evidence that the Linux proof has run or passed.
+
+The exact prepared source5daf8d5d7 subsequently passed the actual isolated Linux
+run39020812022/job117362073450:38/38 Node tests and20 actual SQLite/compiled-CLI
+checks,0 failures and0 skips. The verified artifact12096712254 has SHA256
+42c97405a6c7ab66b24fe927955fba166a04f094bae55b6f4ff4d19a5fe50e9d;
+all350 Git input hashes were checked. The immutable receipt is
+`outputs/Build142 cabin real SQLite source proof.json`. The actual disposable
+service exited0 with the requested systemd limits and private networking. It
+did not capture its own kernel cgroup values, so the receipt does not claim a
+measured memory cap or infer one from an unloaded unit. Physical Pi/hardware and
+listener activation remain pending.

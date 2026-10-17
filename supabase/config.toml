@@ -331,3 +331,8 @@ verify_jwt = false
 [functions.overdue-watch]
 # Overdue work is service-only and retains both gateway JWT and exact service auth.
 verify_jwt = true
+
+[functions.pi-internet-ais]
+# Gateway anon JWT plus the current scoped Pi relay; no service key on the Pi.
+# New export remains disabled until separately reviewed and explicitly enabled.
+verify_jwt = true
