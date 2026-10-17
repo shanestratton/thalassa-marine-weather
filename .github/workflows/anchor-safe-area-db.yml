@@ -5,7 +5,7 @@ on:
         paths:
             - '.github/workflows/anchor-safe-area-db.yml'
             - 'supabase/tests/anchor-safe-area*'
-            - 'supabase/migrations/20261017002338_anchor_safe_area.sql'
+            - 'supabase/migrations/20261017005140_anchor_safe_area.sql'
     workflow_dispatch:
         inputs:
             source_sha:
@@ -56,7 +56,7 @@ jobs:
                   git rev-parse HEAD > "$RUNNER_TEMP/anchor-area139-proof/SOURCE_SHA.txt"
                   node --version > "$RUNNER_TEMP/anchor-area139-proof/NODE_VERSION.txt"
                   docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/anchor-area139-proof/POSTGRES_IMAGE_ID.txt"
-                  sha256sum supabase/tests/anchor-safe-area* supabase/migrations/20261017002338_anchor_safe_area.sql supabase/migrations/20260829090000_anchor_relay_sessions.sql supabase/migrations/20261010130000_anchor_watch_keeper_heartbeat.sql > "$RUNNER_TEMP/anchor-area139-proof/SHA256SUMS"
+                  sha256sum supabase/tests/anchor-safe-area* supabase/migrations/20261017005140_anchor_safe_area.sql supabase/migrations/20260829090000_anchor_relay_sessions.sql supabase/migrations/20261010130000_anchor_watch_keeper_heartbeat.sql > "$RUNNER_TEMP/anchor-area139-proof/SHA256SUMS"
             - name: Install only pinned isolated PostgreSQL client
               shell: bash
               run: |

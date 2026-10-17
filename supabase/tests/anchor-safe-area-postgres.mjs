@@ -26,7 +26,7 @@ const pool = new Pool({
     application_name: 'anchor-area139-fixture',
 });
 const read = (p) => readFile(new URL(p, import.meta.url), 'utf8');
-const migrationPath = '../migrations/20261017002338_anchor_safe_area.sql';
+const migrationPath = '../migrations/20261017005140_anchor_safe_area.sql';
 const migration = await read(migrationPath),
     hash = (v) => createHash('sha256').update(v).digest('hex');
 const owner = '10000000-0000-4000-8000-000000000001',

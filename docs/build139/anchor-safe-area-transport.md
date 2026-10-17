@@ -1,6 +1,6 @@
 # Anchor safe area: staged Pi 8 and relay contract
 
-This source checkpoint follows the canonical foundation `506c8c455` and phone checkpoint `6d1c20ea3`. It completes the source path for a manually drawn boundary to be handed to a compatible paired Pi, recovered privately, checked by its GPS watch, and published through an owner-authorised relay. It does not install Pi update 8, push the held database change, or deploy the Edge Function.
+This source checkpoint follows the canonical foundation `506c8c455` and phone checkpoint `6d1c20ea3`. It completes the source path for a manually drawn boundary to be handed to a compatible paired Pi, recovered privately, checked by its GPS watch, and published through an owner-authorised relay. The additive canonical database change and JWT-preserving Edge version9 have since been deployed and read back; custom admission remains held pending version drain and compatible Pi installation. This source packet does not install Pi update8.
 
 ## Boundary and identity
 
@@ -26,7 +26,7 @@ An unconfirmed Pi clear remains visibly unknown. Renewal authorises the chosen c
 
 ## Reviewed release sequence
 
-1. Review the canonical CLI-generated `supabase/migrations/20261017002338_anchor_safe_area.sql` and [atomic backend review](anchor-safe-area-backend-review.md). The original future-dated held file remains preserved and must not also be applied. The canonical packet adds nullable bounded fields and service-only invoker operations; existing table RLS, client grants and the heartbeat implementation remain unchanged. Run the prepared disposable PostgreSQL proof before any live decision.
+1. Review the canonical migration, aligned to its actual applied ledger version at `supabase/migrations/20261017005140_anchor_safe_area.sql`, and [atomic backend review](anchor-safe-area-backend-review.md). The original future-dated held file remains preserved and must not also be applied. The canonical packet adds nullable bounded fields and service-only invoker operations; existing table RLS, client grants and the heartbeat implementation remain unchanged. The disposable PostgreSQL17.6 proof passed85 checks including five blocked competing transactions before deployment.
 2. Deploy the staged `anchor-relay` source and shared canonical mirror, then verify owner/session/relay rejection, strict boundary echoes, stale UUID/frame/vessel rejection, no-fix status and existing expiry/alarm paths.
 3. Include `anchorAreaAdmission.ts`, `anchorZoneContract.ts`, the canonical mirror and modified anchor server/broadcaster/store/command-lock modules in the reviewed Pi update 8 package. Stage only; no live installation is performed here.
 4. After a separately authorised Pi installation, verify the capability, enrolled-device refusal, fresh GPS admission, distinct-fix drag, restart recovery, old-protocol compatibility and phone-to-Pi handoff on real hardware. Confirm exact boundary reports on Shore Watch before relying on the handoff. Existing safe circle watches remain supported.
