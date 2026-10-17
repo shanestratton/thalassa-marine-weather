@@ -26,7 +26,7 @@ describe('model comparison ensemble access', () => {
         const opener = screen.getByRole('button', { name: 'Ensemble bands · IFS / EC46' });
         expect(opener).toHaveAttribute('aria-expanded', 'false');
         expect(screen.queryByLabelText('Fictional ensemble panel')).toBeNull();
-        expect(screen.getByRole('button', { name: 'Close', exact: true })).toHaveFocus();
+        expect(screen.getByRole('button', { name: /^Close$/ })).toHaveFocus();
 
         fireEvent.click(opener);
         expect(await screen.findByLabelText('Fictional ensemble panel')).toHaveTextContent('-27.47, 153.02');
@@ -56,6 +56,6 @@ describe('model comparison ensemble access', () => {
             'aria-expanded',
             'false',
         );
-        expect(screen.getByRole('button', { name: 'Close', exact: true })).toHaveFocus();
+        expect(screen.getByRole('button', { name: /^Close$/ })).toHaveFocus();
     });
 });
