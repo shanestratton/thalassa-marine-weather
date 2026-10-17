@@ -24,6 +24,16 @@ for (const width of [300, 375])
             const url = route.request().url(),
                 u = new URL(url);
             if (u.origin === 'http://127.0.0.1:4296') return route.continue();
+            if (u.origin === 'https://events.mapbox.com') {
+                return route.fulfill({
+                    status: 204,
+                    headers: {
+                        'access-control-allow-origin': '*',
+                        'access-control-allow-methods': 'GET, POST, OPTIONS',
+                        'access-control-allow-headers': '*',
+                    },
+                });
+            }
             if (u.origin === 'https://tiles.thalassatiles.com') {
                 requested.push(url);
                 if (offline) return route.abort();
