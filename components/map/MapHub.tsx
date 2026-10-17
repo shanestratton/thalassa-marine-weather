@@ -342,6 +342,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const CommunityChartNotesLayer = React.lazy(() => import('./CommunityChartNotesLayer'));
 const PlaceReviewsHost = React.lazy(() => import('../community/PlaceReviewsHost'));
 const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
 const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
@@ -2260,6 +2261,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         setMooringsVisible,
         facilitiesVisible,
         setFacilitiesVisible,
+        communityNotesVisible,
+        setCommunityNotesVisible,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -2280,6 +2283,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         browseAnchorageVisible,
         browseMooringsVisible,
         browseFacilitiesVisible,
+        browseCommunityNotesVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     } = useMapHubLayerVisibility({ mapRef, planningSurface });
@@ -4343,6 +4347,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setMooringsVisible,
                             facilitiesVisible,
                             setFacilitiesVisible,
+                            communityNotesVisible,
+                            setCommunityNotesVisible,
                             lightningVisible,
                             setLightningVisible,
                             weatherInspectMode,
@@ -6191,6 +6197,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                         Radar by RainViewer
                     </a>
                 )}
+                <Suspense fallback={null}>
+                    {browseCommunityNotesVisible && !embedded && !pickerMode && !isPinView && (
+                        <CommunityChartNotesLayer mapRef={mapRef} mapReady={mapReady} />
+                    )}
+                </Suspense>
             </div>
 
             <Suspense fallback={null}>

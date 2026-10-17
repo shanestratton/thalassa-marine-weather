@@ -1,7 +1,8 @@
 import React from 'react';
 import { photoRequest } from '../../services/community/PlaceReviewsService';
 import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
-export function ReviewPhoto({ id }: { id: string }) {
+import { chartPhotoRequest, CHART_NOTES_CHANGED } from '../../services/community/ChartNotesService';
+export function ReviewPhoto({ id, kind = 'place' }: { id: string; kind?: 'place' | 'chart' }) {
     const instance = React.useId();
     const [open, setOpen] = React.useState(false);
     const [url, setUrl] = React.useState<string | null>(null);
@@ -26,6 +27,13 @@ export function ReviewPhoto({ id }: { id: string }) {
             setOpen(false);
             if (blobUrl) URL.revokeObjectURL(blobUrl);
         });
+        const retired = () => {
+            ctl.abort();
+            setUrl(null);
+            setOpen(false);
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
+        };
+        if (kind === 'chart') window.addEventListener(CHART_NOTES_CHANGED, retired);
         const timer = setTimeout(() => {
             ctl.abort();
             unsubscribe();
@@ -34,7 +42,7 @@ export function ReviewPhoto({ id }: { id: string }) {
             setOpen(false);
             if (blobUrl) URL.revokeObjectURL(blobUrl);
         }, 15000);
-        void photoRequest(id, ctl.signal)
+        void (kind === 'chart' ? chartPhotoRequest : photoRequest)(id, ctl.signal)
             .then((r) => r.blob())
             .then((blob) => {
                 if (ctl.signal.aborted) return;
@@ -49,9 +57,10 @@ export function ReviewPhoto({ id }: { id: string }) {
             ctl.abort();
             unsubscribe();
             clearTimeout(timer);
+            window.removeEventListener(CHART_NOTES_CHANGED, retired);
             if (blobUrl) URL.revokeObjectURL(blobUrl);
         };
-    }, [id, open]);
+    }, [id, kind, open]);
     return (
         <div className="space-y-2">
             <button
