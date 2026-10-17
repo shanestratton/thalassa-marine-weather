@@ -863,8 +863,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
-                    <div className="sticky top-0 z-10 flex items-center justify-between bg-slate-900 px-4 pt-2 pb-1">
-                        <div>
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-slate-900 px-4 pt-2 pb-1">
+                        <div className="min-w-0 flex-1">
                             <h2
                                 id="model-comparison-title"
                                 className="text-xs font-black text-white uppercase tracking-wide flex items-center gap-2"
@@ -880,6 +880,16 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 {series.length === 1 ? 'model' : 'models'}
                             </p>
                         </div>
+                        <button
+                            type="button"
+                            aria-expanded={ensembleOpen}
+                            aria-controls="ensemble-band"
+                            disabled={lat == null || lon == null}
+                            onClick={() => setEnsembleOpen(!ensembleOpen)}
+                            className="min-h-[44px] w-24 shrink-0 rounded-xl border border-white/10 px-2 py-1 text-[10px] leading-tight text-sky-300"
+                        >
+                            {ensembleOpen ? 'Hide ensemble bands' : 'Ensemble bands · IFS / EC46'}
+                        </button>
                         <button
                             ref={closeButtonRef}
                             onClick={onClose}
@@ -1314,18 +1324,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                         ))
                     )}
 
-                    <div className="px-4 pb-2">
-                        <button
-                            type="button"
-                            aria-expanded={ensembleOpen}
-                            aria-controls="ensemble-band"
-                            disabled={lat == null || lon == null}
-                            onClick={() => setEnsembleOpen(!ensembleOpen)}
-                            className="min-h-[44px] w-full rounded-xl border border-white/10 px-3 text-left text-xs text-sky-300"
-                        >
-                            {ensembleOpen ? 'Hide ensemble bands' : 'Ensemble bands · IFS / EC46'}
-                        </button>
-                        {ensembleOpen && lat != null && lon != null && (
+                    {ensembleOpen && lat != null && lon != null && (
+                        <div className="px-4 pb-2">
                             <div id="ensemble-band">
                                 <React.Suspense
                                     fallback={<p className="text-xs text-gray-400">Loading ensemble panel…</p>}
@@ -1333,8 +1333,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                     <EnsembleBand latitude={lat} longitude={lon} />
                                 </React.Suspense>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {/* Attribution — a licence condition, not a courtesy: the models on screen */}
                     {credit && (
