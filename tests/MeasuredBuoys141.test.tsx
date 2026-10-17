@@ -134,7 +134,7 @@ describe('measured buoy source and map ownership', () => {
         );
         expect(onInteractionChange).toHaveBeenCalledWith(true);
         expect(screen.getByText(/No captured forecast history is available yet/)).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+        fireEvent.click(screen.getByRole('button', { name: /^Close$/ }));
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
         expect(onInteractionChange).toHaveBeenLastCalledWith(false);
     });
