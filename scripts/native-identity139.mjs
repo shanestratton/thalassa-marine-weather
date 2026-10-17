@@ -16,6 +16,45 @@ export const WATCH_FILES139 = Object.freeze({
 });
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
+/** Reproduce only the six existing entry relocations measured after CocoaPods sync.
+ * This transforms the immutable138 baseline; the candidate itself is never
+ * normalized and must match every resulting byte exactly. */
+export function expectedNativeProject139(oldText) {
+    let text = oldText.replaceAll('CURRENT_PROJECT_VERSION = 138;', 'CURRENT_PROJECT_VERSION = 139;');
+    for (const [section, suffix] of [
+        ['PBXBuildFile', '1'],
+        ['PBXFileReference', '2'],
+    ]) {
+        const begin = `/* Begin ${section} section */`,
+            end = `/* End ${section} section */`;
+        const start = text.indexOf(begin),
+            finish = text.indexOf(end);
+        assert.ok(start >= 0 && finish > start && text.indexOf(begin, start + 1) < 0);
+        const body = text.slice(start, finish),
+            lines = body.split('\n');
+        const ids = [
+            `AA0011B1AAAA11B10000000${suffix}`,
+            `AA0011B2AAAA11B20000000${suffix}`,
+            `B3A10001202608040000000${suffix}`,
+        ];
+        const moved = ids.map((id) => {
+            const matching = lines.filter((line) => line.startsWith(`\t\t${id} /*`));
+            assert.equal(matching.length, 1, 'Expected one original NFC/privacy entry');
+            return matching[0];
+        });
+        const first = lines.indexOf(moved[0]);
+        assert.deepEqual(lines.slice(first, first + 3), moved, 'Unexpected138 NFC/privacy ordering');
+        const remaining = lines.filter((line) => !moved.includes(line));
+        const anchors = remaining
+            .map((line, index) => (line.startsWith(`\t\tAA000039AAAA00390000000${suffix} /*`) ? index : -1))
+            .filter((index) => index >= 0);
+        assert.equal(anchors.length, 1, 'Expected original NmeaUdpRebindGate entry');
+        remaining.splice(anchors[0] + 1, 0, ...moved);
+        text = text.slice(0, start) + remaining.join('\n') + text.slice(finish);
+    }
+    return Buffer.from(text);
+}
+
 /** Exact native policy, also reusable by the separately unarmed release draft.
  * The two reviewed files belong to the synchronized compiled Watch target.
  * The historical ios/WatchApp tree has no exception. */
@@ -34,14 +73,23 @@ export function assertNative139(read = readFileSync, git = execFileSync) {
         oldBuilds.every((m) => m[1] === '138'),
         'Unexpected138 identity',
     );
-    const expected = Buffer.from(
-        oldText.replaceAll('CURRENT_PROJECT_VERSION = 138;', 'CURRENT_PROJECT_VERSION = 139;'),
+    const expected = expectedNativeProject139(oldText);
+    assert.ok(
+        read(NATIVE_PROJECT139).equals(expected),
+        'Native project exceeds four build declarations and six reviewed entry relocations',
     );
-    assert.ok(read(NATIVE_PROJECT139).equals(expected), 'Native project exceeds four138→139 declarations');
     for (const [file, hash] of Object.entries(WATCH_FILES139))
         assert.equal(digest(read(file)), hash, `Unreviewed Watch source: ${file}`);
     git('git', ['diff', '--exit-code', 'HEAD', '--', 'ios/'], { stdio: 'pipe' });
-    return { base: NATIVE_BASE138, changedFiles: names, buildChanges: 4, appBuild: 139, watchFiles: WATCH_FILES139 };
+    return {
+        base: NATIVE_BASE138,
+        changedFiles: names,
+        buildChanges: 4,
+        reviewedEntryRelocations: 6,
+        projectSha256: digest(expected),
+        appBuild: 139,
+        watchFiles: WATCH_FILES139,
+    };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

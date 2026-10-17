@@ -48,14 +48,14 @@
 		AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000028AAAA002800000002 /* MemoryGaugePlugin.m */; };
 		AA000029AAAA002900000001 /* GoogleOAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */; };
 		AA000030AAAA003000000001 /* thalassa-anchor-alarm.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA000030AAAA003000000002 /* thalassa-anchor-alarm.wav */; };
-		AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */; };
-		AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */; };
-		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 		AA000035AAAA003500000001 /* GribDocumentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000035AAAA003500000002 /* GribDocumentPlugin.swift */; };
 		AA000036AAAA003600000001 /* ObservationHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */; };
 		AA000037AAAA003700000001 /* NmeaUdpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */; };
 		AA000038AAAA003800000001 /* SignalKReaderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */; };
 		AA000039AAAA003900000001 /* NmeaUdpRebindGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */; };
+		AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */; };
+		AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */; };
+		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -105,14 +105,14 @@
 		AA000028AAAA002800000002 /* MemoryGaugePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MemoryGaugePlugin.m; sourceTree = "<group>"; };
 		AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthPlugin.swift; sourceTree = "<group>"; };
 		AA000030AAAA003000000002 /* thalassa-anchor-alarm.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "thalassa-anchor-alarm.wav"; sourceTree = "<group>"; };
-		AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NfcTagPlugin.swift; sourceTree = "<group>"; };
-		AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NfcTagPlugin.m; sourceTree = "<group>"; };
-		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA000035AAAA003500000002 /* GribDocumentPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GribDocumentPlugin.swift; sourceTree = "<group>"; };
 		AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObservationHttpPlugin.swift; sourceTree = "<group>"; };
 		AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NmeaUdpPlugin.swift; sourceTree = "<group>"; };
 		AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalKReaderPlugin.swift; sourceTree = "<group>"; };
 		AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NmeaUdpRebindGate.swift; sourceTree = "<group>"; };
+		AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NfcTagPlugin.swift; sourceTree = "<group>"; };
+		AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NfcTagPlugin.m; sourceTree = "<group>"; };
+		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
