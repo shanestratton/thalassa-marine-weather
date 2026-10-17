@@ -109,6 +109,7 @@ type Report = {
     savedFile: { bytes: number; type: string } | null;
     savedBytesMatch: boolean;
     nativeFile: { bytes: number; type: string } | null;
+    tokenMode: 'pending' | 'configured' | 'synthetic-offline';
     blobUrlsHanded: number;
     violations: Array<{ directive: string; blockedURI: string }>;
     mapErrors: string[];
@@ -120,6 +121,19 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
     test(`an offline MBTiles chart opens and its tile draws under the ${policy} CSP`, async ({ page }, testInfo) => {
         const mbtiles = await fictionalMbtiles();
         const refusals: string[] = [];
+        const blockedSdk: string[] = [];
+        const unexpectedExternal: string[] = [];
+        // Keep this fictional render entirely offline, including Mapbox's
+        // session/telemetry boundary. No successful authentication is claimed.
+        await page.route('**/*', (route) => {
+            const url = new URL(route.request().url());
+            if (!/^https?:$/.test(url.protocol) || url.hostname === '127.0.0.1' || url.hostname === 'localhost')
+                return route.continue();
+            const target = `${url.origin}${url.pathname}`;
+            if (url.hostname === 'mapbox.com' || url.hostname.endsWith('.mapbox.com')) blockedSdk.push(target);
+            else unexpectedExternal.push(target);
+            return route.abort();
+        });
         page.on('console', (m) => {
             if (/refused|violates|content security policy/i.test(m.text())) refusals.push(m.text());
         });
@@ -155,6 +169,20 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
         // background, which says whether the canvas painted at all.
         const seaPx = await page.evaluate(() => (window as unknown as Fixture).__mbtilesCsp.probe(-48, -11));
         testInfo.annotations.push({ type: 'report', description: JSON.stringify({ report, tilePx, seaPx }) });
+        const paintContext = await page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.mapboxgl-canvas');
+            return {
+                dpr: devicePixelRatio,
+                width: canvas?.width,
+                height: canvas?.height,
+                clientWidth: canvas?.clientWidth,
+                clientHeight: canvas?.clientHeight,
+            };
+        });
+        testInfo.annotations.push({
+            type: 'offline-paint-context',
+            description: JSON.stringify({ ...paintContext, blockedSdk, unexpectedExternal }),
+        });
 
         expect(refusals, 'nothing in the chain is refused by the CSP').toEqual([]);
         expect(report.violations).toEqual([]);
@@ -173,6 +201,12 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
         expect(report.blobUrlsHanded, 'transformRequest handed Mapbox a blob: tile').toBeGreaterThan(0);
         expect(report.mapErrors).toEqual([]);
         expect(report.tileStates, 'Mapbox loaded the chart tile').toContain('loaded');
+        expect(unexpectedExternal, 'no external chart/provider requests are made').toEqual([]);
+        expect(seaPx, 'the offline map actually painted its background').toEqual([8, 36, 59, 255]);
+        expect(tilePx, 'the offline map actually painted the original fictional chart tile').toEqual([
+            ...TILE_RGB,
+            255,
+        ]);
 
         // And the pixels, when this map is allowed to paint (the dev server's token).
         const painted = seaPx[3] > 0;

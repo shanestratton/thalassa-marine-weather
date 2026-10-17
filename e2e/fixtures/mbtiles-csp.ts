@@ -12,8 +12,9 @@
  * loads raster tiles with fetch(), so the blob: URL is a connect-src load.
  *
  * window.__mbtilesCsp reports each step, every CSP violation the page saw,
- * the tile states Mapbox ended with, and probe() reads the drawn pixel
- * (Mapbox only paints for an authenticated map: the dev server's own token).
+ * the tile states Mapbox ended with, and probe() reads the drawn pixel.
+ * A marked synthetic token plus blocked external requests allows an offline
+ * test-mode render; this fixture does not verify actual Mapbox authentication.
  */
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -53,6 +54,7 @@ const state = {
     savedFile: null as { bytes: number; type: string } | null,
     savedBytesMatch: false,
     nativeFile: null as { bytes: number; type: string } | null,
+    tokenMode: 'pending' as 'pending' | 'configured' | 'synthetic-offline',
     blobUrlsHanded: 0,
     violations: [] as Violation[],
     mapErrors: [] as string[],
@@ -76,8 +78,13 @@ document.addEventListener('securitypolicyviolation', (e) => {
     state.violations.push({ directive: e.effectiveDirective || e.violatedDirective, blockedURI: e.blockedURI });
 });
 
-const token = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_MAPBOX_ACCESS_TOKEN;
-if (token) mapboxgl.accessToken = token;
+const configuredToken = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+    ?.VITE_MAPBOX_ACCESS_TOKEN;
+// Same offline boundary as local-chart-library142: testMode suppresses auth
+// errors, but a missing token still clears the GL canvas. No real key is needed
+// here; the spec blocks every external authentication/telemetry/data request.
+mapboxgl.accessToken = configuredToken || 'pk.mbtiles-csp-offline-fixture';
+state.tokenMode = configuredToken ? 'configured' : 'synthetic-offline';
 
 const map = new mapboxgl.Map({
     container: document.getElementById('map')!,
