@@ -108,6 +108,18 @@ beforeEach(() => {
     });
 });
 describe('retained private chart storage', () => {
+    it('refuses a native picker reply without its original display name and cleans its captured copy', async () => {
+        const { service } = await setup();
+        mock.native = true;
+        mock.picker.mockImplementation(async ({ ownerNamespace }: { ownerNamespace: string }) => {
+            const path = `chart-library/${ownerNamespace}/00000000-0000-4000-8000-000000000001.kap`;
+            files.set(path, new Blob(['BSB/own fixture']));
+            return { path, size: 15 };
+        });
+        await expect(service.importLocalChart('native-picker', 'own')).rejects.toThrow('different format');
+        expect([...files.keys()].some((path) => path.endsWith('.kap'))).toBe(false);
+        expect(mock.fs.writeFile).not.toHaveBeenCalled();
+    });
     it('releases a cancelled picker wait before native completion and cleans the exact late private copy', async () => {
         const { service } = await setup();
         mock.native = true;

@@ -422,9 +422,11 @@ class MBTilesServiceImpl {
         // Unrecognised raster bytes return null so useMapInit's transparent
         // fallback tile is used instead of a decode attempt.
         const declaredPbf = metadata?.format === 'pbf';
+        const retained = this.chartInfo.get(fileName)?.storage === 'retained';
         const sniffed = sniffImageMime(tileData);
         if (sniffed && !localChartRasterDimensions(tileData, sniffed)) return null;
-        const mimeType = sniffed ?? (declaredPbf || looksGzipped(tileData) ? 'application/x-protobuf' : null);
+        const mimeType =
+            sniffed ?? (!retained && (declaredPbf || looksGzipped(tileData)) ? 'application/x-protobuf' : null);
         if (!mimeType) return null;
 
         const blob = new Blob([new Uint8Array(tileData)], { type: mimeType });

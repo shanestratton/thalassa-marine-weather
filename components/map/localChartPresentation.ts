@@ -38,12 +38,16 @@ export function mountLocalChartPresentation(
     };
     const layerOwned = () => {
         const layer = map.getLayer(LAYER);
+        const metadata = layer?.metadata;
         return (
             !!layer &&
             layer.type === 'raster' &&
             'source' in layer &&
             layer.source === SOURCE &&
-            layer.metadata?.thalassaLocalChartOwner === token
+            metadata !== null &&
+            typeof metadata === 'object' &&
+            'thalassaLocalChartOwner' in metadata &&
+            metadata.thalassaLocalChartOwner === token
         );
     };
     const release = () => {

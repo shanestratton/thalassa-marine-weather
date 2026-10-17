@@ -128,7 +128,7 @@ physical-phone claim is made.
 ## Evidence and remaining gates
 
 The original 57 foundation/manifest cases remain. The combined focused packet
-currently passes 185 cases in 13 suites, including actual late copy/index/remove
+currently passes 187 cases in 13 suites, including actual late copy/index/remove
 ownership races, read timeout, SQL schema refusal, worker termination, live React
 controls, URI queues, original raster pixel equality and decompression bombs.
 The own fictional binary fixtures are reproducibly generated in
@@ -151,3 +151,12 @@ storage rejection required the charged binary-string fallback. Pixel/readiness
 assertions were retained. Final native compilation, physical import/Open-in,
 configured production budget and release distribution remain required gates.
 No signing, upload, master update or hardware activation occurs in this packet.
+
+The first whole-app compiler on `5ef4d5dd8` failed with 16 genuine diagnostics:
+13 repeated fixture window-boundary casts, one unknown Mapbox metadata property
+and two native reply-name union checks. The source repair adds runtime name
+admission/cleanup and an explicit metadata property guard; no assertions are
+removed. A retained raster tile also refuses disguised gzip/vector bytes while
+the legacy vector reader keeps its prior behavior. The repair's first unit run
+exposed a leaked URL test mock; its eight failures and the corrected 187-case
+run are retained separately. The repair compiler remains a separate receipt.

@@ -24,7 +24,7 @@ type FixtureWindow = Window & { __localChart142: State };
 test.afterEach(async ({ page }, info) => {
     const state = await page
         .evaluate(() => {
-            const value = (window as FixtureWindow).__localChart142;
+            const value = (window as unknown as FixtureWindow).__localChart142;
             return value
                 ? {
                       ready: value.ready,
@@ -79,9 +79,13 @@ async function display(page: Page, name: string) {
 }
 async function pixel(page: Page, lon: number, lat: number, expected: number[]) {
     await expect
-        .poll(() => page.evaluate(([x, y]) => (window as FixtureWindow).__localChart142.probe(x, y), [lon, lat]), {
-            timeout: 15000,
-        })
+        .poll(
+            () =>
+                page.evaluate(([x, y]) => (window as unknown as FixtureWindow).__localChart142.probe(x, y), [lon, lat]),
+            {
+                timeout: 15000,
+            },
+        )
         .toEqual(expected);
 }
 for (const width of [300, 375])
@@ -124,7 +128,9 @@ for (const width of [300, 375])
                 await route.fulfill({ response, headers, body });
             });
             await page.goto('/e2e/fixtures/local-chart-library142.html');
-            await page.waitForFunction(() => (window as FixtureWindow).__localChart142?.ready, { timeout: 30000 });
+            await page.waitForFunction(() => (window as unknown as FixtureWindow).__localChart142?.ready, {
+                timeout: 30000,
+            });
             await library(page);
             await expect(page.getByRole('button', { name: 'Import a chart file', exact: true })).toBeDisabled();
             expect(wasm).toEqual([]);
@@ -169,18 +175,20 @@ for (const width of [300, 375])
             await page.screenshot({ path: info.outputPath('actual-chart-credits.png') });
             await page.getByRole('button', { name: 'Close', exact: true }).first().click();
             // Retire already drawn private pixels, not just an unopened list.
-            await page.evaluate(() => (window as FixtureWindow).__localChart142.switchAccount('b'));
+            await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.switchAccount('b'));
             await expect
-                .poll(() => page.evaluate(() => (window as FixtureWindow).__localChart142.sourcePresent()))
+                .poll(() => page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.sourcePresent()))
                 .toBe(false);
             await pixel(page, 153.0125, -27.1125, [8, 36, 59, 255]);
             await library(page);
             await expect(page.getByText('Saved charts (0/8)', { exact: true })).toBeVisible();
             await expect(page.getByText('phone.tif', { exact: true })).toHaveCount(0);
-            await page.evaluate(() => (window as FixtureWindow).__localChart142.switchAccount('a'));
+            await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.switchAccount('a'));
             await library(page);
             await expect(page.getByText('Saved charts (3/8)', { exact: true })).toBeVisible();
-            expect(await page.evaluate(() => (window as FixtureWindow).__localChart142.sourcePresent())).toBe(false);
+            expect(
+                await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.sourcePresent()),
+            ).toBe(false);
             // A real copied GeoTIFF with an unsupported original CRS must fail
             // through the actual worker, without a guessed projection or pixels.
             const unsupported = Buffer.from(readFileSync(resolve(fixtures, 'phone.tif')));
@@ -197,7 +205,9 @@ for (const width of [300, 375])
             await expect(unsupportedRow).toBeVisible();
             await unsupportedRow.getByRole('button', { name: 'Display', exact: true }).click();
             await expect(page.getByRole('status')).toContainText('No datum transformation is guessed.');
-            expect(await page.evaluate(() => (window as FixtureWindow).__localChart142.sourcePresent())).toBe(false);
+            expect(
+                await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.sourcePresent()),
+            ).toBe(false);
             await unsupportedRow.getByRole('button', { name: 'Remove', exact: true }).click();
             await expect(unsupportedRow).toHaveCount(0);
             const modal = page.getByRole('dialog');
@@ -227,20 +237,22 @@ for (const width of [300, 375])
             await page.getByRole('button', { name: 'Done', exact: true }).click();
             const beforeReload = wasm.length;
             await page.reload();
-            await page.waitForFunction(() => (window as FixtureWindow).__localChart142?.ready);
+            await page.waitForFunction(() => (window as unknown as FixtureWindow).__localChart142?.ready);
             await library(page);
             await expect(page.getByText('Saved charts (2/8)', { exact: true })).toBeVisible();
             expect(wasm.length, 'a closed retained catalogue after reload does not load SQLite').toBe(beforeReload);
-            expect(await page.evaluate(() => (window as FixtureWindow).__localChart142.sourcePresent())).toBe(false);
-            await page.evaluate(() => (window as FixtureWindow).__localChart142.switchAccount('b'));
+            expect(
+                await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.sourcePresent()),
+            ).toBe(false);
+            await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.switchAccount('b'));
             await library(page);
             await expect(page.getByText('Saved charts (0/8)', { exact: true })).toBeVisible();
             await expect(page.getByText('phone.tif', { exact: true })).toHaveCount(0);
-            await page.evaluate(() => (window as FixtureWindow).__localChart142.switchAccount('a'));
+            await page.evaluate(() => (window as unknown as FixtureWindow).__localChart142.switchAccount('a'));
             await library(page);
             await expect(page.getByText('Saved charts (2/8)', { exact: true })).toBeVisible();
             const final = await page.evaluate(() => {
-                const s = (window as FixtureWindow).__localChart142;
+                const s = (window as unknown as FixtureWindow).__localChart142;
                 return {
                     active: s.active,
                     source: s.sourcePresent(),

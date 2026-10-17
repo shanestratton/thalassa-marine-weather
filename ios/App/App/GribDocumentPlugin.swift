@@ -36,8 +36,8 @@ public final class GribDocumentPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPi
                 call.reject("Close the current file picker first."); return
             }
             self.chartPickerCall = call
-            // The extension/content checks still happen before any copy. A
-            // provider's UTI or a filename is never content/licence evidence.
+            // Extension/file bounds precede the private copy; JS content/hash
+            // admission follows it. A UTI or filename is never licence evidence.
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
             picker.allowsMultipleSelection = false
             picker.delegate = self

@@ -423,13 +423,14 @@ export function importLocalChart(
                     try {
                         ctx.check();
                         if (expired) throw stopped();
-                        if (localChartKind(source === 'native-picker' ? value.name : source.name) !== copiedKind)
+                        const copiedName = source === 'native-picker' ? value.name : source.name;
+                        if (typeof copiedName !== 'string' || localChartKind(copiedName) !== copiedKind)
                             throw new Error('The chart copy has a different format.');
+                        return { ...value, name: copiedName, kind: copiedKind };
                     } catch (error) {
                         await cleanupCopy(value.path, ctx, copiedKind);
                         throw error;
                     }
-                    return { ...value, kind: copiedKind };
                 });
                 try {
                     const value = await waitForLocalChart(
@@ -450,7 +451,7 @@ export function importLocalChart(
                     );
                     path = value.path;
                     kind = value.kind;
-                    name = source === 'native-picker' ? value.name : source.name;
+                    name = value.name;
                     size = value.size;
                     assertBytes(size);
                     ctx.check();

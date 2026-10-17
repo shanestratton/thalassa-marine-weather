@@ -5,6 +5,7 @@ const mock = vi.hoisted(() => ({
     closed: vi.fn(),
     ordinary: true,
     hidden: 0,
+    tile: null as Uint8Array | null,
     rows: [
         { name: 'format', value: 'png' },
         { name: 'bounds', value: '-45,-22,-22.5,0' },
@@ -32,6 +33,14 @@ function sql() {
             run() {}
             prepare(query: string) {
                 let row = -1;
+                if (query.includes('substr(tile_data'))
+                    return {
+                        bind: () => {},
+                        step: () => ++row === 0 && mock.tile !== null,
+                        get: () => [mock.tile],
+                        getAsObject: () => ({}),
+                        free: () => {},
+                    };
                 const rows = query.includes('sqlite_master')
                     ? [{ type: mock.ordinary ? 'table' : 'view', rootpage: mock.ordinary ? 2 : 0 }]
                     : query.includes('table_xinfo')
@@ -55,13 +64,27 @@ beforeEach(() => {
     vi.resetAllMocks();
     mock.ordinary = true;
     mock.hidden = 0;
+    mock.tile = null;
     mock.rows = [
         { name: 'format', value: 'png' },
         { name: 'bounds', value: '-45,-22,-22.5,0' },
     ];
     mock.initialize.mockResolvedValue(sql());
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+it('does not hand a disguised vector/gzip tile to the retained raster image decoder', async () => {
+    const { MBTilesService } = await import('../services/MBTilesService');
+    await MBTilesService.openRetained({ fileName: name, name: 'Own', bytes: bytes(), isCurrent: () => true });
+    mock.tile = new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0, 0, 0]);
+    const create = vi.fn(() => 'blob:unexpected-vector');
+    vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: vi.fn() });
+    expect(MBTilesService.getTile(name, 4, 6, 8)).toEqual(mock.tile);
+    expect(MBTilesService.getTileBlobUrl(name, 4, 6, 8)).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+});
 it('does not initialize SQL for invalid retained input', async () => {
     const { MBTilesService } = await import('../services/MBTilesService');
     expect(() =>
