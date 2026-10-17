@@ -74,6 +74,14 @@ import { WakeKeeperStore } from './wakeKeeper/store.js';
 import { WakeRelay } from './wakeKeeper/relay.js';
 import { wakePairingId, wakeEnrollmentRevision } from './wakeKeeper/contract.js';
 import { createWakeRuleRoutes } from './routes/wakeRules.js';
+import { FleetConsentStore } from './fleetFeed/store.js';
+import { FleetForwarder } from './fleetFeed/forwarder.js';
+import { FleetFeedKeeper } from './fleetFeed/keeper.js';
+import { FleetAisInput, currentFleetContext, localFleetSource } from './fleetFeed/source.js';
+import { fleetWorkerEndpoint, fleetBatchSender } from './fleetFeed/transport.js';
+import { createFleetFeedRoutes } from './routes/fleetFeed.js';
+import type { FleetForwardBinding } from './fleetFeedWire.js';
+import type { ChartDevicePublic } from './encDevices.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
@@ -499,6 +507,71 @@ underwayWatch.restore();
 const piLock = new PiLockStore(path.join(CACHE_DIR, 'pi-lock.json'));
 const piLockLedger = new PiLockLedger();
 const piInternet = new PiInternetMemory(path.join(CACHE_DIR, 'pi-internet.json'));
+//140-05 is independently OFF. A declared receiver-only local rebroadcast,
+// fixed HTTPS worker and fresh owner consent are ALL needed before any socket.
+const fleetPort = process.env.THALASSA_FLEET_AIS_REBROADCAST_PORT;
+const fleetSource = localFleetSource({
+    port: fleetPort && /^\d{1,5}$/.test(fleetPort) ? Number(fleetPort) : undefined,
+    reference: process.env.THALASSA_FLEET_RECEIVER_REFERENCE,
+});
+const fleetEndpoint = fleetWorkerEndpoint(process.env.THALASSA_PI_FLEET_FEED_URL);
+const fleetOperatorEnabled =
+    APP_API_ENABLED &&
+    process.env.THALASSA_PI_FLEET_ENABLED === '1' &&
+    !!fleetSource &&
+    !!fleetEndpoint &&
+    /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/?$/.test(SIGNALK_ORIGIN);
+const fleetConsentStore = new FleetConsentStore(path.join(CACHE_DIR, 'fleet-sharing.json'));
+const fleetContextFor = async (boatId: string, device: ChartDevicePublic) => {
+    const before = diaryRelayOutbox.lendFleetCredentials();
+    if (!before) return null;
+    const document = await selfDocument(),
+        current = (await chartDevices.list()).find((d) => d.id === device.id);
+    const after = diaryRelayOutbox.lendFleetCredentials();
+    if (
+        !current ||
+        wakeEnrollmentRevision(current) !== wakeEnrollmentRevision(device) ||
+        !after ||
+        JSON.stringify(before) !== JSON.stringify(after)
+    )
+        return null;
+    return currentFleetContext({
+        source: fleetSource,
+        document,
+        now: Date.now(),
+        ...after,
+        piDeviceId: identity.deviceId,
+        boatId,
+        device: current,
+        allowInternet: diaryRelayOutbox.getConfiguration().allowInternet && piInternet.read() === true,
+    });
+};
+const fleetInput = new FleetAisInput(fleetSource?.port ?? null, (line, at, key) =>
+    fleetForwarder.ingest(line, at, key),
+);
+const fleetForwarder = new FleetForwarder({
+    store: fleetConsentStore,
+    identity,
+    operatorEnabled: fleetOperatorEnabled,
+    input: fleetInput,
+    readContext: async (binding: FleetForwardBinding) => {
+        const device = (await chartDevices.list()).find((d) => d.id === binding.controllerId);
+        if (!device) {
+            fleetForwarder.off();
+            return null;
+        }
+        return fleetContextFor(binding.boatId, device);
+    },
+    send: fleetEndpoint ? fleetBatchSender(fleetEndpoint) : async () => ({ status: 503 }),
+});
+const fleetKeeper = new FleetFeedKeeper({
+    store: fleetConsentStore,
+    identity,
+    operatorEnabled: fleetOperatorEnabled,
+    context: fleetContextFor,
+    forwarder: fleetForwarder,
+});
+fleetForwarder.start();
 /** Started with the server (below); until then the vault reads as unreachable. */
 let vaultLink: VaultLink | null = null;
 
@@ -732,7 +805,9 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
 
     radarWatch.stop();
     radarSession.retire();
+    const priorFleetAuthority = diaryRelayOutbox.lendFleetCredentials();
     diaryRelayOutbox.configure(input);
+    fleetKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
     return input.allowInternet;
 }
@@ -1207,6 +1282,7 @@ if (APP_API_ENABLED) {
         createRadarRoutes(radarSession),
     );
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
+    app.use('/api/fleet-sharing', requireAppApi, createFleetFeedRoutes({ keeper: fleetKeeper, devices: chartDevices }));
     app.use(
         '/api/weather-watch',
         requireAppApi,
@@ -1440,6 +1516,7 @@ function shutdown() {
     radarWatch.stop();
     radarSession.stop();
     signalkRead?.stop();
+    fleetForwarder.close();
     wakeKeeper.stop();
     windHistory.stop();
     polarLearner.stop();

@@ -16,6 +16,7 @@ import {
     worldFacilitiesWarning,
     type WorldFacilitiesStatus,
 } from '../../services/marineCatalogue/worldFacilities';
+import { receiverCoverageWords, type ReceiverCoverageStatus } from '../../services/ais/receiverCoverage';
 
 export interface ObsCreditsRollupProps {
     rain: 'radar' | 'forecast' | null;
@@ -24,6 +25,7 @@ export interface ObsCreditsRollupProps {
     lightning: boolean;
     satellite: SatIrState;
     ais: boolean;
+    receiverCoverage?: ReceiverCoverageStatus;
     onToggleSatellite: () => void;
     facilities?: WorldFacilitiesStatus | null;
     boatPresence?: BoatPresenceStatus | null;
@@ -37,6 +39,7 @@ export default function ObsCreditsRollup({
     lightning,
     satellite,
     ais,
+    receiverCoverage,
     onToggleSatellite,
     facilities,
     boatPresence,
@@ -86,9 +89,21 @@ export default function ObsCreditsRollup({
                 aisTime > now + 60000),
         lightningWarning = lightning && lightningStatus?.status !== 'open',
         facilitiesWarning = !!facilities && worldFacilitiesWarning(facilities, now),
-        warning = satelliteWarning || aisWarning || lightningWarning || facilitiesWarning;
+        receiverWarning =
+            !!receiverCoverage &&
+            receiverCoverage.state !== 'off' &&
+            (receiverCoverage.state !== 'available' || receiverCoverage.partial),
+        warning = satelliteWarning || aisWarning || lightningWarning || facilitiesWarning || receiverWarning;
     const active =
-        !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais || !!facilities || !!boatPresence;
+        !!rain ||
+        !!wind ||
+        cmems.length > 0 ||
+        lightning ||
+        satelliteOn ||
+        ais ||
+        !!facilities ||
+        !!boatPresence ||
+        !!receiverCoverage;
     React.useEffect(() => {
         if (!active) setOpen(false);
     }, [active]);
@@ -104,6 +119,7 @@ export default function ObsCreditsRollup({
             : null,
         aisWarning ? aisCoverageText(coverage, now) : null,
         facilitiesWarning && facilities ? worldFacilitiesSummary(facilities, now) : null,
+        receiverWarning && receiverCoverage ? receiverCoverageWords(receiverCoverage) : null,
         lightningWarning
             ? `Lightning feed ${lightningStatus?.status ?? 'connecting'}; absence is not clear sky.`
             : null,
@@ -249,6 +265,16 @@ export default function ObsCreditsRollup({
                                         Privacy and friends
                                     </button>
                                 )}
+                            </section>
+                        )}
+                        {receiverCoverage && (
+                            <section aria-label="Receiver coverage source">
+                                <h4 className="font-bold text-sky-200">Who’s listening</h4>
+                                <p>{receiverCoverageWords(receiverCoverage)}</p>
+                                <p className="mt-2 text-xs text-slate-400">
+                                    Thalassa consenting Pi receivers. Fixed 2° cells; five-minute publication delay and
+                                    ten-minute observation expiry. No public receiver identities or trails.
+                                </p>
                             </section>
                         )}
                         <p className="text-xs text-slate-400">

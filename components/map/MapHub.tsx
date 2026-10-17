@@ -358,6 +358,7 @@ const BoatPresenceSurface = React.lazy(() => import('./presence/BoatPresenceSurf
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
+const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -410,6 +411,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
     const [showVesselSearch, setShowVesselSearch] = useState(false);
     const [showAisTargets, setShowAisTargets] = useState(false);
+    const [receiverCoverageStatus, setReceiverCoverageStatus] = useState<
+        import('../../services/ais/receiverCoverage').ReceiverCoverageStatus
+    >({ state: 'off', partial: false, cells: 0, asOf: null });
     const vesselSearchMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const vesselSearchMarkerTimerRef = useRef<number | null>(null);
     useEffect(
@@ -2249,6 +2253,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const {
         aisVisible,
         setAisVisible,
+        receiverCoverageVisible,
+        setReceiverCoverageVisible,
+        browseReceiverCoverageVisible,
         setChokepointVisible,
         cycloneVisible,
         setCycloneVisible,
@@ -4341,6 +4348,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         tacticalState={buildTacticalState({
                             aisVisible,
                             setAisVisible,
+                            receiverCoverageVisible,
+                            setReceiverCoverageVisible,
                             cycloneVisible,
                             setCycloneVisible,
                             squallVisible,
@@ -5746,6 +5755,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {receiverCoverageVisible && (
+                    <Suspense fallback={null}>
+                        <ReceiverCoverageLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={browseReceiverCoverageVisible && obsCreditsVisible && currentView === 'map'}
+                            onStatus={setReceiverCoverageStatus}
+                        />
+                    </Suspense>
+                )}
                 {obsCreditsVisible && (
                     <ObsCreditsRollup
                         rain={
@@ -5766,6 +5785,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         facilities={obsShowing && browseFacilitiesVisible ? facilitiesStatus : null}
                         boatPresence={obsShowing ? boatPresenceStatus : null}
                         onOpenBoatPresence={() => setBoatPresenceControlsOpen(true)}
+                        receiverCoverage={browseReceiverCoverageVisible ? receiverCoverageStatus : undefined}
                     />
                 )}
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}

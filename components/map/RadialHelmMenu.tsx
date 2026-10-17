@@ -86,6 +86,8 @@ export interface RadialHelmMenuProps {
         onOpenMob?: () => void;
         aisVisible?: boolean;
         onToggleAis?: () => void;
+        receiverCoverageVisible?: boolean;
+        onToggleReceiverCoverage?: () => void;
         cycloneVisible?: boolean;
         onToggleCyclones?: () => void;
         squallVisible?: boolean;
@@ -396,6 +398,14 @@ function buildCategories(
         });
 
     // ── Operational reference (lower in the fan) ──
+    if (tacticalState?.onToggleReceiverCoverage) {
+        tactical.push({
+            id: 'receiver-coverage',
+            label: 'Who’s listening',
+            icon: <AisIcon />,
+            action: tacticalState.onToggleReceiverCoverage,
+        });
+    }
     // Marks / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
     // Tide stations now live under Sea, beside the other water layers.
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
@@ -916,6 +926,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             e.stopPropagation();
             toggleLayer('none');
             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
+            if (tacticalState?.receiverCoverageVisible) tacticalState.onToggleReceiverCoverage?.();
             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
             if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
@@ -1058,6 +1069,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             // always-visible button, which reads tacticalState.mobActive
             // directly for its pulse.
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
+            if (item.id === 'receiver-coverage') return tacticalState?.receiverCoverageVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
             if (item.id === 'lightning') return tacticalState?.lightningVisible ?? false;
@@ -1084,6 +1096,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const totalActive = useMemo(() => {
         let count = activeLayers.size;
         if (tacticalState?.aisVisible) count++;
+        if (tacticalState?.receiverCoverageVisible) count++;
         if (tacticalState?.cycloneVisible) count++;
         if (tacticalState?.squallVisible) count++;
         if (tacticalState?.lightningVisible) count++;

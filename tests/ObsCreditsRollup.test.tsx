@@ -123,3 +123,15 @@ it('rain forecast credits remain distinct, and all-off retires the open panel', 
     expect(screen.queryByTestId('obs-credits-rollup')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
 });
+it('optional coarse receiver status stays inside the existing rollup and never replaces internet AIS credit', () => {
+    render(
+        <ObsCreditsRollup {...props()} receiverCoverage={{ state: 'held', partial: false, cells: 0, asOf: null }} />,
+    );
+    expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /^Credits/ }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Internet AIS');
+    expect(dialog).toHaveTextContent('Who’s listening');
+    expect(dialog).toHaveTextContent('No public receiver identities or trails');
+    expect(dialog).toHaveTextContent('prerequisites');
+});

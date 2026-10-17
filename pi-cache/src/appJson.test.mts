@@ -28,7 +28,7 @@ for (const unsafeAdmin of [false, true]) {
                 headers: { 'Content-Type': 'application/json' },
                 body,
             });
-        for (const path of ['/ordinary', '/api/radarish', '/api/wake-rules-extra']) {
+        for (const path of ['/ordinary', '/api/radarish', '/api/wake-rules-extra', '/api/fleet-sharing-extra']) {
             const response = await post(path);
             assert.equal(response.status, unsafeAdmin ? 200 : 413, path);
             if (unsafeAdmin) assert.equal((await response.json()).parsed, true);
@@ -42,6 +42,8 @@ for (const unsafeAdmin of [false, true]) {
             '/API/RADAR/watch',
             '/api/wake-rules',
             '/api/wake-rules/configuration',
+            '/api/fleet-sharing',
+            '/api/fleet-sharing/confirm',
         ]) {
             const response = await post(path);
             assert.equal(response.status, 200, path);

@@ -686,6 +686,14 @@ export class DiaryRelayOutbox {
         return this.lendAnchorCredentials();
     }
 
+    /** Separate140 Pi fleet consent and SQL admission are required upstream.
+     * No URL is lent; the process-startup operator endpoint is the only target. */
+    lendFleetCredentials(): { relayId: string; token: string; ownerId: string } | null {
+        const credentials = this.lendAnchorCredentials(),
+            ownerId = this.getConfiguration().ownerId;
+        return credentials && ownerId ? { ...credentials, ownerId } : null;
+    }
+
     configure(input: DiaryRelayConfigInput): DiaryRelayPublicConfiguration {
         if (input.allowInternet !== undefined && typeof input.allowInternet !== 'boolean') {
             throw new DiaryRelayValidationError('allowInternet must be a boolean');
