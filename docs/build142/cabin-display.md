@@ -9,6 +9,11 @@ arm, silence, acknowledgement or stand-down route. A cabin credential confers
 no main API authority; the existing main API LAN and command-lock policies
 remain independently enforced. The dedicated cabin header is explicitly
 refused there, without affecting unrelated headers or enrolled app clients.
+Invalid optional display-port configuration refuses this listener without
+interrupting the main Pi/watch server. Authenticated telemetry allows one
+pending read per viewer, at least500ms between reads and at most eight total
+pending reads; its request-budget map is capped at16 entries. These are separate
+from the existing shared Signal K reader and its original source clocks.
 
 The local operator command `node dist/cabin/accessCode.js --rotate` prints a
 new eight-digit code once. Only its hash, random generation nonce and ten-minute
@@ -34,7 +39,7 @@ dragging state but no original sample clock: the page can show a reported drag,
 explicitly with sample time unavailable. It makes no known-clear anchor claim.
 Other watch families are not claimed as covered by this reader.
 
-The first nine local Node/real-HTTP cabin tests and five real-React/stream tests
+The ten final local Node/real-HTTP cabin tests and five real-React/stream tests
 pass. They include command/enrolment absence, main API credential separation,
 expiry, rotation, owner retirement after an await, stale original clocks, hidden
 tab late-response refusal and cancellation of a never-resolving read. Pi-only

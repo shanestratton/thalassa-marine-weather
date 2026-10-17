@@ -24,8 +24,10 @@ export function startCabinRuntime(options: {
         options.port < 1024 ||
         options.port > 65535 ||
         options.port === options.mainPort
-    )
-        throw Error('Cabin display requires its own non-privileged port');
+    ) {
+        console.warn('[cabin] Read-only display port configuration unavailable');
+        return null;
+    }
     const access = new CabinAccess({
         context: options.context,
         code: () => readCabinCode(path.join(options.cacheDirectory, 'cabin', 'access.json')),
@@ -47,11 +49,17 @@ export function startCabinRuntime(options: {
     server.headersTimeout = 5_000;
     server.maxHeadersCount = 40;
     server.maxConnections = 16;
-    server.listen(options.port, options.host);
     server.on('error', () => {
         access.close();
         console.warn('[cabin] Read-only display listener unavailable');
     });
+    try {
+        server.listen(options.port, options.host);
+    } catch {
+        access.close();
+        console.warn('[cabin] Read-only display listener unavailable');
+        return null;
+    }
     return {
         server,
         close() {

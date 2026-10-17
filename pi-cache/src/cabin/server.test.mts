@@ -31,10 +31,11 @@ test('real dedicated HTTP listener exposes only paired read projection; every co
     t.after(() => fs.rmSync(assets, { recursive: true, force: true }));
     fs.writeFileSync(path.join(assets, 'index.html'), '<!doctype html><title>Cabin</title>');
     let generation = 0,
+        clock = now,
         reads = 0,
         resolveRead: ((v: LanTelemetryPayload) => void) | null = null;
     const access = new CabinAccess({
-        now: () => now,
+        now: () => clock,
         context: () => `ownerA:${generation}`,
         code: () => ({
             schema: 1,
@@ -47,7 +48,7 @@ test('real dedicated HTTP listener exposes only paired read projection; every co
     const app = createCabinApp({
         access,
         assets,
-        now: () => now,
+        now: () => clock,
         peerAllowed: () => true,
         read: () => {
             reads++;
@@ -91,6 +92,8 @@ test('real dedicated HTTP listener exposes only paired read projection; every co
     assert.ok(parseCabinSnapshot(value));
     assert.equal(value.reportedAt, now - 2_000);
     assert.equal(value.readings.depth, 4.8);
+    assert.equal((await fetch(base + '/api/telemetry', { headers })).status, 429);
+    assert.equal(reads, 1);
     for (const route of [
         '/api/pair/challenge',
         '/api/enc/enrol',
@@ -104,6 +107,7 @@ test('real dedicated HTTP listener exposes only paired read projection; every co
         for (const method of ['POST', 'PUT', 'DELETE'])
             assert.equal((await fetch(base + route, { method, headers })).status, 404);
     assert.equal((await fetch(base + '/api/telemetry?url=https://evil.example', { headers })).status, 400);
+    clock += 1_000;
     resolveRead = () => {};
     const pending = fetch(base + '/api/telemetry', { headers });
     for (let n = 0; n < 50 && reads < 2; n++) await new Promise((resolve) => setTimeout(resolve, 2));

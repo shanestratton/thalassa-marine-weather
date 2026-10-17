@@ -1,6 +1,7 @@
 import express, { type RequestHandler, type ErrorRequestHandler } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { CABIN_VIEWER_HEADER, type CabinAccess } from './access.js';
 import { cabinSnapshot } from './snapshot.js';
 import type { LanTelemetryPayload } from '../lanTelemetry.js';
@@ -23,6 +24,8 @@ export function createCabinApp(options: {
 }) {
     const app = express(),
         now = options.now ?? Date.now;
+    const readBudgets = new Map<string, { at: number; busy: boolean }>();
+    let activeReads = 0;
     app.disable('x-powered-by');
     app.use((req, res, next) => {
         res.setHeader('Cache-Control', 'no-store');
@@ -49,8 +52,23 @@ export function createCabinApp(options: {
     });
     app.get('/api/telemetry', async (req, res) => {
         if (Object.keys(req.query).length) return res.status(400).end();
-        const lease = options.access.lease(req.headers[CABIN_VIEWER_HEADER]);
-        if (!lease) return res.status(401).end();
+        const credential = req.headers[CABIN_VIEWER_HEADER];
+        const lease = options.access.lease(credential);
+        if (!lease || typeof credential !== 'string') return res.status(401).end();
+        const at = now(),
+            key = createHash('sha256').update(credential).digest('hex');
+        for (const [id, entry] of readBudgets) if (!entry.busy && at - entry.at > 10_000) readBudgets.delete(id);
+        const previous = readBudgets.get(key);
+        if (activeReads >= 8 || previous?.busy || (previous && at - previous.at < 500))
+            return res.status(429).setHeader('Retry-After', '1').end();
+        if (!previous && readBudgets.size >= 16) {
+            const evict = [...readBudgets].find(([, entry]) => !entry.busy);
+            if (!evict) return res.status(429).end();
+            readBudgets.delete(evict[0]);
+        }
+        const budget = { at, busy: true };
+        readBudgets.set(key, budget);
+        activeReads++;
         let retired = false;
         const retire = () => {
             retired = true;
@@ -73,6 +91,8 @@ export function createCabinApp(options: {
         } catch {
             if (!retired) return res.status(503).json({ error: 'The Pi instrument mirror is unavailable.' });
         } finally {
+            budget.busy = false;
+            activeReads--;
             if (timer) clearTimeout(timer);
             req.off('aborted', retire);
             res.off('close', retire);
