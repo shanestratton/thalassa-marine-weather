@@ -73,6 +73,37 @@ describe('142 explicit route climate card', () => {
         expect(screen.getByText(/Missing ocean or land-mask cells are not calm/)).toBeTruthy();
         expect(screen.queryAllByRole('img')).toHaveLength(0);
     });
+    it('hides an already completed climate immediately when the actual route changes', async () => {
+        let later!: (value: ReturnType<typeof source>) => void;
+        vi.mocked(readEra5Climate)
+            .mockResolvedValueOnce(source())
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        later = resolve;
+                    }),
+            );
+        const view = render(<ClimateRoseCard routeLegs={route} />);
+        fireEvent.click(screen.getByRole('button'));
+        await screen.findByText(/100% of route length/);
+        view.rerender(
+            <ClimateRoseCard
+                routeLegs={[
+                    {
+                        points: [
+                            { lat: 0, lon: 0 },
+                            { lat: 0, lon: 0.1 },
+                        ],
+                    },
+                ]}
+            />,
+        );
+        expect(screen.queryByText(/100% of route length/)).toBeNull();
+        expect(screen.queryByText(/Lower historical exposure/)).toBeNull();
+        await act(async () => later(source())); // No returned cells belong to the new route.
+        expect(await screen.findByText(/No fully covered month/)).toBeTruthy();
+        expect(screen.getByText(/0% of route length/)).toBeTruthy();
+    });
     it('retires changed routes and A/B/A account transitions, ignores late native settlement', async () => {
         let late!: (value: ReturnType<typeof source>) => void;
         vi.mocked(readEra5Climate).mockImplementation(
