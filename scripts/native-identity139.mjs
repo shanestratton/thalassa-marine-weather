@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const NATIVE_BASE138 = 'e4722dfc5eea78e2a2af8ffd83134da06ce301e0';
-export const UNSIGNED_SOURCE139 = '57a5d8eb02b4aa4c7a8f2117c0dcaa1cf5d5932e';
+export const UNSIGNED_SOURCE139 = 'd37e832b2cd02b168c6736864e7f067ce2bb58f1';
 export const NATIVE_PROJECT139 = 'ios/App/App.xcodeproj/project.pbxproj';
 export const WATCH_FILES139 = Object.freeze({
     'ios/App/ThalassaWatch Watch App/Models/AnchorSnapshot.swift':
