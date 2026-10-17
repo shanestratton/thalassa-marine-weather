@@ -304,10 +304,10 @@ try {
     await db.exec('UPDATE public.ais_fleet_control SET hour_write_limit=1,hour_writes=0');
     eq(await admit(1, grants[1].revision, 5), false, 'shared budget prevents private coverage/replay writes');
     eq(
-        await scalar('SELECT sequence FROM private_ais_receiver.replays WHERE consent_revision=$1 AND boot_id=$2', [
-            grants[1].revision,
-            boot(1),
-        ]),
+        await scalar(
+            'SELECT sequence::integer FROM private_ais_receiver.replays WHERE consent_revision=$1 AND boot_id=$2',
+            [grants[1].revision, boot(1)],
+        ),
         4,
         'no replay state mutation on budget refusal',
     );
