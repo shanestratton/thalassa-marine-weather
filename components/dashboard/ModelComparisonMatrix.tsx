@@ -863,8 +863,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
-                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-slate-900 px-4 pt-2 pb-1">
-                        <div className="min-w-0 flex-1">
+                    <div className="sticky top-0 z-10 flex items-center justify-between bg-slate-900 px-4 pt-2 pb-1">
+                        <div>
                             <h2
                                 id="model-comparison-title"
                                 className="text-xs font-black text-white uppercase tracking-wide flex items-center gap-2"
@@ -880,16 +880,6 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 {series.length === 1 ? 'model' : 'models'}
                             </p>
                         </div>
-                        <button
-                            type="button"
-                            aria-expanded={ensembleOpen}
-                            aria-controls="ensemble-band"
-                            disabled={lat == null || lon == null}
-                            onClick={() => setEnsembleOpen(!ensembleOpen)}
-                            className="min-h-[44px] w-24 shrink-0 rounded-xl border border-white/10 px-2 py-1 text-[10px] leading-tight text-sky-300"
-                        >
-                            {ensembleOpen ? 'Hide ensemble bands' : 'Ensemble bands · IFS / EC46'}
-                        </button>
                         <button
                             ref={closeButtonRef}
                             onClick={onClose}
@@ -927,6 +917,16 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                     </button>
                                 );
                             })}
+                            <button
+                                type="button"
+                                aria-expanded={ensembleOpen}
+                                aria-controls="ensemble-band"
+                                disabled={lat == null || lon == null}
+                                onClick={() => setEnsembleOpen(!ensembleOpen)}
+                                className="min-h-[44px] shrink-0 whitespace-nowrap rounded-xl border border-white/10 px-3 text-left text-xs text-sky-300"
+                            >
+                                {ensembleOpen ? 'Hide ensemble bands' : 'Ensemble bands · IFS / EC46'}
+                            </button>
                         </div>
                     </div>
 
