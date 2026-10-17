@@ -10,19 +10,19 @@ Only explicit marine facility tags qualify. `leisure=marina` and existing explic
 
 The no-network review command is `python scripts/marine-catalogue/world_monthly_review.py`; its output is a **plan**, not an acquisition result.
 
-| Limit | Prepared envelope |
-| --- | --- |
-| Total source transport caps | 114.25 GiB |
-| Filtered/exported input caps | 14.125 GiB |
-| Existing acquisition admission free-space requirement | 160.625 GiB, before this run |
-| Largest source file | 40 GiB (Europe cap) |
-| Per-source intermediate/export limit | At most 2 GiB; Antarctica 128 MiB |
-| Local source snapshots | At most 2 per dataset; existing 24 GiB hard cap each |
-| Local staged generations | At most 3; existing 2 GiB cap each |
-| Remote owned namespace peak before cleanup | Existing 8 GiB cap |
-| Memory / tasks / CPU | 2 GiB / 16 / 50% |
-| Per-download / osmium-child / header deadline | World-only size budget at4MiB/s, minimum1 hour and absolute maximum3 hours / 2 hours / 30 seconds |
-| Whole prepared world service deadline | 24 hours, with 2-minute stop timeout |
+| Limit                                                 | Prepared envelope                                                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Total source transport caps                           | 114.25 GiB                                                                                        |
+| Filtered/exported input caps                          | 14.125 GiB                                                                                        |
+| Existing acquisition admission free-space requirement | 160.625 GiB, before this run                                                                      |
+| Largest source file                                   | 40 GiB (Europe cap)                                                                               |
+| Per-source intermediate/export limit                  | At most 2 GiB; Antarctica 128 MiB                                                                 |
+| Local source snapshots                                | At most 2 per dataset; existing 24 GiB hard cap each                                              |
+| Local staged generations                              | At most 3; existing 2 GiB cap each                                                                |
+| Remote owned namespace peak before cleanup            | Existing 8 GiB cap                                                                                |
+| Memory / tasks / CPU                                  | 2 GiB / 16 / 50%                                                                                  |
+| Per-download / osmium-child / header deadline         | World-only size budget at4MiB/s, minimum1 hour and absolute maximum3 hours / 2 hours / 30 seconds |
+| Whole prepared world service deadline                 | 24 hours, with 2-minute stop timeout                                                              |
 
 The per-child worst-case sum can exceed the whole-service deadline. A slow or oversized run therefore stops without publishing; no global coverage claim follows from partial preparation. Initial continental runtime, bandwidth and an explicit dedicated filesystem/project quota must be reviewed before executing. Free-disk admission is not a substitute for an operator-configured quota. These are substantial global downloads, not the old regional 512 MiB workload. The existing regional service/timer and quotas are not modified.
 

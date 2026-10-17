@@ -20,12 +20,10 @@ export function createFleetFeedRoutes(options: {
     const router = Router(),
         rawChecked = new WeakSet<Request>();
     const fail = (res: express.Response) =>
-        res
-            .status(409)
-            .json({
-                code: 'fleet-review-required',
-                error: 'Review Pi sharing; the account, vessel, phone or source could not be confirmed.',
-            });
+        res.status(409).json({
+            code: 'fleet-review-required',
+            error: 'Review Pi sharing; the account, vessel, phone or source could not be confirmed.',
+        });
     router.use(async (req, res, next) => {
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('Pragma', 'no-cache');
