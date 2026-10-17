@@ -132,16 +132,22 @@ for (const size of SIZES) {
     }) => {
         const errors = await openBinder(page, 'equipment', size);
         await expect(page.getByRole('heading', { level: 1, name: 'Equipment' })).toBeVisible({ timeout: 25_000 });
-        const names = await page
-            .locator('[aria-label^="Options for "]')
-            .evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')!.slice('Options for '.length)));
-        expect(names).toEqual(
-            expect.arrayContaining([
-                'Main engine',
-                'Autopilot drive, below-deck hydraulic ram',
-                'Watermaker, high-pressure pump and pre-filters',
-            ]),
-        );
+        const readNames = () =>
+            page
+                .locator('[aria-label^="Options for "]')
+                .evaluateAll((buttons) =>
+                    buttons.map((b) => b.getAttribute('aria-label')!.slice('Options for '.length)),
+                );
+        await expect
+            .poll(readNames)
+            .toEqual(
+                expect.arrayContaining([
+                    'Main engine',
+                    'Autopilot drive, below-deck hydraulic ram',
+                    'Watermaker, high-pressure pump and pre-filters',
+                ]),
+            );
+        const names = await readNames();
         for (const name of names) {
             await page.getByRole('button', { name: `Options for ${name}`, exact: true }).click();
             await page.getByRole('button', { name: `View details for ${name}`, exact: true }).click();

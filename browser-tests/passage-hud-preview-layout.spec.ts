@@ -15,8 +15,8 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * at 320 × 568 and 375 × 667 in wide fonts (Verdana on a Mac, DejaVu Sans on the
  * Linux runner): the strip never covers a credit, the tab bar or the weather
  * controls; its label and its controls are whole and hit-testable; nothing runs
- * off sideways. The readings may scroll inside the strip at these heights — the
- * strip's documented last resort — but never its label or its buttons.
+ * off sideways. Readings and optional route actions may scroll inside the strip
+ * at these heights; its label and fixed Ahead/Departure and Hide controls stay whole.
  */
 
 const sizes = [
@@ -223,10 +223,79 @@ for (const size of sizes) {
         await expect(pane).toHaveAttribute('data-subject', 'route');
         await page.evaluate(() => document.fonts.ready);
         await expectWideFaceDrawn(page.getByTestId('hud-mode'));
+        const replan = page.getByRole('button', { name: 'Re-plan from current position', exact: true });
+        await expect(replan).toBeAttached();
         await expect
-            .poll(() => stripIssues(page, ['[data-testid="hud-mode"]', '[aria-label="Hide passage instruments"]']))
+            .poll(() =>
+                stripIssues(page, [
+                    '[data-testid="hud-mode"]',
+                    '[data-testid="hud-look-ahead"]',
+                    '[aria-label="Hide passage instruments"]',
+                ]),
+            )
             .toEqual([]);
         await page.screenshot({ path: info.outputPath(`route-live-${size.name}.png`), animations: 'disabled' });
+
+        const bounds = () =>
+            page.evaluate(() => {
+                const rect = (element: Element) => {
+                    const r = element.getBoundingClientRect();
+                    return {
+                        left: r.left,
+                        top: r.top,
+                        right: r.right,
+                        bottom: r.bottom,
+                        width: r.width,
+                        height: r.height,
+                    };
+                };
+                return {
+                    page: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+                    viewport: [innerWidth, innerHeight],
+                    pane: rect(document.querySelector('[data-testid="passage-hud"]')!),
+                    cells: rect(document.querySelector('.thalassa-passage-hud-cells')!),
+                    hide: rect(document.querySelector('[aria-label="Hide passage instruments"]')!),
+                    ahead: rect(document.querySelector('[data-testid="hud-look-ahead"]')!),
+                };
+            });
+        const beforeScroll = await bounds();
+        expect(beforeScroll.page, 'the document stays exactly one screen').toEqual(beforeScroll.viewport);
+        for (const control of [beforeScroll.hide, beforeScroll.ahead]) {
+            expect(control.width, 'fixed HUD target width').toBeGreaterThanOrEqual(44);
+            expect(control.height, 'fixed HUD target height').toBeGreaterThanOrEqual(44);
+        }
+        // Optional route actions remain reachable in the existing internal
+        // scroller; scrolling them must not move the pane, footer or document.
+        const route = page.getByTestId('hud-show-passage');
+        for (const control of [route, replan]) {
+            await control.scrollIntoViewIfNeeded();
+            await expect
+                .poll(() =>
+                    control.evaluate((element) => {
+                        const r = element.getBoundingClientRect();
+                        const scroller = element.closest('.thalassa-passage-hud-cells')!.getBoundingClientRect();
+                        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                        return (
+                            r.width >= 44 &&
+                            r.height >= 44 &&
+                            r.top >= scroller.top - 0.5 &&
+                            r.bottom <= scroller.bottom + 0.5 &&
+                            !!hit &&
+                            (hit === element || element.contains(hit))
+                        );
+                    }),
+                )
+                .toBe(true);
+            expect(await bounds()).toEqual(beforeScroll);
+        }
+        await info.attach('fixed-HUD-layout', {
+            body: JSON.stringify(beforeScroll, null, 2),
+            contentType: 'application/json',
+        });
+        await page.screenshot({
+            path: info.outputPath(`route-replan-scrolled-${size.name}.png`),
+            animations: 'disabled',
+        });
         expect(errors).toEqual([]);
     });
 }
