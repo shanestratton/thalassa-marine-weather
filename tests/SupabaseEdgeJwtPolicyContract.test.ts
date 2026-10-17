@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publisher/handler';
+import { handleCrowdExport } from '../supabase/functions/crowd-sounding-export/handler';
 
 /**
  * verify_jwt = false, matching production, because the function guards itself —
@@ -69,6 +70,8 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 
 /** Callers that cannot present a Supabase JWT at all. Each function guards itself. */
 const CREDENTIALLESS_ALLOWLIST = {
+    'crowd-sounding-export':
+        'held private worker; dedicated 256-bit token SHA verifier precedes privileged reads, no browser/public quota path',
     'forecast-assets':
         'bare public fixed-dataset reads, HMAC per-client quota before bounded public GitHub release access',
     'anchor-alert-messaging':
@@ -161,6 +164,36 @@ describe('Supabase Edge gateway JWT policy', () => {
     const config = readFileSync(resolve(process.cwd(), 'supabase/config.toml'), 'utf8');
     const policies = parseVerifyJwtPolicies(config);
 
+    it('requires the dedicated crowd worker credential before parsing or privileged access', async () => {
+        const network = vi.fn();
+        const options = {
+            enabled: true,
+            tokenHash: await tokenHash('a'.repeat(64)),
+            origin: 'https://fixture.supabase.co',
+            serviceKey: 'synthetic-service-only',
+            fetch: network,
+        };
+        const callers: Record<string, string>[] = [
+            {},
+            { authorization: 'Bearer fake-user-jwt' },
+            { apikey: 'synthetic-service-only' },
+        ];
+        for (const headers of callers) {
+            const request = new Request('https://fixture.supabase.co/functions/v1/crowd-sounding-export', {
+                method: 'POST',
+                headers,
+                body: 'invalid-json-that-must-not-be-parsed',
+            });
+            expect((await handleCrowdExport(request, options)).status).toBe(401);
+        }
+        expect(network).not.toHaveBeenCalled();
+        expect(
+            (await handleCrowdExport(new Request('https://fixture.supabase.co'), { ...options, enabled: false }))
+                .status,
+        ).toBe(503);
+        expect(network).not.toHaveBeenCalled();
+    });
+
     it('keeps the gateway check on exactly the reviewed protected paths', () => {
         for (const [name, rationale] of Object.entries(EXISTING_PROTECTED_FUNCTIONS)) {
             expect(rationale, `${name} must retain a reviewed caller rationale`).not.toHaveLength(0);
@@ -222,7 +255,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         // wx-publisher (134) is a separate producer identity: its exact 256-bit
         // token is verified inside the handler, never a credentialless DB path.
         // forecast-assets (141) serves only three fixed public release datasets after an HMAC client quota.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(24);
+        // crowd-sounding-export (142) has its own private worker token; the
+        // gateway policy does not grant a browser access to private soundings.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(25);
     });
 
     it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {
