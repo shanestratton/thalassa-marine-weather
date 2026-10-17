@@ -12,6 +12,11 @@ dist/
 # rewriting the same TypeScript back and forth.
 supabase/functions/
 
+# This rule is shared byte-for-byte with the Deno Edge mirror above. Format the
+# canonical source with the Edge Deno config, then regenerate and check mirrors.
+utils/anchorSafeZone.ts
+pi-cache/src/anchorSafeZone.ts
+
 # Generated anchorage data + build cache — data, not code
 public/anchorages/qld/
 scripts/anchorages/.cache/
