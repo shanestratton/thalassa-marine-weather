@@ -638,10 +638,17 @@ function buildCategories(
                     icon: <TempIcon />,
                     layerKey: 'temperature',
                 },
-                // Wind-gusts / Visibility / CAPE removed 2026-04-22 with
-                // the Xweather decommission — they were Xweather-raster-only
-                // and we don't have a free replacement. Add back when we
-                // wire up GFS-derived gusts or similar.
+                ...(import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true'
+                    ? [
+                          { id: 'gust', label: 'GFS gusts', icon: <WindIcon />, layerKey: 'gust' as const },
+                          {
+                              id: 'visibility',
+                              label: 'Model visibility',
+                              icon: <CloudsIcon />,
+                              layerKey: 'visibility' as const,
+                          },
+                      ]
+                    : []),
             ],
         },
         // ── Routes / charts (4th category) ──

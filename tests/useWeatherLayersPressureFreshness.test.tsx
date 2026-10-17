@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { useWeatherLayers } from '../components/map/useWeatherLayers';
+import { WindStore } from '../stores/WindStore';
+vi.mock('../services/weather/localGribImport', () => ({
+    loadImportedGrib: vi.fn(async () => ({ wind: null, pressure: {} })),
+    consumeImportedGribView: () => undefined,
+}));
 
 const mock = vi.hoisted(() => ({ fetch: vi.fn(), frame: vi.fn() }));
 vi.mock('../services/weather/isobars', () => ({
@@ -79,9 +84,35 @@ beforeEach(() => {
 });
 afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
 });
 
 describe('mounted pressure refresh state machine', () => {
+    it('routes flagged public pressure through the lazy owner but retains and retires the private-import path across transitions', async () => {
+        vi.stubEnv('VITE_ATMOSPHERE_ENABLED', 'true');
+        const original = WindStore.getState();
+        WindStore.setState({ isGlobalMode: true, localGribPath: null });
+        const hook = mount();
+        try {
+            await flush();
+            expect(hook.result.current.pressureManaged).toBe(true);
+            expect(mock.fetch).not.toHaveBeenCalled();
+            expect(mock.frame).not.toHaveBeenCalled();
+            act(() => WindStore.setState({ isGlobalMode: false, localGribPath: 'grib-import/private-file' }));
+            await flush();
+            expect(hook.result.current.pressureManaged).toBe(false);
+            expect(mock.fetch).toHaveBeenCalledTimes(1);
+            act(() => WindStore.setState({ isGlobalMode: true, localGribPath: null }));
+            await flush();
+            expect(hook.result.current.pressureManaged).toBe(true);
+            expect(hook.result.current.pressureSource).toBeNull();
+            expect(hook.result.current.framesReady).toBe(0);
+            expect(mock.fetch).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            WindStore.setState(original);
+        }
+    });
     it('reuses a fresh grid and revalidates after TTL without allowing an older model to replace it', async () => {
         const hook = mount();
         await flush();

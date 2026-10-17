@@ -57,3 +57,72 @@ and selected-model integration remain in progress. Sharper satellite source,
 exact advertised observation clocks, product licences and memory limits are still
 being reviewed. No new layer, timer, paid credential, live forecast, release,
 provider download or publisher schedule has been activated by this packet.
+
+## Isolated native source proof
+
+Actual Linux run `38995552532` checked literal producer source
+`9a1774e2c8eb2750e085015542c8fb5b26b0e53d` using control
+`13803e96723429eba7407db8c11cc0ff5d3abfe0`. The original/composed publisher
+process passed 98 checks under the CMEMS hash lock; a separate process passed
+three unchanged native ecCodes fixtures under the eight-package atmospheric
+hash lock. Both interpreters genuinely exited zero after their assertions. Both
+artifact digests/sizes, all eleven Git input hashes, Python 3.11.15, installed
+versions, zero skips and the separate post-process shell exit sentinels were
+independently verified. Native maps resolve the expected wheel-owned ecCodes and
+eckit libraries, with no xarray/NetCDF/HDF5/GDAL import in that process.
+
+The earlier mixed-library process passed its assertions but aborted at exit 134;
+that failure remains preserved and is not counted as a pass. Its exact cause has
+not been conclusively assigned. Production atmospheric and CMEMS pipelines use
+separate dependency closures, which the successful proof reproduces. No test was
+skipped, no assertion changed and no forced process exit was introduced. The
+immutable source receipt is `outputs/Build14103 atmosphere native process proof.json`
+(SHA-256 `bbc5ebbcd8eb436a8cf3ab07dffcabe3fbae11a4c2ee3a015abd6a4230df6d2a`).
+This proves offline synthetic GRIB handling, not actual provider ranges or a
+complete published generation.
+
+The atmospheric session lazily reads only the selected six-hour bracket. It
+keeps at most two raw decoded frames, masks missing temporal contributors and
+refuses out-of-coverage times instead of clamping. Every new selection retires
+the prior view, including a refused selection. Adoption proofs check the original
+owner, cancellation, metered-link setting and both wall/monotonic lifetime;
+cleanup of a successful read does not cancel its returned proof. Closing or
+retiring the session clears its cache. T−Td remains an indicative point spread,
+never a fog probability or observed visibility.
+
+## Actual atmospheric source/UI integration checkpoint
+
+The literal `VITE_ATMOSPHERE_ENABLED === 'true'` gate controls the lazy Obs
+component and the two new Sky entries. No public-beta profile or deployment
+configuration was changed. When the gate is absent/false, the old pressure
+source and controls retain their existing path. When explicitly enabled, public
+pressure uses only the selected GFS or public IFS cohort; a private imported GRIB
+retains its own existing pressure owner. Returning online retires that old
+presentation and eager cache before the lazy public owner proceeds. Other
+selected models show a held explanation without aliasing to GFS/IFS.
+
+Gust and model visibility share one GFS reader. Selected IFS pressure can use a
+second reader; each keeps at most two raw frames and a single selected blended
+view. Pressure conversion uses native Pa→hPa, masked corners and bounded
+selected-frame contours/H/L symbols, never invented wind barbs or future tracks.
+GeoJSON is capped at 6,000 line features / 120,000 vertices and the polar image
+singularity remains clipped. There is no forecast-wide image/geometry cache.
+
+Controls live inside the existing internally scrolling chart panel. Run/source,
+requested valid UTC, exact source coverage, low-skill visibility wording and
+point T−Td are disclosed. Independent hourly scrubbing loads the chosen bracket;
+play waits for the actual image/vector content and stops at the real endpoint.
+When wind is active, its actual valid UTC is the only time authority; missing or
+out-of-coverage clocks hold the field. Full credits and lifecycle warnings join
+the existing one-row Credits rollup. Unknown hiding/removal retains an attributed
+warning, including after user-off or React unmount. A real regression found a
+map-remove callback ordering issue in the new vector owner; the repaired test
+requires proven scene removal to remain `off` after every retirement callback.
+
+The current checkpoint passed 82 focused cases across nine suites, including
+actual picker/control/credit, source-lifetime, selected-model/horizon, private
+pressure transition and existing community/facility composition regressions.
+Network/Mapbox boundaries are mocked in these unit cases. The failed first vector
+ownership receipt remains outside Git. Phone browser layout, full compiler,
+configured bundle and real provider/cohort publication are still pending; no
+readiness or live-source availability is inferred from these focused checks.

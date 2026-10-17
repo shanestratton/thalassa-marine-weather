@@ -51,6 +51,24 @@ beforeEach(() => {
     feed.status = 'closed';
     publishAisCoverage({ state: 'recent', polledAt: new Date(now - 60000).toISOString(), truncated: false });
 });
+it('holds new atmospheric credits and uncertainty inside the same one-row rollup', () => {
+    const p = props();
+    p.atmosphere = [
+        {
+            key: 'gfs',
+            title: 'GFS atmospheric fields',
+            text: 'NOAA / NCEP GFS. Model visibility, low skill. Original run and valid UTC.',
+            warning: true,
+        },
+    ];
+    render(<ObsCreditsRollup {...p} />);
+    expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+    expect(screen.queryByText('GFS atmospheric fields')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Credits; layer status needs review' }));
+    const panel = screen.getByRole('dialog');
+    expect(panel).toHaveTextContent('Model visibility, low skill');
+    expect(screen.getByRole('region', { name: 'GFS atmospheric fields' })).toBeInTheDocument();
+});
 afterEach(() => {
     cleanup();
     vi.useRealTimers();

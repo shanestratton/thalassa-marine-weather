@@ -20,6 +20,8 @@ import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, use
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
 import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/worldFacilities';
+import type { AtmosPresentation } from './atmosPresentation';
+import { pressureWindValidAt } from '../../services/weather/pressureProvenance';
 import type { BoatPresenceStatus } from './presence/BoatPresenceSurface';
 import { useTrackRouteRead } from './useTrackRouteRead';
 import { SearchIcon } from '../Icons';
@@ -359,6 +361,8 @@ const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
+const AtmosWeatherLayer =
+    import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -391,6 +395,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const isOnline = useOnlineStatus();
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
+    const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings, updateSettings } = useSettings();
@@ -5778,6 +5783,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 : null
                         }
                         cmems={cmemsAttributionLayers}
+                        atmosphere={atmosPresentation.credits}
                         lightning={browseLightningVisible}
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
@@ -6221,8 +6227,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                             embedded={embedded}
                             controlsHidden={chartControlsHidden}
                             onControlsHiddenChange={setChartControlsHidden}
-                            extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
-                            extraLegendCount={obsKeyCount}
+                            extraLegend={
+                                obsKeyCount > 0 || atmosPresentation.legend ? (
+                                    <>
+                                        {atmosPresentation.legend}
+                                        {obsKeyCount > 0 && <ObsLayerKey {...obsKeyProps} />}
+                                    </>
+                                ) : undefined
+                            }
+                            extraLegendCount={obsKeyCount + atmosPresentation.credits.length}
                             keepInClearView={clearView.available || clearView.on}
                             desk={
                                 deskWind
@@ -6249,6 +6262,33 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </a>
                 )}
                 <Suspense fallback={null}>
+                    {AtmosWeatherLayer && !embedded && !pickerMode && (
+                        <AtmosWeatherLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            gust={obsShowing && !mobActive && weather.activeLayers.has('gust')}
+                            visibility={obsShowing && !mobActive && weather.activeLayers.has('visibility')}
+                            pressure={
+                                obsShowing &&
+                                !mobActive &&
+                                weather.pressureManaged &&
+                                weather.activeLayers.has('pressure')
+                            }
+                            pressureModel={weather.windModel}
+                            followWindMs={
+                                weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')
+                                    ? (pressureWindValidAt(
+                                          weather.windState.grid?.refTime,
+                                          weather.windForecastHours,
+                                          weather.windHour,
+                                      ) ?? NaN)
+                                    : null
+                            }
+                            standalonePressure={weather.activeLayers.size === 1}
+                            point={location}
+                            onPresentation={setAtmosPresentation}
+                        />
+                    )}
                     {browseCommunityNotesVisible && !embedded && !pickerMode && !isPinView && (
                         <CommunityChartNotesLayer mapRef={mapRef} mapReady={mapReady} />
                     )}
