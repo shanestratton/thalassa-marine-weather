@@ -122,3 +122,11 @@ fieldset min-content overflow exposed during that work was corrected.
 Ordinary keyboard browser configuration includes these cases. Whole-app
 TypeScript, configured bundle size, actual PostgreSQL, Linux native QA and
 physical hardware remain root-owned pending proofs; no size PASS is inferred.
+
+The disposable database service is capped at512MiB RAM, zero swap,96tasks and
+one CPU. Before SQL runs, the workflow reads its actual own container cgroup
+and requires the exact kernel values; a third local Node regression refuses
+unbounded, host-scope, extra-field and widened-cap receipts. Every SQL statement
+is bounded at15seconds and the complete runner at120seconds with5second kill
+grace. Its text proof file is capped at1MiB. These controls have been prepared
+and syntax-checked; they are not an executed PostgreSQL result.

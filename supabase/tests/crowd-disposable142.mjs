@@ -31,3 +31,13 @@ export function assertCrowdFixtureFacts(facts) {
     for (const key of ['tables', 'functions', 'auth_schema', 'auth_roles', 'databases', 'publications'])
         assert.equal(Number(facts[key]), 0, key);
 }
+
+export function assertCrowdContainerCaps(facts) {
+    assert.deepEqual(facts, {
+        selfCgroup: '0::/',
+        memoryMax: '536870912',
+        swapMax: '0',
+        pidsMax: '96',
+        cpuMax: '100000 100000',
+    });
+}

@@ -33,6 +33,7 @@ jobs:
                 options: >-
                     --health-cmd pg_isready --health-interval 5s
                     --health-timeout 5s --health-retries 10
+                    --memory 512m --memory-swap 512m --pids-limit 96 --cpus 1
         env:
             SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
             THALASSA_DISPOSABLE_CROWD_TEST: '1'
@@ -58,6 +59,20 @@ jobs:
                   node --version > "$RUNNER_TEMP/crowd142-proof/NODE_VERSION.txt"
                   docker image inspect postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3 --format '{{.Id}}' > "$RUNNER_TEMP/crowd142-proof/POSTGRES_IMAGE_ID.txt"
                   sha256sum supabase/tests/crowd-*142.mjs tests/sql/crowd*142.* supabase/migrations/20261017120000_crowd_soundings_publication.sql supabase/migrations/20261005130000_seabed_mapping.sql supabase/migrations/20260806120000_account_deletion_durability.sql supabase/migrations/20261017030921_boat_presence.sql supabase/migrations/20261017050550_private_passage_comfort.sql supabase/migrations/20260516120000_voyage_log_boats.sql > "$RUNNER_TEMP/crowd142-proof/SHA256SUMS"
+            - name: Verify actual own PostgreSQL container cgroup limits
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  timeout --signal=TERM --kill-after=2s 10s docker exec '${{ job.services.postgres.id }}' sh -ec '
+                    printf "{\"selfCgroup\":\"%s\",\"memoryMax\":\"%s\",\"swapMax\":\"%s\",\"pidsMax\":\"%s\",\"cpuMax\":\"%s\"}\n" \
+                      "$(cat /proc/self/cgroup)" "$(cat /sys/fs/cgroup/memory.max)" "$(cat /sys/fs/cgroup/memory.swap.max)" \
+                      "$(cat /sys/fs/cgroup/pids.max)" "$(cat /sys/fs/cgroup/cpu.max)"
+                  ' > "$RUNNER_TEMP/crowd142-proof/POSTGRES_CGROUP.json"
+                  node --input-type=module - "$RUNNER_TEMP/crowd142-proof/POSTGRES_CGROUP.json" <<'NODE'
+                  import fs from 'node:fs';
+                  import {assertCrowdContainerCaps} from './supabase/tests/crowd-disposable142.mjs';
+                  assertCrowdContainerCaps(JSON.parse(fs.readFileSync(process.argv[2],'utf8')));
+                  NODE
             - name: Install only pinned isolated PostgreSQL client
               shell: bash
               run: |
@@ -76,9 +91,10 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  ulimit -f 1024
                   node tests/sql/crowdRetirement142.mjs --check
                   node --test tests/CrowdDisposable142.test.mjs
-                  node supabase/tests/crowd-postgres142.mjs 2>&1 | tee "$RUNNER_TEMP/crowd142-proof/POSTGRES.txt"
+                  timeout --signal=TERM --kill-after=5s 120s node supabase/tests/crowd-postgres142.mjs 2>&1 | tee "$RUNNER_TEMP/crowd142-proof/POSTGRES.txt"
             - name: Preserve bounded success or failure evidence
               if: always()
               shell: bash
