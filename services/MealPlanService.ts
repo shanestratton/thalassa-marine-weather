@@ -9,7 +9,10 @@
  *  5. Leftover management → creates new Fridge/Prepared stores entry
  *
  * All operations go through LocalDatabase for offline-first sync.
- * Dates stored as UTC ISO strings for International Date Line safety.
+ * A meal's day is 'YYYY-MM-DD', a calendar day of the passage on the clock of
+ * the phone that planned it (calculateMealDays; UTC days until 131-B11). Stored
+ * days are never moved: MealCalendar shows any meal's day that falls outside
+ * this phone's days as a row of its own.
  */
 
 import { atomicLocalTransaction, getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
@@ -20,6 +23,7 @@ import { getMyCrew } from './CrewService';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 import { isPgInteger, realSpoonacularId } from './galley/recipeRefs';
 import { createLogger, getErrorMessage } from '../utils/createLogger';
+import { addLocalDays, readLocalDay, toLocalDateString } from '../utils/localDate';
 
 const log = createLogger('MealPlan');
 
@@ -39,7 +43,7 @@ export interface MealPlan {
     recipe_id: string | null;
     spoonacular_id: number | null;
     title: string;
-    planned_date: string; // ISO date string (UTC)
+    planned_date: string; // 'YYYY-MM-DD', a grid day of the phone that planned it (UTC before 131-B11)
     meal_slot: MealSlot;
     servings_planned: number;
     ingredients: RecipeIngredient[];
@@ -566,7 +570,10 @@ async function saveLeftoversOnce(mealPlanId: string, servingsRemaining: number):
                 unit: 'serves',
                 location_zone: 'Galley',
                 location_specific: 'Fridge',
-                expiry_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+                // A Stores expiry is a day (a DATE on the server): three local
+                // days on, not an instant whose UTC date synced back a day
+                // early east of Greenwich (131-B11).
+                expiry_date: toLocalDateString(addLocalDays(new Date(), 3)),
                 notes,
                 created_at: now,
                 updated_at: now,
@@ -637,6 +644,23 @@ export interface MealDayInfo {
  * Formula: 2 emergency days per 5 passage days.
  * Emergency days are appended after the ETA for weather delays,
  * mechanical issues, etc. Cook should plan shelf-stable meals for these.
+ *
+ * The days are this phone's calendar days, from the one the boat leaves on
+ * (131-B11, GAL-05). They were UTC dates: a 07:00 Saturday departure from
+ * Brisbane is Friday 21:00 UTC, so the plan began on Friday and dropped the
+ * Monday at the end. A departure time is a moment, on the local day it falls
+ * on; a bare 'YYYY-MM-DD' is that day.
+ *
+ * A shared galley seen on a phone set to another time zone gets that phone's
+ * days: the skipper's Brisbane Sat–Mon is Fri–Sun on a phone in Los Angeles.
+ * UTC days matched on every phone, but were the wrong day for hours of each
+ * day anywhere off UTC. No meal drops out of sight between grids:
+ * MealCalendar adds a row for any other day that holds one of the plan's
+ * meals, in date order, so the LA phone shows the skipper's Monday dinner
+ * after its Sunday, and a plan saved on UTC days before 131-B11 keeps its
+ * Friday. Those rows carry their date but no Day number. One agreed zone for
+ * every phone (the skipper's, or the departure's) would give every phone the
+ * same grid; that waits on Shane.
  */
 export function calculateMealDays(departureTime: string, eta: string): MealDayInfo {
     const dep = new Date(departureTime);
@@ -648,11 +672,10 @@ export function calculateMealDays(departureTime: string, eta: string): MealDayIn
 
     const dates: string[] = [];
     const emergencyDates = new Set<string>();
-    const startDate = new Date(departureTime + (departureTime.includes('T') ? '' : 'T00:00:00Z'));
+    const firstDay = readLocalDay(/^\d{4}-\d{2}-\d{2}$/.test(departureTime) ? departureTime : dep);
 
-    for (let i = 0; i < totalDays; i++) {
-        const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
-        const dateStr = d.toISOString().split('T')[0];
+    for (let i = 0; firstDay && i < totalDays; i++) {
+        const dateStr = toLocalDateString(addLocalDays(firstDay, i));
         dates.push(dateStr);
         if (i >= passageDays) {
             emergencyDates.add(dateStr);
@@ -677,48 +700,8 @@ export async function getCrewCount(voyageId: string): Promise<number> {
     }
 }
 
-// ── Shortfall Helper ───────────────────────────────────────────────────────
-
-/**
- * Add a single ingredient shortfall to passage provisions.
- * Called from ChefPlate "ADD TO LIST" button per ingredient.
- */
-export async function addShortfallItem(
-    ingredientName: string,
-    requiredQty: number,
-    unit: string,
-    recipeTitle: string,
-    voyageId: string | null,
-): Promise<boolean> {
-    try {
-        const { insertLocal: ins, generateUUID: uuid } = await import('./vessel/LocalDatabase');
-        const now = new Date().toISOString();
-
-        await ins('passage_provisions', {
-            id: uuid(),
-            voyage_id: voyageId,
-            passage_name: voyageId || 'Current Passage',
-            recipe_title: recipeTitle,
-            ingredient_name: ingredientName,
-            required_qty: Math.round(requiredQty * 10) / 10,
-            unit,
-            scalable: true,
-            store_item_id: null,
-            store_item_name: null,
-            on_hand_qty: 0,
-            shortfall_qty: Math.round(requiredQty * 10) / 10,
-            status: 'needed',
-            created_at: now,
-            updated_at: now,
-        });
-
-        triggerHaptic('medium');
-        return true;
-    } catch (error) {
-        log.warn('galley: shortfall', getErrorMessage(error));
-        return false;
-    }
-}
+// addShortfallItem is gone (132-B18, binder audit GAL-16): nothing called it,
+// and it queued passage_provisions rows with no owner (no user_id).
 
 // ── Aggregated Ingredients for Shopping List ────────────────────────────────
 

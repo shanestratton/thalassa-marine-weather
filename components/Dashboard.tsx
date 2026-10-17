@@ -17,6 +17,8 @@ import { StatusBadges } from './dashboard/StatusBadges';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
+import { useOfficialWarnings } from '../hooks/useOfficialWarnings';
+import { officialInForce } from '../services/officialWarnings';
 
 const LogPage = lazyRetry(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage_Dash');
 const GlassTutorial = lazyRetry(
@@ -302,6 +304,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // tap from the refs: the rAF batch can leave activeDayData a row behind.
     const [sunMoonDay, setSunMoonDay] = useState<{ isoDate: string; isToday: boolean } | null>(null);
     const sunMoonPlaced = !!data?.coordinates && (data.coordinates.lat !== 0 || data.coordinates.lon !== 0);
+    // Official warnings in force here (129-06), counted apart on the warnings
+    // row: null, and no chip, until official_alerts_at answers.
+    const official = useOfficialWarnings(sunMoonPlaced ? data?.coordinates : null);
+    const officialCount = official ? officialInForce(official, Date.now()).length : null;
     const sunMoonZone = data?.timeZone;
     const openSunMoon = useCallback(() => {
         const day = activeDayRef.current;
@@ -814,24 +820,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, [data?.generatedAt, refreshInterval]);
 
-    // Extract beacon and buoy names from live sources for StatusBadges
-    const { beaconName, buoyName } = useMemo(() => {
-        let beacon = '';
-        let buoy = '';
-        const liveSources = current?.sources;
-        if (liveSources) {
-            Object.values(liveSources).forEach((src) => {
-                const s = src as { source?: string; sourceName?: string };
-                if (s?.source === 'beacon' && s?.sourceName && !beacon) {
-                    beacon = s.sourceName;
-                } else if (s?.source === 'buoy' && s?.sourceName && !buoy) {
-                    buoy = s.sourceName;
-                }
-            });
-        }
-        return { beaconName: beacon, buoyName: buoy };
-    }, [current]);
-
     const widgetTrends = useMemo(() => {
         if (!hourly || hourly.length < 2 || !safeActive) return undefined;
         const nextHour = hourly[1];
@@ -1157,6 +1145,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         dashboardMode={userSettings.dashboardMode || 'full'}
                                         onToggleDashboardMode={handleToggleDashboardMode}
                                         onOpenSunMoon={sunMoonPlaced ? openSunMoon : undefined}
+                                        officialCount={officialCount}
                                     />
                                     {sunMoonDay && sunMoonPlaced && (
                                         <Suspense fallback={null}>
@@ -1271,6 +1260,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     hourly={hourly}
                                     forecast={data.forecast}
                                     coordinates={data.coordinates}
+                                    timeZone={data.timeZone}
+                                    utcOffset={data.utcOffset}
                                     spreadMetric={spreadMetric}
                                     onSpreadHandled={handleSpreadHandled}
                                     emptyDayNote={activeDay > 0 ? shownDayRangeNote : null}
@@ -1409,14 +1400,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         fallbackInland={false}
                                         stationId={undefined}
                                         locationType={data.locationType}
-                                        beaconName={beaconName}
-                                        buoyName={buoyName}
                                         isOffshore={offshore.isOffshore}
                                         sources={widgetSources}
                                         activeData={safeActive}
                                         isLive={activeDay === 0 && activeHour === 0}
                                         modelUsed={data.modelUsed}
                                         generatedAt={data.generatedAt}
+                                        forecastSampling={data.forecastSampling}
+                                        forecastRunAt={data.forecastRunAt}
+                                        limitedForecast={data.limitedForecast}
                                         coordinates={data.coordinates}
                                     />
                                 </div>

@@ -122,6 +122,18 @@ export function useAnchorSwingLayer(mapRef: React.MutableRefObject<mapboxgl.Map 
 
         const apply = (snap: AnchorWatchSnapshot) => {
             lastSnap = snap;
+            const features = buildFeatures(snap);
+            // An idle/invalid watch draws nothing. Clear an existing ring, but
+            // do not install empty resources on a later idle event: that would
+            // add a source, add three layers and promote them on a still chart.
+            if (features.features.length === 0) {
+                try {
+                    (map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource | undefined)?.setData(EMPTY_FC);
+                } catch {
+                    /* map mid-teardown */
+                }
+                return;
+            }
             if (!map.isStyleLoaded() && !map.getSource(SOURCE_ID)) {
                 // Style still booting — heal once it settles (deferred a
                 // macrotask; never mutate the style inside event dispatch).
@@ -130,7 +142,7 @@ export function useAnchorSwingLayer(mapRef: React.MutableRefObject<mapboxgl.Map 
             }
             try {
                 ensureLayers(map);
-                (map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource | undefined)?.setData(buildFeatures(snap));
+                (map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource | undefined)?.setData(features);
                 // Z-ORDER OWNER (repo lesson): these layers are added with no
                 // beforeId, so weather rasters and late ENC mounts paint over
                 // them unless re-asserted. moveLayer is idempotent and cheap;

@@ -14,7 +14,13 @@
 
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import type { ActiveCyclone, CyclonePosition, GfsTrackerPosition } from '../../services/weather/CycloneTrackingService';
+import type {
+    ActiveCyclone,
+    CycloneModelTrack,
+    CyclonePosition,
+    GfsTrackerPosition,
+} from '../../services/weather/CycloneTrackingService';
+import { openExternalUrl } from '../../services/externalLinks';
 import { cloudOverlayBeforeId } from './imageryOrder';
 import { chartBearing } from './chartOrientation';
 import { mountCloudOverlay, removeCloudOverlay } from './cloudOverlay';
@@ -22,6 +28,8 @@ import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
 import { daylightUiColor } from '../../utils/daylightUiColor';
+import { stormDistance, stormIdentityWords, type StormDistance } from './stormWords';
+import { ISSUER_ANCHORS, ISSUER_OFFSET_EM, issuerAnchorOrder, issuerLabelBox, type Box } from './issuerLabelPlacement';
 
 /**
  * The zoom the storm view opens at (Shane 2026-08-23: "can we start the storm
@@ -575,80 +583,19 @@ function createTrackOverlay(map: mapboxgl.Map): {
                         pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
                     }
 
-                    // ── CSS: Cone styling (inject once) ──
+                    // ── CSS: spine styling (inject once) ──
                     if (!document.getElementById('thalassaSleeveStyle')) {
                         const style = document.createElement('style');
                         style.id = 'thalassaSleeveStyle';
-                        style.textContent = `
-                            .thalassa-cone {
-                                pointer-events: none;
-                            }
-                            .thalassa-spine {
-                                filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
-                                pointer-events: none;
-                            }
-                        `;
+                        style.textContent =
+                            '.thalassa-spine{filter:drop-shadow(0 0 4px rgba(255,255,255,.6));pointer-events:none}';
                         document.head.appendChild(style);
                     }
 
-                    // ── LAYER 1: FILLED CONE POLYGON (NHC-style expanding cone) ──
-                    // Build left and right edges that expand from eye to forecast end,
-                    // then close them into a filled polygon.
-                    const minEdge = isMacro ? 3 : 5;
-                    const maxEdge = isMacro ? 20 : 40;
-
-                    const leftEdge: { x: number; y: number }[] = [];
-                    const rightEdge: { x: number; y: number }[] = [];
-
-                    for (let j = 0; j < screenPts.length; j++) {
-                        const fraction = screenPts.length > 1 ? j / (screenPts.length - 1) : 0;
-                        const offset = minEdge + (maxEdge - minEdge) * fraction;
-
-                        // Compute tangent direction
-                        let tdx: number, tdy: number;
-                        if (j === 0) {
-                            tdx = screenPts[1].x - screenPts[0].x;
-                            tdy = screenPts[1].y - screenPts[0].y;
-                        } else if (j === screenPts.length - 1) {
-                            tdx = screenPts[j].x - screenPts[j - 1].x;
-                            tdy = screenPts[j].y - screenPts[j - 1].y;
-                        } else {
-                            tdx = screenPts[j + 1].x - screenPts[j - 1].x;
-                            tdy = screenPts[j + 1].y - screenPts[j - 1].y;
-                        }
-                        const tLen = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-                        const pnx = -tdy / tLen;
-                        const pny = tdx / tLen;
-
-                        leftEdge.push({
-                            x: screenPts[j].x + pnx * offset,
-                            y: screenPts[j].y + pny * offset,
-                        });
-                        rightEdge.push({
-                            x: screenPts[j].x - pnx * offset,
-                            y: screenPts[j].y - pny * offset,
-                        });
-                    }
-
-                    // Build closed polygon: left edge forward → right edge reversed → close
-                    const allConePts = [...leftEdge, ...rightEdge.reverse()];
-                    if (allConePts.length >= 4) {
-                        let conePathData = `M ${allConePts[0].x.toFixed(1)} ${allConePts[0].y.toFixed(1)}`;
-                        for (let j = 1; j < allConePts.length; j++) {
-                            conePathData += ` L ${allConePts[j].x.toFixed(1)} ${allConePts[j].y.toFixed(1)}`;
-                        }
-                        conePathData += ' Z';
-
-                        // Filled cone polygon
-                        const coneFill = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        coneFill.setAttribute('d', conePathData);
-                        coneFill.setAttribute('fill', 'rgba(255, 255, 255, 0.15)');
-                        coneFill.setAttribute('stroke', 'rgba(255, 255, 255, 0.6)');
-                        coneFill.setAttribute('stroke-width', '1.5');
-                        coneFill.setAttribute('stroke-linejoin', 'round');
-                        coneFill.classList.add('thalassa-cone');
-                        svg.appendChild(coneFill);
-                    }
+                    // No screen-space cone (129-09). It was a fixed 3-40 px
+                    // fan around the line, drawn as if it were NHC's cone for
+                    // every storm. The only cone now is the issuer's own
+                    // polygon, on the GL layer (addProbabilitySleeve).
 
                     // ── LAYER 2: SMOOTH CURVED CENTERLINE ──
                     const centerLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -660,6 +607,8 @@ function createTrackOverlay(map: mapboxgl.Map): {
                     centerLine.setAttribute('stroke-linecap', 'round');
                     centerLine.setAttribute('stroke-linejoin', 'round');
                     centerLine.classList.add('thalassa-spine');
+                    // JTWC's track is an advisory, never the official warning: dashed.
+                    if (c.forecastBy?.by === 'JTWC') centerLine.setAttribute('stroke-dasharray', '6 5');
                     svg.appendChild(centerLine);
                 }
 
@@ -1181,101 +1130,86 @@ export function projectTrackContinuously(
     });
 }
 
-/**
- * Build the probability sleeve polygon using standard maritime forecast error margins.
- * Error radii (nautical miles):
- *   0h → 0nm, 12h → 30nm, 24h → 50nm, 48h → 90nm, 72h → 130nm, 120h → 200nm
- *
- * @param smoothTrack  Smoothed [lon, lat] centerline points
- * @param totalHours   Total forecast window in hours
- * @param scale        Width multiplier (1.0 = standard, 1.6 = outer glow)
- * @returns            Closed polygon coordinates [lon, lat][]
- */
-function buildSleevePolygon(
-    smoothTrack: [number, number][],
-    totalHours: number = 120,
-    scale: number = 1.0,
-): [number, number][] {
-    const n = smoothTrack.length;
-    if (n < 2) return [];
-
-    // Maritime forecast error margins: [hours, radius_nm]
-    const ERROR_TABLE: [number, number][] = [
-        [0, 0],
-        [12, 30],
-        [24, 50],
-        [48, 90],
-        [72, 130],
-        [120, 200],
-    ];
-
-    // Interpolate radius in nautical miles for a given forecast hour
-    const radiusNm = (tHours: number): number => {
-        if (tHours <= 0) return 0;
-        for (let i = 1; i < ERROR_TABLE.length; i++) {
-            const [t0, r0] = ERROR_TABLE[i - 1];
-            const [t1, r1] = ERROR_TABLE[i];
-            if (tHours <= t1) {
-                const frac = (tHours - t0) / (t1 - t0);
-                return r0 + (r1 - r0) * frac;
-            }
-        }
-        // Beyond 120h — extrapolate linearly
-        const [tLast, rLast] = ERROR_TABLE[ERROR_TABLE.length - 1];
-        const [tPrev, rPrev] = ERROR_TABLE[ERROR_TABLE.length - 2];
-        return rLast + ((rLast - rPrev) / (tLast - tPrev)) * (tHours - tLast);
-    };
-
-    const leftEdge: [number, number][] = [];
-    const rightEdge: [number, number][] = [];
-
-    for (let i = 0; i < n; i++) {
-        const fraction = i / (n - 1);
-        const tHours = fraction * totalHours;
-        // Convert nm to degrees: 1nm = 1/60 degree latitude
-        const radiusDeg = (radiusNm(tHours) / 60) * scale;
-
-        // Calculate perpendicular normal at this point
-        let dx: number, dy: number;
-        if (i === 0) {
-            dx = smoothTrack[1][0] - smoothTrack[0][0];
-            dy = smoothTrack[1][1] - smoothTrack[0][1];
-        } else if (i === n - 1) {
-            dx = smoothTrack[n - 1][0] - smoothTrack[n - 2][0];
-            dy = smoothTrack[n - 1][1] - smoothTrack[n - 2][1];
-        } else {
-            dx = smoothTrack[i + 1][0] - smoothTrack[i - 1][0];
-            dy = smoothTrack[i + 1][1] - smoothTrack[i - 1][1];
-        }
-
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = -dy / len;
-        const ny = dx / len;
-
-        const [lon, lat] = smoothTrack[i];
-        // Adjust for latitude (degrees of longitude shrink at higher latitudes)
-        const latCos = Math.cos((lat * Math.PI) / 180);
-        const lonRadius = radiusDeg / (latCos || 1);
-
-        leftEdge.push([lon + nx * lonRadius, lat + ny * radiusDeg]);
-        rightEdge.push([lon - nx * lonRadius, lat - ny * radiusDeg]);
-    }
-
-    return [...leftEdge, ...rightEdge.reverse(), leftEdge[0]];
-}
-
-/** IDs for the Mapbox GL probability sleeve layers */
+/** IDs for the Mapbox GL cone (the issuer's polygon) and the model tracks */
 const SLEEVE_SOURCE = 'cyclone-sleeve-src';
-const SLEEVE_GLOW = 'cyclone-sleeve-glow';
 const SLEEVE_CORE = 'cyclone-sleeve-core';
 const SLEEVE_EDGE = 'cyclone-sleeve-edge';
-const SLEEVE_CENTER = 'cyclone-sleeve-center';
+const MODELS_SOURCE = 'cyclone-models-src';
+const MODELS_LINE = 'cyclone-models-line';
+const MODELS_LABEL = 'cyclone-models-label';
+/**
+ * The issuer's own label: a layer of its own, above the models', so it is
+ * placed first and the chart's own labels yield to it. It no longer
+ * overlaps (129-13: "NHC official forecast" printed over a place's name at
+ * zoom 2); it takes the first free one of eight spots around the track's end,
+ * ordered by placeIssuerLabel so the HTML markers there are kept clear too.
+ */
+const ISSUER_LABEL = 'cyclone-issuer-label';
+/** Where each map's issuer label stands and what it says, for placeIssuerLabel. */
+const issuerLabels = new WeakMap<mapboxgl.Map, { at: [number, number]; text: string; order: string }>();
+
+/** Every model's track for a storm, from the service once it has loaded (129-09). */
+let modelSource: ((c: ActiveCyclone) => CycloneModelTrack[]) | null = null;
+const modelsOf = (c: ActiveCyclone) => modelSource?.(c) ?? [];
+type FeedStatus = {
+    unavailableSince: number | null;
+    forecastUnavailableSince: number | null;
+    coneUnavailableSince: number | null;
+    /** Storm lists that did not answer, inside a feed that did (129-09b). */
+    sourcesUnavailable?: { source: string; since: number }[];
+};
+/** The service's feed status, once it has loaded: a failed forecast feed is said on the card. */
+let statusSource: (() => FeedStatus) | null = null;
+
+/** One colour per model line, its label the same colour, so a line and its name read as one. */
+const MODEL_COLOURS = ['#93c5fd', '#86efac', '#fca5a5', '#c4b5fd', '#67e8f9', '#f9a8d4', '#fdba74', '#d9f99d'];
+
+/** "GFS 13/06Z": the model and its run, as model plots name them. */
+function modelRunLabel(m: CycloneModelTrack): string {
+    const t = Date.parse(m.cycle);
+    if (!Number.isFinite(t)) return m.label;
+    const d = new Date(t);
+    return `${m.label} ${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCHours()).padStart(2, '0')}Z`;
+}
+
+/**
+ * A published polygon with each ring's longitudes made continuous, so Mapbox
+ * fills a ring across 180° the short way: the feed spells dateline vertices
+ * with a sign flip (178.5, 179.6, -179.3), and a ring spelt so is filled the
+ * long way round the globe. Nothing is cut (unlike sanitizeTrackLongitudes):
+ * every vertex is kept. Each ring starts within 180° of the storm, so the cone
+ * sits on the same world copy as its track. Returns a copy.
+ */
+export function unwrapPolygonLongitudes<G extends GeoJSON.Polygon | GeoJSON.MultiPolygon>(g: G, refLon: number): G {
+    const ring = (r: GeoJSON.Position[]): GeoJSON.Position[] => {
+        let prev = Number.isFinite(refLon) ? refLon : (r[0]?.[0] ?? 0);
+        return r.map(([lon, ...rest]) => {
+            let x = lon;
+            while (x - prev > 180) x -= 360;
+            while (x - prev < -180) x += 360;
+            if (Number.isFinite(x)) prev = x;
+            return [x, ...rest];
+        });
+    };
+    return (
+        g.type === 'Polygon'
+            ? { ...g, coordinates: g.coordinates.map(ring) }
+            : { ...g, coordinates: (g as GeoJSON.MultiPolygon).coordinates.map((p) => p.map(ring)) }
+    ) as G;
+}
 
 function removeProbabilitySleeve(map: mapboxgl.Map): void {
-    for (const id of [SLEEVE_CENTER, SLEEVE_EDGE, SLEEVE_CORE, SLEEVE_GLOW]) {
+    issuerLabels.delete(map);
+    for (const id of [ISSUER_LABEL, MODELS_LABEL, MODELS_LINE, SLEEVE_EDGE, SLEEVE_CORE]) {
         if (map.getLayer(id)) map.removeLayer(id);
     }
-    if (map.getSource(SLEEVE_SOURCE)) map.removeSource(SLEEVE_SOURCE);
+    for (const id of [MODELS_SOURCE, SLEEVE_SOURCE]) if (map.getSource(id)) map.removeSource(id);
+}
+
+/** "14 Oct 03:10 UTC", as _shared/cyclone/centres.ts utcLabel writes it (that table stays in the service chunk). */
+function utc(ms: number): string {
+    const d = new Date(ms).toUTCString(); // "Wed, 14 Oct 2026 03:10:00 GMT"
+    return `${+d.slice(5, 7)} ${d.slice(8, 11)} ${d.slice(17, 22)} UTC`;
 }
 
 /** Retire only this hook's canvas resources; never leave departed storm tracks. */
@@ -1296,134 +1230,232 @@ function removeRetiredCycloneLayers(map: mapboxgl.Map, active: readonly ActiveCy
     }
 }
 
+function setGeoJson(map: mapboxgl.Map, id: string, data: GeoJSON.FeatureCollection): boolean {
+    const existing = map.getSource(id) as mapboxgl.GeoJSONSource | undefined;
+    if (existing) existing.setData(data);
+    else map.addSource(id, { type: 'geojson', data });
+    return !existing;
+}
+
 /**
- * Add or update the Probability Sleeve on the map for the forecast track.
- * Creates a multi-layer glow effect using Mapbox GL fill + line layers.
+ * The cone and the model tracks for the storm in view (129-09).
+ *
+ * The cone is the issuer's own published polygon, drawn as published: NHC's
+ * forecast cone (official, white), or JTWC's danger area (an advisory,
+ * amber). Where the issuer published none, there is none: the sleeve this
+ * replaced was generated here from a fixed error table and drawn the same for
+ * every storm, so it read as NHC's cone in oceans NHC does not cover. Its
+ * longitudes are only made continuous across 180° (unwrapPolygonLongitudes).
+ * Each model's track is a thin line in its own colour, named along the line
+ * with its run time, and the forecast track's end names its issuer and the
+ * advisory time on the chart, in a label of its own that is never dropped.
  */
 function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
-    const forecast = cyclone.forecastTrack;
-    if (!forecast || forecast.length < 2) {
-        removeProbabilitySleeve(map);
+    const issuer = cyclone.issuer;
+    if (cyclone.cone) {
+        const fresh = setGeoJson(map, SLEEVE_SOURCE, {
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    properties: { official: !!issuer?.official },
+                    geometry: unwrapPolygonLongitudes(cyclone.cone, cyclone.currentPosition.lon),
+                },
+            ],
+        });
+        if (fresh) {
+            const official = ['get', 'official'];
+            map.addLayer({
+                id: SLEEVE_CORE,
+                type: 'fill',
+                source: SLEEVE_SOURCE,
+                paint: {
+                    'fill-color': ['case', official, '#ffffff', '#f59e0b'],
+                    'fill-opacity': ['case', official, 0.18, 0.12],
+                },
+            });
+            map.addLayer({
+                id: SLEEVE_EDGE,
+                type: 'line',
+                source: SLEEVE_SOURCE,
+                paint: {
+                    'line-color': ['case', official, '#ffffff', '#fbbf24'],
+                    'line-width': 1.5,
+                    'line-opacity': 0.7,
+                },
+                layout: { 'line-join': 'round' },
+            });
+        }
+    } else {
+        for (const id of [SLEEVE_EDGE, SLEEVE_CORE]) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(SLEEVE_SOURCE)) map.removeSource(SLEEVE_SOURCE);
+    }
+
+    const features: GeoJSON.Feature[] = [];
+    modelsOf(cyclone).forEach((m, i) => {
+        const line = sanitizeTrackLongitudes(m.line);
+        if (line.length < 2) return;
+        features.push({
+            type: 'Feature',
+            properties: {
+                label: m.label,
+                text: modelRunLabel(m),
+                color: MODEL_COLOURS[i % MODEL_COLOURS.length],
+                // The consensus first, then the global models, then the rest.
+                rank: /^(Consensus|HCCA)$/.test(m.label) ? 0 : /^(GFS|ECMWF)$/.test(m.label) ? 1 : 2,
+            },
+            geometry: { type: 'LineString', coordinates: line },
+        });
+    });
+    const end = cyclone.forecastTrack[cyclone.forecastTrack.length - 1];
+    if (issuer && end) {
+        const issued = Date.parse(cyclone.forecastBy?.issued ?? '');
+        const text = Number.isFinite(issued) ? `${issuer.text}\n${utc(issued)}` : issuer.text;
+        features.push({
+            type: 'Feature',
+            properties: { issuer: true, official: issuer.official, label: issuer.text, text },
+            geometry: { type: 'Point', coordinates: [end.lon, end.lat] },
+        });
+        issuerLabels.set(map, { at: [end.lon, end.lat], text, order: '' });
+    } else {
+        issuerLabels.delete(map);
+    }
+    if (features.length === 0) {
+        for (const id of [ISSUER_LABEL, MODELS_LABEL, MODELS_LINE]) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(MODELS_SOURCE)) map.removeSource(MODELS_SOURCE);
         return;
     }
+    if (setGeoJson(map, MODELS_SOURCE, { type: 'FeatureCollection', features })) {
+        const font = ['DIN Pro Medium', 'Arial Unicode MS Regular'];
+        const halo = { 'text-halo-color': '#000000', 'text-halo-width': 1 };
+        map.addLayer({
+            id: MODELS_LINE,
+            type: 'line',
+            source: MODELS_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.85 },
+        });
+        // Named along each line, where a crowded end cannot leave it anonymous.
+        map.addLayer({
+            id: MODELS_LABEL,
+            type: 'symbol',
+            source: MODELS_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            layout: {
+                'symbol-placement': 'line',
+                'symbol-spacing': 160,
+                'symbol-sort-key': ['get', 'rank'],
+                'text-field': ['get', 'text'],
+                'text-font': font,
+                'text-size': 10,
+                'text-max-angle': 50,
+                'text-keep-upright': true,
+                'text-offset': [0, -0.7],
+            },
+            paint: { 'text-color': ['get', 'color'], ...halo },
+        });
+        map.addLayer({
+            id: ISSUER_LABEL,
+            type: 'symbol',
+            source: MODELS_SOURCE,
+            filter: ['==', ['get', 'issuer'], true],
+            layout: {
+                'text-field': ['get', 'text'],
+                'text-font': font,
+                'text-size': 10,
+                'text-max-width': 14,
+                'text-variable-anchor': [...ISSUER_ANCHORS],
+                'text-radial-offset': ISSUER_OFFSET_EM,
+                'text-justify': 'auto',
+            },
+            paint: { 'text-color': ['case', ['get', 'official'], '#ffffff', '#fbbf24'], ...halo },
+        });
+    }
+    placeIssuerLabel(map);
+}
 
-    // Build the track centerline from current position through forecast —
-    // continuous longitudes, corrupt fixes cut (see sanitizeTrackLongitudes).
-    const allPoints: [number, number][] = sanitizeTrackLongitudes([
-        [cyclone.currentPosition.lon, cyclone.currentPosition.lat],
-        ...forecast.map((p) => [p.lon, p.lat] as [number, number]),
-    ]);
-    if (allPoints.length < 2) {
-        removeProbabilitySleeve(map);
+/**
+ * Order the issuer label's spots so the first ones are clear of the HTML
+ * markers near the track's end: the chosen place's pin and name, and the
+ * storms' own badges, which Mapbox's label placement cannot see. Run as the
+ * label is drawn and on every camera stop; it touches the layer only when
+ * the order changes.
+ */
+export function placeIssuerLabel(map: mapboxgl.Map): void {
+    const label = issuerLabels.get(map);
+    if (!label) return;
+    try {
+        if (!map.getLayer(ISSUER_LABEL)) return;
+        const container = map.getContainer();
+        const frame = container.getBoundingClientRect();
+        // Track geometry, so through the one projector (tests/CycloneTrackSanity.test.ts).
+        const [point] = projectTrackContinuously(map, [label.at]);
+        const obstacles: Box[] = [];
+        for (const el of container.querySelectorAll<HTMLElement>(
+            '.obs-place-pin, .obs-place-pin__label, .cyclone-marker',
+        )) {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) continue;
+            obstacles.push({
+                left: r.left - frame.left,
+                top: r.top - frame.top,
+                right: r.right - frame.left,
+                bottom: r.bottom - frame.top,
+            });
+        }
+        const order = issuerAnchorOrder(point, issuerLabelBox(label.text), obstacles);
+        const key = order.join(',');
+        if (key === label.order) return;
+        label.order = key;
+        map.setLayoutProperty(ISSUER_LABEL, 'text-variable-anchor', order);
+    } catch {
+        /* the map or its style went away */
+    }
+}
+
+/**
+ * "Cyclone data unavailable since …" while the storm list is down; else
+ * "Partial cyclone data: … unavailable since …" while one of the storm lists
+ * (or a JTWC warning no list places) is, first, since whole basins may be
+ * missing, and under it "Forecast track (or cone) unavailable since …" while
+ * the issuers' forecast is: never an empty chart, or a storm with no track,
+ * read as an all-clear.
+ */
+function showFeedStatus(map: mapboxgl.Map, status: FeedStatus | null): void {
+    const container = map.getContainer();
+    let el = container.querySelector<HTMLElement>('#cyclone-feed-status');
+    const lists = status?.sourcesUnavailable ?? [];
+    const lines =
+        status?.unavailableSince != null
+            ? [`Cyclone data unavailable since ${utc(status.unavailableSince)}`]
+            : [
+                  lists.length > 0
+                      ? `Partial cyclone data: ${lists.map((l) => l.source).join(', ')} unavailable since ${utc(
+                            Math.min(...lists.map((l) => l.since)),
+                        )}`
+                      : null,
+                  status?.forecastUnavailableSince != null
+                      ? `Forecast track unavailable since ${utc(status.forecastUnavailableSince)}`
+                      : status?.coneUnavailableSince != null
+                        ? `Forecast cone unavailable since ${utc(status.coneUnavailableSince)}`
+                        : null,
+              ].filter((l): l is string => l !== null);
+    if (lines.length === 0) {
+        el?.remove();
         return;
     }
-
-    // Calculate total forecast hours from timestamps
-    let totalHours = 120;
-    if (forecast.length >= 2 && forecast[0].time && forecast[forecast.length - 1].time) {
-        const t0 = new Date(forecast[0].time).getTime();
-        const tN = new Date(forecast[forecast.length - 1].time).getTime();
-        if (tN > t0) totalHours = (tN - t0) / 3600000;
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'cyclone-feed-status';
+        el.setAttribute('role', 'status');
+        el.style.cssText =
+            'position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:50%;transform:translateX(-50%);z-index:761;' +
+            'background:rgba(120,53,15,.94);color:#fde68a;font:600 12px -apple-system,system-ui,sans-serif;' +
+            'padding:6px 12px;border-radius:14px;pointer-events:none;white-space:pre-line;text-align:center;' +
+            'max-width:calc(100% - 32px);width:max-content;box-sizing:border-box;';
+        container.appendChild(el);
     }
-
-    // Smooth the track with Catmull-Rom spline
-    const smoothTrack = catmullRomSpline(allPoints, 10);
-
-    // Build the probability envelope polygon (maritime error margins)
-    const sleeveCoords = buildSleevePolygon(smoothTrack, totalHours, 1.0);
-    // Build wider glow polygon (1.6× scale)
-    const glowCoords = buildSleevePolygon(smoothTrack, totalHours, 1.6);
-
-    // GeoJSON FeatureCollection
-    const geojson: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: [
-            // Outer glow polygon
-            {
-                type: 'Feature',
-                properties: { layer: 'glow' },
-                geometry: { type: 'Polygon', coordinates: [glowCoords] },
-            },
-            // Core sleeve polygon
-            {
-                type: 'Feature',
-                properties: { layer: 'core' },
-                geometry: { type: 'Polygon', coordinates: [sleeveCoords] },
-            },
-            // Centerline
-            {
-                type: 'Feature',
-                properties: { layer: 'center' },
-                geometry: { type: 'LineString', coordinates: smoothTrack },
-            },
-        ],
-    };
-
-    // Update existing source or create new
-    const existing = map.getSource(SLEEVE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
-    if (existing) {
-        existing.setData(geojson);
-        return;
-    }
-
-    // Add source
-    map.addSource(SLEEVE_SOURCE, { type: 'geojson', data: geojson, lineMetrics: true });
-
-    // Layer 1: Outer glow — wide transparent fill extending beyond core
-    map.addLayer({
-        id: SLEEVE_GLOW,
-        type: 'fill',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'glow'],
-        paint: {
-            'fill-color': '#ffffff',
-            'fill-opacity': 0.05,
-        },
-    });
-
-    // Layer 2: Core cone fill — NHC-style translucent white
-    map.addLayer({
-        id: SLEEVE_CORE,
-        type: 'fill',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'core'],
-        paint: {
-            'fill-color': '#ffffff',
-            'fill-opacity': 0.18,
-        },
-    });
-
-    // Layer 3: Cone edge outline — solid white boundary
-    map.addLayer({
-        id: SLEEVE_EDGE,
-        type: 'line',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'core'],
-        paint: {
-            'line-color': '#ffffff',
-            'line-width': 1.5,
-            'line-opacity': 0.6,
-        },
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-    });
-
-    // Layer 4: Centerline — smooth solid track through forecast positions
-    map.addLayer({
-        id: SLEEVE_CENTER,
-        type: 'line',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'center'],
-        paint: {
-            'line-width': 2,
-            'line-opacity': 0.9,
-            'line-color': '#ffffff',
-        },
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-    });
-
-    log.info(
-        `[CYCLONE] 🌀 Probability sleeve rendered for ${cyclone.name} (${smoothTrack.length} smooth points, ${totalHours.toFixed(0)}h window)`,
-    );
+    el.textContent = lines.join('\n');
 }
 
 // ── Hook ──────────────────────────────────────────────────
@@ -1502,17 +1534,9 @@ export function useCycloneLayer(
             if (map.getLayer(BORDER_ID)) map.removeLayer(BORDER_ID);
             if (map.getSource(BORDER_ID)) map.removeSource(BORDER_ID);
 
-            // Probability sleeve
-            const sleeveLayers = [
-                'cyclone-sleeve-glow',
-                'cyclone-sleeve-core',
-                'cyclone-sleeve-edge',
-                'cyclone-sleeve-center',
-            ];
-            for (const id of sleeveLayers) {
-                if (map.getLayer(id)) map.removeLayer(id);
-            }
-            if (map.getSource('cyclone-sleeve-src')) map.removeSource('cyclone-sleeve-src');
+            // The cone, the model tracks and the feed notice
+            removeProbabilitySleeve(map);
+            showFeedStatus(map, null);
 
             // Per-storm past track lines (dynamic IDs: past-track-{sid}-outline, past-track-{sid}-line)
             // getStyle() throws if style isn't loaded; cleanup shouldn't crash the app.
@@ -1578,6 +1602,9 @@ export function useCycloneLayer(
             }
         };
         map.on('moveend', onMoveEnd);
+        // The issuer label's spots, re-ordered round the markers wherever the camera stops.
+        const onIssuerPlace = () => placeIssuerLabel(map);
+        map.on('moveend', onIssuerPlace);
 
         // ── Create track overlay (SVG neon tube) on first use ──
         const ensureTrackOverlay = () => {
@@ -1764,11 +1791,14 @@ export function useCycloneLayer(
             // service used to be loaded alongside it; the storm view now draws
             // the shared world cloud overlay instead, so that import is gone.
             _cs = await getCycloneService();
+            modelSource = _cs.modelTracksFor;
+            statusSource = _cs.cycloneFeedStatus;
 
             log.info('[CYCLONE] 🌀 Fetching active cyclones (for discovery only)...');
             try {
                 const cyclones = await _cs.fetchActiveCyclones();
                 if (cancelled) return;
+                showFeedStatus(map, _cs.cycloneFeedStatus());
 
                 log.info(`[CYCLONE] Got ${cyclones.length} active cyclone(s)`);
 
@@ -1908,7 +1938,10 @@ export function useCycloneLayer(
                 const sel = selectedStormRef.current;
                 const freshSel = sel ? cyclones.find((c) => c.sid === sel.sid) : undefined;
                 if (freshSel) {
-                    refreshStormCardInPlace(map.getContainer(), freshSel);
+                    refreshStormCardInPlace(map.getContainer(), freshSel, {
+                        lat: userLatRef.current,
+                        lon: userLonRef.current,
+                    });
                     // The card's badge and its stepper are separate nodes, and
                     // only this pass can add a stepper that was impossible at
                     // mount time because the storm list had not arrived yet.
@@ -2024,6 +2057,7 @@ export function useCycloneLayer(
             cancelled = true;
             map.off('zoomend', onZoomEnd);
             map.off('moveend', onMoveEnd);
+            map.off('moveend', onIssuerPlace);
             // Release center lock + restore zoom
             stormCenterRef.current = null;
             map.setMinZoom(0);
@@ -2034,6 +2068,7 @@ export function useCycloneLayer(
             // Clean up HUD
             const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (hudEl) hudEl.remove();
+            showFeedStatus(map, null);
             removeCloudOverlay(map);
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
@@ -2073,35 +2108,9 @@ export function useCycloneLayer(
         const existing = map.getContainer().querySelector(`#${HUD_ID}`);
         if (existing) existing.remove();
 
-        const hud = document.createElement('div');
-        hud.id = HUD_ID;
-        // TOP ALIGNS WITH THE MOB FAB (Shane 2026-08-23) — and that is not a
-        // constant, so it cannot live here as one.
+        // The card's place on screen (top aligned with MOB, clear of it and
+        // of a threat chip) is index.css's .storm-hud-badges: see createStormHud.
         //
-        // MOB sits inside .radial-helm-menu (absolute top:192px) at
-        // .radial-helm-mob { top: calc(env(safe-area-inset-top)/2 - 95px) },
-        // i.e. 97px + half the notch inset, and it moves to a different
-        // anchor entirely in short landscape. A hard-coded 108/116 here was
-        // right on exactly one device and drifted on every other, which is
-        // how it landed in the pill row in the first place.
-        //
-        // So the offset moves to index.css beside .radial-helm-mob, derived
-        // from the same numbers and carrying the same landscape override.
-        // Keeping the two adjacent is the point: they are now one decision.
-        //
-        // z-index 760, NOT 600: the FAB rail is z-700 and the route banner
-        // z-720, so at 600 the storm card could be covered by furniture —
-        // "make sure that it is on top of all other layers".
-        hud.className = 'storm-hud-badges';
-        hud.style.cssText = `
-            position: absolute;
-            left: 16px;
-            z-index: 760;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            pointer-events: none;
-        `;
         // Idempotent, and NOT redundant: the keyframes are injected by the
         // [visible, mapReady] effect, which is a different effect from this
         // one. In practice it runs first, but "in practice" is not a
@@ -2109,11 +2118,6 @@ export function useCycloneLayer(
         // appear with no unroll, because CSS ignores an unknown animation
         // name rather than erroring.
         injectCycloneCSS();
-        hud.appendChild(createStormBadgeStatic(selectedStorm));
-        // The sleeve follows the selection: stepping storms must swap the GL
-        // cone with the card, or the punter reads one storm's numbers over
-        // another storm's probability envelope.
-        addProbabilitySleeve(map, selectedStorm);
         // STEP BETWEEN STORMS WITHOUT THE MENU (Shane 2026-08-23: "we need a
         // way to select a different storm without having to go back through
         // the menu").
@@ -2122,11 +2126,15 @@ export function useCycloneLayer(
         // view LOCKS the camera on the selected storm — so in a live Pacific
         // the other three are off-screen and there is nothing left to tap.
         // The only route back was the StormPicker modal, which is the menu he
-        // is describing. A stepper on the card needs no camera and no modal.
-        const switcher = createStormSwitcher(cyclonesRef.current, selectedStorm, (next) =>
-            onSelectStormRef.current?.(next),
-        );
-        if (switcher) hud.appendChild(switcher);
+        // is describing. A stepper on the card needs no camera and no modal;
+        // since 129-13 it is the card's own last row.
+        const hud = createStormHud(selectedStorm, cyclonesRef.current, (next) => onSelectStormRef.current?.(next), {
+            from: { lat: userLatRef.current, lon: userLonRef.current },
+        });
+        // The sleeve follows the selection: stepping storms must swap the GL
+        // cone with the card, or the punter reads one storm's numbers over
+        // another storm's probability envelope.
+        addProbabilitySleeve(map, selectedStorm);
         map.getContainer().appendChild(hud);
 
         // Update the center lock to the newly selected storm
@@ -2153,6 +2161,17 @@ export function useCycloneLayer(
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedStorm?.sid, visible, mapReady]);
+
+    // The card's distance line follows the selected place (129-13). The chip
+    // it replaced re-measured every 10 s; the card redraws only when its
+    // words change (badgeSignature), and never moves the camera.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !visible || !selectedStorm) return;
+        const fresh = cyclonesRef.current.find((c) => c.sid === selectedStorm.sid) ?? selectedStorm;
+        refreshStormCardInPlace(map.getContainer(), fresh, { lat: userLat, lon: userLon });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userLat, userLon]);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2237,8 +2256,23 @@ function computeDevProbability(cyclone: ActiveCyclone): 'LOW' | 'MODERATE' | 'HI
     return 'LOW';
 }
 
+/** Where the card measures the storm from: the selected place the threat chip measured from. */
+export type StormCardFrom = { lat: number; lon: number } | null | undefined;
+
+/** "138 NM W · Cat 1 · 80 kt winds": the threat chip's two lines, folded into the card (129-13). */
+function stormDistanceLine(cyclone: ActiveCyclone, distance: StormDistance): string {
+    const winds = cyclone.maxWindKts || cyclone.currentPosition.windKts;
+    return [
+        distance.text,
+        cyclone.category > 0 ? `Cat ${cyclone.categoryLabel}` : null,
+        winds ? `${winds} kt winds` : null,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+}
+
 /** Build common StormBadgeData from an ActiveCyclone */
-function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadgeData {
+function buildBadgeData(cyclone: ActiveCyclone, from?: StormCardFrom, onClose?: () => void): StormBadgeData {
     const accentColor = categoryColor(cyclone.category);
     const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
     const stormName = resolveStormName(cyclone);
@@ -2272,24 +2306,56 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
     const nextAdvMin = Math.round((nextAdvDate.getTime() - now.getTime()) / 60000);
     const nextAdvStr = nextAdvMin < 60 ? `~${nextAdvMin} min` : `~${Math.floor(nextAdvMin / 60)}h ${nextAdvMin % 60}m`;
 
-    const basinLabels: Record<string, string> = {
-        WP: 'W. Pacific',
-        EP: 'E. Pacific',
-        AL: 'Atlantic',
-        IO: 'Indian Ocean',
-        SI: 'S. Indian',
-        SP: 'S. Pacific',
-        SH: 'S. Hemisphere',
-    };
-    const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
+    // The basin and the storm's number in words, never the feed's raw "E · ep202026" (129-13).
+    const identity = stormIdentityWords(cyclone.basin, cyclone.sid, lat, lon);
+    const distance = from ? stormDistance(from.lat, from.lon, lat, lon) : null;
+
+    // Who issued the track, when, and the official centre (129-09)
+    const issuer = cyclone.issuer;
+    const centre = cyclone.centre;
+    const issued = Date.parse(cyclone.forecastBy?.issued ?? posTime ?? '');
+    const when = Number.isFinite(issued) ? ` · ${utc(issued)}` : '';
+    const adv = issuer?.official && cyclone.forecastBy?.advisory ? ` · advisory ${cyclone.forecastBy.advisory}` : '';
+    const dropped = Date.parse(cyclone.droppedAt ?? '');
+    const models = modelsOf(cyclone);
+    const producers = [...new Set(models.map((m) => m.by))];
+    const by = cyclone.forecastBy?.by;
+    const forecastDown = statusSource?.().forecastUnavailableSince ?? null;
 
     return {
+        issuerLine: issuer
+            ? `${issuer.text}${adv}${when}`
+            : forecastDown != null
+              ? `Forecast track unavailable since ${utc(forecastDown)}`
+              : 'No forecast track from the warning centre',
+        issuerOfficial: !!issuer?.official,
+        staleLine: Number.isFinite(dropped)
+            ? `Not in the latest feed since ${utc(dropped)}`
+            : Date.now() - issued > 12 * 3_600_000
+              ? `Last advisory ${utc(issued)}`
+              : null,
+        centreLink: issuer?.official || !centre ? null : { name: centre.short, url: centre.url },
+        // Direct from the centres (129-09b): NOAA's public domain, JTWC's a US military work; each credited.
+        credits: [
+            by &&
+                (by === 'JTWC'
+                    ? `Track${cyclone.cone ? ' and danger area' : ''}: JTWC (US Navy)`
+                    : `Track${cyclone.cone ? ' and cone' : ''}: ${by} (NOAA)`),
+            !by &&
+                cyclone.positionBy &&
+                `Position: ${cyclone.positionBy === 'JTWC' ? 'JTWC (US Navy)' : `${cyclone.positionBy} (NOAA)`}`,
+            producers.length > 0 && `Models: ${producers.join(', ')}`,
+            producers.includes('ECMWF') && 'Forecast data: ECMWF',
+        ]
+            .filter(Boolean)
+            .join(' · '),
         accentColor,
         catLabel,
         stormName,
         classification,
-        basinStr,
-        sid: cyclone.sid,
+        identity,
+        distanceLine: distance ? stormDistanceLine(cyclone, distance) : null,
+        distanceSeverity: distance?.severity ?? null,
         latStr,
         lonStr,
         dataTimeStr,
@@ -2358,7 +2424,7 @@ export function ensureStormSwitcher(
     const fresh = createStormSwitcher(all, current, onPick);
     if (!fresh) return;
     if (existing) existing.replaceWith(fresh);
-    else hud.appendChild(fresh);
+    else (hud.querySelector('[data-storm-footer]') ?? hud).appendChild(fresh);
 }
 
 export function createStormSwitcher(
@@ -2375,13 +2441,13 @@ export function createStormSwitcher(
 
     const bar = document.createElement('div');
     bar.dataset.stormSwitcher = stormSwitcherSignature(storms, current);
+    // The card's own last row since 129-13 (one card, not a card, a chip and
+    // a bar): a hairline above it instead of a second box and shadow.
     bar.style.cssText = `
         display:flex;align-items:center;justify-content:space-between;gap:6px;
-        background:var(--day-ui-surface, rgba(10,15,30,0.92));backdrop-filter:blur(20px);
-        -webkit-backdrop-filter:blur(20px);border:1px solid var(--day-ui-border, rgba(255,255,255,0.12));
-        border-radius:12px;padding:4px;pointer-events:auto;
+        border-top:1px solid var(--day-ui-border, rgba(255,255,255,0.1));
+        padding:4px;pointer-events:auto;
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        box-shadow:0 6px 20px rgba(0,0,0,0.6);
     `;
 
     const step = (delta: number): void => {
@@ -2428,21 +2494,64 @@ export function createStormSwitcher(
 // ── Static badge builder (accessible outside the main effect closure) ──
 export function createStormBadgeStatic(cyclone: ActiveCyclone, opts?: StormBadgeOpts): HTMLDivElement {
     const wrapper = document.createElement('div');
-    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone), opts);
+    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone, opts?.from), opts);
+    wrapper.dataset.sig = badgeSignature(cyclone, opts?.from);
     return wrapper;
 }
 
 /** How the card was left: expanded or collapsed, and whether it should
- *  re-play its entry animation. A refresh keeps both. */
+ *  re-play its entry animation. A refresh keeps both. `from`: the selected
+ *  place the card's distance line measures from (129-13). */
 interface StormBadgeOpts {
     expanded?: boolean;
     animate?: boolean;
+    from?: StormCardFrom;
+}
+
+/**
+ * The storm card and its stepper as the card effect mounts them in the map's
+ * container (also e2e/fixtures/storm-overlay.tsx): one card, the stepper its
+ * last row, kept clear of MOB by .storm-hud-badges in index.css.
+ */
+export function createStormHud(
+    selected: ActiveCyclone,
+    all: readonly ActiveCyclone[],
+    onPick: (storm: ActiveCyclone) => void,
+    opts?: StormBadgeOpts,
+): HTMLDivElement {
+    const hud = document.createElement('div');
+    hud.id = 'cyclone-hud-badges';
+    // TOP ALIGNS WITH THE MOB FAB (Shane 2026-08-23) — and that is not a
+    // constant, so it cannot live here as one: index.css derives it beside
+    // .radial-helm-mob, with the same landscape override, and (129-13) puts
+    // the card under a threat chip that is showing and its right edge clear
+    // of MOB. z-index 760, NOT 600: the FAB rail is z-700 and the route
+    // banner z-720 — "make sure that it is on top of all other layers".
+    hud.className = 'storm-hud-badges';
+    hud.style.cssText = `
+            position: absolute;
+            left: 16px;
+            z-index: 760;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        `;
+    const badge = createStormBadgeStatic(selected, opts);
+    hud.appendChild(badge);
+    const switcher = createStormSwitcher(all, selected, onPick);
+    if (switcher) (badge.querySelector('[data-storm-footer]') ?? hud).appendChild(switcher);
+    return hud;
 }
 
 /** Everything on the card that can change between advisories. Cheap, and it
- *  is what decides whether a refresh is worth doing at all. */
-export function badgeSignature(c: ActiveCyclone): string {
+ *  is what decides whether a refresh is worth doing at all. With `from`, the
+ *  distance line's words too, so a boat on the move redraws it only when
+ *  its miles or its compass point change. */
+export function badgeSignature(c: ActiveCyclone, from?: StormCardFrom): string {
+    const away = from ? stormDistance(from.lat, from.lon, c.currentPosition?.lat, c.currentPosition?.lon) : null;
     return [
+        away?.text ?? '',
         c.category,
         c.categoryLabel,
         c.maxWindKts,
@@ -2451,6 +2560,10 @@ export function badgeSignature(c: ActiveCyclone): string {
         c.currentPosition?.lon,
         c.lastAdvisoryTime ?? c.currentPosition?.time,
         c.track?.length ?? 0,
+        c.forecastBy?.advisory,
+        c.droppedAt,
+        modelsOf(c).length,
+        statusSource?.().forecastUnavailableSince,
     ].join('|');
 }
 
@@ -2474,26 +2587,41 @@ export function badgeSignature(c: ActiveCyclone): string {
  * swaps the card's contents for the same storm, keeps it expanded if the user
  * had it open, and skips the unroll so it does not flash.
  */
-export function refreshStormCardInPlace(container: HTMLElement, fresh: ActiveCyclone): void {
+export function refreshStormCardInPlace(container: HTMLElement, fresh: ActiveCyclone, from?: StormCardFrom): void {
     const hud = container.querySelector('#cyclone-hud-badges');
     const wrapper = hud?.firstElementChild as HTMLElement | null;
     if (!wrapper) return;
-    if (wrapper.dataset.sig === badgeSignature(fresh)) return; // nothing moved
+    const sig = badgeSignature(fresh, from);
+    if (wrapper.dataset.sig === sig) return; // nothing moved
     // The body is display:block only while the user has it open.
     const wasExpanded = (wrapper.querySelector('[data-storm-body]') as HTMLElement | null)?.style.display === 'block';
+    // The stepper rides in the card's last row (129-13): lift it out and put it back.
+    const switcher = wrapper.querySelector('[data-storm-switcher]');
     wrapper.replaceChildren();
-    buildStormBadgeDOM(wrapper, buildBadgeData(fresh), { expanded: wasExpanded, animate: false });
-    wrapper.dataset.sig = badgeSignature(fresh);
+    buildStormBadgeDOM(wrapper, buildBadgeData(fresh, from), { expanded: wasExpanded, animate: false });
+    if (switcher) wrapper.querySelector('[data-storm-footer]')?.appendChild(switcher);
+    wrapper.dataset.sig = sig;
 }
 
 // ── Shared storm badge DOM builder (no innerHTML) ──
 interface StormBadgeData {
+    /** Who issued the forecast track, with its advisory and time (129-09). */
+    issuerLine: string;
+    issuerOfficial: boolean;
+    /** "Last advisory …" past 12 h, or "Not in the latest feed since …". */
+    staleLine: string | null;
+    /** The official centre, linked wherever Thalassa does not draw its own track. */
+    centreLink: { name: string; url: string } | null;
+    credits: string;
     accentColor: string;
     catLabel: string;
     stormName: string;
     classification: string;
-    basinStr: string;
-    sid: string;
+    /** "East Pacific · storm 20". */
+    identity: string;
+    /** "138 NM W · Cat 1 · 80 kt winds" from the selected place, the chip's words; null without one. */
+    distanceLine: string | null;
+    distanceSeverity: StormDistance['severity'] | null;
     latStr: string;
     lonStr: string;
     dataTimeStr: string;
@@ -2518,7 +2646,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         border-top:3px solid ${d.accentColor};border-radius:14px;
         padding:0;color:var(--day-ui-text, #fff);
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        min-width:200px;max-width:320px;z-index:760;
+        min-width:min(200px, 100%);max-width:320px;z-index:760;
         box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
         overflow:hidden;pointer-events:auto;cursor:pointer;
         ${opts?.animate === false ? '' : 'animation:storm-badge-unroll 260ms cubic-bezier(0.22,1,0.36,1);'}
@@ -2547,10 +2675,62 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     subtitleEl.textContent = d.classification;
     headerLeft.appendChild(subtitleEl);
 
+    // The threat chip's words, folded in (129-13): it sat on this card's
+    // header. Coloured as the chip was, by how near the storm is.
+    if (d.distanceLine) {
+        const near = {
+            danger: 'var(--day-ui-danger, #fca5a5)',
+            warning: 'var(--day-ui-orange, #fdba74)',
+            caution: 'var(--day-ui-amber, #fcd34d)',
+            far: 'var(--day-ui-text, #fff)',
+        }[d.distanceSeverity ?? 'far'];
+        const away = document.createElement('div');
+        away.dataset.stormDistance = d.distanceSeverity ?? 'far';
+        away.style.cssText = `font-size:12px;font-weight:700;line-height:1.3;margin-top:3px;color:${near};`;
+        away.textContent = d.distanceLine;
+        headerLeft.appendChild(away);
+    }
+
     const metaEl = document.createElement('div');
+    metaEl.dataset.stormMeta = '';
     metaEl.style.cssText = 'font-size:11px;color:var(--day-ui-muted, rgba(255,255,255,0.6));margin-top:2px;';
-    metaEl.textContent = `${d.basinStr} · ${d.sid} · ${d.latStr} ${d.lonStr}`;
+    metaEl.textContent = `${d.identity} · ${d.latStr} ${d.lonStr}`;
     headerLeft.appendChild(metaEl);
+
+    // ── Who issued the track, and the official centre (129-09) ──
+    const line = (text: string, color: string) => {
+        const el = document.createElement('div');
+        el.style.cssText = `font-size:11px;line-height:1.3;margin-top:4px;color:${color};`;
+        el.textContent = text;
+        headerLeft.appendChild(el);
+        return el;
+    };
+    const amber = daylightUiColor('#fbbf24');
+    line(d.issuerLine, d.issuerOfficial ? 'var(--day-ui-text, #fff)' : amber);
+    if (d.staleLine) line(d.staleLine, amber);
+    if (d.centreLink) {
+        const { name, url } = d.centreLink;
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = `Official warnings: ${name} ↗`;
+        link.style.cssText = `display:block;font-size:11px;font-weight:700;margin-top:4px;color:${daylightUiColor('#7dd3fc')};`;
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void openExternalUrl(url);
+        });
+        headerLeft.appendChild(link);
+    }
+    // Credits stay on the card even folded: attribution is a licence condition.
+    // data-map-credit: like every chart credit, it stays in the clear view
+    // (129-13) and is cut out of the layer menu's scrim.
+    if (d.credits) {
+        const credits = line(d.credits, 'var(--day-ui-muted, rgba(255,255,255,0.6))');
+        credits.style.fontSize = '10px';
+        credits.setAttribute('data-map-credit', '');
+    }
 
     header.appendChild(headerLeft);
 
@@ -2579,7 +2759,8 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         expanded = !expanded;
         body.style.display = expanded ? 'block' : 'none';
         chevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
-        card.style.minWidth = expanded ? '280px' : '200px';
+        // Never wider than the room left of MOB (.storm-hud-badges).
+        card.style.minWidth = expanded ? 'min(280px, 100%)' : 'min(200px, 100%)';
     });
 
     // ── Advisory History Table ──
@@ -2743,5 +2924,9 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     body.appendChild(footer);
 
     card.appendChild(body);
+    // The storm stepper's row (createStormSwitcher), the card's last (129-13).
+    const stepperRow = document.createElement('div');
+    stepperRow.setAttribute('data-storm-footer', '');
+    card.appendChild(stepperRow);
     wrapper.appendChild(card);
 }

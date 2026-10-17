@@ -20,7 +20,8 @@ vi.mock('../services/savedRoutesSync', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { bankTraceVerification, loadSavedTraces, saveTrace, type TraceLegVerdict } from '../services/routeTracer';
+import type { TraceLegVerdict } from '../services/routeTracer';
+import { bankTraceVerification, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { evaluateTraceRelease, serialiseTraceVerificationNote, traceGeometryKey } from '../services/traceVerification';
 import { getTraceCheckOutcome, recordTraceCheckOutcome } from '../services/traceCheckOutcomes';
 

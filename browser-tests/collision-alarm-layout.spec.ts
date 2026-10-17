@@ -289,6 +289,42 @@ for (const size of SIZES) {
         expect(errors).toEqual([]);
     });
 
+    test(`a stand-down her Pi refused (129-12) says why, and offers the set-up, at ${size.width}x${size.height} with wide fonts`, async ({
+        page,
+    }, info) => {
+        const errors = await openFixture(page, size, 'key', '', '&key=refused');
+        const row = page.getByTestId('collision-watch-row');
+        // The watch state stays: the Pi is still shown watching.
+        await expect(row).toContainText('Watching: the Pi');
+        await expect(row).toContainText("This phone isn't set up for Kestrel's Pi. Type the code from her Pi.");
+        await expect(page.getByTestId('collision-watch-stand-down')).toHaveCount(0);
+        const setUp = page.getByTestId('collision-watch-set-up');
+        await expect(setUp).toHaveText('Set up this phone');
+        const fits = await page.evaluate(() => {
+            const panel = document.querySelector<HTMLElement>('[data-testid="ais-key-panel"]')!;
+            const key = panel.querySelector<HTMLElement>('[role="group"]')!;
+            const row = document.querySelector<HTMLElement>('[data-testid="collision-watch-row"]')!;
+            const r = row.getBoundingClientRect();
+            const box = key.getBoundingClientRect();
+            return {
+                inside: r.left >= box.left - 0.5 && r.right <= box.right + 0.5,
+                rowSideways: row.scrollWidth > row.clientWidth + 1,
+                pageSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+            };
+        });
+        expect(fits).toEqual({ inside: true, rowSideways: false, pageSideways: false });
+        expect(await controlIssues(page, '[data-testid="collision-watch-row"]')).toEqual([]);
+        if (size.width === 320) {
+            const path = info.outputPath(`collision-watch-refused-${info.project.name}-320x568.png`);
+            await page.screenshot({ path, animations: 'disabled' });
+            await info.attach('collision-watch-refused-320x568', { path, contentType: 'image/png' });
+        }
+        await setUp.click();
+        // To Boat Network, where the code is typed.
+        expect(await page.evaluate(() => document.body.dataset.navigatedTo)).toBe('avnav');
+        expect(errors).toEqual([]);
+    });
+
     test(`a card from the Pi fits the stack at ${size.width}x${size.height} with wide fonts`, async ({
         page,
     }, info) => {

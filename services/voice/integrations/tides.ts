@@ -61,7 +61,7 @@ export async function getTides(
             return {
                 content: JSON.stringify({
                     status: 'no_predictions',
-                    note: 'WorldTides returned nothing for this location. Could be inland or no tide station nearby. Say so plainly.',
+                    note: 'No tide provider returned predictions for this location. Could be inland or no supported tide station nearby. Say so plainly.',
                 }),
                 isError: false,
             };
@@ -84,13 +84,16 @@ export async function getTides(
             content: JSON.stringify({
                 status: 'tides',
                 station_name: result.guiDetails?.stationName ?? 'unknown station',
+                tide_provider: result.guiDetails?.provider ?? 'WorldTides',
+                tide_datum: result.guiDetails?.datumLabel ?? 'unconfirmed',
+                tide_source_url: result.guiDetails?.sourceUrl,
                 position_source: source,
                 location_name: locationName ?? '',
                 lat: resolvedLat,
                 lon: resolvedLon,
                 next: enriched[0],
                 upcoming: enriched, // Up to 4 entries — first is next, rest for context
-                note: 'Read the next tide naturally — "high tide in two hours forty, one point eight metres". Don\'t list all four unless the skipper asks for "next few" or similar.',
+                note: 'Read the next tide naturally, naming its station, source and datum. Heights are station predictions, not chart depth or under-keel clearance. Don\'t list all four unless the skipper asks for "next few" or similar.',
             }),
             isError: false,
         };

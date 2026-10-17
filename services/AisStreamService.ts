@@ -11,6 +11,7 @@ import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 
 import { createLogger } from '../utils/createLogger';
 import { withDeadline } from '../utils/deadline';
+import { publishAisCoverage } from './ais/aisCoverage';
 
 const log = createLogger('AisStreamService');
 
@@ -45,7 +46,7 @@ class AisStreamServiceClass {
     async fetchNearby(query: AisStreamQuery): Promise<GeoJSON.FeatureCollection> {
         const now = Date.now();
         const radiusNm = query.radiusNm || DEFAULT_RADIUS_NM;
-        const limit = query.limit || 250;
+        const limit = query.limit || 500;
 
         // Throttle: reuse the cache only when it is a SUPERSET of this request.
         // The old check compared lat/lon alone, so a 5 NM result satisfied a
@@ -61,7 +62,7 @@ class AisStreamServiceClass {
             Math.abs(this.lastQuery.lat - query.lat) < 0.01 &&
             Math.abs(this.lastQuery.lon - query.lon) < 0.01 &&
             (this.lastQuery.radiusNm || DEFAULT_RADIUS_NM) >= radiusNm &&
-            (this.lastQuery.limit || 250) >= limit
+            (this.lastQuery.limit || 500) >= limit
         ) {
             return this.cachedResult;
         }
@@ -117,6 +118,13 @@ class AisStreamServiceClass {
             }
 
             const geojson = await withDeadline(resp.json(), 5_000, 'AIS vessel response body');
+            if (
+                geojson?.type !== 'FeatureCollection' ||
+                !Array.isArray(geojson.features) ||
+                geojson.features.length > 500
+            )
+                throw Error('Invalid AIS response');
+            publishAisCoverage(geojson.coverage);
 
             this.lastFetchAt = now;
             // Store the EFFECTIVE query — the radius/limit actually fetched —
@@ -125,6 +133,7 @@ class AisStreamServiceClass {
             this.cachedResult = geojson;
             return geojson;
         } catch (e) {
+            publishAisCoverage({ state: 'unavailable' });
             log.warn('[AisStream] Fetch error:', e);
             return this.cachedResult || { type: 'FeatureCollection', features: [] };
         }
@@ -132,6 +141,7 @@ class AisStreamServiceClass {
 
     /** Clear cached results */
     clearCache(): void {
+        publishAisCoverage(null);
         this.cachedResult = null;
         this.lastFetchAt = 0;
         this.lastQuery = null;

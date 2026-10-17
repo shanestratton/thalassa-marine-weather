@@ -1,301 +1,163 @@
 /**
- * inventoryPdfExport — Ship's Inventory PDF export.
+ * inventoryPdfExport — the Ship's Stores PDF.
  *
- * Generates a branded PDF listing all inventory items grouped by category,
- * with quantity, min-stock, location, and expiry.
- * Uses the same styling as equipmentPdfExport / logbook (navy header, gold accent, tables).
+ * Every item of the chosen categories (all of them by default), grouped by
+ * category, with quantity, minimum, location and expiry, and the totals on
+ * top. Exporting a few categories makes a list for a store run.
  *
- * Supports exporting specific categories (e.g. just Provisions + Medical for a store run).
+ * 130-B8: drawn on services/pdf/registerPdf.ts, so a name in any script
+ * prints and a long one wraps instead of being cut; dates are the phone's own
+ * (services/pdf/pdfDates.ts); no emoji in the headings (Helvetica printed them
+ * as garbage); titled Ship's Stores, as the screen is. It goes out through
+ * sharePdfBlob: the old 'Download' called jsPDF's save(), which does nothing
+ * in the iPhone app, and then said the PDF was downloaded.
+ *
+ * 131-B14: quantities print in units, as the screen shows them (1 kg of
+ * sugar, not '1000'), in the skipper's unit system; Low is the screen's one
+ * rule; the totals count items, not a sum of grams, litres and tins.
  */
-import type { jsPDF as JsPDFType } from 'jspdf';
+import type { jsPDF } from 'jspdf';
 import type { InventoryItem, InventoryCategory } from '../types';
-import { INVENTORY_CATEGORIES, INVENTORY_CATEGORY_ICONS } from '../types';
+import { INVENTORY_CATEGORIES } from '../types';
+import { RegisterPdf, REGISTER_COLOURS, type JsPdfConstructor, type RegisterCell } from '../services/pdf/registerPdf';
+import { pdfDaysUntil, pdfFileDay, pdfLongDate, pdfShortDate } from '../services/pdf/pdfDates';
+import { isLowStock } from '../services/vessel/inventoryStats';
+import { storesAmount, type StoresUnitSystem } from '../services/vessel/storesUnits';
+import { sharePdfBlob, shareTitle, type ShareOutcome } from './sharePdf';
 
-const W = 210,
-    H = 297,
-    M = 15;
-const CW = W - M * 2;
+export const STORES_PDF_TITLE = "Ship's Stores";
 
-// ── Helpers (consistent with equipmentPdfExport / pdfExport) ────
+/** Wider QTY and MIN than a bare count needed: '33.8 fl oz' fits on one line. */
+const COLUMNS = [
+    { label: 'ITEM', width: 50 },
+    { label: 'QTY', width: 24 },
+    { label: 'MIN', width: 20 },
+    { label: 'LOCATION', width: 44 },
+    { label: 'EXPIRY', width: 42 },
+];
 
-function drawSectionHeader(pdf: JsPDFType, title: string, y: number): number {
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(26, 42, 58);
-    pdf.text(title.toUpperCase(), M, y);
-
-    pdf.setDrawColor(3, 105, 161);
-    pdf.setLineWidth(0.8);
-    pdf.line(M, y + 2, M + CW, y + 2);
-
-    return y + 8;
-}
-
-function checkPage(pdf: JsPDFType, y: number, needed: number): number {
-    if (y + needed > H - M) {
-        pdf.addPage();
-        return M + 10;
-    }
-    return y;
-}
-
-// ── Table column layout ─────────────────────────────────────────
-
-const COL_WIDTHS = [52, 16, 16, 48, 48]; // Name, Qty, Min, Location, Expiry
-const COL_LABELS = ['ITEM', 'QTY', 'MIN', 'LOCATION', 'EXPIRY'];
-
-function colX(i: number): number {
-    let x = M;
-    for (let j = 0; j < i; j++) x += COL_WIDTHS[j];
-    return x;
-}
-
-function drawTableHeader(pdf: JsPDFType, y: number): number {
-    pdf.setFillColor(26, 42, 58);
-    pdf.rect(M, y, CW, 7, 'F');
-    pdf.setFontSize(6.5);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(255, 255, 255);
-    COL_LABELS.forEach((h, i) => pdf.text(h, colX(i) + 2, y + 5));
-    return y + 7;
-}
-
-function drawTableRow(pdf: JsPDFType, item: InventoryItem, y: number, fill: boolean): number {
-    const rowH = 6.5;
-    if (fill) {
-        pdf.setFillColor(245, 247, 250);
-        pdf.rect(M, y, CW, rowH, 'F');
-    }
-    pdf.setFontSize(7.5);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(40, 40, 40);
-
-    const name = item.item_name.substring(0, 32);
-    const qty = String(item.quantity);
-    const minQty = item.min_quantity > 0 ? String(item.min_quantity) : '—';
-    const loc = item.location_zone
-        ? `${item.location_zone}${item.location_specific ? ` — ${item.location_specific}` : ''}`.substring(0, 28)
-        : '—';
-
-    // Low stock warning
-    const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
-
-    pdf.text(name, colX(0) + 2, y + 4.5);
-
-    // Qty — red if low stock
-    if (isLow) pdf.setTextColor(220, 38, 38);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(qty, colX(1) + 2, y + 4.5);
-    pdf.setTextColor(40, 40, 40);
-    pdf.setFont('helvetica', 'normal');
-
-    // Min
-    pdf.setTextColor(160, 160, 160);
-    pdf.text(minQty, colX(2) + 2, y + 4.5);
-    pdf.setTextColor(40, 40, 40);
-
-    // Location
-    pdf.text(loc, colX(3) + 2, y + 4.5);
-
-    // Expiry — color-coded
-    if (item.expiry_date) {
-        const d = new Date(item.expiry_date);
-        const daysLeft = Math.ceil((d.getTime() - Date.now()) / 86_400_000);
-        const expStr = d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
-        if (daysLeft <= 0) pdf.setTextColor(220, 38, 38);
-        else if (daysLeft <= 90) pdf.setTextColor(217, 119, 6);
-        else pdf.setTextColor(22, 163, 74);
-        pdf.text(expStr, colX(4) + 2, y + 4.5);
-    } else {
-        pdf.setTextColor(160, 160, 160);
-        pdf.text('—', colX(4) + 2, y + 4.5);
-    }
-
-    // Low stock annotation
-    if (isLow) {
-        pdf.setTextColor(220, 38, 38);
-        pdf.setFontSize(5.5);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('LOW', colX(1) + 8, y + 4.5);
-    }
-
-    pdf.setTextColor(40, 40, 40);
-    return y + rowH;
-}
-
-// ── Generate the PDF ────────────────────────────────────────────
-
-interface InventoryPdfOptions {
+export interface InventoryPdfOptions {
     items: InventoryItem[];
+    /** None or empty: every category. */
     categories?: Set<InventoryCategory>;
     vesselName?: string;
+    /** The skipper's unit system (131-B14); metric when not given. */
+    units?: StoresUnitSystem;
 }
 
-async function generateInventoryPDF({ items, categories, vesselName }: InventoryPdfOptions): Promise<JsPDFType> {
-    const { jsPDF } = await import('jspdf');
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+/** A count as the phone writes numbers: '2.5' or '2,5', never '2.5000000001'. */
+function formatCount(value: number): string {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
 
-    const cats =
-        categories && categories.size > 0
-            ? INVENTORY_CATEGORIES.filter((c) => categories.has(c))
-            : INVENTORY_CATEGORIES;
+function plural(count: number, word: string): string {
+    return `${formatCount(count)} ${word}${count === 1 ? '' : 's'}`;
+}
 
-    const currentDate = new Date().toLocaleDateString('en-AU', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-    });
+/** The categories the PDF lists, in the screen's order. */
+function chosenCategories(categories?: Set<InventoryCategory>): InventoryCategory[] {
+    return categories && categories.size > 0
+        ? INVENTORY_CATEGORIES.filter((c) => categories.has(c))
+        : INVENTORY_CATEGORIES;
+}
 
-    // Filter items to selected categories
-    const filteredItems = items.filter((i) => cats.includes(i.category));
-    const totalQty = filteredItems.reduce((s, i) => s + i.quantity, 0);
-    const lowStock = filteredItems.filter((i) => i.quantity <= i.min_quantity && i.min_quantity > 0).length;
+/** Every item the PDF lists: those in the chosen categories. */
+export function storesPdfItems({
+    items,
+    categories,
+}: Pick<InventoryPdfOptions, 'items' | 'categories'>): InventoryItem[] {
+    const cats = chosenCategories(categories);
+    return items.filter((item) => cats.includes(item.category));
+}
 
-    // ═══ Header ═══
-    pdf.setFillColor(26, 42, 58);
-    pdf.rect(0, 0, W, 45, 'F');
+function itemRow(item: InventoryItem, now: Date, units: StoresUnitSystem): RegisterCell[] {
+    const low = isLowStock(item);
+    const location = [item.location_zone, item.location_specific].filter((part) => part?.trim()).join(' — ');
+    const days = pdfDaysUntil(item.expiry_date, now);
+    const expiryColour =
+        days === null
+            ? REGISTER_COLOURS.muted
+            : days <= 0
+              ? REGISTER_COLOURS.red
+              : days <= 90
+                ? REGISTER_COLOURS.amber
+                : REGISTER_COLOURS.green;
+    return [
+        { text: item.item_name },
+        {
+            text: storesAmount(item.quantity, item.unit, units),
+            bold: true,
+            color: low ? REGISTER_COLOURS.red : undefined,
+            tag: low ? { text: 'LOW', color: REGISTER_COLOURS.red } : undefined,
+        },
+        {
+            text: item.min_quantity > 0 ? storesAmount(item.min_quantity, item.unit, units) : '—',
+            color: REGISTER_COLOURS.muted,
+        },
+        { text: location || '—' },
+        { text: pdfShortDate(item.expiry_date), color: expiryColour },
+    ];
+}
 
-    pdf.setDrawColor(201, 162, 39);
-    pdf.setLineWidth(1.5);
-    pdf.line(M + 20, 43, W - M - 20, 43);
+function buildStoresPdf(options: InventoryPdfOptions, JsPdf: JsPdfConstructor, now = new Date()): jsPDF {
+    const page = new RegisterPdf(JsPdf);
+    const cats = chosenCategories(options.categories);
+    const listed = storesPdfItems(options);
+    const units = options.units ?? 'metric';
+    const lowStock = listed.filter(isLowStock).length;
+    const date = pdfLongDate(now);
+    const vessel = options.vesselName?.trim();
+    const catLabel = options.categories && options.categories.size > 0 ? cats.join(', ') : 'All Categories';
+    const stats = [plural(listed.length, 'Item')];
+    if (lowStock > 0) stats.push(`${formatCount(lowStock)} Low Stock`);
 
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(20);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text("SHIP'S INVENTORY", W / 2, 18, { align: 'center' });
-
-    // Subtitle
-    pdf.setFontSize(10);
-    pdf.setFont('helvetica', 'normal');
-    const catLabel = categories && categories.size > 0 ? Array.from(categories).join(', ') : 'All Categories';
-    pdf.text(`${vesselName || 'Vessel'} | ${catLabel} | ${currentDate}`, W / 2, 30, { align: 'center' });
-
-    // Stats line
-    pdf.setFontSize(9);
-    pdf.setTextColor(201, 162, 39);
-    pdf.text(
-        `${filteredItems.length} Items · ${totalQty} Units${lowStock > 0 ? ` · ${lowStock} Low Stock` : ''}`,
-        W / 2,
-        38,
-        { align: 'center' },
+    // No name set: no stand-in 'Vessel' on the paper, just the rest of the line.
+    page.band(
+        STORES_PDF_TITLE.toUpperCase(),
+        [
+            { text: [vessel, catLabel, date].filter(Boolean).join(' | '), size: 10, color: '#ffffff' },
+            { text: stats.join(' · '), size: 9, color: REGISTER_COLOURS.gold },
+        ],
+        45,
     );
+    page.boxes([
+        { label: 'TOTAL ITEMS', value: formatCount(listed.length), color: REGISTER_COLOURS.navy },
+        {
+            label: 'LOW STOCK',
+            value: lowStock > 0 ? formatCount(lowStock) : 'OK',
+            color: lowStock > 0 ? REGISTER_COLOURS.red : REGISTER_COLOURS.green,
+        },
+    ]);
 
-    let y = 55;
-
-    // ═══ Summary boxes ═══
-    const boxW = (CW - 6) / 3;
-    const boxH = 16;
-
-    // Total Items
-    pdf.setDrawColor(200, 200, 200);
-    pdf.setLineWidth(0.3);
-    pdf.roundedRect(M, y, boxW, boxH, 2, 2, 'S');
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(120, 120, 120);
-    pdf.text('TOTAL ITEMS', M + 4, y + 5);
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(26, 42, 58);
-    pdf.text(String(filteredItems.length), M + 4, y + 13);
-
-    // Total Units
-    pdf.setDrawColor(200, 200, 200);
-    pdf.roundedRect(M + boxW + 3, y, boxW, boxH, 2, 2, 'S');
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(120, 120, 120);
-    pdf.text('TOTAL UNITS', M + boxW + 7, y + 5);
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(26, 42, 58);
-    pdf.text(String(totalQty), M + boxW + 7, y + 13);
-
-    // Low Stock
-    pdf.roundedRect(M + (boxW + 3) * 2, y, boxW, boxH, 2, 2, 'S');
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(120, 120, 120);
-    pdf.text('LOW STOCK', M + (boxW + 3) * 2 + 4, y + 5);
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    if (lowStock > 0) pdf.setTextColor(220, 38, 38);
-    else pdf.setTextColor(22, 163, 74);
-    pdf.text(lowStock > 0 ? String(lowStock) : 'OK', M + (boxW + 3) * 2 + 4, y + 13);
-
-    y += boxH + 8;
-
-    // ═══ Group by category ═══
     for (const cat of cats) {
-        const catItems = filteredItems
-            .filter((i) => i.category === cat)
+        const catItems = listed
+            .filter((item) => item.category === cat)
             .sort((a, b) => a.item_name.localeCompare(b.item_name));
         if (catItems.length === 0) continue;
-
-        const icon = INVENTORY_CATEGORY_ICONS[cat] || '';
-        y = checkPage(pdf, y, 25);
-        y = drawSectionHeader(pdf, `${icon} ${cat} (${catItems.length})`, y);
-        y = drawTableHeader(pdf, y);
-
-        catItems.forEach((item, i) => {
-            y = checkPage(pdf, y, 7);
-            // Re-draw table header if we're on a new page
-            if (y < M + 12) {
-                y = drawTableHeader(pdf, y);
-            }
-            y = drawTableRow(pdf, item, y, i % 2 === 0);
-        });
-
-        y += 6;
+        page.section(
+            `${cat} (${catItems.length})`,
+            COLUMNS,
+            catItems.map((item) => itemRow(item, now, units)),
+        );
     }
-
-    // ═══ Footer ═══
-    const pageCount = pdf.getNumberOfPages();
-    for (let p = 1; p <= pageCount; p++) {
-        pdf.setPage(p);
-        pdf.setFontSize(7);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(160, 160, 160);
-        pdf.text(`Generated by Thalassa Marine Weather | ${currentDate} | Page ${p} of ${pageCount}`, W / 2, H - 8, {
-            align: 'center',
-        });
-    }
-
-    return pdf;
+    return page.finish(date);
 }
 
-// ── Public API (same share-or-download pattern) ─────────────────
-
-export async function downloadInventoryPdf(options: InventoryPdfOptions): Promise<void> {
-    const pdf = await generateInventoryPDF(options);
-    const date = new Date().toISOString().split('T')[0];
-    const filename = `Ships_Inventory_${date}.pdf`;
-    pdf.save(filename);
+/**
+ * Share or save the Ship's Stores PDF: the share sheet in the app (Save to
+ * Files, Mail, AirDrop, Print), a download on the web. 'empty' when the chosen
+ * categories hold nothing: no blank PDF goes out.
+ */
+export async function shareInventoryPdf(options: InventoryPdfOptions): Promise<ShareOutcome | 'empty'> {
+    if (storesPdfItems(options).length === 0) return 'empty';
+    const now = new Date();
+    const { jsPDF } = await import('jspdf');
+    const doc = buildStoresPdf(options, jsPDF, now);
+    return sharePdfBlob(
+        doc.output('blob'),
+        `Ships_Stores_${pdfFileDay(now)}.pdf`,
+        shareTitle(STORES_PDF_TITLE, options.vesselName),
+    );
 }
 
-export async function shareInventoryPdf(options: InventoryPdfOptions): Promise<void> {
-    const pdf = await generateInventoryPDF(options);
-    const date = new Date().toISOString().split('T')[0];
-    const filename = `Ships_Inventory_${date}.pdf`;
-
-    const pdfBlob = pdf.output('blob');
-    const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
-
-    // Try Web Share API (iOS share sheet for email, AirDrop, print, etc.)
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-        try {
-            await navigator.share({
-                title: "Ship's Inventory",
-                text: `Inventory for ${options.vesselName || 'vessel'}`,
-                files: [pdfFile],
-            });
-            return;
-        } catch (err) {
-            if (err instanceof Error && err.name === 'AbortError') return;
-            // Fall through to download
-        }
-    }
-
-    // Fallback — direct download
-    pdf.save(filename);
-}
+export const __testing = { buildStoresPdf, COLUMNS };

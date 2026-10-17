@@ -46,6 +46,7 @@ export function fixSourceSentence(source: FixSource, ageMin: number): string {
 }
 
 export function laneTag(via: RemoteVia | null, connected: boolean, anyValue: boolean): string {
+    if (via === 'signalk') return 'SIGNAL K';
     if (via === 'lan') return 'VIA PI';
     if (via === 'cloud') return 'CLOUD';
     if (connected && anyValue) return 'GATEWAY';
@@ -53,6 +54,7 @@ export function laneTag(via: RemoteVia | null, connected: boolean, anyValue: boo
 }
 
 export function laneSentence(via: RemoteVia | null, connected: boolean, anyValue: boolean): string {
+    if (via === 'signalk') return 'Direct Signal K instruments · read only';
     if (via === 'lan') return 'Boat instruments, via the Pi';
     if (via === 'cloud') return 'Boat instruments, through the cloud — not steering';
     if (connected && anyValue) return 'Boat instruments, from the gateway';

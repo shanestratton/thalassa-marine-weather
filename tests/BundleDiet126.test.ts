@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MINIFIED_PUBLIC_DATA, minifyPublicJson } from '../scripts/minify-public-scripts.mjs';
 
@@ -104,7 +104,7 @@ describe('the data tables ship as data', () => {
         const offenders = sourceFiles('services')
             .concat(sourceFiles('components'), sourceFiles('data'))
             .filter((f) => /marine-place-names-qld\.json|customs-clearance\.json/.test(code(f)))
-            .map((f) => relative(ROOT, join(ROOT, f)))
+            .map((f) => relative(ROOT, join(ROOT, f)).split(sep).join('/'))
             .sort();
         // Only the two loaders name their file, as a fetched URL.
         expect(offenders).toEqual(['data/customsDb.ts', 'services/marineEndpointName.ts']);

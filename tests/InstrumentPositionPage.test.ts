@@ -41,7 +41,7 @@ describe('the pages come in the order the markers say', () => {
         expect(renderedSections().map((s) => s.toUpperCase())).toEqual(EXPECTED_ORDER);
         expect(source).not.toContain('Jump to ${name}');
         // The crew Watch page is still conditional.
-        expect(source).toMatch(/\{hasMyWatch && \(/);
+        expect(source).toMatch(/\{hasMyWatch && showSection\('Watch'\) && \(/);
     });
 
     it('opens on the Clock, then keeps Wind → Barometer → Position together near the top', () => {

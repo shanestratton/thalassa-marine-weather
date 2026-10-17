@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { AutoroutingTrialRoute } from '../../types/autorouting';
 import type { TrialRouteReview } from '../../services/autoroutingReview';
-import type { SavedTrace } from '../../services/routeTracer';
+import type { SavedTrace } from '../../services/savedTraceStore';
 import { autoroutingProposalGeometryKey } from '../../services/autoroutingProposalEvidence';
 import {
     evaluateAutoroutingProposalSave,

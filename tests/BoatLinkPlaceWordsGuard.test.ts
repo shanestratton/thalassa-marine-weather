@@ -14,7 +14,7 @@
  * someone remembered ([[thalassa-pi-pinned-transport]]).
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOTS = ['components', 'services', 'utils', 'hooks', 'stores'];
@@ -29,7 +29,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
     for (const entry of readdirSync(dir)) {
         const p = join(dir, entry);
         if (statSync(p).isDirectory()) sourceFiles(p, out);
-        else if (/\.(ts|tsx)$/.test(p) && !/\.test\.|\.spec\./.test(p)) out.push(p);
+        else if (/\.(ts|tsx)$/.test(p) && !/\.test\.|\.spec\./.test(p)) out.push(p.split(sep).join('/'));
     }
     return out;
 }
@@ -89,7 +89,8 @@ describe('only services/boatLink says where the phone is', () => {
 
     it('the phone stands in for the boat only by the boat link’s rule (by position, or a GPS-less bus on her own network)', () => {
         const overlay = readFileSync('components/map/MapboxVelocityOverlay.tsx', 'utf8');
-        expect(overlay).toContain('const aboard = BoatLinkService.phoneStandsInForBoat();');
+        // Through the gate (131-01): no boat link loaded, or still loading, is never "with her".
+        expect(overlay).toContain('const aboard = boatLinkIfConfigured()?.phoneStandsInForBoat() ?? false;');
         expect(code(overlay)).not.toMatch(/const aboard = NmeaStore\.isBoatFeed\(\)/);
     });
 });

@@ -1,23 +1,37 @@
 /**
  * PolarManagerTab — Tabbed interface for polar data input + Smart Polars.
- * Tab A: File Import (.pol / .csv)
+ * Tab A: File Import (Expedition polars and TWA × TWS tables: .pol / .csv /
+ *        .txt), with a preview, refusing a file routes cannot sail on (132-B22)
  * Tab B: Manual Matrix (editable spreadsheet)
  *
+ * Polar edits and imports you can't lose (132-B22): an edit waiting out its
+ * 1.5 s saves when the page closes or the app goes to the background, and the
+ * save line says 'Saving…' while it waits; 'Clear all' and an import over a
+ * polar with figures ask first.
+ *
  * Also includes:
+ * - One line at the top: which polar routes really sail (130-B6)
  * - Smart Polars state, with a link to its switch in Settings → Preferences
  *   (moved there, UX scorecard run 8; see SmartPolarsSetting)
- * - Factory vs Smart polar data for routing
+ * - Your polar vs Smart for routing ('Factory' until build 131, 130-B6)
  * - Where the learner hears the boat from (services/smartPolarFeed)
  * - Smart Polars stats & filter gate status
  * - PolarChart with overlay
  *
  * Yacht database selection has moved to VesselTab (Settings → Vessel Profile).
  */
-import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
-import type { PolarData } from '../../types';
+import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
+import type { PolarData, VesselProfile } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { PolarChart } from './PolarChart';
-import { parsePolarFile, validatePolarData, createEmptyPolar } from '../../utils/polarParser';
+import {
+    readPolarFile,
+    validatePolarData,
+    createEmptyPolar,
+    PolarFileError,
+    type PolarFileFormat,
+} from '../../utils/polarParser';
+import { whyRoutesCannotSail, yourPolarAsSailed } from '../../services/routingPolar';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { learnerFeedState, subscribeLearnerFeedState, type LearnerFeedState } from '../../services/smartPolarFeed';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
@@ -27,25 +41,36 @@ import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon, 
 import { RowChevron } from './SettingsPrimitives';
 import { Button } from '../ui/Button';
 import { createLogger } from '../../utils/createLogger';
+import {
+    polarFromTargets,
+    resizePolar,
+    routingPolarScale,
+    sharePolar,
+    type PolarTargets,
+} from '../../services/polarTools';
 
 const log = createLogger('PolarManagerTab');
 
-/** polarParser's own reasons: they say what is wrong with the file. */
-const POLAR_PARSER_REASON = /^(Polar file must have|No valid wind (speeds|angle rows))/;
-
 /**
- * What a failed polar import says. The parser's reasons pass through; any
- * other failure (the file could not be read) is logged and said plainly, so
- * raw error text never reaches the screen (UX scorecard run 9).
+ * What a failed polar import says. The parser's own reasons (PolarFileError)
+ * pass through; any other failure (the file could not be read) is logged and
+ * said plainly, so raw error text never reaches the screen (UX scorecard run 9).
  */
 function describePolarImportError(caught: unknown): string {
     const raw = caught instanceof Error ? caught.message : String(caught);
-    if (POLAR_PARSER_REASON.test(raw)) return raw.endsWith('.') ? raw : `${raw}.`;
+    if (caught instanceof PolarFileError) return raw.endsWith('.') ? raw : `${raw}.`;
     log.warn('Polar import failed:', raw);
-    return 'This file could not be read as a polar table. Choose a polar file (.pol, .csv or .txt) and try again.';
+    return 'This file could not be read as a polar. Choose a polar file (.pol, .csv or .txt) and try again.';
 }
 
-type InputTab = 'import' | 'manual';
+type InputTab = 'import' | 'manual' | 'targets';
+type PolarKind = 'database' | 'file_import' | 'manual';
+
+/** A table with a figure in it: what 'Clear all' or an import would lose. Same test PolarChart uses for its own empty state. */
+const hasFigures = (data: PolarData | null | undefined) => data?.matrix.some((row) => row.some((v) => v > 0)) ?? false;
+
+/** How long an edit waits before it saves: typing a figure is one save, not one per keystroke. */
+const EDIT_SAVE_DELAY_MS = 1500;
 
 /** One look for every link that leaves this page — underlined sky text and a
  *  trailing chevron — so a skipper can tell them from the bordered in-page
@@ -74,13 +99,18 @@ const OffPageLinkText: React.FC<{ children: React.ReactNode }> = ({ children }) 
 interface PolarManagerTabProps {
     settings?: {
         polarSource?: 'factory' | 'smart';
+        routingPolarScale?: number;
         nmeaHost?: string;
         nmeaPort?: number;
         smartPolarsEnabled?: boolean;
         polarData?: PolarData;
         polarBoatModel?: string;
         polarSource_type?: 'database' | 'file_import' | 'manual';
+        /** Her cruising speed scales a yacht-database shape, as routes scale it. */
+        vessel?: VesselProfile | null;
     };
+    /** Which polar routes really sail: the routing resolver's words, as the passage banner prints them. */
+    routesSailOn?: string;
     onSave?: (patch: Record<string, unknown>) => void;
     onNavigateToNmea?: () => void;
     /** Opens Settings so the skipper can pick a yacht under Vessel Profile. */
@@ -91,6 +121,7 @@ interface PolarManagerTabProps {
 
 export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     settings,
+    routesSailOn,
     onSave,
     onNavigateToNmea,
     onOpenVesselProfile,
@@ -99,11 +130,21 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     const [activeTab, setActiveTab] = useState<InputTab>('import');
     const [polarData, setPolarData] = useState<PolarData>(settings?.polarData || createEmptyPolar());
     const [boatModel, setBoatModel] = useState(settings?.polarBoatModel || '');
-    const [source, setSource] = useState<'database' | 'file_import' | 'manual'>(settings?.polarSource_type || 'manual');
-    const [saving, setSaving] = useState(false);
-    const [lastSaved, setLastSaved] = useState<string | null>(settings?.polarData ? 'Loaded from device' : null);
+    const [source, setSource] = useState<PolarKind>(settings?.polarSource_type || 'manual');
+    // An edit waiting out EDIT_SAVE_DELAY_MS: the save line says 'Saving…'
+    // until it is written (it read 'Saving…' for no time at all before).
+    const [pending, setPending] = useState(false);
+    // The time of this visit's last save; '' for a polar loaded as saved
+    // (it read 'Saved Loaded from device').
+    const [lastSaved, setLastSaved] = useState<string | null>(settings?.polarData ? '' : null);
     const [showAdvancedInput, setShowAdvancedInput] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
+    /** An import waiting for 'Replace polar': her polar has figures it would replace. */
+    const [replaceWith, setReplaceWith] = useState<{ data: PolarData; name: string; src?: PolarKind } | null>(null);
+    const [resizeWith, setResizeWith] = useState<PolarData | null>(null);
+    const [exportStatus, setExportStatus] = useState('');
+    const [performance, setPerformance] = useState(routingPolarScale(settings?.routingPolarScale));
 
     // Smart Polars state
     const [smartPolarData, setSmartPolarData] = useState<PolarData | null>(null);
@@ -123,6 +164,10 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     const mountedRef = useRef(true);
     const smartLoadRequestRef = useRef(0);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** The edit the timer will save; written now if she leaves first (132-B22). */
+    const pendingRef = useRef<{ data: PolarData; model: string; src: PolarKind } | null>(null);
+    const onSaveRef = useRef(onSave);
+    onSaveRef.current = onSave;
     const advancedDialogRef = useFocusTrap(showAdvancedInput, {
         initialFocusRef: advancedCloseRef,
         onEscape: () => setShowAdvancedInput(false),
@@ -144,16 +189,47 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         }
     }, []);
 
+    // Save the waiting edit, if there is one, to settings (persisted locally
+    // via Capacitor Preferences). Called by the timer, by an import or a
+    // cleared table, and when she leaves — closing the page used to clear the
+    // timer and lose the edit (132-B22).
+    const flushPending = useCallback(() => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        const edit = pendingRef.current;
+        pendingRef.current = null;
+        if (mountedRef.current) setPending(false);
+        if (!edit) return;
+        onSaveRef.current?.({ polarData: edit.data, polarBoatModel: edit.model, polarSource_type: edit.src });
+        if (mountedRef.current) setLastSaved(new Date().toLocaleTimeString());
+    }, []);
+
     useEffect(() => {
         mountedRef.current = true;
         return () => {
             mountedRef.current = false;
             smartLoadRequestRef.current += 1;
-            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            // Leaving the page: Back, a tab, another screen.
+            flushPending();
         };
-    }, []);
+    }, [flushPending]);
+
+    // Leaving the app — the home screen, another app, the phone locking — saves
+    // a waiting edit too: iOS may never run the page again to save it.
+    useEffect(() => {
+        const onVisibility = () => {
+            if (document.visibilityState === 'hidden') flushPending();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        window.addEventListener('pagehide', flushPending);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibility);
+            window.removeEventListener('pagehide', flushPending);
+        };
+    }, [flushPending]);
 
     // Sync local state when settings prop changes (e.g. after onboarding)
+    useEffect(() => setPerformance(routingPolarScale(settings?.routingPolarScale)), [settings?.routingPolarScale]);
     useEffect(() => {
         if (settings?.polarData) {
             setPolarData(settings.polarData);
@@ -187,34 +263,42 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         };
     }, [loadSmartPolarData]);
 
-    // Save polar data to settings (persisted locally via Capacitor Preferences)
-    const savePolar = useCallback(
-        (data: PolarData, model: string, src: string) => {
-            setSaving(true);
-            onSave?.({
-                polarData: data,
-                polarBoatModel: model,
-                polarSource_type: src as 'database' | 'file_import' | 'manual',
-            });
-            setLastSaved(new Date().toLocaleTimeString());
-            setSaving(false);
-        },
-        [onSave],
-    );
-
+    /** Show a changed polar, and save it after EDIT_SAVE_DELAY_MS — or now, with `now`. */
     const updatePolar = useCallback(
-        (newData: PolarData, model?: string, src?: string) => {
+        (newData: PolarData, model: string, src: PolarKind, now = false) => {
             setPolarData(newData);
-            if (model !== undefined) setBoatModel(model);
-            if (src !== undefined) setSource(src as typeof source);
-
+            setBoatModel(model);
+            setSource(src);
+            pendingRef.current = { data: newData, model, src };
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = setTimeout(() => {
-                savePolar(newData, model ?? boatModel, src ?? source);
-            }, 1500);
+            saveTimerRef.current = null;
+            if (now) {
+                flushPending();
+                return;
+            }
+            setPending(true);
+            saveTimerRef.current = setTimeout(flushPending, EDIT_SAVE_DELAY_MS);
         },
-        [boatModel, source, savePolar],
+        [flushPending],
     );
+
+    /** An import, saved at once: it replaces the whole table. */
+    const applyImport = (data: PolarData, name: string, src: PolarKind = 'file_import') => {
+        updatePolar(data, name, src, true);
+        setReplaceWith(null);
+        setShowAdvancedInput(false);
+    };
+
+    // A polar with figures is asked about first: an import replaces every one.
+    const requestImport = (data: PolarData, name: string, src: PolarKind = 'file_import') => {
+        if (hasFigures(polarData)) setReplaceWith({ data, name, src });
+        else applyImport(data, name, src);
+    };
+
+    const clearAll = () => {
+        updatePolar(createEmptyPolar(), boatModel, 'manual', true);
+        setShowClearConfirm(false);
+    };
 
     const togglePolarSource = (src: 'factory' | 'smart') => {
         setPolarSource(src);
@@ -228,13 +312,55 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         setShowResetConfirm(false);
     };
 
-    // Same test PolarChart uses for its own empty state.
-    const hasFigures = (data: PolarData | null | undefined) =>
-        data?.matrix.some((row) => row.some((v) => v > 0)) ?? false;
-    const chartIsEmpty = !hasFigures(polarData) && !hasFigures(smartPolarData);
+    // The figures routes sail on (130-B6): a yacht-database shape scaled to
+    // her cruising speed exactly as routes scale it, her own figures as
+    // given. The chart and the table show these, and an edit saves them as
+    // her own figures: editing the raw shape made every route ~45% slow.
+    const vessel = settings?.vessel;
+    const shown = useMemo(() => yourPolarAsSailed(polarData, source, vessel), [polarData, source, vessel]);
+
+    const chartIsEmpty = !hasFigures(shown.polar) && !hasFigures(smartPolarData);
 
     return (
-        <div className="w-full max-w-2xl mx-auto flex flex-col h-full overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))] animate-in fade-in slide-in-from-right-4 duration-300">
+        // The page (PolarPage) already keeps clear of the tab bar; this added a
+        // second 5.5 rem + safe area of empty scroll under the save line (132-B22).
+        <div className="w-full max-w-2xl mx-auto flex flex-col h-full overflow-y-auto pb-4 animate-in fade-in slide-in-from-right-4 duration-300">
+            {/* Which polar routes really sail (130-B6), in the resolver's own
+                words — the passage banner's, the HUD's and Plan Your Day's —
+                so the skipper never has to guess which table counts. A long
+                imported file name wraps rather than running off. */}
+            {routesSailOn && (
+                <p
+                    className="shrink-0 mb-3 px-1 text-sm leading-snug text-gray-300 [overflow-wrap:anywhere]"
+                    data-testid="polars-routes-sail-on"
+                >
+                    <span className="font-bold text-white">Routes sail on:</span> {routesSailOn}
+                </p>
+            )}
+            <div className="shrink-0 mb-4 p-3 rounded-xl border border-white/10">
+                <label className="block text-sm font-bold text-white">
+                    Routing polar: {Math.round(performance * 100)}%
+                    <input
+                        aria-label="Routing polar performance"
+                        type="range"
+                        min="70"
+                        max="130"
+                        step="1"
+                        value={Math.round(performance * 100)}
+                        onChange={(e) => {
+                            const factor = Number(e.target.value) / 100;
+                            setPerformance(factor);
+                            onSave?.({ routingPolarScale: factor });
+                        }}
+                        className="block w-full min-h-11"
+                    />
+                </label>
+                <p className="text-xs text-gray-400">
+                    Adjust sailing speeds from 70–130%. The routing banner shows the adjustment; engine speed and your
+                    saved figures stay separate.
+                </p>
+            </div>
+
             {/* ═══════════════════════════════════════════ */}
             {/* SMART POLARS SECTION */}
             {/* ═══════════════════════════════════════════ */}
@@ -265,9 +391,10 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                             <p className="text-sm text-gray-400">No boat design chosen</p>
                             {/* The secondary-button look, like Enter polar figures
                                 under it: a button in the card head, not a fourth
-                                underlined link (UX scorecard run 10). It opens the
-                                Settings menu, where Vessel Profile is, so it says
-                                Settings; one line at 375 pt. */}
+                                underlined link (UX scorecard run 10). It opens
+                                Settings at Vessel profile, where the yacht
+                                database is (PolarPage, 132-B22: it opened the
+                                Settings menu); one line at 375 pt. */}
                             {onOpenVesselProfile ? (
                                 <Button variant="secondary" onClick={onOpenVesselProfile} className="mt-2 text-white">
                                     <span>Choose one in Settings</span>
@@ -292,25 +419,62 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                     </div>
                 ) : (
                     <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
-                        <PolarChart data={polarData} overlayData={smartPolarData} emptyLabel="No polar yet" />
+                        <PolarChart data={shown.polar} overlayData={smartPolarData} emptyLabel="No polar yet" />
                     </div>
                 )}
 
-                {/* Save status */}
-                <div className="flex items-center justify-center gap-2 mt-3">
-                    {saving && (
+                {/* Save status: 'Saving…' while an edit waits to be written —
+                    it is written then, or as she leaves (132-B22). */}
+                <div
+                    className="flex items-center justify-center gap-2 mt-3"
+                    role="status"
+                    data-testid="polar-save-state"
+                >
+                    {pending && (
                         <span className="flex items-center gap-1.5 text-xs text-sky-300">
-                            <div className="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin" />
+                            <span
+                                aria-hidden="true"
+                                className="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin"
+                            />
                             Saving…
                         </span>
                     )}
-                    {lastSaved && !saving && (
+                    {lastSaved !== null && !pending && (
                         <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
                             <CheckIcon className="w-3 h-3" />
-                            <span>Saved {lastSaved}</span>
+                            <span>{lastSaved ? `Saved ${lastSaved}` : 'Saved'}</span>
                         </span>
                     )}
                 </div>
+                <div className="flex flex-wrap justify-center gap-2 mt-3">
+                    {(['pol', 'csv'] as const).map((format) => (
+                        <button
+                            key={format}
+                            type="button"
+                            disabled={!hasFigures(shown.polar) || exportStatus === 'Preparing export…'}
+                            className="min-h-11 px-3 rounded-lg border border-white/10 text-xs text-sky-300 disabled:opacity-40"
+                            onClick={() => {
+                                setExportStatus('Preparing export…');
+                                void sharePolar(shown.polar, format, boatModel).then(
+                                    () => {
+                                        if (mountedRef.current) setExportStatus('Export ready.');
+                                    },
+                                    () => {
+                                        if (mountedRef.current)
+                                            setExportStatus(
+                                                'Could not export this polar. Check the grid and try again.',
+                                            );
+                                    },
+                                );
+                            }}
+                        >
+                            Export .{format}
+                        </button>
+                    ))}
+                </div>
+                <p role="status" className="text-xs text-gray-400 text-center">
+                    {exportStatus}
+                </p>
             </div>
 
             {/* ═══════════════════════════════════════════ */}
@@ -365,7 +529,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                 role="group"
                                 aria-label="Polar input method"
                             >
-                                {(['import', 'manual'] as InputTab[]).map((tab) => (
+                                {(['import', 'manual', 'targets'] as InputTab[]).map((tab) => (
                                     <button
                                         type="button"
                                         key={tab}
@@ -382,23 +546,28 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                         ) : (
                                             <EditIcon className="w-4 h-4" />
                                         )}
-                                        <span>{tab === 'import' ? 'Import' : 'Manual'}</span>
+                                        <span>
+                                            {tab === 'import' ? 'Import' : tab === 'targets' ? 'Targets' : 'Manual'}
+                                        </span>
                                     </button>
                                 ))}
                             </div>
 
-                            {activeTab === 'import' && (
-                                <ImportTab
-                                    onImport={(data, filename) => {
-                                        updatePolar(data, filename, 'file_import');
-                                        setShowAdvancedInput(false);
-                                    }}
+                            {activeTab === 'import' && <ImportTab onImport={requestImport} />}
+                            {activeTab === 'targets' && (
+                                <TargetsTab
+                                    onBuild={(data) => requestImport(data, 'Target-speed estimate', 'manual')}
                                 />
                             )}
                             {activeTab === 'manual' && (
                                 <ManualTab
-                                    polarData={polarData}
+                                    polarData={shown.polar}
+                                    scaledToKts={shown.scaledToKts}
                                     onChange={(data) => updatePolar(data, boatModel, 'manual')}
+                                    onResize={(data, removesFigures) =>
+                                        removesFigures ? setResizeWith(data) : updatePolar(data, boatModel, 'manual')
+                                    }
+                                    onClearAll={() => setShowClearConfirm(true)}
                                 />
                             )}
                         </div>
@@ -416,6 +585,45 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                 destructive
                 onConfirm={handleResetSmartData}
                 onCancel={() => setShowResetConfirm(false)}
+            />
+
+            {/* 'Clear all' and an import over her figures ask first (132-B22):
+                one tap emptied the table, and an import replaced it, with no
+                way back. They open over the figures dialog, which stays. */}
+            <ConfirmDialog
+                isOpen={showClearConfirm}
+                title="Clear every figure?"
+                message="Your polar table will be emptied. Until you enter new figures, routes use the generic cruising polar. This can't be undone."
+                confirmLabel="Clear all"
+                cancelLabel="Keep figures"
+                destructive
+                onConfirm={clearAll}
+                onCancel={() => setShowClearConfirm(false)}
+            />
+            <ConfirmDialog
+                isOpen={replaceWith !== null}
+                title="Replace your polar?"
+                message={`${boatModel ? `Your polar (${boatModel})` : 'Your polar figures'} will be replaced by the figures from ${replaceWith?.name ?? 'this file'}. This can't be undone.`}
+                confirmLabel="Replace polar"
+                cancelLabel="Keep mine"
+                destructive
+                onConfirm={() => {
+                    if (replaceWith) applyImport(replaceWith.data, replaceWith.name, replaceWith.src);
+                }}
+                onCancel={() => setReplaceWith(null)}
+            />
+            <ConfirmDialog
+                isOpen={resizeWith !== null}
+                title="Remove these polar figures?"
+                message="The selected wind column or angle row will be removed. Other figures stay unchanged."
+                confirmLabel="Remove"
+                cancelLabel="Keep figures"
+                destructive
+                onConfirm={() => {
+                    if (resizeWith) updatePolar(resizeWith, boatModel, 'manual', true);
+                    setResizeWith(null);
+                }}
+                onCancel={() => setResizeWith(null)}
             />
         </div>
     );
@@ -633,15 +841,18 @@ const SmartPolarsCard: React.FC<{
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Routing uses</span>
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
-                        {/* Named from the visible word, with which one is in use. */}
+                        {/* Named from the visible word, with which one is in use.
+                            'Your polar', not 'Factory' (130-B6): it is the polar
+                            the skipper chose — from the yacht database,
+                            imported or typed in — not a factory's. */}
                         <button
                             type="button"
-                            aria-label="Factory polar data for routing"
+                            aria-label="Your polar for routing"
                             aria-pressed={polarSource === 'factory'}
                             onClick={() => onToggleSource('factory')}
                             className={`flex-1 min-h-11 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
-                            Factory
+                            Your polar
                         </button>
                         <button
                             type="button"
@@ -702,25 +913,67 @@ const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailabl
 // TAB B: FILE IMPORT
 // ═══════════════════════════════════════════
 
+const kn = (v: number) => (Math.round(v * 10) / 10).toString();
+
+/**
+ * The import preview's words (132-B22): what the file was read as, its size,
+ * and her best figure in it — a number a skipper can check against what she
+ * knows of the boat before it replaces her polar.
+ */
+function previewWords(polar: PolarData, format: PolarFileFormat): { read: string; size: string; fastest: string } {
+    const { windSpeeds: ws, angles } = polar;
+    let best = { v: 0, twa: 0, tws: 0 };
+    polar.matrix.forEach((row, a) =>
+        row.forEach((v, w) => {
+            if (v > best.v) best = { v, twa: angles[a], tws: ws[w] };
+        }),
+    );
+    return {
+        read: format === 'expedition' ? 'Read as an Expedition polar' : 'Read as a TWA × TWS table',
+        size: `${ws.length} wind speeds (${ws[0]}–${ws[ws.length - 1]} kn) × ${angles.length} angles (${angles[0]}–${angles[angles.length - 1]}°)`,
+        fastest: `Fastest: ${kn(best.v)} kn at ${best.twa}° in ${best.tws} kn of wind`,
+    };
+}
+
+interface ImportPreview {
+    polar: PolarData;
+    format: PolarFileFormat;
+    fileName: string;
+    /** What the polar is called once imported: the file name without its extension. */
+    name: string;
+    warnings: string[];
+}
+
 const ImportTab: React.FC<{
-    onImport: (data: PolarData, filename: string) => void;
+    /** 'Use this polar': her page asks first if it would replace figures. */
+    onImport: (data: PolarData, name: string) => void;
 }> = ({ onImport }) => {
     const [dragOver, setDragOver] = useState(false);
     const [fileName, setFileName] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [warnings, setWarnings] = useState<string[]>([]);
+    const [preview, setPreview] = useState<ImportPreview | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Read, check, preview — nothing is saved until 'Use this polar' (132-B22:
+    // a chosen file replaced her polar at once, unseen, and a file routes
+    // could not sail on was saved, so every route sailed the generic polar).
     const handleFile = async (file: File) => {
         setError(null);
-        setWarnings([]);
+        setPreview(null);
+        setFileName(file.name);
         try {
-            const content = await file.text();
-            const data = parsePolarFile(content, file.name);
-            const validation = validatePolarData(data);
-            setWarnings(validation.warnings);
-            setFileName(file.name);
-            onImport(data, file.name.replace(/\.(pol|csv)$/i, ''));
+            const read = readPolarFile(await file.text());
+            const why = whyRoutesCannotSail(read.polar);
+            if (why) {
+                setError(`Routes can't sail on this file: ${why}. Your polar has not changed.`);
+                return;
+            }
+            setPreview({
+                ...read,
+                fileName: file.name,
+                name: file.name.replace(/\.(pol|csv|txt)$/i, ''),
+                warnings: validatePolarData(read.polar).warnings,
+            });
         } catch (e) {
             setError(describePolarImportError(e));
         }
@@ -735,8 +988,12 @@ const ImportTab: React.FC<{
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
+        // Cleared, so choosing the same file again (fixed in another app) reads it again.
+        e.target.value = '';
         if (file) handleFile(file);
     };
+
+    const words = preview ? previewWords(preview.polar, preview.format) : null;
 
     return (
         <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
@@ -767,46 +1024,90 @@ const ImportTab: React.FC<{
                 } w-full`}
             >
                 <div className="mb-3 flex justify-center">
-                    {fileName ? (
+                    {preview ? (
                         <CheckCircleIcon className="w-7 h-7 text-emerald-400" />
                     ) : (
                         <DownloadIcon className="w-7 h-7 text-sky-400/70" />
                     )}
                 </div>
-                <p className="text-sm font-bold text-white mb-1">{fileName ? fileName : 'Drop polar file here'}</p>
-                <p className="text-xs text-gray-400">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
+                <p className="text-sm font-bold text-white mb-1 [overflow-wrap:anywhere]">
+                    {fileName ? fileName : 'Drop polar file here'}
+                </p>
+                {/* What it reads, by layout: a .pol is either (132-B22: it
+                    said .pol was Expedition, and read every .pol as a table). */}
+                <p className="text-xs text-gray-400">Reads Expedition polars and TWA × TWS tables (.pol, .csv, .txt)</p>
             </button>
 
             {error && (
-                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl" role="alert">
                     <p className="text-xs text-red-400 font-bold inline-flex items-center gap-1.5">
-                        <AlertTriangleIcon className="w-3.5 h-3.5" />
+                        <AlertTriangleIcon className="w-3.5 h-3.5 shrink-0" />
                         <span>{error}</span>
                     </p>
                 </div>
             )}
 
-            {warnings.length > 0 && (
-                <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                    <p className="text-xs text-amber-400 font-bold mb-1 inline-flex items-center gap-1.5">
-                        <AlertTriangleIcon className="w-3.5 h-3.5" />
-                        <span>Warnings:</span>
-                    </p>
-                    {warnings.map((w, i) => (
-                        <p key={i} className="text-xs text-amber-200">
-                            • {w}
-                        </p>
-                    ))}
+            {preview && words && (
+                <div
+                    className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3"
+                    data-testid="polar-import-preview"
+                >
+                    <p className="text-xs font-bold text-gray-300">{words.read}</p>
+                    <p className="mt-1 text-xs text-gray-400">{words.size}</p>
+                    <p className="text-xs text-gray-400">{words.fastest}</p>
+                    <div className="mx-auto mt-3 aspect-square w-full max-w-[240px]">
+                        <PolarChart data={preview.polar} />
+                    </div>
+
+                    {preview.warnings.length > 0 && (
+                        <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                            <p className="text-xs text-amber-400 font-bold mb-1 inline-flex items-center gap-1.5">
+                                <AlertTriangleIcon className="w-3.5 h-3.5" />
+                                <span>Warnings:</span>
+                            </p>
+                            {preview.warnings.map((w, i) => (
+                                <p key={i} className="text-xs text-amber-200">
+                                    • {w}
+                                </p>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                            variant="secondary"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex-1 text-white"
+                        >
+                            Choose another file
+                        </Button>
+                        <Button
+                            variant="primary"
+                            onClick={() => onImport(preview.polar, preview.name)}
+                            className="flex-1"
+                        >
+                            Use this polar
+                        </Button>
+                    </div>
                 </div>
             )}
 
             <div className="mt-4 p-3 bg-white/2 rounded-xl">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Expected format</p>
+                <p className="text-xs text-gray-400 mb-1">A table: wind speeds across, angles down</p>
                 <pre className="text-xs text-gray-400 font-mono overflow-x-auto">
                     {`TWA    6    8    10   12   15   20   25
 45   4.2  5.1  5.8  6.2  6.5  6.4  6.0
 60   4.8  5.7  6.4  6.9  7.2  7.1  6.7
 90   5.2  6.2  7.0  7.5  7.9  7.8  7.3`}
+                </pre>
+                <p className="text-xs text-gray-400 mt-3 mb-1">
+                    Or Expedition: a wind speed, then angle and speed pairs
+                </p>
+                <pre className="text-xs text-gray-400 font-mono overflow-x-auto">
+                    {`!Expedition polar
+6    42  4.6  60  5.5  90  5.7  150  3.7
+10   40  6.0  60  6.8  90  7.1  150  5.6`}
                 </pre>
             </div>
         </div>
@@ -817,10 +1118,103 @@ const ImportTab: React.FC<{
 // TAB C: MANUAL MATRIX
 // ═══════════════════════════════════════════
 
+const TargetsTab: React.FC<{ onBuild: (data: PolarData) => void }> = ({ onBuild }) => {
+    const [target, setTarget] = useState<PolarTargets>({
+        windKts: 12,
+        beatAngle: 45,
+        beatKts: 5,
+        reachKts: 6,
+        runKts: 4.5,
+    });
+    const [error, setError] = useState('');
+    const fields: Array<[keyof PolarTargets, string]> = [
+        ['windKts', 'Target true wind (kn)'],
+        ['beatAngle', 'Beat angle (°)'],
+        ['beatKts', 'Beat boat speed (kn)'],
+        ['reachKts', 'Beam reach boat speed (kn)'],
+        ['runKts', 'Dead run boat speed (kn)'],
+    ];
+    return (
+        <form
+            onSubmit={(e) => {
+                e.preventDefault();
+                try {
+                    onBuild(polarFromTargets(target));
+                    setError('');
+                } catch (caught) {
+                    setError(caught instanceof Error ? caught.message : 'Check the target speeds.');
+                }
+            }}
+        >
+            <p className="text-xs text-gray-400 mb-3">
+                Create a starting estimate from your beat, beam-reach and dead-run speeds at one true wind speed. Other
+                winds follow the generic cruising shape. Check the grid before routing with it.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+                {fields.map(([key, label]) => (
+                    <label key={key} className="text-xs text-gray-300">
+                        {label}
+                        <input
+                            aria-label={label}
+                            type="number"
+                            step="0.1"
+                            min={key === 'beatAngle' ? 30 : key === 'windKts' ? 3 : 0.1}
+                            max={key === 'beatAngle' ? 80 : 30}
+                            required
+                            value={Number.isFinite(target[key]) ? target[key] : ''}
+                            onChange={(e) =>
+                                setTarget({ ...target, [key]: e.target.value === '' ? NaN : Number(e.target.value) })
+                            }
+                            className="block w-full min-h-11 p-2 rounded-lg bg-black/30 border border-white/10"
+                        />
+                    </label>
+                ))}
+            </div>
+            <p role="alert" className="text-xs text-amber-300">
+                {error}
+            </p>
+            <button
+                type="submit"
+                className="min-h-11 mt-3 px-3 rounded-lg border border-sky-500/30 text-sm text-sky-300"
+            >
+                Use estimated polar
+            </button>
+        </form>
+    );
+};
+
 const ManualTab: React.FC<{
     polarData: PolarData;
+    /** The cruising speed a yacht-database shape is shown scaled to; null for her own figures. */
+    scaledToKts: number | null;
     onChange: (data: PolarData) => void;
-}> = ({ polarData, onChange }) => {
+    onResize: (data: PolarData, removesFigures: boolean) => void;
+    /** 'Clear all': her page asks first (132-B22). */
+    onClearAll: () => void;
+}> = ({ polarData, scaledToKts, onChange, onResize, onClearAll }) => {
+    const [newWind, setNewWind] = useState('');
+    const [newAngle, setNewAngle] = useState('');
+    const [gridError, setGridError] = useState('');
+    const changeAxis = (kind: 'wind' | 'angle', value: number, remove = false) => {
+        try {
+            const old = kind === 'wind' ? polarData.windSpeeds : polarData.angles;
+            if (!remove && old.includes(value)) throw new Error('That value is already in this grid.');
+            const next = remove ? old.filter((v) => v !== value) : [...old, value].sort((a, b) => a - b);
+            onResize(
+                resizePolar(
+                    polarData,
+                    kind === 'wind' ? next : polarData.windSpeeds,
+                    kind === 'angle' ? next : polarData.angles,
+                ),
+                remove,
+            );
+            setGridError('');
+            if (kind === 'wind') setNewWind('');
+            else setNewAngle('');
+        } catch (error) {
+            setGridError(error instanceof Error ? error.message : 'Could not resize the grid.');
+        }
+    };
     const updateCell = (angleIdx: number, windIdx: number, value: string) => {
         const num = parseFloat(value);
         const newMatrix = polarData.matrix.map((row, ai) =>
@@ -835,6 +1229,16 @@ const ManualTab: React.FC<{
                 <h3 className={CARD_HEADING_CLASS}>Type the figures</h3>
                 <span className="text-xs text-gray-400">Boat speed in knots</span>
             </div>
+
+            {/* What these figures are, and what an edit does (130-B6): one
+                changed cell saves the whole table as her own figures. */}
+            {scaledToKts !== null && (
+                <p className="mb-4 text-xs leading-relaxed text-gray-400">
+                    The yacht database figures, scaled to her cruising speed of {Math.round(scaledToKts * 10) / 10} kn:
+                    the figures routes sail on. Change one and the whole table becomes your own figures, and stops
+                    following her cruising speed.
+                </p>
+            )}
 
             <div className="overflow-x-auto custom-scrollbar -mx-1 px-1">
                 <table className="w-full border-collapse min-w-[500px]">
@@ -854,6 +1258,15 @@ const ManualTab: React.FC<{
                                     className="text-xs font-bold text-sky-300 uppercase tracking-wider p-2 text-center min-w-[52px]"
                                 >
                                     {ws}kts
+                                    <button
+                                        type="button"
+                                        disabled={polarData.windSpeeds.length <= 2}
+                                        aria-label={`Remove ${ws} knot wind column`}
+                                        onClick={() => changeAxis('wind', ws, true)}
+                                        className="block min-h-11 w-full disabled:opacity-30"
+                                    >
+                                        ×
+                                    </button>
                                 </th>
                             ))}
                         </tr>
@@ -866,15 +1279,26 @@ const ManualTab: React.FC<{
                                     className="text-xs font-bold text-amber-400 p-2 sticky left-0 bg-slate-950 z-10"
                                 >
                                     {angle}°
+                                    <button
+                                        type="button"
+                                        disabled={polarData.angles.length <= 2}
+                                        aria-label={`Remove ${angle} degree angle row`}
+                                        onClick={() => changeAxis('angle', angle, true)}
+                                        className="block min-h-11 w-full disabled:opacity-30"
+                                    >
+                                        ×
+                                    </button>
                                 </th>
                                 {polarData.windSpeeds.map((_, wIdx) => {
                                     const val = polarData.matrix[aIdx]?.[wIdx] ?? 0;
                                     const isAnomaly = checkAnomaly(polarData, aIdx, wIdx);
                                     return (
                                         <td key={wIdx} className="p-1">
+                                            {/* 0.01 kn: what a scaled database
+                                                figure is shown to (130-B6). */}
                                             <input
                                                 type="number"
-                                                step="0.1"
+                                                step="0.01"
                                                 min="0"
                                                 max="30"
                                                 value={val || ''}
@@ -897,12 +1321,55 @@ const ManualTab: React.FC<{
                     </tbody>
                 </table>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2 items-end">
+                <label className="text-xs text-gray-400">
+                    Wind speed (kn)
+                    <input
+                        aria-label="New polar wind speed"
+                        type="number"
+                        min="0.1"
+                        max="150"
+                        value={newWind}
+                        onChange={(e) => setNewWind(e.target.value)}
+                        className="block min-h-11 w-24 bg-black/30 p-2 rounded"
+                    />
+                </label>
+                <button
+                    type="button"
+                    onClick={() => changeAxis('wind', Number(newWind))}
+                    className="min-h-11 px-2 text-xs text-sky-300"
+                >
+                    Add wind
+                </button>
+                <label className="text-xs text-gray-400">
+                    Angle (°)
+                    <input
+                        aria-label="New polar angle"
+                        type="number"
+                        min="1"
+                        max="180"
+                        value={newAngle}
+                        onChange={(e) => setNewAngle(e.target.value)}
+                        className="block min-h-11 w-24 bg-black/30 p-2 rounded"
+                    />
+                </label>
+                <button
+                    type="button"
+                    onClick={() => changeAxis('angle', Number(newAngle))}
+                    className="min-h-11 px-2 text-xs text-sky-300"
+                >
+                    Add angle
+                </button>
+            </div>
+            <p role="alert" className="text-xs text-amber-300">
+                {gridError}
+            </p>
 
             <div className="flex gap-2 mt-4">
                 <button
                     type="button"
                     aria-label="Clear all polar matrix values"
-                    onClick={() => onChange(createEmptyPolar())}
+                    onClick={onClearAll}
                     className="min-h-11 text-xs font-bold text-gray-300 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                 >
                     Clear all

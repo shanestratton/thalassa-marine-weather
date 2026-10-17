@@ -11,8 +11,9 @@
  * Arctic, the Ogasawara islands and Fiji across the antimeridian.
  */
 import { describe, expect, it } from 'vitest';
-import type { SavedTrace, TracePoint, TripGroup } from '../services/routeTracer';
-import { groupTracesByTrip } from '../services/routeTracer';
+import type { TracePoint } from '../services/routeTracer';
+import type { SavedTrace, TripGroup } from '../services/savedTraceStore';
+import { groupTracesByTrip } from '../services/savedTraceStore';
 import { LEG_JOIN_MAX_NM, addLegSections, legCopyForSlot, slotSeedForLeg, tripJoints } from '../services/tripLegAdd';
 
 /** One degree of latitude in the app's great-circle NM (R = 3440.065 NM). */

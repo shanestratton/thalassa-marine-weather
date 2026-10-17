@@ -21,6 +21,7 @@ const SUPPORTED_INSTRUMENT_SENTENCES = new Set([
     'VWT',
     'VHW',
     'HDT',
+    'THS',
     'HDG',
     'HDM',
     'RPM',
@@ -30,13 +31,17 @@ const SUPPORTED_INSTRUMENT_SENTENCES = new Set([
     'RMC',
     'GGA',
     'MTW',
+    'MDA',
+    'VLW',
+    'GLL',
+    'VTG',
 ]);
 
 export interface ValidatedNmeaSentence {
     /** Sentence body with any checksum suffix removed. */
     raw: string;
     type: string;
-    kind: 'instrument' | 'ais';
+    kind: 'instrument' | 'ais' | 'radar';
     hasChecksum: boolean;
 }
 
@@ -83,7 +88,14 @@ export function validateNmeaSentence(sentence: unknown): ValidatedNmeaSentence |
 
     let kind: ValidatedNmeaSentence['kind'];
     let type: string;
-    if (instrumentMatch && SUPPORTED_INSTRUMENT_SENTENCES.has(instrumentMatch[1])) {
+    if (/^\$PCDIN,/.test(raw) && raw.length <= 120 && hasChecksum) {
+        kind = 'instrument';
+        type = 'PCDIN';
+    } else if (instrumentMatch && ['TTM', 'TLL'].includes(instrumentMatch[1])) {
+        if (sentence.length > 256 || !hasChecksum || /[^\x20-\x7e]/.test(sentence)) return null;
+        kind = 'radar';
+        type = instrumentMatch[1];
+    } else if (instrumentMatch && SUPPORTED_INSTRUMENT_SENTENCES.has(instrumentMatch[1])) {
         kind = 'instrument';
         type = instrumentMatch[1];
     } else if (aisMatch) {
@@ -128,6 +140,7 @@ export type NmeaRejection = 'unsupported-type' | 'bad-checksum' | 'malformed';
 export function classifyNmeaRejection(sentence: string): NmeaRejection {
     if (typeof sentence !== 'string' || (sentence[0] !== '$' && sentence[0] !== '!')) return 'malformed';
     const firstStar = sentence.indexOf('*');
+    if (firstStar < 0 && /^\$[A-Z0-9]{2}(?:TTM|TLL)(?:,|$)/.test(sentence)) return 'malformed';
     if (firstStar >= 0) {
         if (firstStar !== sentence.lastIndexOf('*') || firstStar !== sentence.length - 3) return 'malformed';
         const expected = sentence.slice(firstStar + 1);

@@ -81,7 +81,7 @@ const RAW_TRANSPORT = /CapacitorHttp\.|(?<![A-Za-z0-9_$])fetch\s*\(|new XMLHttpR
  * `https://${host}:${PI_CACHE_PORT}` literal both slipped past it.
  */
 const PI_URL_CONTEXT =
-    /piCache\.baseUrl|piCacheBase|\$\{piBase\}|unifiedWeatherUrl\s*\(|passthroughUrl\s*\(|passthroughTileUrl\s*\(|leafletTileTemplate\s*\(|getRemoteBaseUrl\s*\(|PI_CACHE_PORT|:3001/;
+    /piCache\.baseUrl|piCacheBase|\$\{piBase\}|unifiedWeatherUrl\s*\(|passthroughUrl\s*\(|passthroughTileUrl\s*\(|getRemoteBaseUrl\s*\(|PI_CACHE_PORT|:3001/;
 
 /**
  * `${base}/api/` USED TO BE IN THAT PATTERN, and it was wrong: the Pi hosts
@@ -104,7 +104,7 @@ function walk(dir: string, out: string[] = []): string[] {
         if (entry === 'node_modules' || entry.startsWith('.')) continue;
         const full = path.join(dir, entry);
         if (fs.statSync(full).isDirectory()) walk(full, out);
-        else if (/\.tsx?$/.test(entry)) out.push(full);
+        else if (/\.tsx?$/.test(entry)) out.push(full.split(path.sep).join('/'));
     }
     return out;
 }
@@ -227,16 +227,12 @@ describe('Pi transport completeness', () => {
         expect(piLeg).not.toContain("responseType: 'text'");
     });
 
-    it('has exactly ONE wind-grid implementation, because three had two bugs', () => {
+    it('keeps direct and delegated voyage wind-grid reads on the shared pinned implementation', () => {
         // isochroneEnhancer, WindDataController and useVoyageForm each carried
         // a hand-copy of this request. One was migrated to the pinned
         // transport and two were not — and useVoyageForm's copy even carried a
         // comment saying it was the same logic as the one that got fixed.
-        const callers = [
-            'services/isochroneEnhancer.ts',
-            'services/weather/WindDataController.ts',
-            'hooks/useVoyageForm.ts',
-        ];
+        const callers = ['services/isochroneEnhancer.ts', 'services/weather/WindDataController.ts'];
         for (const file of callers) {
             const code = codeOf(file);
             expect(code, `${file} must use the shared wind-grid fetch`).toMatch(/fetchWindGrid(Buffer|OrNull)/);
@@ -245,5 +241,12 @@ describe('Pi transport completeness', () => {
                 'functions/v1/fetch-wind-grid',
             );
         }
+        // 134 delegates voyage wind routing to the same isochrone enhancer.
+        // Moving the call must not recreate an unpinned request in the hook.
+        const voyage = codeOf('hooks/useVoyageForm.ts');
+        expect(voyage).toContain("await import('../services/isochroneEnhancer')");
+        expect(voyage).toMatch(/await\s+withTimeout\(\s*enhanceVoyagePlanWithIsochrone\(/);
+        expect(voyage).not.toContain('/api/grib/wind-grid');
+        expect(voyage).not.toContain('functions/v1/fetch-wind-grid');
     });
 });

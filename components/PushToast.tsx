@@ -23,7 +23,7 @@ import {
     type LegacyPrivateMessagePermit,
 } from '../services/chat/e2ee/privateMessageCutover';
 
-const isPrivatePushType = (type: unknown) => type === 'dm' || type === 'hail';
+import { pinOfficialPush } from '../services/officialPushPin';
 import {
     SosIcon,
     AlertTriangleIcon,
@@ -34,6 +34,8 @@ import {
     BellIcon,
     RadioTowerIcon,
 } from './Icons';
+
+const isPrivatePushType = (type: unknown) => type === 'dm' || type === 'hail';
 
 interface ToastItem {
     id: string;
@@ -95,11 +97,24 @@ function getToastStyle(type: string): {
                 gradient: 'from-purple-600/95 to-purple-700/95',
                 border: 'border-purple-400/30',
             };
+        // A forecast, however severe (129-07 sends storm force inside 3 h as
+        // severe_weather_alert): the forecast's sky, never the official card.
         case 'weather_alert':
+        case 'severe_weather_alert':
+        case 'cyclone_notice':
+        case 'cyclone_urgent':
             return {
                 icon: <ThunderstormIcon className="w-6 h-6" />,
                 gradient: 'from-sky-600/95 to-sky-700/95',
                 border: 'border-sky-400/30',
+            };
+        // An official warning (129-06): the Warnings page's official card, a
+        // radio mast on sky-950, never the forecast weather alert's sky.
+        case 'official_warning':
+            return {
+                icon: <RadioTowerIcon className="w-6 h-6" />,
+                gradient: 'from-slate-800/95 to-sky-950/95',
+                border: 'border-sky-300/40',
             };
         case 'hail':
             return {
@@ -285,6 +300,9 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
             dismiss(toast.id);
             if (isPrivatePushType(toast.type) && !isLegacyPrivateMessagePermitCurrent(toast.legacyPrivatePermit))
                 return;
+            // An official warning's words go with the tap to the Warnings page (129-06).
+            if (toast.type === 'official_warning' && toast.data)
+                pinOfficialPush(toast.data, { title: toast.title, body: toast.body });
             if (onTap && toast.data) onTap(toast.data);
         },
         [dismiss, onTap],

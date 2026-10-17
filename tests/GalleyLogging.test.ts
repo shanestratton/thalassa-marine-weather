@@ -72,7 +72,7 @@ import {
     removeUnpurchasedProvisionItems,
     unmarkPurchased,
 } from '../services/ShoppingListService';
-import { addShortfallItem, getCrewCount } from '../services/MealPlanService';
+import { getCrewCount } from '../services/MealPlanService';
 
 const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 type WarnSpy = MockInstance<typeof console.warn>;
@@ -118,16 +118,9 @@ describe('MealPlanService', () => {
         expect(warnings('galley: crew-count')).toEqual([expect.stringContaining('Failed to fetch')]);
     });
 
-    it('galley: shortfall — the provisions write fails, the button reports false', async () => {
-        h.failingFiles.add('_passage_provisions.json');
-
-        await expect(addShortfallItem('Black beans', 500, 'g', 'Feijoada', null)).resolves.toBe(false);
-
-        const [line] = warnings('galley: shortfall');
-        expect(warnings('galley: shortfall')).toHaveLength(1);
-        expect(line).toContain('No space left on device');
-        expect(line).not.toMatch(/Feijoada|Black beans/);
-    });
+    // 'galley: shortfall' went with addShortfallItem (132-B18, GAL-16): nothing
+    // called it, and it queued passage provisions with no owner.
+    // tests/RecipesOneStore132.test.tsx keeps every provisions writer out.
 });
 
 describe('ShoppingListService', () => {

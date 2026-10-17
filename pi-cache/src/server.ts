@@ -16,7 +16,7 @@ import os from 'node:os';
 import { Agent, setGlobalDispatcher } from 'undici';
 setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
-import express from 'express';
+import express, { type Request } from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import http from 'http';
@@ -32,7 +32,9 @@ import { createTideRoutes } from './routes/tides.js';
 import { createMiscRoutes, purgeGeocodeCache } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes, sweepEncTempLeftovers } from './routes/enc.js';
-import { EncDeviceStore, encNoStore } from './encDevices.js';
+import { EncDeviceStore, encNoStore, createEncFrontDoor, CHART_DEVICE_HEADER } from './encDevices.js';
+import { PiPolarLearner } from './polarLearner.js';
+import { createPolarRoutes } from './routes/polars.js';
 import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
 import { createOsmRoutes } from './routes/osm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
@@ -54,10 +56,35 @@ import {
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
 import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
+import { SignalKReadSession } from './signalKReadSession.js';
+import { createSignalKReadRoutes } from './routes/signalKRead.js';
+import { createWeatherPositionRoutes } from './routes/weatherPosition.js';
+import { RadarRawReader } from './radar/rawReader.js';
+import { RadarContextSession } from './radar/contextSession.js';
+import { createRadarRoutes } from './routes/radar.js';
+import { RadarWatch } from './radar/watch.js';
+import { RadarRelay } from './radar/relay.js';
+import { radarServerContext, createRadarControllerVerifier } from './radar/serverContext.js';
+import { createRadarWatchRoutes } from './routes/radarWatch.js';
+import { createAppJsonParser } from './appJson.js';
+import { PiWakeKeeper } from './wakeKeeper/runner.js';
+import { WakeKeeperStore } from './wakeKeeper/store.js';
+import { WakeRelay } from './wakeKeeper/relay.js';
+import { wakePairingId, wakeEnrollmentRevision } from './wakeKeeper/contract.js';
+import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
 import { PiAlarmRelay, canonicalPiAlarmRelayEndpoint } from './piAlarmRelay.js';
+import { PiUnderwayAlarmRelay } from './piUnderwayAlarmRelay.js';
+import { PiUnderwayWatch } from './underwayWatch.js';
+import { createUnderwayWatchRoutes } from './routes/underwayWatch.js';
+import { createCourseRoutes, coursePilotState } from './routes/course.js';
+import { CourseOwnershipFile } from './courseOwnership.js';
+import { createSignalKClient, type SignalKClient } from './signalKClient.js';
+import { updateMaintenanceActive, updateMaintenanceStatus } from './updateMaintenance.js';
+import { OfflineWeatherStore } from './offlineWeather.js';
+import { createOfflineWeatherRoutes } from './routes/offlineWeather.js';
 import { requestPath } from './requestPath.js';
 import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
@@ -65,6 +92,15 @@ import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
 import { createRemoteAccessRoutes } from './routes/remoteAccess.js';
+import {
+    PiInternetMemory,
+    PiLockLedger,
+    PiLockStore,
+    createPiCommandLock,
+    createPiLockRoutes,
+    uncommandedRenewal,
+    type PiCommandRequest,
+} from './piCommandLock.js';
 import { assertSupabaseOriginAssertion, resolveTrustedSupabaseOrigin } from './outboundHttp.js';
 import {
     INVALID_PI_CONFIGURATION_CODE,
@@ -165,10 +201,60 @@ diaryVideoRelay.start();
    gateway's TCP feed directly would burn one of the YDWG-02's three client
    slots permanently, which is a cost this has no business paying. */
 const SIGNALK_ORIGIN = process.env.SIGNALK_ORIGIN || 'http://127.0.0.1:3000';
+const SIGNALK_ALLOW_HTTP_LAN = process.env.THALASSA_SIGNALK_ALLOW_HTTP_LAN === '1';
+let signalkRead: SignalKReadSession | null = null;
+try {
+    signalkRead = new SignalKReadSession({
+        origin: SIGNALK_ORIGIN,
+        accessToken: process.env.SIGNALK_ACCESS_TOKEN || undefined,
+        allowInsecureLan: SIGNALK_ALLOW_HTTP_LAN,
+    });
+    void signalkRead.start();
+} catch {
+    // A bad instrument configuration must not stop the watch service or fall
+    // back to an unapproved transport. Readers receive explicit unknowns.
+    console.warn('[signalk] read stream unavailable: review the operator configuration');
+}
+const selfDocument = async (): Promise<unknown | null> => (await signalkRead?.readDocuments())?.selfDoc ?? null;
+let radarReader: RadarRawReader;
+try {
+    const port = process.env.THALASSA_RADAR_NMEA_PORT;
+    radarReader = new RadarRawReader(port === undefined ? {} : { port: /^\d{1,5}$/.test(port) ? Number(port) : NaN });
+} catch {
+    radarReader = new RadarRawReader();
+    console.warn('[radar] local passthrough unavailable; review the operator configuration');
+}
+const currentRadarWatchContext = () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return radarServerContext(
+        config.ownerId,
+        identity.deviceId,
+        config.relayId,
+        signalkRead?.notificationSnapshot() ?? null,
+    );
+};
+const radarSession = new RadarContextSession(
+    radarReader,
+    () => currentRadarWatchContext()?.contextToken ?? null,
+    () => {
+        const context = currentRadarWatchContext();
+        return context
+            ? {
+                  ownerId: context.ownerId,
+                  piDeviceId: context.piDeviceId,
+                  pairingId: context.pairingId,
+                  feedId: context.feedId,
+              }
+            : null;
+    },
+);
+if (APP_API_ENABLED) radarSession.start();
 const windHistory = new WindHistory({
     cacheDir: CACHE_DIR,
     fetchImpl: fetch,
     signalkOrigin: SIGNALK_ORIGIN,
+    selfDocument,
     vesselIdentity: identity.deviceId,
 });
 void windHistory.start();
@@ -194,9 +280,12 @@ const onboardSupplement: typeof onboardSensorSupplement = async (bus) => {
         : null;
 };
 const trackStore = new TrackStore(CACHE_DIR);
+const polarLearner = new PiPolarLearner(trackStore);
+polarLearner.start();
 const trackRecorder = new TrackRecorderRunner({
     fetchImpl: fetch,
     signalkOrigin: SIGNALK_ORIGIN,
+    selfDocument,
     store: trackStore,
 });
 /* Resume on boot if the skipper left it on. The promise is that the boat keeps
@@ -211,6 +300,7 @@ if (trackStore.isEnabled()) trackRecorder.start();
 const telemetryPublisher = new TelemetryPublisher({
     fetchImpl: fetch,
     signalkOrigin: SIGNALK_ORIGIN,
+    selfDocument,
     endpoint: `${SUPABASE_ORIGIN}${TELEMETRY_RELAY_PATH}`,
     anonKey: () => SUPABASE_ANON_KEY,
     credentials: () => diaryRelayOutbox.lendTelemetryCredentials(),
@@ -232,6 +322,7 @@ if (process.env.THALASSA_TELEMETRY_PUBLISH !== '0') telemetryPublisher.start();
 const anchorWatch = new AnchorWatchRunner({
     fetchImpl: fetch,
     signalkOrigin: SIGNALK_ORIGIN,
+    selfDocument,
     store: fileAnchorWatchStore(CACHE_DIR),
 });
 const anchorCredential = diaryRelayOutbox.lendAnchorCredentials();
@@ -246,11 +337,17 @@ if (anchorCredential && SUPABASE_ANON_KEY && APP_API_ENABLED) {
 /* ── The night watch (build 126, 126-04a) ──────────────────────────────────
    The Pi grades every AIS target all night with the phone's own collision
    rule, armed and stood down with the phone's collision shield (aisWatch.ts).
-   One Signal K read, at most 1.5 s old, serves it and every phone's
+   One authenticated Signal K session serves it and every phone's
    /api/telemetry poll, so the watch adds no load to Signal K while a phone
    polls. 'At anchor' is this Pi's own anchor watch. A watch that was armed
    when the Pi stopped is armed again at boot, until a phone stands it down. */
-const signalkDocuments = new SharedSignalkReader({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+const signalkDocuments = new SharedSignalkReader(
+    { fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, selfDocument },
+    1500,
+    () =>
+        signalkRead?.readDocuments() ??
+        Promise.resolve({ selfDoc: null, vesselsDoc: null, selfAnswer: null, readAt: Date.now() }),
+);
 /* The night watch wakes the skipper's locked phone (126-04b): each alarm, and
    the open ones every 15 s, go to pi-alarm-relay with the pairing credential
    (lent) and the anon key, to the endpoint from the trust anchor. It obeys the
@@ -289,6 +386,117 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+const wakeRelay = new WakeRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+});
+const wakeKeeper = new PiWakeKeeper({
+    store: new WakeKeeperStore(CACHE_DIR),
+    devices: chartDevices,
+    selfDocument,
+    relay: wakeRelay,
+    identity: () => {
+        const config = diaryRelayOutbox.getConfiguration();
+        return config.ownerId && config.relayId
+            ? {
+                  ownerId: config.ownerId,
+                  piDeviceId: identity.deviceId,
+                  pairingId: wakePairingId(config.ownerId, identity.deviceId, config.relayId),
+              }
+            : null;
+    },
+});
+if (APP_API_ENABLED)
+    void wakeKeeper.start().catch(() => console.warn('[wake] keeper unavailable; review local storage'));
+const radarRelay = new RadarRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+});
+const radarWatch: RadarWatch = new RadarWatch({
+    readSnapshot: () => radarSession.snapshot(),
+    currentContext: currentRadarWatchContext,
+    aisArmed: () => aisWatch.describe().armed === true,
+    atAnchor: () => anchorWatch.isRunning(),
+    controllerCurrent: createRadarControllerVerifier(currentRadarWatchContext, () => chartDevices.list()),
+    onEvent: (event) => radarRelay.event(event),
+    onPass: (pass, current) =>
+        radarRelay.update(pass, current, (context, acks) => radarWatch.applyRemoteAcks(context, acks)),
+    pushStatus: () => radarRelay.status(),
+});
+let radarWatchFailureLogged = false;
+const radarWatchTimer = APP_API_ENABLED
+    ? setInterval(() => {
+          radarRelay.pump();
+          void radarWatch.tick().catch(() => {
+              if (!radarWatchFailureLogged) {
+                  radarWatchFailureLogged = true;
+                  console.warn('[radar] watch evaluation unavailable; review local status');
+              }
+          });
+      }, 1000)
+    : null;
+radarWatchTimer?.unref();
+const enrolledRadarController = async (req: Request) => {
+    const token = req.headers[CHART_DEVICE_HEADER],
+        verdict = await chartDevices.verify(typeof token === 'string' ? token : undefined);
+    return verdict.state === 'enrolled'
+        ? { deviceId: verdict.device.id, enrollmentRevision: wakeEnrollmentRevision(verdict.device) }
+        : null;
+};
+const reviewRadarRelay = (revision: string, context: Parameters<RadarRelay['review']>[1]) =>
+    radarRelay.review(revision, context);
+const currentWeatherPositionIdentity = () => {
+    if (!APP_API_ENABLED || !diaryRelayOutbox.lendAlarmCredentials()) return null;
+    const config = diaryRelayOutbox.getConfiguration();
+    return config.ownerId && config.relayId
+        ? { ownerId: config.ownerId, piDeviceId: identity.deviceId, relayId: config.relayId }
+        : null;
+};
+// Read access never grants route writes. Only the operator's separately approved
+// token and explicit switch can enable this fixed course/resource surface.
+let courseClient: SignalKClient | null = null;
+if (process.env.THALASSA_SIGNALK_COURSE_WRITES === '1' && process.env.SIGNALK_ACCESS_TOKEN) {
+    try {
+        courseClient = createSignalKClient({
+            origin: SIGNALK_ORIGIN,
+            accessToken: process.env.SIGNALK_ACCESS_TOKEN,
+            allowInsecureLan: SIGNALK_ALLOW_HTTP_LAN,
+        });
+    } catch {
+        console.warn('[course] route sending unavailable: review the operator configuration');
+    }
+}
+const underwayRelay = new PiUnderwayAlarmRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    utcOffsetMin: () => -new Date().getTimezoneOffset(),
+});
+const underwayWatch = new PiUnderwayWatch({
+    self: async () => (await signalkDocuments.read()).selfDoc,
+    atAnchor: () => anchorWatch.isRunning(),
+    vault: chartVault,
+    file: path.join(CACHE_DIR, 'underway-watch.json'),
+    onPass: (state) => underwayRelay.afterPass(state, (key) => underwayWatch.acknowledge(key)),
+    pushStatus: () => underwayRelay.status(),
+});
+underwayWatch.restore();
+/* Only her own devices can command the Pi (129-12): the switch on disk, and who
+   tried a command without being set up since start (piCommandLock.ts). */
+const piLock = new PiLockStore(path.join(CACHE_DIR, 'pi-lock.json'));
+const piLockLedger = new PiLockLedger();
+const piInternet = new PiInternetMemory(path.join(CACHE_DIR, 'pi-internet.json'));
 /** Started with the server (below); until then the vault reads as unreachable. */
 let vaultLink: VaultLink | null = null;
 
@@ -313,7 +521,20 @@ app.use('/api/enc', encNoStore);
 // simplification — the 100kb default would reject them on POST. ENC
 // imports go through a different code path (raw octet-stream / base64)
 // so they aren't affected by this limit.
-app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
+app.use(createAppJsonParser(UNSAFE_ADMIN_API_ENABLED));
+// Only her own devices can command the Pi (129-12): every route's class from
+// one table (piCommandLock.ts), before any route and after the body parser, so
+// a stand-down is told from an arm by its body. Observe until the skipper turns
+// it on; reads, the watch state and raising an alarm stay open to everyone.
+app.use(
+    createPiCommandLock({
+        devices: chartDevices,
+        store: piLock,
+        ledger: piLockLedger,
+        boatName: () => identity.boatName,
+        facts: { anchorWatch: () => anchorWatch.current(), internetPolicy: () => piInternet.read() },
+    }),
+);
 
 /**
  * ── Which gate, and why ───────────────────────────────────────────────────────
@@ -367,6 +588,15 @@ app.get('/status', (_req, res) => {
             })(),
         }),
     );
+});
+
+// The staged updater's readiness probe stays on loopback. Its answer carries
+// only the guard and lease lifetime, never the anchor assignment or location.
+app.get('/api/update5/status', (req, res) => {
+    const peer = req.socket.remoteAddress;
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer ?? ''))
+        return res.status(403).json({ error: 'The update guard is available on this Pi only.' });
+    return res.json(updateMaintenanceStatus(CACHE_DIR, anchorWatch.describe()));
 });
 
 /** Private development status. Never fold this detail back into /status. */
@@ -444,7 +674,7 @@ function configurationBody(value: unknown): Record<string, unknown> {
  * through the entry endpoint. This makes the Pi owner explicitly opt in once
  * and preserves that policy across restart without placing credentials in .env.
  */
-function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
+function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | undefined {
     const nested = body.diaryRelay;
     const hasFlatPolicy = Object.prototype.hasOwnProperty.call(body, 'diaryRelayAllowInternet');
     const flatNames = {
@@ -454,7 +684,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
         ownerId: 'diaryRelayOwnerId',
     } as const;
     const hasFlatRelay = Object.values(flatNames).some((name) => Object.prototype.hasOwnProperty.call(body, name));
-    if (nested === undefined && !hasFlatPolicy && !hasFlatRelay) return;
+    if (nested === undefined && !hasFlatPolicy && !hasFlatRelay) return undefined;
     if (nested !== undefined && !isObject(nested)) {
         throw new DiaryRelayValidationError('diaryRelay must be an object');
     }
@@ -498,7 +728,11 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
         input.allowInternet = (flatPolicy ?? nestedPolicy) as boolean;
     }
 
+    radarWatch.stop();
+    radarSession.retire();
     diaryRelayOutbox.configure(input);
+    // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
+    return input.allowInternet;
 }
 
 app.post('/api/configure', requireAppApi, (req, res) => {
@@ -561,8 +795,19 @@ app.post('/api/configure', requireAppApi, (req, res) => {
         // Validate and persist Pi-private relay configuration before changing
         // the rest of the server settings, so an invalid relay cannot leave a
         // half-applied configuration request behind.
-        applyDiaryRelayConfiguration(requestBody);
+        const policy = applyDiaryRelayConfiguration(requestBody);
         writeEnvironmentFileAtomic(envPath, envContents);
+        // Only her own devices can command the Pi (129-12): the policy this Pi
+        // took as a command, so any phone aboard may say it again after a
+        // restart (piCommandLock.ts configureClass). A raise only repeats it.
+        if (policy !== undefined && (req as PiCommandRequest).piCommand?.commanded !== false) {
+            try {
+                piInternet.remember(policy);
+            } catch (error) {
+                // The gate is set; only a phone not set up, after a restart, would miss it.
+                console.warn(`[pi-lock] could not keep the internet policy: ${(error as Error).message}`);
+            }
+        }
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Could not persist Pi configuration';
         return res.status(500).json({ status: 'error', code: 'PI_CONFIGURATION_WRITE_FAILED', error: message });
@@ -582,7 +827,7 @@ app.post('/api/configure', requireAppApi, (req, res) => {
 
     // Restart pre-fetch scheduler with updated config
     stopScheduler();
-    startScheduler(cache, proxyConfig);
+    startScheduler(cache, proxyConfig, { internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet });
 
     console.log(
         `📱 Configuration updated by Thalassa app${validated.prefetchLat !== undefined ? ` (location: ${validated.prefetchLat}, ${validated.prefetchLon})` : ''}`,
@@ -692,7 +937,7 @@ app.get('/api/anchor/capability', requireAppApi, async (_req, res) => {
     const paired = diaryRelayOutbox.lendAnchorCredentials() !== null;
     let hasFix = false;
     try {
-        const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+        const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, selfDocument });
         hasFix = fix !== null && fixIsCurrent(fix);
     } catch {
         hasFix = false;
@@ -721,7 +966,7 @@ app.get('/api/anchor/capability', requireAppApi, async (_req, res) => {
  */
 app.get('/api/gps', requireAppApi, async (_req, res) => {
     try {
-        const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+        const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, selfDocument });
         if (!fix || !fixIsCurrent(fix)) {
             return res.json({ available: false, reason: fix ? 'the last fix is stale' : 'no fix on the bus' });
         }
@@ -755,6 +1000,7 @@ app.get('/api/telemetry', requireAppApi, async (req, res) => {
             ...(await readLanTelemetry({
                 fetchImpl: fetch,
                 signalkOrigin: SIGNALK_ORIGIN,
+                selfDocument,
                 deviceLabel: os.hostname(),
                 supplement: onboardSupplement,
                 documents: () => signalkDocuments.read(),
@@ -813,6 +1059,17 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     // shows "--" rather than failing.
     const rodeLength = Number(body.rodeLength);
     const waterDepth = Number(body.waterDepth);
+    // A device not set up, while the Pi enforces (129-12): the lock let this
+    // through only to start a watch or renew the running one unchanged, and a
+    // renewal leaves it running as it is, drag count and all.
+    if (uncommandedRenewal(req, anchorWatch.isRunning())) {
+        return res.json({ status: 'ok', watch: anchorWatch.describe() });
+    }
+    if (updateMaintenanceActive(CACHE_DIR)) {
+        return res
+            .status(409)
+            .json({ status: 'error', error: 'A Pi update is being staged. The watch has not been started.' });
+    }
     anchorWatch.start(
         {
             sessionCode,
@@ -855,6 +1112,18 @@ app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
 // so it sits behind the same gate as /api/configure. The transport is the
 // pinned pairing channel either way.
 app.use('/api/remote-access', requireAppApi, createRemoteAccessRoutes());
+// The switch and its status read: an enrolled device on her own Wi-Fi turns it
+// on or off; the status counts calls from devices not set up (129-12).
+app.use(
+    '/api/pi-lock',
+    requireAppApi,
+    createPiLockRoutes({
+        devices: chartDevices,
+        store: piLock,
+        ledger: piLockLedger,
+        boatName: () => identity.boatName,
+    }),
+);
 // ── App routes vs admin routes ──
 // These used to share ONE flag, which meant pairing a phone required also
 // exposing /api/misc/proxy, the raster-chart download/delete API and a 100 MB
@@ -864,13 +1133,80 @@ app.use('/api/remote-access', requireAppApi, createRemoteAccessRoutes());
 // THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
+    app.use(
+        '/api/radar',
+        requireAppApi,
+        createEncFrontDoor({ devices: chartDevices }),
+        createRadarWatchRoutes({ watch: radarWatch, enrolled: enrolledRadarController, reviewRelay: reviewRadarRelay }),
+        createRadarRoutes(radarSession),
+    );
+    app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
+    app.use(
+        '/api/weather-watch',
+        requireAppApi,
+        createWeatherPositionRoutes({ devices: chartDevices, selfDocument, identity: currentWeatherPositionIdentity }),
+    );
+    app.use(
+        '/api/signalk',
+        requireAppApi,
+        createSignalKReadRoutes(
+            {
+                notificationSnapshot: () =>
+                    signalkRead?.notificationSnapshot() ?? {
+                        schema: 1,
+                        session: null,
+                        startedAt: null,
+                        state: 'unavailable',
+                        servedAt: Date.now(),
+                        notices: [],
+                        truncated: false,
+                    },
+            },
+            chartDevices,
+        ),
+    );
+    app.use('/api/offline-weather', createOfflineWeatherRoutes(new OfflineWeatherStore(cache)));
+    app.use('/api/polars', createEncFrontDoor({ devices: chartDevices }), createPolarRoutes(polarLearner));
+    app.use('/api/underway-watch', createUnderwayWatchRoutes(underwayWatch, chartDevices));
+    app.use(
+        '/api/course',
+        createCourseRoutes({
+            devices: chartDevices,
+            enabled: () => courseClient !== null,
+            store: new CourseOwnershipFile(CACHE_DIR, identity.deviceId),
+            transport: {
+                requestCourse: async (request) => {
+                    if (!courseClient) throw new Error('Course writes disabled.');
+                    return (await courseClient.requestCourse(request)).body;
+                },
+            },
+            pilotState: async () => {
+                if (!courseClient) return 'unknown';
+                return coursePilotState((await courseClient.getSelf()).body);
+            },
+        }),
+    );
     app.use('/api/enc', createEncRoutes(identity, { vault: chartVault, devices: chartDevices }));
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox, diaryVideoRelay));
     app.use('/api/track', createTrackRoutes(trackStore, trackRecorder));
 } else {
-    for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary', '/api/track']) {
+    for (const prefix of [
+        '/api/enc',
+        '/api/osm',
+        '/api/pair',
+        '/api/diary',
+        '/api/track',
+        '/api/underway-watch',
+        '/api/signalk',
+        '/api/course',
+        '/api/wake-rules',
+        '/api/weather-watch',
+        '/api/radar',
+        '/api/polars',
+        '/api/offline-weather',
+    ]) {
         app.use(prefix, requireAppApi);
     }
 }
@@ -878,6 +1214,7 @@ attachSeabed({
     app,
     cacheDir: CACHE_DIR,
     signalkOrigin: SIGNALK_ORIGIN,
+    selfDocument,
     supabaseOrigin: SUPABASE_ORIGIN,
     anonKey: () => SUPABASE_ANON_KEY,
     outbox: diaryRelayOutbox,
@@ -957,7 +1294,9 @@ server.listen(PORT, BIND_HOST, () => {
        those alone, and the admin flag can go back to meaning what it says.
        (Shane 2026-08-30, after a redeploy warned the unsafe API was live.) ── */
     if (SUPABASE_ANON_KEY) {
-        startScheduler(cache, proxyConfig);
+        startScheduler(cache, proxyConfig, {
+            internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+        });
     }
 
     // Close the chart-distribution loop: watch the user's o-charts download dir
@@ -980,7 +1319,7 @@ server.listen(PORT, BIND_HOST, () => {
             client: chartVault,
             watching: () => anchorWatch.isRunning() || aisWatch.describe().armed === true,
             fix: async () => {
-                const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+                const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, selfDocument });
                 return fix && fixIsCurrent(fix) ? { lat: fix.latitude, lon: fix.longitude } : null;
             },
         });
@@ -1031,7 +1370,14 @@ function shutdown() {
             );
     });
     vaultLink?.stop();
+    if (radarWatchTimer) clearInterval(radarWatchTimer);
+    radarWatch.stop();
+    radarSession.stop();
+    signalkRead?.stop();
+    wakeKeeper.stop();
     windHistory.stop();
+    polarLearner.stop();
+    underwayWatch.close();
     anchorWatch.close();
     aisWatch.close();
     stopScheduler();

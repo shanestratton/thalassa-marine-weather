@@ -1,7 +1,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { reloadSharedBindersFromStorage } from '../../services/vessel/sharedBinders';
 import type { InventoryItem } from '../../types';
 
 const mocks = vi.hoisted(() => ({
@@ -12,10 +13,10 @@ const mocks = vi.hoisted(() => ({
     deleteItem: vi.fn(),
     adjustQuantity: vi.fn(),
     initLocalDatabase: vi.fn(),
-    downloadPdf: vi.fn(),
     sharePdf: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
+    toastInfo: vi.fn(),
     haptic: vi.fn(),
     flash: vi.fn(),
     undoProps: null as null | { onUndo: () => void; onDismiss: () => void },
@@ -50,19 +51,19 @@ vi.mock('../../stores/settingsStore', () => ({
 }));
 
 vi.mock('../../utils/inventoryPdfExport', () => ({
-    downloadInventoryPdf: mocks.downloadPdf,
     shareInventoryPdf: mocks.sharePdf,
 }));
 
 vi.mock('../../utils/system', () => ({ triggerHaptic: mocks.haptic }));
 vi.mock('../../components/Toast', () => ({
-    toast: { success: mocks.toastSuccess, error: mocks.toastError },
+    toast: { success: mocks.toastSuccess, error: mocks.toastError, info: mocks.toastInfo },
 }));
 
 vi.mock('../../components/ui/PageHeader', () => ({
-    PageHeader: ({ title, action }: { title: string; action?: React.ReactNode }) => (
+    PageHeader: ({ title, action, status }: { title: string; action?: React.ReactNode; status?: React.ReactNode }) => (
         <header>
             <h1>{title}</h1>
+            {status}
             {action}
         </header>
     ),
@@ -75,8 +76,20 @@ vi.mock('../../components/ui/SlideToAction', () => ({
 }));
 
 vi.mock('../../components/ui/ModalSheet', () => ({
-    ModalSheet: ({ children, title }: { children: React.ReactNode; title: string }) => (
-        <section aria-label={title}>{children}</section>
+    // The sheet's pinned main button too (132-B19).
+    ModalSheet: ({
+        children,
+        title,
+        footer,
+    }: {
+        children: React.ReactNode;
+        title: string;
+        footer?: React.ReactNode;
+    }) => (
+        <section aria-label={title}>
+            {children}
+            {footer}
+        </section>
     ),
 }));
 
@@ -169,8 +182,7 @@ describe('InventoryList identity isolation', () => {
         mocks.deleteItem.mockResolvedValue(undefined);
         mocks.adjustQuantity.mockResolvedValue(item('a-item', 'Private A stores'));
         mocks.initLocalDatabase.mockResolvedValue(undefined);
-        mocks.downloadPdf.mockResolvedValue(undefined);
-        mocks.sharePdf.mockResolvedValue(undefined);
+        mocks.sharePdf.mockResolvedValue('shared');
     });
 
     it('erases A data and edit state before a deferred B load resolves', async () => {
@@ -290,5 +302,133 @@ describe('InventoryList identity isolation', () => {
 
         expect(mocks.getAll).toHaveBeenCalledTimes(1);
         expect(screen.queryByText('Private A stores')).not.toBeInTheDocument();
+    });
+});
+
+/**
+ * One 'Share or save' row (130-B8; binder audit STORES-01): Download called
+ * jsPDF's save(), which does nothing in the iPhone app, then said the PDF was
+ * downloaded. Crew on a skipper's shared stores get his boat's name.
+ */
+describe("Ship's Stores: Share or save", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.clear();
+        setAuthIdentityScope(null);
+        const accountA = setAuthIdentityScope('account-a');
+        localStorage.setItem(authScopedStorageKey('thalassa_inventory_deduped', accountA), '1');
+        mocks.getAll.mockResolvedValue([item('a-item', 'Private A stores')]);
+        mocks.deduplicateByName.mockResolvedValue(0);
+        mocks.initLocalDatabase.mockResolvedValue(undefined);
+        mocks.sharePdf.mockResolvedValue('shared');
+    });
+
+    async function openPicker() {
+        render(<InventoryList onBack={vi.fn()} />);
+        await screen.findByText('Private A stores');
+        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share or save stores list' }));
+        return screen.getByRole('region', { name: 'Share or save stores list' });
+    }
+
+    it('has one row, and no Download that does nothing on an iPhone', async () => {
+        render(<InventoryList onBack={vi.fn()} />);
+        await screen.findByText('Private A stores');
+        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
+        // One menu item in the ⋮, Diary's menu (132-B20).
+        expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+        expect(screen.getByRole('menuitem', { name: 'Share or save stores list' })).toBeEnabled();
+        expect(screen.queryByRole('menuitem', { name: /Download/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^Share stores list/ })).not.toBeInTheDocument();
+    });
+
+    it("shares the stores on screen under the boat's name, once however fast the second tap", async () => {
+        const shared = deferred<string>();
+        mocks.sharePdf.mockReturnValue(shared.promise);
+        const picker = await openPicker();
+        const button = within(picker).getByRole('button', { name: 'Share or save all categories' });
+        fireEvent.click(button);
+        fireEvent.click(button);
+        expect(mocks.sharePdf).toHaveBeenCalledTimes(1);
+        expect(mocks.sharePdf).toHaveBeenCalledWith({
+            items: [expect.objectContaining({ id: 'a-item' })],
+            categories: new Set(),
+            vesselName: 'Account A Vessel',
+            units: 'metric',
+        });
+        expect(within(picker).getByRole('button', { name: 'Making the PDF…' })).toBeDisabled();
+        await act(async () => shared.resolve('shared'));
+        // The share sheet speaks for itself: no toast, and the picker closes.
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+        expect(screen.queryByRole('region', { name: 'Share or save stores list' })).not.toBeInTheDocument();
+    });
+
+    it("prints the skipper's boat on his shared stores, not the crew member's own", async () => {
+        // Crew on a skipper's boat that shares Ship's Stores (shared binders, 2026-10-02).
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_shared_binders_v1', getAuthIdentityScope()),
+            JSON.stringify({
+                version: 1,
+                userId: 'account-a',
+                confirmedAt: '2026-10-14T00:00:00.000Z',
+                skippers: [
+                    {
+                        ownerId: 'skipper-b',
+                        vesselName: 'Wind Dancer',
+                        lastAcceptedAt: '2026-10-14T00:00:00.000Z',
+                        registers: { stores: { read: true, write: true } },
+                    },
+                ],
+            }),
+        );
+        reloadSharedBindersFromStorage();
+        const picker = await openPicker();
+        expect(screen.getByText(/Shared from Wind Dancer/)).toBeInTheDocument();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Share or save all categories' }));
+        await waitFor(() =>
+            expect(mocks.sharePdf).toHaveBeenCalledWith({
+                items: [expect.objectContaining({ id: 'a-item' })],
+                categories: new Set(),
+                vesselName: 'Wind Dancer',
+                units: 'metric',
+            }),
+        );
+    });
+
+    it('says downloaded only when the web downloaded it', async () => {
+        mocks.sharePdf.mockResolvedValue('downloaded');
+        const picker = await openPicker();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Share or save all categories' }));
+        await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith('Stores PDF downloaded'));
+    });
+
+    it('leaves the picker open when the share sheet is dismissed', async () => {
+        mocks.sharePdf.mockResolvedValue('cancelled');
+        const picker = await openPicker();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Share or save all categories' }));
+        await waitFor(() => expect(mocks.sharePdf).toHaveBeenCalledTimes(1));
+        await act(async () => Promise.resolve());
+        expect(screen.getByRole('region', { name: 'Share or save stores list' })).toBeInTheDocument();
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+        expect(within(picker).getByRole('button', { name: 'Share or save all categories' })).toBeEnabled();
+    });
+
+    it('never offers a blank PDF: a choice with nothing in it says so and waits', async () => {
+        const picker = await openPicker();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Engine, 0 items' }));
+        const button = within(picker).getByRole('button', { name: 'Nothing in those categories yet' });
+        expect(button).toBeDisabled();
+        fireEvent.click(button);
+        expect(mocks.sharePdf).not.toHaveBeenCalled();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Provisions, 1 item' }));
+        expect(within(picker).getByRole('button', { name: 'Share or save 2 categories' })).toBeEnabled();
+    });
+
+    it('says so when the PDF cannot be made, and lets the skipper try again', async () => {
+        mocks.sharePdf.mockRejectedValueOnce(new Error('no canvas'));
+        const picker = await openPicker();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Share or save all categories' }));
+        await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('Could not make the PDF. Try again.'));
+        expect(within(picker).getByRole('button', { name: 'Share or save all categories' })).toBeEnabled();
     });
 });

@@ -20,6 +20,7 @@
  *  - cellsForBBox(bbox) → cells whose bbox intersects the query bbox
  */
 
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../authIdentityScope';
 import { createLogger } from '../../utils/createLogger';
 import type { EncCell } from './types';
 import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_METADATA_PREFIX, encCellStorageIdentity } from './types';
@@ -166,6 +167,7 @@ export const LEGACY_BUNDLED_DEMO_CELL_IDS = new Set(['US5GA22M']);
 const LEGACY_BUNDLED_DEMO_FLAGS = Array.from({ length: 7 }, (_, index) => `thalassa.enc.samplesImported.v${index + 1}`);
 
 function isLiveNavigationCell(cell: EncCell): boolean {
+    if (cell.noaaPackage && cell.noaaPackage.owner !== getAuthIdentityScope().key) return false;
     if (cell.usage === 'demo') return false;
     if (cell.usage === 'reference') return false;
     if (cell.usage === 'pending') return false;
@@ -190,6 +192,7 @@ function isLiveNavigationCell(cell: EncCell): boolean {
  * unsigned user packs can be displayed but never enter `listCells()`, the
  * safety-authority list used by routing and route verification. */
 function isDisplayCell(cell: EncCell): boolean {
+    if (cell.noaaPackage && cell.noaaPackage.owner !== getAuthIdentityScope().key) return false;
     if (cell.usage === 'demo') return false;
     if (cell.usage === 'pending') return false;
     if (cell.cloudManifestVersion !== undefined && cell.hazardCount === 0) return false;
@@ -610,3 +613,6 @@ export function subscribe(listener: Listener): () => void {
         listeners.delete(listener);
     };
 }
+
+// Public package files are account scoped; invalidate cached inventory immediately.
+subscribeAuthIdentityScope(() => notify());

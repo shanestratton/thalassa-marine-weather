@@ -148,6 +148,8 @@ describe('ObsCentreNoticeChip', () => {
         expect(hub).toContain("top: 'calc(env(safe-area-inset-top) + 112px)'");
         expect(hub).toContain('useObsCentreNoticeWatch(obsShowing);');
         // On Obs only: the desk planner's wind (127-DESKMAP-b) is the forecast field alone.
-        expect(hub).toContain("boatInstruments={!planningSurface && obsStart.kind === 'follow'}");
+        expect(hub).toMatch(
+            /boatInstruments=\{\s*weather\.windState\.isGlobalMode && !planningSurface && obsStart\.kind === 'follow'\s*\}/,
+        );
     });
 });

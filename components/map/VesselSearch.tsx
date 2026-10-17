@@ -8,6 +8,8 @@
  * Debounced input, max 10 results, tap to fly-to.
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { searchAisTargetPicture } from '../../services/ais/aisTargetCache';
+import { aisSogKn } from '../../utils/collisionRule';
 import { supabase } from '../../services/supabase';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { triggerHaptic } from '../../utils/system';
@@ -36,13 +38,31 @@ interface VesselSearchResult {
     shipType: number;
     /** When the row was last written — so the user can judge freshness. */
     updatedAt: string | null;
-    source: 'live' | 'metadata';
+    source: 'live' | 'metadata' | 'local' | 'internet';
 }
 
 interface VesselSearchProps {
     onSelect: (lat: number, lon: number, mmsi: number, name: string) => void;
     visible: boolean;
     onClose: () => void;
+}
+
+function localResults(query: string): VesselSearchResult[] {
+    return searchAisTargetPicture(query).map((feature) => {
+        const p = feature.properties ?? {};
+        const [lon, lat] = feature.geometry.coordinates;
+        return {
+            mmsi: Number(p.mmsi),
+            name: p.name ? String(p.name) : null,
+            flag: getMmsiFlag(Number(p.mmsi)),
+            lat: p.hasPosition === false ? null : lat,
+            lon: p.hasPosition === false ? null : lon,
+            sog: aisSogKn(p.sog) ?? 0,
+            shipType: Number(p.shipType ?? 0),
+            updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : null,
+            source: p.source === 'local' ? 'local' : 'internet',
+        };
+    });
 }
 
 export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, onClose }) => {
@@ -100,9 +120,11 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
             setSearched(true);
         }
 
-        if (!supabase) {
+        const received = localResults(q);
+        if (requestVersion === requestVersionRef.current) setResults(received);
+        if (!supabase || !navigator.onLine) {
             if (requestVersion === requestVersionRef.current) {
-                setResults([]);
+                setError(received.length ? null : 'Internet search unavailable; no received targets match');
                 setLoading(false);
             }
             return;
@@ -125,8 +147,12 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
 
             if (error) {
                 log.warn('[VesselSearch] search_vessels failed:', error.message);
-                setResults([]);
-                setError('Search is unavailable right now');
+                setResults(received);
+                setError(
+                    received.length
+                        ? 'Internet search unavailable; showing received targets'
+                        : 'Search is unavailable right now',
+                );
                 return;
             }
             setError(null);
@@ -159,10 +185,20 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 }),
             );
 
-            if (requestVersion === requestVersionRef.current) setResults(merged);
+            if (requestVersion === requestVersionRef.current) {
+                const seen = new Set(received.map((result) => result.mmsi));
+                setResults([...received, ...merged.filter((result) => !seen.has(result.mmsi))].slice(0, 10));
+            }
         } catch (err) {
             log.warn('[VesselSearch] Error:', err);
-            if (requestVersion === requestVersionRef.current) setResults([]);
+            if (requestVersion === requestVersionRef.current) {
+                setResults(received);
+                setError(
+                    received.length
+                        ? 'Internet search unavailable; showing received targets'
+                        : 'Search is unavailable right now',
+                );
+            }
         } finally {
             if (requestVersion === requestVersionRef.current) setLoading(false);
         }
@@ -180,6 +216,9 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
             debounceRef.current = null;
             return;
         }
+        const received = localResults(val);
+        setResults(received);
+        setSearched(true);
         debounceRef.current = setTimeout(() => {
             debounceRef.current = null;
             void searchVessels(val, requestVersion);
@@ -302,7 +341,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     gap: 4,
                 }}
             >
-                {loading && (
+                {loading && results.length === 0 && (
                     <div style={{ padding: '16px 8px' }}>
                         <ShimmerBlock variant="list" rows={3} />
                     </div>
@@ -316,62 +355,66 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     <EmptyState icon="🚢" title="No Vessels Found" description={`No vessels matching "${query}"`} />
                 )}
 
-                {!loading &&
-                    results.map((r) => (
-                        <button
-                            aria-label="Select this vessel from search results"
-                            key={r.mmsi}
-                            onClick={() => handleSelect(r)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 10,
-                                padding: '10px 12px',
-                                background: 'var(--day-ui-surface, rgba(15,23,42,0.9))',
-                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
-                                borderRadius: 12,
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                                color: 'var(--day-ui-text, #e2e8f0)',
-                                transition: 'background 0.15s',
-                                fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-                            }}
-                        >
-                            <span style={{ fontSize: 24, flexShrink: 0 }}>{r.flag}</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div
-                                    style={{
-                                        fontWeight: 800,
-                                        fontSize: 13,
-                                        letterSpacing: 0.3,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                    }}
-                                >
-                                    {r.name || `MMSI ${r.mmsi}`}
-                                </div>
-                                <div style={{ fontSize: 12, color: 'var(--day-ui-muted, #94a3b8)', marginTop: 1 }}>
-                                    MMSI {r.mmsi} • {r.sog > 0 ? `${r.sog.toFixed(1)} kts` : 'Stationary'}
-                                </div>
-                            </div>
-                            <span
+                {results.map((r) => (
+                    <button
+                        aria-label="Select this vessel from search results"
+                        key={r.mmsi}
+                        onClick={() => handleSelect(r)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '10px 12px',
+                            background: 'var(--day-ui-surface, rgba(15,23,42,0.9))',
+                            border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
+                            borderRadius: 12,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            color: 'var(--day-ui-text, #e2e8f0)',
+                            transition: 'background 0.15s',
+                            fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+                        }}
+                    >
+                        <span style={{ fontSize: 24, flexShrink: 0 }}>{r.flag}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
                                 style={{
-                                    fontSize: 12,
-                                    color: 'var(--day-ui-muted, #64748b)',
-                                    flexShrink: 0,
-                                    padding: '2px 6px',
-                                    background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))',
-                                    borderRadius: 6,
-                                    fontWeight: 600,
+                                    fontWeight: 800,
+                                    fontSize: 13,
+                                    letterSpacing: 0.3,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
                                 }}
                             >
-                                {r.lat !== null && r.lon !== null
-                                    ? `${r.lat.toFixed(1)}°, ${r.lon.toFixed(1)}°`
-                                    : 'no position yet'}
-                            </span>
-                        </button>
-                    ))}
+                                {r.name || `MMSI ${r.mmsi}`}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--day-ui-muted, #94a3b8)', marginTop: 1 }}>
+                                MMSI {r.mmsi} • {r.sog > 0 ? `${r.sog.toFixed(1)} kts` : 'Stationary'}
+                                {r.source === 'local'
+                                    ? ' • Boat receiver'
+                                    : r.source === 'internet'
+                                      ? ' • Last received internet AIS'
+                                      : ''}
+                            </div>
+                        </div>
+                        <span
+                            style={{
+                                fontSize: 12,
+                                color: 'var(--day-ui-muted, #64748b)',
+                                flexShrink: 0,
+                                padding: '2px 6px',
+                                background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))',
+                                borderRadius: 6,
+                                fontWeight: 600,
+                            }}
+                        >
+                            {r.lat !== null && r.lon !== null
+                                ? `${r.lat.toFixed(1)}°, ${r.lon.toFixed(1)}°`
+                                : 'no position yet'}
+                        </span>
+                    </button>
+                ))}
 
                 {error && (
                     <div

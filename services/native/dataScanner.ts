@@ -112,9 +112,8 @@ export async function requestPermissions(): Promise<PermissionResult> {
 export async function scan(options?: ScanOptions): Promise<ScanResult> {
     if (!Capacitor.isNativePlatform()) {
         // Web fallback: caller is expected to manage a getUserMedia
-        // stream + BarcodeDetector themselves. This preserves the
-        // existing web flow in InventoryScanner.tsx which never went
-        // through the MLKit import anyway.
+        // stream + BarcodeDetector themselves, as scanBarcode.ts does
+        // for Ship's Stores (131-B13).
         log.warn('dataScanner.scan() called on web — use the inline BarcodeDetector flow instead.');
         return { barcodes: [] };
     }

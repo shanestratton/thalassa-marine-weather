@@ -23,7 +23,7 @@ vi.mock('../services/ShoppingListService', () => ({
     markPurchased: mocks.markPurchased,
     unmarkPurchased: mocks.unmarkPurchased,
     addManualItem: mocks.addManualItem,
-    getVoyageBudget: vi.fn(),
+    recentRetailers: vi.fn(() => []),
 }));
 vi.mock('../services/PurchaseUnits', () => ({
     toPurchasable: (_name: string, qty: number, unit: string) => ({
@@ -139,7 +139,7 @@ describe('GroceryListPage permissions', () => {
         fireEvent.click(undo);
         expect(mocks.unmarkPurchased).not.toHaveBeenCalled();
 
-        expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Add item' })).toBeDisabled();
     });
 
     it('lets a Galley meal planner add list items without granting Stores purchase actions', () => {
@@ -149,7 +149,7 @@ describe('GroceryListPage permissions', () => {
         expect(screen.getByRole('button', { name: 'Mark Tomatoes as purchased' })).toBeDisabled();
         expect(screen.getByRole('note')).toHaveTextContent('You can still add items to the shopping list.');
 
-        const add = screen.getByRole('button', { name: 'Add item to shopping list' });
+        const add = screen.getByRole('button', { name: 'Add item' });
         expect(add).toBeEnabled();
         fireEvent.click(add);
         expect(screen.getByRole('dialog', { name: /Add to shopping list/ })).toBeInTheDocument();
@@ -184,14 +184,14 @@ describe('GroceryListPage permissions', () => {
 
         expect(screen.getByRole('status')).toHaveTextContent('Checking your grocery access');
         expect(screen.getByRole('button', { name: 'Mark Tomatoes as purchased' })).toBeDisabled();
-        expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Add item' })).toBeDisabled();
 
         setPermissions({ isSkipper: true, canEditStores: true, canViewGalley: true });
         rerender(<GroceryListPage onBack={vi.fn()} />);
 
         expect(screen.queryByText(/Checking your grocery access/)).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Mark Tomatoes as purchased' })).toBeEnabled();
-        expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Add item' })).toBeEnabled();
     });
 
     it('closes an open Stores mutation dialog as soon as permission becomes unresolved', () => {

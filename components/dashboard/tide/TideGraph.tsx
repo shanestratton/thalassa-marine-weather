@@ -10,11 +10,144 @@ import React from 'react';
 import { createLogger } from '../../../utils/createLogger';
 import { ArrowUpIcon, ArrowDownIcon, MinusIcon, TideCurveIcon } from '../../Icons';
 import { Tide, UnitPreferences, HourlyForecast, TidePoint } from '../../../types';
-import { TideGUIDetails } from '../../../services/weather/api/tides';
+import type { TideGUIDetails } from '../../../services/weather/api/tides';
+import { validateOfficialObservation } from '../../../services/tides/officialTides';
 import { convertMetersTo } from '../../../utils';
 import { TideCanvas } from './TideCanvas';
+import { ModalSheet } from '../../ui/ModalSheet';
 
 const log = createLogger('TideGraph');
+const OfflineTidesSheet = React.lazy(() => import('../../map/OfflineTidesSheet'));
+
+function TideSource({
+    details,
+    stationLabel,
+    observationLabel,
+    reserveRightPx,
+    compact = false,
+    heightReadout,
+    heightLabel,
+    events,
+}: {
+    details: TideGUIDetails;
+    stationLabel: string;
+    observationLabel: string | null;
+    reserveRightPx: number;
+    compact?: boolean;
+    heightReadout?: React.ReactNode;
+    heightLabel?: string;
+    events?: { type: 'High' | 'Low'; time: string; height: string }[];
+}): React.ReactNode {
+    const [open, setOpen] = React.useState(false);
+    const [offlineOpen, setOfflineOpen] = React.useState(false);
+    const stationId = React.useId();
+    return (
+        <div
+            data-testid={compact ? 'tide-source-disclosure' : 'tide-source-footer'}
+            className={
+                compact
+                    ? 'shrink-0 min-w-0 pointer-events-auto'
+                    : 'grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-white/10 px-2 text-white/60'
+            }
+            style={compact ? undefined : { height: 44, paddingRight: 8 + reserveRightPx }}
+            // The surrounding Glass card opens wind-versus-tide. Its footer
+            // has independent controls, including when operated by keyboard.
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+            }}
+        >
+            <button
+                type="button"
+                onClick={() => setOpen(true)}
+                aria-label={compact ? `${heightLabel}; source and datum` : 'Source and datum'}
+                aria-describedby={stationId}
+                className="pointer-events-auto min-w-0 text-left text-xs leading-4 font-normal tracking-normal"
+                style={{ height: 44 }}
+                title={stationLabel}
+            >
+                {compact && heightReadout}
+                <span
+                    id={stationId}
+                    className={compact ? 'sr-only' : 'block truncate font-semibold'}
+                    data-testid="tide-station-name"
+                >
+                    {stationLabel}
+                </span>
+                <span
+                    className={
+                        compact ? 'block w-0 min-w-full truncate underline leading-none' : 'block truncate underline'
+                    }
+                >
+                    {compact
+                        ? `${details.source?.startsWith('saved-') ? 'Saved ' : ''}${details.provider ?? 'Source'} ⓘ`
+                        : 'Source and datum'}
+                </span>
+            </button>
+            {!compact && (
+                <button
+                    type="button"
+                    className="pointer-events-auto text-xs leading-4 underline font-normal tracking-normal"
+                    style={{ height: 44 }}
+                    onClick={() => setOfflineOpen(true)}
+                >
+                    Offline tides
+                </button>
+            )}
+            {offlineOpen && (
+                <React.Suspense fallback={null}>
+                    <OfflineTidesSheet onClose={() => setOfflineOpen(false)} />
+                </React.Suspense>
+            )}
+            <ModalSheet isOpen={open} onClose={() => setOpen(false)} title="Tide source" maxWidth="max-w-md">
+                <p className="text-sm text-white">
+                    {details.provider} · {details.datumLabel} · {details.stationName}
+                </p>
+                <p>{details.attribution}</p>
+                {events && events.length > 0 && (
+                    <div className="mt-2 text-sm" aria-label="All tide events">
+                        {events.map((event, index) => (
+                            <p key={index}>
+                                {event.type} {event.time} · {event.height}
+                            </p>
+                        ))}
+                    </div>
+                )}
+                {observationLabel && <p data-testid="tide-observed">{observationLabel}</p>}
+                {details.savedAt && (
+                    <p>
+                        Saved table · downloaded {details.savedAt}. Covers {details.coverageStart} to{' '}
+                        {details.coverageEnd}. This does not establish a fresh publisher or live water level.
+                    </p>
+                )}
+                <p className="mt-1">
+                    Between high and low, the curve is an estimate. These heights do not supply chart depth or route
+                    clearance.
+                </p>
+                <div className="mt-1 flex gap-3 underline">
+                    <a href={details.sourceUrl} target="_blank" rel="noopener noreferrer">
+                        Source table
+                    </a>
+                    <a href={details.licenceUrl} target="_blank" rel="noopener noreferrer">
+                        Licence
+                    </a>
+                </div>
+                {compact && (
+                    <button
+                        type="button"
+                        className="min-h-11 mt-2 underline text-sm"
+                        onClick={() => {
+                            setOpen(false);
+                            setOfflineOpen(true);
+                        }}
+                    >
+                        Offline tides
+                    </button>
+                )}
+            </ModalSheet>
+        </div>
+    );
+}
 
 // Intl.DateTimeFormat construction is the expensive half of reading a
 // wall-clock time in another zone — keep one instance per zone and reuse it
@@ -80,6 +213,8 @@ export const TideGraphOriginal = ({
 }) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
     const effectiveTime = customTime ? new Date(customTime) : new Date();
+    const officialTable = guiDetails?.source === 'official';
+    const official = officialTable && !!guiDetails.expiresAt && Date.parse(guiDetails.expiresAt) > Date.now();
 
     const getDecimalHour = (date: Date, tz?: string) => {
         try {
@@ -219,25 +354,38 @@ export const TideGraphOriginal = ({
     // chart area's own height, which says when the card is short.
     const heroHeaderRef = React.useRef<HTMLDivElement | null>(null);
     const chartAreaRef = React.useRef<HTMLDivElement | null>(null);
+    const graphRef = React.useRef<HTMLDivElement | null>(null);
     const [heroHeaderPx, setHeroHeaderPx] = React.useState(0);
     const [chartAreaPx, setChartAreaPx] = React.useState(0);
+    const [graphHeightPx, setGraphHeightPx] = React.useState(0);
+    const compactSource = !!guiDetails && stationPosition === 'bottom' && graphHeightPx > 0 && graphHeightPx < 170;
     const hasPoints = dataPoints.length > 0;
     React.useLayoutEffect(() => {
         const header = heroHeaderRef.current;
         const area = chartAreaRef.current;
-        if (!header && !area) return;
+        const graph = graphRef.current;
+        if (!header && !area && !graph) return;
         const measure = () => {
             if (header) setHeroHeaderPx(Math.ceil(header.getBoundingClientRect().height));
             if (area) setChartAreaPx(Math.floor(area.clientHeight));
+            if (graph) setGraphHeightPx(Math.floor(graph.clientHeight));
         };
         measure();
         if (typeof ResizeObserver === 'undefined') return;
         const ro = new ResizeObserver(measure);
         if (header) ro.observe(header);
         if (area) ro.observe(area);
+        if (graph) ro.observe(graph);
         return () => ro.disconnect();
-    }, [stationPosition, hasPoints]);
+    }, [stationPosition, hasPoints, official]);
 
+    if (officialTable && !official) {
+        return (
+            <div className="flex h-full items-center justify-center text-xs text-white/60">
+                Tide predictions expired. Refresh for current data.
+            </div>
+        );
+    }
     if (dataPoints.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
@@ -349,10 +497,31 @@ export const TideGraphOriginal = ({
             );
         }
     }
-    // A short card: its station name moves up beside the height, out of the
-    // trough the curve swings through along the bottom (UX scorecard run 9).
-    const shortCard = stationPosition === 'bottom' && !showAllDayEvents && chartAreaPx > 0 && chartAreaPx < 130;
-    const stationLabel = guiDetails?.stationName || stationName;
+    const savedTable = guiDetails?.source === 'saved-official' || guiDetails?.source === 'saved-worldtides';
+    const stationLabel = savedTable
+        ? `Saved ${guiDetails.provider} table · ${guiDetails.datumLabel ?? 'datum unknown'} · ${guiDetails.stationName}`
+        : official
+          ? `${guiDetails.provider === 'MSQ' ? 'MSQ/BOM' : guiDetails.provider} · ${guiDetails.datumLabel} · ${guiDetails.stationName}`
+          : guiDetails?.stationName || stationName;
+    const observation =
+        official &&
+        guiDetails.stationId &&
+        guiDetails.datumId &&
+        guiDetails.provider !== 'WorldTides' &&
+        Math.abs(effectiveTime.getTime() - Date.now()) < 3_600_000
+            ? validateOfficialObservation(
+                  guiDetails.observation,
+                  {
+                      provider: guiDetails.provider!,
+                      stationId: guiDetails.stationId,
+                      datumId: guiDetails.datumId,
+                  },
+                  Date.now(),
+              )
+            : null;
+    const observationLabel = observation
+        ? `Observed ${Math.max(0, Math.round((Date.now() - Date.parse(observation.time)) / 60_000))} min ago · ${convertMetersTo(observation.observedM, unitPref.tideHeight || 'm')?.toFixed(2)} ${unit} · ${observation.residualM >= 0 ? '+' : ''}${convertMetersTo(observation.residualM, unitPref.tideHeight || 'm')?.toFixed(2)} ${unit} residual · unvalidated`
+        : null;
 
     const nextHigh = allMarkers.find((m) => m.time > currentHour && m.type === 'High');
     const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
@@ -408,8 +577,9 @@ export const TideGraphOriginal = ({
 
     return (
         <div
-            className={`flex flex-col h-full relative group ${className || ''}`}
-            style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}
+            ref={graphRef}
+            className={`flex flex-col h-full min-h-0 relative group ${className || ''}`}
+            style={{ ...style, contain: 'layout style' }}
         >
             {/* On a short card the canvas's grid lines and now hairline start
                 inside the caption band and ran through its words: the band
@@ -426,14 +596,54 @@ export const TideGraphOriginal = ({
                 /* HERO MODE (Clean, Single Line) */
                 <div
                     ref={heroHeaderRef}
-                    className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline pl-2 pt-1.5 pointer-events-none"
+                    data-testid="tide-caption-band"
+                    className={`absolute top-0 left-0 right-0 z-20 flex ${compactSource ? 'flex-nowrap items-start gap-x-1 pt-0.5' : 'flex-wrap items-baseline gap-x-2 pt-1.5'} justify-between gap-y-1 pl-2 pointer-events-none`}
                     style={{ paddingRight: 8 + reserveRightPx }}
                 >
-                    {/* LEFT: Height — and, on a short card, the station under it */}
-                    {!showAllDayEvents ? (
-                        <div className="flex flex-col min-w-0 gap-1 pointer-events-auto">
+                    {/* LEFT: Height */}
+                    {compactSource && guiDetails ? (
+                        <TideSource
+                            details={guiDetails}
+                            compact
+                            stationLabel={stationLabel || guiDetails.stationName}
+                            observationLabel={observationLabel}
+                            reserveRightPx={reserveRightPx}
+                            events={
+                                showAllDayEvents
+                                    ? visibleMarkers.map((event) => ({
+                                          type: event.type,
+                                          time: eventClock(event.time),
+                                          height: `${event.height.toFixed(1)} ${unit}`,
+                                      }))
+                                    : undefined
+                            }
+                            heightLabel={
+                                showAllDayEvents
+                                    ? 'All tide events'
+                                    : `${official ? 'Estimated height' : 'Height'} ${currentHeight.toFixed(1)} ${unit}`
+                            }
+                            heightReadout={
+                                showAllDayEvents ? (
+                                    <span className="text-base font-semibold whitespace-nowrap leading-none">
+                                        Tides · {unit}
+                                    </span>
+                                ) : (
+                                    <span className="flex items-baseline gap-0.5 whitespace-nowrap leading-none">
+                                        <span className="text-xl font-bold text-white font-mono leading-none">
+                                            {currentHeight.toFixed(1)}
+                                        </span>
+                                        <span className={unitClass}>{unit}</span>
+                                        <TrendIcon className={`w-3 h-3 ${trendColor}`} />
+                                    </span>
+                                )
+                            }
+                        />
+                    ) : !showAllDayEvents ? (
+                        <div className="flex flex-col shrink-0 min-w-0 gap-1 pointer-events-auto">
                             <div className="flex items-baseline gap-1">
-                                <span className={heroLabelClass}>Height</span>
+                                <span className={`${heroLabelClass} whitespace-nowrap`}>
+                                    {official ? 'Est. height' : 'Height'}
+                                </span>
                                 <span className="whitespace-nowrap leading-none">
                                     <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
                                         {currentHeight.toFixed(1)}
@@ -443,21 +653,13 @@ export const TideGraphOriginal = ({
                                 </span>
                                 <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                             </div>
-                            {shortCard && stationLabel && (
-                                <span
-                                    className="truncate text-xs leading-4 font-semibold text-white/60 tracking-wide select-none"
-                                    data-testid="tide-station-name"
-                                >
-                                    {stationLabel}
-                                </span>
-                            )}
                         </div>
                     ) : (
                         <div className="hidden"></div>
                     )}
 
                     {/* RIGHT: High / Low Events */}
-                    {showAllDayEvents ? (
+                    {showAllDayEvents && !compactSource ? (
                         <div className="flex items-baseline gap-3 pointer-events-auto w-full justify-between px-2">
                             {[...visibleMarkers]
                                 .sort((a, b) => a.time - b.time)
@@ -505,40 +707,60 @@ export const TideGraphOriginal = ({
                         // row of chips sat on the crest of a short card (UX
                         // scorecard run 9). Columns keep times and heights aligned.
                         <div
-                            className={`grid shrink-0 ${nextHasCue ? 'grid-cols-[auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto]'} items-baseline gap-x-1 gap-y-1 pointer-events-auto`}
+                            className={`grid shrink-0 ${nextHasCue && !compactSource ? 'grid-cols-[auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto]'} items-baseline ${compactSource ? 'gap-x-0.5 gap-y-0.5' : 'gap-x-1 gap-y-1'} pointer-events-auto`}
                         >
-                            {nextEvents.map((event, idx) => {
-                                const cue = dayCue(event.time);
-                                return (
-                                    <React.Fragment key={idx}>
-                                        <span className={heroLabelClass}>{event.type}</span>
-                                        <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
-                                            {eventClock(event.time)}
-                                        </span>
-                                        {cue ? (
-                                            <span
-                                                className="glass-tide-caption text-xs font-semibold leading-none text-sky-200/80"
-                                                data-testid="tide-day-cue"
-                                            >
-                                                <span aria-hidden="true">{cue.shown}</span>
-                                                <span className="sr-only">{cue.spoken}</span>
+                            {(showAllDayEvents && compactSource ? visibleMarkers.slice(0, 2) : nextEvents).map(
+                                (event, idx) => {
+                                    const cue = dayCue(event.time);
+                                    return (
+                                        <React.Fragment key={idx}>
+                                            <span className={heroLabelClass}>
+                                                {compactSource ? (
+                                                    <>
+                                                        <span aria-hidden="true">{event.type[0]}</span>
+                                                        <span className="sr-only">{event.type}</span>
+                                                    </>
+                                                ) : (
+                                                    event.type
+                                                )}
                                             </span>
-                                        ) : (
-                                            nextHasCue && <span aria-hidden="true" />
-                                        )}
-                                        <span className="justify-self-end whitespace-nowrap leading-none">
-                                            <span aria-hidden="true" className={unitClass}>
-                                                {'· '}
+                                            <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
+                                                {eventClock(event.time)}
+                                                {compactSource && cue && (
+                                                    <span
+                                                        className="text-xs font-sans leading-none"
+                                                        data-testid="tide-day-cue"
+                                                    >
+                                                        <span aria-hidden="true">+1</span>
+                                                        <span className="sr-only">{cue.spoken}</span>
+                                                    </span>
+                                                )}
                                             </span>
-                                            <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
-                                                {event.height.toFixed(1)}
+                                            {cue && !compactSource ? (
+                                                <span
+                                                    className="glass-tide-caption text-xs font-semibold leading-none text-sky-200/80"
+                                                    data-testid="tide-day-cue"
+                                                >
+                                                    <span aria-hidden="true">{cue.shown}</span>
+                                                    <span className="sr-only">{cue.spoken}</span>
+                                                </span>
+                                            ) : (
+                                                nextHasCue && !compactSource && <span aria-hidden="true" />
+                                            )}
+                                            <span className="justify-self-end whitespace-nowrap leading-none">
+                                                <span aria-hidden="true" className={unitClass}>
+                                                    {'· '}
+                                                </span>
+                                                <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
+                                                    {event.height.toFixed(1)}
+                                                </span>
+                                                {'\u2009'}
+                                                <span className={compactSource ? 'sr-only' : unitClass}>{unit}</span>
                                             </span>
-                                            {'\u2009'}
-                                            <span className={unitClass}>{unit}</span>
-                                        </span>
-                                    </React.Fragment>
-                                );
-                            })}
+                                        </React.Fragment>
+                                    );
+                                },
+                            )}
                         </div>
                     )}
                 </div>
@@ -548,7 +770,7 @@ export const TideGraphOriginal = ({
                     {/* Current Status Box */}
                     <div className="bg-slate-900/80 rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-start pointer-events-auto">
                         <span className="text-[11px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
-                            Current Tide Level
+                            {official ? 'Estimated tide height' : 'Current Tide Level'}
                         </span>
                         <div className={`flex items-baseline gap-1.5 ${trendColor}`}>
                             <span className="text-2xl font-mono font-bold tracking-tight text-ivory">
@@ -587,6 +809,7 @@ export const TideGraphOriginal = ({
                 (UX scorecard run 6). The other hosts give it 160 px anyway. */}
             <div
                 ref={chartAreaRef}
+                data-testid="tide-plot"
                 className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-0"
             >
                 <TideCanvas
@@ -599,20 +822,27 @@ export const TideGraphOriginal = ({
                     topBandPx={stationPosition === 'bottom' ? heroHeaderPx : 0}
                     rightInsetPx={reserveRightPx}
                 />
-                {/* Station name — bottom left, lifted clear of the 14 px hour
-                    axis band TideCanvas draws along the bottom edge. On the
-                    heights' backing pill: bare, it sat on the curve with
-                    nothing behind it (UX scorecard run 8). A short card
-                    carries it in the caption band instead. */}
-                {stationLabel && !shortCard && (
-                    <span
-                        className={`absolute bottom-4 left-2 text-xs leading-4 font-semibold text-white/60 tracking-wide pointer-events-none select-none ${scrimClass}`}
-                        data-testid="tide-station-name"
-                    >
-                        {stationLabel}
-                    </span>
-                )}
             </div>
+            {/* Reserve attribution INSIDE the existing card, below the entire
+                canvas including its hour axis. The plot flexes; the card and
+                page never gain height. Long names remain complete in details. */}
+            {guiDetails && !compactSource ? (
+                <TideSource
+                    details={guiDetails}
+                    stationLabel={stationLabel || guiDetails.stationName}
+                    observationLabel={observationLabel}
+                    reserveRightPx={reserveRightPx}
+                />
+            ) : !guiDetails && stationLabel ? (
+                <div
+                    className="shrink-0 truncate px-2 text-xs leading-4 font-semibold text-white/60"
+                    style={{ paddingRight: 8 + reserveRightPx }}
+                    title={stationLabel}
+                    data-testid="tide-station-name"
+                >
+                    {stationLabel}
+                </div>
+            ) : null}
         </div>
     );
 };

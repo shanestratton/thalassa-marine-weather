@@ -4,7 +4,7 @@
  * Sub-components extracted to ./inventory/:
  *   - SwipeableInventoryCard: swipeable card with quantity controls and expiry status
  */
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('InventoryList');
@@ -15,10 +15,10 @@ import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { inventoryStats } from '../../services/vessel/inventoryStats';
 import { InventoryScanner } from './InventoryScanner';
-import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
+import { shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
-import { Capacitor } from '@capacitor/core';
+import { scanBarcode } from '../../services/native/scanBarcode';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
@@ -32,10 +32,12 @@ import { toast } from '../Toast';
 import { SwipeableInventoryCard } from './inventory/SwipeableInventoryCard';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { changedFields, countDelta, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
+import { localDayString } from '../../utils/localDate';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import {
     authScopedStorageKey,
@@ -53,6 +55,17 @@ import { openBox, registerBoxOpener } from './inventory/openBox';
 import { OPEN_BOX_EVENT, consumePendingBox } from '../../services/boxLinks';
 import { scanBoxTag } from '../../services/native/nfcTags';
 import { useNfcTags } from './inventory/useNfcTags';
+import { UnitSelect } from './inventory/UnitSelect';
+import { GroceryChip } from './inventory/GroceryChip';
+import {
+    fieldAmount,
+    retypedAmount,
+    retypedMinimum,
+    storesUnitSystem,
+    typedAmount,
+    typedMinimum,
+} from '../../services/vessel/storesUnits';
+import { GROCERY_LOCKED, groceryProvenance } from '../../services/vessel/storesProvenance';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -113,17 +126,29 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
+    // Amounts and steps in the skipper's units: Settings' liquid volume (131-B14).
+    const units = storesUnitSystem(useSettingsStore((state) => state.settings.units?.volume));
 
-    // Header 3-dot menu
+    // Header 3-dot menu: Diary's menu (132-B20). Named a menu with its state,
+    // focus goes into it, the arrows move through it and Escape closes it.
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-    const headerMenuRef = useRef<HTMLDivElement>(null);
+    const headerMenuButtonRef = useRef<HTMLButtonElement>(null);
+    const headerMenuId = useId();
+    const closeHeaderMenu = useCallback(() => setHeaderMenuOpen(false), []);
+    const headerMenuRef = useMenuNavigation<HTMLDivElement>(headerMenuOpen, {
+        triggerRef: headerMenuButtonRef,
+        onClose: closeHeaderMenu,
+    });
     const loadRequestRef = useRef(0);
+    const barcodeFieldId = useId();
 
-    // Category export picker
+    // Category export picker: one 'Share or save' (130-B8). The ref is the
+    // double-tap guard: state lands a render late.
     const [showExportPicker, setShowExportPicker] = useState(false);
     const [exportCategories, setExportCategories] = useState<Set<InventoryCategory>>(new Set());
-    const [exportMode, setExportMode] = useState<'download' | 'share'>('download');
+    const [exporting, setExporting] = useState(false);
+    const exportingRef = useRef(false);
 
     // ── Load data ──
     const loadItems = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope(), background = false) => {
@@ -184,6 +209,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     });
     const sharedBinder = binder.mode === 'shared';
     const viewOnly = binder.mode === 'shared' && !binder.canWrite;
+    // The boat's name on the PDF (130-B8): the skipper's on his shared stores,
+    // not the crew member's own boat from settings. None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || undefined : ownVesselName;
 
     // Boxes (126-11a): written only once this phone has read stores_boxes from
     // the server, and opened by id through openBox() (126-11b's tag link).
@@ -245,38 +273,51 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         });
     }, [items, searchQuery]);
 
-    // ── Export/Share by category (PDF) ──
+    // ── Share or save by category (PDF, 130-B8) ──
+    // Through sharePdfBlob: the share sheet in the app (Save to Files, Mail,
+    // AirDrop, Print). The old Download called jsPDF's save(), which does
+    // nothing in the iPhone app, then said the PDF was downloaded.
     const handleExport = useCallback(
-        async (
-            mode: 'download' | 'share',
-            categories: Set<InventoryCategory>,
-            identity: AuthIdentityScope = getAuthIdentityScope(),
-        ) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
+        async (categories: Set<InventoryCategory>, identity: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(identity) || exportingRef.current) return;
             const exportItems = items.map((item) => ({ ...item }));
             const exportCategorySnapshot = new Set(categories);
+            exportingRef.current = true;
+            setExporting(true);
             try {
-                const opts = {
+                const outcome = await shareInventoryPdf({
                     items: exportItems,
                     categories: exportCategorySnapshot,
                     vesselName,
-                };
-                if (mode === 'share') {
-                    await shareInventoryPdf(opts);
-                } else {
-                    await downloadInventoryPdf(opts);
-                    if (!isAuthIdentityScopeCurrent(identity)) return;
-                    toast.success('Stores PDF downloaded');
+                    units,
+                });
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                if (outcome === 'empty') {
+                    toast.info('Nothing in those categories yet.');
+                    return;
                 }
+                // A dismissed share sheet leaves the picker open, to choose again.
+                if (outcome === 'cancelled') return;
+                if (outcome === 'downloaded') toast.success('Stores PDF downloaded');
+                setShowExportPicker(false);
+                setExportCategories(new Set());
             } catch (e) {
                 log.warn(' Export failed:', e);
-                if (isAuthIdentityScopeCurrent(identity)) toast.error('Export failed');
+                if (isAuthIdentityScopeCurrent(identity)) toast.error('Could not make the PDF. Try again.');
+            } finally {
+                exportingRef.current = false;
+                if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            setShowExportPicker(false);
-            setExportCategories(new Set());
         },
-        [items, vesselName],
+        [items, vesselName, units],
+    );
+    /** Items the picker's choice would list: with none, its button says so and waits. */
+    const exportCount = useMemo(
+        () =>
+            exportCategories.size === 0
+                ? items.length
+                : items.filter((item) => exportCategories.has(item.category)).length,
+        [items, exportCategories],
     );
 
     const toggleExportCategory = useCallback((cat: InventoryCategory) => {
@@ -310,14 +351,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editItem, setEditItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
     const [editName, setEditName] = useState('');
     const [editCategory, setEditCategory] = useState<InventoryCategory>('Provisions');
-    const [editQty, setEditQty] = useState(1);
-    const [editMinQty, setEditMinQty] = useState(0);
+    // As typed, read on Save (131-B14): the quantity takes decimals (2.5 kg),
+    // the minimum is a whole number of its unit, as the server keeps it.
+    const [editQtyText, setEditQtyText] = useState('1');
+    const [editMinQtyText, setEditMinQtyText] = useState('0');
     const [editZone, setEditZone] = useState('');
     const [editSpecific, setEditSpecific] = useState('');
     const [editDescription, setEditDescription] = useState('');
     const [editExpiry, setEditExpiry] = useState('');
     const [editBarcode, setEditBarcode] = useState('');
     const [editBoxId, setEditBoxId] = useState('');
+    /** What the camera button could not do, under the Barcode field (131-B13). */
+    const [editScanProblem, setEditScanProblem] = useState<string | null>(null);
+    const [editUnit, setEditUnit] = useState('');
     // One Save at a time: a count edit is a delta, so a second tap while the
     // first is still writing would take the count twice.
     const savingEditRef = useRef(false);
@@ -337,12 +383,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 setHeaderMenuOpen(false);
                 setShowExportPicker(false);
                 setExportCategories(new Set());
-                setExportMode('download');
+                setExporting(false);
                 setEditItem(null);
                 setEditName('');
                 setEditCategory('Provisions');
-                setEditQty(1);
-                setEditMinQty(0);
+                setEditQtyText('1');
+                setEditMinQtyText('0');
+                setEditUnit('');
                 setEditZone('');
                 setEditSpecific('');
                 setEditDescription('');
@@ -358,14 +405,26 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditItem({ identity, item });
         setEditName(item.item_name);
         setEditCategory(item.category);
-        setEditQty(item.quantity);
-        setEditMinQty(item.min_quantity);
+        // Rounded as Save reads it: ± steps of 0.1 kg can leave float dust on the row.
+        setEditQtyText(fieldAmount(item.quantity));
+        setEditMinQtyText(String(item.min_quantity));
         setEditZone(item.location_zone || '');
         setEditSpecific(item.location_specific || '');
         setEditDescription(item.description || '');
-        setEditExpiry(item.expiry_date || '');
+        setEditExpiry(localDayString(item.expiry_date));
         setEditBarcode(item.barcode || '');
         setEditBoxId(boxOf(item));
+        setEditScanProblem(null);
+        setEditUnit(item.unit ?? '');
+    };
+    /**
+     * A unit picked in the Edit sheet: 1000 g becomes 1 kg; a count picked as
+     * kg keeps its number. The minimum stays whole: 500 g becomes 1 kg.
+     */
+    const pickUnit = (unit: string) => {
+        setEditQtyText((typed) => retypedAmount(typed, editUnit, unit));
+        setEditMinQtyText((typed) => retypedMinimum(typed, editUnit, unit));
+        setEditUnit(unit);
     };
 
     /** The item's box, if this phone knows it ('' otherwise: "not in a box"). */
@@ -394,12 +453,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         const { identity, item } = editItem;
         if (!isAuthIdentityScopeCurrent(identity)) return;
         const itemId = item.id;
+        // The fields as typed (131-B14). One left blank keeps what the row
+        // has, so a cleared box never empties a count; a minimum is whole.
+        const editQty = typedAmount(editQtyText) ?? item.quantity;
+        const editMinQty = typedMinimum(editMinQtyText) ?? item.min_quantity;
         // Only what was changed against the item as the sheet opened, so the
         // crew's ± and the Galley's deductions made meanwhile survive. A count
         // edit is a delta against that count ("took 2", not "set to 10"), on
         // the same delta path as ±, so changes made at once add up (STORES-04).
         const delta = countDelta(item.quantity, editQty);
-        const updates = changedFields(item, {
+        // The expiry as the sheet showed it, its local day (131-B11): left
+        // alone, it is not a change.
+        const shown = { ...item, expiry_date: localDayString(item.expiry_date) || null };
+        const updates = changedFields(shown, {
             item_name: editName,
             category: editCategory,
             min_quantity: editMinQty,
@@ -410,6 +476,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             expiry_date: editExpiry || null,
         });
         if (editBoxId !== boxOf(item)) updates.box_id = editBoxId || null;
+        // A Grocery List row keeps its name, unit and notes as bought, so
+        // un-ticking it there still finds it (131-B14).
+        if (groceryProvenance(item)) {
+            delete updates.item_name;
+            delete updates.description;
+        } else if (editUnit !== (item.unit ?? '')) {
+            updates.unit = editUnit;
+        }
         const changed = Object.keys(updates).length > 0;
         if (!delta && !changed) {
             setEditItem(null);
@@ -461,20 +535,32 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     // ── Quick quantity adjustment ──
     // One at a time, so each − reads the count the last one left: a quick
-    // double tap on the last spare puts it on the shopping list once.
-    const adjustQueueRef = useRef<Promise<void>>(Promise.resolve());
-    const handleQuantityAdjust = (id: string, delta: number, identity: AuthIdentityScope = getAuthIdentityScope()) => {
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+    // double tap on the last spare puts it on the shopping list once. The
+    // cards, the box page and a scanned item's sheet (131-B13) all come here;
+    // it resolves the row as it now stands (null when nothing changed).
+    const adjustQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+    const handleQuantityAdjust = (
+        id: string,
+        delta: number,
+        identity: AuthIdentityScope = getAuthIdentityScope(),
+    ): Promise<InventoryItem | null> => {
+        if (!isAuthIdentityScopeCurrent(identity)) return Promise.resolve(null);
         triggerHaptic('light');
-        adjustQueueRef.current = adjustQueueRef.current.then(() => adjustQuantityNow(id, delta, identity));
+        const adjusted = adjustQueueRef.current.then(() => adjustQuantityNow(id, delta, identity));
+        adjustQueueRef.current = adjusted;
+        return adjusted;
     };
-    const adjustQuantityNow = async (id: string, delta: number, identity: AuthIdentityScope) => {
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+    const adjustQuantityNow = async (
+        id: string,
+        delta: number,
+        identity: AuthIdentityScope,
+    ): Promise<InventoryItem | null> => {
+        if (!isAuthIdentityScopeCurrent(identity)) return null;
         try {
             // Low stock goes on the shopping list (126-11a): own Stores only.
             const before = delta < 0 ? InventoryService.getItem(id) : null;
             const updated = await InventoryService.adjustQuantity(id, delta);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!isAuthIdentityScopeCurrent(identity)) return null;
             const restock = before && updated ? restockFor(before, updated) : null;
             if (updated && restock) {
                 void addRestock(updated, restock)
@@ -494,11 +580,16 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         : previous,
                 );
             }
+            return updated;
         } catch (e) {
             log.warn(' qty adjust failed:', e);
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update quantity');
+            return null;
         }
     };
+
+    /** The Edit sheet's row came from the Grocery List: its name, unit and notes stay (131-B14). */
+    const editBought = editItem ? groceryProvenance(editItem.item) : null;
 
     if (showScanner && inventoryDataIsCurrent && !viewOnly) {
         const scannerIdentity = inventoryData.identity;
@@ -512,7 +603,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 onItemSaved={() => {
                     void loadItems(scannerIdentity);
                 }}
-                startInManualMode
+                // A scanned item already in Stores changes its count here (131-B13).
+                onAdjust={(id, delta) => handleQuantityAdjust(id, delta, scannerIdentity)}
+                units={units}
                 box={boxes.find((box) => box.id === scanBox)}
             />
         );
@@ -532,25 +625,26 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         </>
                     }
                     subtitle={
-                        // One count while the stores are empty: '0 items · 0 units'
-                        // said the zero twice (UX scorecard run 7).
+                        // Items, not 'units': a sum of grams, litres and tins
+                        // said nothing (131-B14). Low by the one rule.
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {stats
-                                ? stats.totalItems === 0
-                                    ? '0 items'
-                                    : `${stats.totalItems} ${stats.totalItems === 1 ? 'item' : 'items'} · ${Math.round(stats.totalQuantity * 10) / 10} ${Math.round(stats.totalQuantity * 10) / 10 === 1 ? 'unit' : 'units'}`
-                                : 'Loading…'}
+                            {stats ? `${stats.totalItems} ${stats.totalItems === 1 ? 'item' : 'items'}` : 'Loading…'}
                             {stats && stats.lowStock > 0 && (
                                 <span className="text-amber-400"> · {stats.lowStock} low</span>
                             )}
                         </p>
                     }
                     action={
-                        <div className="relative" ref={headerMenuRef}>
+                        <div className="relative">
                             <button
+                                type="button"
+                                ref={headerMenuButtonRef}
                                 onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
+                                aria-expanded={headerMenuOpen}
+                                aria-haspopup="menu"
+                                aria-controls={headerMenuOpen ? headerMenuId : undefined}
                             >
                                 <svg
                                     aria-hidden="true"
@@ -565,47 +659,35 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </button>
                             {headerMenuOpen && (
                                 <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div
+                                        role="presentation"
+                                        aria-hidden="true"
+                                        className="fixed inset-0 z-40"
+                                        onClick={closeHeaderMenu}
+                                    />
+                                    <div
+                                        ref={headerMenuRef}
+                                        id={headerMenuId}
+                                        role="menu"
+                                        aria-label="Stores actions"
+                                        className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                    >
+                                        {/* One row (130-B8): the share sheet it opens offers
+                                            Save to Files, Mail, AirDrop and Print. Named by
+                                            its visible words, for Voice Control. */}
                                         <button
-                                            aria-label="Download inventory as PDF"
+                                            type="button"
+                                            role="menuitem"
                                             disabled={items.length === 0}
                                             onClick={() => {
                                                 setHeaderMenuOpen(false);
-                                                setExportMode('download');
                                                 setExportCategories(new Set());
                                                 setShowExportPicker(true);
                                             }}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                         >
                                             <svg
-                                                className="w-4 h-4 text-sky-400"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2}
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                                                />
-                                            </svg>
-                                            Download stores list
-                                        </button>
-                                        <div className="border-t border-white/5" />
-                                        <button
-                                            aria-label="Share stores list via email or AirDrop"
-                                            disabled={items.length === 0}
-                                            onClick={() => {
-                                                setHeaderMenuOpen(false);
-                                                setExportMode('share');
-                                                setExportCategories(new Set());
-                                                setShowExportPicker(true);
-                                            }}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
-                                        >
-                                            <svg
+                                                aria-hidden="true"
                                                 className="w-4 h-4 text-emerald-400"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
@@ -618,7 +700,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                     d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
                                                 />
                                             </svg>
-                                            Share stores list
+                                            Share or save stores list
                                         </button>
                                     </div>
                                 </>
@@ -716,6 +798,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             <SwipeableInventoryCard
                                                 key={item.id}
                                                 item={item}
+                                                units={units}
                                                 isExpanded={expandedId === item.id}
                                                 onTap={() => setExpandedId(expandedId === item.id ? null : item.id)}
                                                 onDelete={
@@ -778,7 +861,28 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             {/* ═══ EDIT ITEM MODAL ═══ */}
             {editItem && (
-                <ModalSheet isOpen={true} onClose={() => setEditItem(null)} title="Edit item">
+                <ModalSheet
+                    isOpen={true}
+                    onClose={() => setEditItem(null)}
+                    title="Edit item"
+                    // Save stays on screen below the five-row grid and the fields (132-B19).
+                    footer={
+                        <>
+                            {!editName.trim() && (
+                                <p className="text-micro text-amber-400/80 text-center mb-2">Item name is required</p>
+                            )}
+                            <Button
+                                variant="primary"
+                                aria-label="Save inventory item changes"
+                                onClick={handleSaveEdit}
+                                disabled={!editName.trim() || savingEdit}
+                                className="w-full disabled:cursor-not-allowed"
+                            >
+                                Save changes
+                            </Button>
+                        </>
+                    }
+                >
                     <div className="space-y-2">
                         {/* Category — first */}
                         <div>
@@ -788,72 +892,64 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <StoresCategoryGrid value={editCategory} onChange={setEditCategory} />
                         </div>
 
-                        {/* Name */}
+                        {/* Name: kept as bought on a Grocery List row (131-B14) */}
                         <div>
                             <FormField
                                 label="Item name"
                                 value={editName}
                                 onChange={setEditName}
                                 required
+                                disabled={!!editBought}
                                 error={!editName.trim() && editName !== '' ? 'Item name is required' : undefined}
                             />
+                            {editBought && (
+                                <div className="mt-1 space-y-0.5">
+                                    <GroceryChip kind={editBought} />
+                                    <p className="text-micro text-gray-400">{GROCERY_LOCKED}</p>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Barcode */}
+                        {/* Barcode: the label names the field (132-B20), and the
+                            field and the camera are 44 pt, at every root size. */}
                         <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
+                            <label
+                                htmlFor={barcodeFieldId}
+                                className="text-label font-bold text-gray-400 uppercase tracking-widest"
+                            >
                                 Barcode
                             </label>
                             <div className="flex gap-1.5 mt-0.5">
                                 <input
+                                    id={barcodeFieldId}
                                     type="text"
                                     value={editBarcode}
                                     onChange={(e) => setEditBarcode(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
-                                    className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors"
+                                    className="min-w-0 flex-1 min-h-[44px] bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors"
                                 />
                                 <button
                                     aria-label="Scan barcode with camera"
                                     type="button"
                                     onClick={async () => {
+                                        // The Add sheet's scanner (131-B13): a refused camera
+                                        // is said here, not swallowed.
                                         const identity = editItem.identity;
                                         if (!isAuthIdentityScopeCurrent(identity)) return;
-                                        if (Capacitor.isNativePlatform()) {
-                                            try {
-                                                const { BarcodeScanner, BarcodeFormat } =
-                                                    await import('../../services/native/dataScanner');
-                                                if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                const { camera } = await BarcodeScanner.checkPermissions();
-                                                if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                if (camera !== 'granted') {
-                                                    const r = await BarcodeScanner.requestPermissions();
-                                                    if (r.camera !== 'granted' || !isAuthIdentityScopeCurrent(identity))
-                                                        return;
-                                                }
-                                                const { barcodes } = await BarcodeScanner.scan({
-                                                    formats: [
-                                                        BarcodeFormat.Ean13,
-                                                        BarcodeFormat.Ean8,
-                                                        BarcodeFormat.UpcA,
-                                                        BarcodeFormat.UpcE,
-                                                        BarcodeFormat.Code128,
-                                                        BarcodeFormat.Code39,
-                                                        BarcodeFormat.QrCode,
-                                                    ],
-                                                });
-                                                if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                if (barcodes.length > 0 && barcodes[0].rawValue) {
-                                                    setEditBarcode(barcodes[0].rawValue);
-                                                    triggerHaptic('medium');
-                                                }
-                                            } catch (e) {
-                                                log.warn(' cancelled:', e);
-                                            }
+                                        setEditScanProblem(null);
+                                        const result = await scanBarcode();
+                                        if (!isAuthIdentityScopeCurrent(identity)) return;
+                                        if (result.code !== null) {
+                                            setEditBarcode(result.code);
+                                            triggerHaptic('medium');
+                                        } else {
+                                            setEditScanProblem(result.problem);
                                         }
                                     }}
-                                    className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
+                                    className="shrink-0 min-h-[44px] min-w-[44px] px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
                                 >
                                     <svg
+                                        aria-hidden="true"
                                         className="w-4 h-4"
                                         fill="none"
                                         viewBox="0 0 24 24"
@@ -873,22 +969,38 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     </svg>
                                 </button>
                             </div>
+                            {editScanProblem && (
+                                <p role="alert" className="mt-1 text-xs font-bold text-amber-400">
+                                    {editScanProblem}
+                                </p>
+                            )}
                         </div>
 
-                        {/* Quantity + Min */}
-                        <div className="grid grid-cols-2 gap-2">
+                        {/* Quantity, unit and min, never below nothing, read on
+                            Save (131-B14). The quantity takes decimals; the
+                            minimum stays whole, on a keypad with no point. */}
+                        <div className="grid grid-cols-3 gap-2">
                             <FormField
                                 label="Quantity"
                                 type="number"
-                                value={editQty}
-                                onChange={(v) => setEditQty(Math.max(0, parseInt(v) || 0))}
+                                inputMode="decimal"
+                                value={editQtyText}
+                                onChange={setEditQtyText}
                                 min={0}
+                            />
+                            <UnitSelect
+                                units={units}
+                                value={editUnit}
+                                current={editItem.item.unit ?? ''}
+                                onChange={pickUnit}
+                                disabled={!!editBought}
                             />
                             <FormField
                                 label="Min qty"
                                 type="number"
-                                value={editMinQty}
-                                onChange={(v) => setEditMinQty(Math.max(0, parseInt(v) || 0))}
+                                inputMode="numeric"
+                                value={editMinQtyText}
+                                onChange={setEditMinQtyText}
                                 min={0}
                             />
                         </div>
@@ -930,30 +1042,40 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </label>
                         )}
 
-                        {/* Notes */}
-                        <FormField
-                            label="Notes"
-                            value={editDescription}
-                            onChange={setEditDescription}
-                            placeholder="Part no, batch"
-                        />
+                        {/* Notes: none to edit on a Grocery List row, whose notes are its purchase (131-B14) */}
+                        {!editBought && (
+                            <FormField
+                                label="Notes"
+                                value={editDescription}
+                                onChange={setEditDescription}
+                                placeholder="Part no, batch"
+                            />
+                        )}
 
                         {/* Expiry — full width to prevent date picker overflow */}
                         <FormField label="Expiry / service" type="date" value={editExpiry} onChange={setEditExpiry} />
-                    </div>
 
-                    {!editName.trim() && (
-                        <p className="text-micro text-amber-400/80 text-center mt-2">Item name is required</p>
-                    )}
-                    <Button
-                        variant="primary"
-                        aria-label="Save inventory item changes"
-                        onClick={handleSaveEdit}
-                        disabled={!editName.trim() || savingEdit}
-                        className="w-full mt-2 disabled:cursor-not-allowed"
-                    >
-                        Save changes
-                    </Button>
+                        {/* Delete, with its Undo, for VoiceOver and the keyboard
+                            too (132-B20): a swipe on the card was the only way,
+                            and neither can swipe. Last, under the fields, as
+                            Checklists' Edit sheet has it. Never on a skipper's
+                            shared Stores, as the swipe is not: deletes there are
+                            the skipper's. */}
+                        {!sharedBinder && (
+                            <Button
+                                variant="danger"
+                                disabled={savingEdit}
+                                onClick={() => {
+                                    const { identity, item } = editItem;
+                                    setEditItem(null);
+                                    handleDelete(item.id, identity);
+                                }}
+                                className="w-full mt-2"
+                            >
+                                Delete item
+                            </Button>
+                        )}
+                    </div>
                 </ModalSheet>
             )}
 
@@ -971,6 +1093,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 live={boxesLive}
                 editable={!viewOnly}
                 canDelete={!sharedBinder}
+                units={units}
                 onAdjust={viewOnly ? undefined : (id, delta) => handleQuantityAdjust(id, delta, inventoryData.identity)}
                 onNewItem={(box) => {
                     undoDelete.commitNow();
@@ -983,11 +1106,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             {/* ═══ EXPORT CATEGORY PICKER ═══ */}
             {showExportPicker && (
-                <ModalSheet
-                    isOpen={true}
-                    onClose={() => setShowExportPicker(false)}
-                    title={exportMode === 'share' ? 'Share stores list' : 'Download stores list'}
-                >
+                <ModalSheet isOpen={true} onClose={() => setShowExportPicker(false)} title="Share or save stores list">
                     <p className="text-sm text-gray-400 mb-3">Select categories to include, or leave blank for all:</p>
                     <div className="grid grid-cols-2 gap-2 mb-4">
                         {CATEGORIES.map((cat) => {
@@ -1024,15 +1143,22 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             );
                         })}
                     </div>
+                    {/* Never a blank PDF: a choice with nothing in it says so and waits. */}
                     <Button
                         variant="primary"
-                        onClick={() => handleExport(exportMode, exportCategories, inventoryData.identity)}
+                        disabled={exporting || exportCount === 0}
+                        onClick={() => handleExport(exportCategories, inventoryData.identity)}
                         className="w-full"
                     >
-                        {exportMode === 'share' ? 'Share' : 'Download'}{' '}
-                        {exportCategories.size > 0
-                            ? `${exportCategories.size} ${exportCategories.size === 1 ? 'category' : 'categories'}`
-                            : 'all categories'}
+                        {exporting
+                            ? 'Making the PDF…'
+                            : exportCount === 0
+                              ? 'Nothing in those categories yet'
+                              : `Share or save ${
+                                    exportCategories.size > 0
+                                        ? `${exportCategories.size} ${exportCategories.size === 1 ? 'category' : 'categories'}`
+                                        : 'all categories'
+                                }`}
                     </Button>
                 </ModalSheet>
             )}

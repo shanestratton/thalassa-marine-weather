@@ -50,11 +50,22 @@ export const RETENTION_BATCH = 200;
 export const MAX_SYNC_ALARMS = 20;
 export const MAX_NAME_CHARS = 40;
 
-export const ALARM_KEY_RE = /^(collision|close-quarters|distress|blind|no-fix|test):[0-9]{0,9}:[0-9]{10,13}$/;
+export const ALARM_KEY_RE =
+    /^((collision|close-quarters|distress|blind|no-fix|test):[0-9]{0,9}|(off-route|chart-ahead):):[0-9]{10,13}$/;
 
-export type PiAlarmKind = 'collision' | 'close-quarters' | 'distress' | 'blind' | 'no-fix' | 'test';
-export type PiNotificationType = 'collision_alarm' | 'distress_alarm' | 'pi_watch_notice';
-const ALARM_KINDS: ReadonlySet<string> = new Set(['collision', 'close-quarters', 'distress']);
+export type PiAlarmKind =
+    | 'collision'
+    | 'close-quarters'
+    | 'distress'
+    | 'blind'
+    | 'no-fix'
+    | 'test'
+    | 'off-route'
+    | 'chart-ahead';
+export type PiAlarmFamily = 'ais' | 'underway';
+export type PiNotificationType = 'collision_alarm' | 'distress_alarm' | 'pi_watch_notice' | 'underway_alarm';
+const AIS_ALARM_KINDS: ReadonlySet<string> = new Set(['collision', 'close-quarters', 'distress']);
+const ALARM_KINDS: ReadonlySet<string> = new Set([...AIS_ALARM_KINDS, 'off-route', 'chart-ahead']);
 const LOST: ReadonlySet<string> = new Set([
     'no-fix',
     'own-motion-unknown',
@@ -68,6 +79,8 @@ const DISTRESS_KINDS: ReadonlySet<string> = new Set(['sart', 'mob', 'epirb']);
 export interface PiAlarmPayload {
     name: string;
     cpa_nm: number | null;
+    position_basis?: 'report' | 'dead-reckoned';
+    uncertainty_nm?: number;
     tcpa_min: number | null;
     range_nm: number | null;
     bearing_deg: number | null;
@@ -92,23 +105,30 @@ export interface PiAlarmInput {
 }
 
 export type RelayRequest =
-    | { action: 'probe'; utcOffsetMin: number | null }
-    | { action: 'test'; utcOffsetMin: number | null }
-    | { action: 'raise'; utcOffsetMin: number | null; alarm: PiAlarmInput }
-    | {
-        action: 'sync';
-        utcOffsetMin: number | null;
-        alarms: PiAlarmInput[];
-        /** Entries refused one by one: counted, never the whole sync. */
-        skipped: number;
-        /** Every alarm key the Pi listed, its refused entries' too: none of them is over. */
-        listedKeys: string[];
-    };
+    & { family: PiAlarmFamily }
+    & (
+        | { action: 'probe'; utcOffsetMin: number | null }
+        | { action: 'test'; utcOffsetMin: number | null }
+        | { action: 'raise'; utcOffsetMin: number | null; alarm: PiAlarmInput }
+        | {
+            action: 'sync';
+            utcOffsetMin: number | null;
+            alarms: PiAlarmInput[];
+            /** Entries refused one by one: counted, never the whole sync. */
+            skipped: number;
+            /** Every alarm key the Pi listed, its refused entries' too: none of them is over. */
+            listedKeys: string[];
+        }
+    );
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export function isAlarmKind(kind: string): boolean {
     return ALARM_KINDS.has(kind);
+}
+
+export function isUnderwayKind(kind: string): boolean {
+    return kind === 'off-route' || kind === 'chart-ahead';
 }
 
 function bounded(value: unknown, min: number, max: number, places: number): number | null {
@@ -127,7 +147,7 @@ function isMmsi(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 1_000_000 && value <= 999_999_999;
 }
 
-export function parseAlarm(raw: unknown, allowNotices: boolean): Parsed<PiAlarmInput> {
+export function parseAlarm(raw: unknown, allowNotices: boolean, family: PiAlarmFamily = 'ais'): Parsed<PiAlarmInput> {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'alarm must be an object' };
     const r = raw as Record<string, unknown>;
     const key = typeof r.key === 'string' ? r.key : '';
@@ -135,9 +155,12 @@ export function parseAlarm(raw: unknown, allowNotices: boolean): Parsed<PiAlarmI
     const [keyKind, keyMmsi] = key.split(':');
     if (r.kind !== keyKind) return { ok: false, error: 'kind does not match the key' };
     const kind = keyKind as PiAlarmKind;
+    if (isUnderwayKind(kind) !== (family === 'underway')) {
+        return { ok: false, error: 'alarm belongs to another family' };
+    }
     if (kind === 'test' || (!allowNotices && !ALARM_KINDS.has(kind))) return { ok: false, error: 'not an alarm' };
     let mmsi: number | null = null;
-    if (ALARM_KINDS.has(kind)) {
+    if (AIS_ALARM_KINDS.has(kind)) {
         if (!isMmsi(r.mmsi) || String(r.mmsi) !== keyMmsi) return { ok: false, error: 'mmsi does not match the key' };
         mmsi = r.mmsi;
     } else if (keyMmsi !== '' || (r.mmsi !== undefined && r.mmsi !== null)) {
@@ -146,10 +169,40 @@ export function parseAlarm(raw: unknown, allowNotices: boolean): Parsed<PiAlarmI
     const ackedMsAgo = r.acked_ms_ago === null || r.acked_ms_ago === undefined
         ? null
         : bounded(r.acked_ms_ago, 0, 24 * 60 * 60_000, 0);
+    if (isUnderwayKind(kind)) {
+        // Only the warning word leaves the boat. Never retain chart-derived
+        // numbers/text, even if a faulty or hostile Pi includes them.
+        return {
+            ok: true,
+            value: {
+                key,
+                kind,
+                mmsi: null,
+                ackedMsAgo,
+                payload: {
+                    name: '',
+                    cpa_nm: null,
+                    tcpa_min: null,
+                    range_nm: null,
+                    bearing_deg: null,
+                    lat: null,
+                    lon: null,
+                    lost: null,
+                    distress_kind: null,
+                    position_known: null,
+                    silent_min: null,
+                    cause: null,
+                },
+            },
+        };
+    }
     const silent = bounded(r.silent_min, 0, 1_440, 0);
     const payload: PiAlarmPayload = {
         name: ALARM_KINDS.has(kind) ? cleanName(r.name) : '',
         cpa_nm: bounded(r.cpa_nm, 0, 100, 2),
+        ...(r.position_basis === 'report' || r.position_basis === 'dead-reckoned'
+            ? { position_basis: r.position_basis, uncertainty_nm: bounded(r.uncertainty_nm, 0, 5, 2) ?? 0 }
+            : {}),
         tcpa_min: bounded(r.tcpa_min, -1_440, 1_440, 1),
         range_nm: bounded(r.range_nm, 0, 1_000, 2),
         bearing_deg: typeof r.bearing_deg === 'number' && r.bearing_deg >= 360
@@ -171,6 +224,10 @@ export function parseAlarm(raw: unknown, allowNotices: boolean): Parsed<PiAlarmI
 
 /** The request body (already size-checked and parsed as JSON). */
 export function parseRelayRequest(body: Record<string, unknown>): Parsed<RelayRequest> {
+    if (body.family !== undefined && body.family !== 'ais' && body.family !== 'underway') {
+        return { ok: false, error: 'family must be ais or underway' };
+    }
+    const family: PiAlarmFamily = body.family === 'underway' ? 'underway' : 'ais';
     const offset = body.utc_offset_min;
     const utcOffsetMin = typeof offset === 'number' && Number.isInteger(offset) && offset >= -720 && offset <= 840
         ? offset
@@ -178,10 +235,13 @@ export function parseRelayRequest(body: Record<string, unknown>): Parsed<RelayRe
     switch (body.action) {
         case 'probe':
         case 'test':
-            return { ok: true, value: { action: body.action as 'probe' | 'test', utcOffsetMin } };
+            if (family === 'underway' && body.action === 'test') return { ok: false, error: 'not an underway action' };
+            return { ok: true, value: { action: body.action as 'probe' | 'test', utcOffsetMin, family } };
         case 'raise': {
-            const alarm = parseAlarm(body.alarm, true);
-            return alarm.ok ? { ok: true, value: { action: 'raise', utcOffsetMin, alarm: alarm.value } } : alarm;
+            const alarm = parseAlarm(body.alarm, true, family);
+            return alarm.ok
+                ? { ok: true, value: { action: 'raise', utcOffsetMin, family, alarm: alarm.value } }
+                : alarm;
         }
         case 'sync': {
             if (!Array.isArray(body.alarms) || body.alarms.length > MAX_SYNC_ALARMS) {
@@ -197,8 +257,9 @@ export function parseRelayRequest(body: Record<string, unknown>): Parsed<RelayRe
             for (const raw of body.alarms) {
                 const rawKey = (raw as Record<string, unknown> | null)?.key;
                 if (typeof rawKey === 'string' && rawKey.length <= 64) listedKeys.add(rawKey);
-                const alarm = parseAlarm(raw, false);
+                const alarm = parseAlarm(raw, false, family);
                 if (!alarm.ok) {
+                    if (alarm.error === 'alarm belongs to another family') return alarm;
                     skipped += 1;
                     continue;
                 }
@@ -206,7 +267,10 @@ export function parseRelayRequest(body: Record<string, unknown>): Parsed<RelayRe
                 seen.add(alarm.value.key);
                 alarms.push(alarm.value);
             }
-            return { ok: true, value: { action: 'sync', utcOffsetMin, alarms, skipped, listedKeys: [...listedKeys] } };
+            return {
+                ok: true,
+                value: { action: 'sync', utcOffsetMin, family, alarms, skipped, listedKeys: [...listedKeys] },
+            };
         }
         default:
             return { ok: false, error: 'action must be probe, raise, sync or test' };
@@ -214,6 +278,7 @@ export function parseRelayRequest(body: Record<string, unknown>): Parsed<RelayRe
 }
 
 export function notificationTypeFor(kind: PiAlarmKind): PiNotificationType {
+    if (isUnderwayKind(kind)) return 'underway_alarm';
     if (kind === 'distress') return 'distress_alarm';
     if (kind === 'collision' || kind === 'close-quarters') return 'collision_alarm';
     return 'pi_watch_notice';
@@ -254,6 +319,10 @@ export function pushText(
     const when = clockText(nowMs, utcOffsetMin);
     const who = p.name || (alarm.mmsi === null ? 'A vessel' : `MMSI ${alarm.mmsi}`);
     switch (alarm.kind) {
+        case 'off-route':
+            return { title: 'Off route', body: 'Check the course you are following aboard.' };
+        case 'chart-ahead':
+            return { title: 'Charted danger ahead', body: 'Check the chart and water ahead aboard.' };
         case 'collision':
         case 'close-quarters': {
             const parts: string[] = [];
@@ -268,6 +337,13 @@ export function pushText(
                     ? ' within a minute'
                     : ` in ${Math.round(t)} min`;
                 parts.push(`CPA ${nm(p.cpa_nm)} NM${soon}`);
+                if (p.position_basis) {
+                    parts.push(
+                        p.position_basis === 'dead-reckoned'
+                            ? 'estimated now, allowing for uncertainty'
+                            : 'last report, allowing for uncertainty',
+                    );
+                }
             } else {
                 parts.push(p.lost !== null ? 'CPA unknown (contact lost)' : 'CPA unknown');
             }
@@ -325,8 +401,11 @@ export function pushData(
     data.raised_at_ms = raisedAtMs;
     // The hourly caps count first pushes and re-sends apart (relay.ts hourlyRoom).
     data.resend = resend;
+    if (isUnderwayKind(alarm.kind)) return data;
     const p = alarm.payload;
     if (p.name) data.name = p.name;
+    if (p.position_basis) data.position_basis = p.position_basis;
+    if (p.uncertainty_nm !== undefined) data.uncertainty_nm = p.uncertainty_nm;
     for (const field of ['cpa_nm', 'tcpa_min', 'range_nm', 'bearing_deg', 'lat', 'lon'] as const) {
         const v = p[field];
         if (v !== null) data[field] = v;

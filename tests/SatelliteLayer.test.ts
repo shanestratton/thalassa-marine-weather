@@ -28,7 +28,9 @@ import type mapboxgl from 'mapbox-gl';
 import type { MutableRefObject } from 'react';
 
 const policy = vi.hoisted(() => ({ blocked: false }));
+const localWeather = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../services/networkPolicy', () => ({ satelliteModeBlocks: () => policy.blocked }));
+vi.mock('../services/PiOfflineWeatherService', () => ({ readPiSatellite: localWeather.read }));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
@@ -504,6 +506,7 @@ describe('useSatelliteLayer', () => {
     let failImages: (time: string) => boolean;
     beforeEach(() => {
         policy.blocked = false;
+        localWeather.read.mockResolvedValue(null);
         pixels.byTime = {};
         imageRequests = [];
         failImages = () => false;
@@ -760,6 +763,19 @@ describe('useSatelliteLayer', () => {
         expect(fetchMock).not.toHaveBeenCalled();
         expect(raw.addSource).not.toHaveBeenCalled();
     });
+    it('uses a cached full-belt boat frame in Satellite Mode without a WAN request', async () => {
+        policy.blocked = true;
+        localWeather.read.mockResolvedValue({
+            schema: 1,
+            fetchedAt: ms(14),
+            frames: [{ iso: iso(14), timeMs: ms(14), dataUrl: 'data:image/jpeg;base64,' + btoa(iso(14)) }],
+        });
+        const { map, raw } = fakeMap();
+        mount(map);
+        await waitFor(() => expect(raw.addSource).toHaveBeenCalled());
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(raw.addSource.mock.calls[0][1]).toMatchObject({ type: 'image', coordinates: satIrImageCoordinates() });
+    });
 
     it('reports unavailable, honestly, when the capabilities cannot be read', async () => {
         fetchMock.mockImplementation(() => Promise.resolve(new Response('nope', { status: 503 })));
@@ -927,7 +943,11 @@ describe('wiring', () => {
     it('mounts on the Obs chart with its credit, key and loading state', () => {
         const hub = read('components/map/MapHub.tsx');
         expect(hub).toContain('useSatelliteLayer(');
-        expect(hub).toContain('<SatelliteIrCredit');
+        expect(hub).toContain('<ObsCreditsRollup');
+        expect(hub).toContain('satellite={satellite}');
+        const rollup = read('components/map/ObsCreditsRollup.tsx');
+        expect(rollup).toContain('<SatelliteIrCredit state={satellite}');
+        expect(rollup).toContain('onTogglePlay={onToggleSatellite}');
         expect(hub).toContain("satelliteIr: weather.activeLayers.has('satIR')");
         expect(hub).toContain("satLoading={satellite.status === 'loading'}");
     });

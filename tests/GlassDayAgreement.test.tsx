@@ -121,6 +121,13 @@ describe('the Glass day card reads the models’ verdict for its own day', () =>
         render(day('2026-10-10', 2));
         expect(await screen.findByRole('button', { name: 'Wind: models split, 7 models' })).toBeInTheDocument();
     });
+    it('keeps the other six wind members when one model has neither wind coverage nor a gust field', async () => {
+        const data = spread();
+        data.atmos!.models[0].values.wind_speed_10m.fill(null);
+        vi.mocked(queryModelSpread).mockResolvedValue(data);
+        render(day('2026-10-09', 1));
+        expect(await screen.findByRole('button', { name: 'Wind: models agree, 6 models' })).toBeInTheDocument();
+    });
 
     it('holds the chip’s line, unasked, while the day is off screen', () => {
         render(day('2026-10-09', 1, { isVisible: false }));

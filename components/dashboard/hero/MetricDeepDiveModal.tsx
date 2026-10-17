@@ -9,6 +9,9 @@
  * yesterday → now → +5 days. Marine metrics (wave/period) have no WeatherKit
  * history, so they use the passed (marine) `hourly` forecast window instead
  * (which carries up to 16 days); both are clipped to the same outlook window.
+ *
+ * 'All metrics' at its foot opens the point meteogram (131-02) over it: the
+ * same report's next seven days, every metric stacked on one clock.
  */
 import React from 'react';
 import { ModalSheet } from '../../ui/ModalSheet';
@@ -20,6 +23,13 @@ import { fetchWeatherKitHistory } from '../../../services/weather/api/weatherkit
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { SmartPolarStore } from '../../../services/SmartPolarStore';
 import { vesselWindowThresholds } from '../../../services/vesselWindowThresholds';
+import { lazyRetry } from '../../../utils/lazyRetry';
+
+// The point meteogram (131-02): its own chunk, loaded when 'All metrics' is tapped.
+const Meteogram = lazyRetry(
+    () => import('../../weather/Meteogram').then((module) => ({ default: module.Meteogram })),
+    'Meteogram',
+);
 
 export type MetricKey =
     | 'wind'
@@ -214,6 +224,11 @@ interface MetricDeepDiveModalProps {
     forecast: ForecastDay[];
     /** Location for the WeatherKit historical fetch (yesterday → +48h). */
     coordinates?: { lat: number; lon: number };
+    /** The report's zone and UTC offset, for the meteogram's place clock (131-02). */
+    timeZone?: string;
+    utcOffset?: number;
+    /** The Glass is on an offshore source: the meteogram credits it as such. */
+    offshore?: boolean;
 }
 
 /** A point on the chart. */
@@ -491,8 +506,13 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     hourly,
     forecast,
     coordinates,
+    timeZone,
+    utcOffset,
+    offshore,
 }) => {
     const cfg = metric ? CONFIG[metric] : null;
+    // 'All metrics': the stacked seven-day picture, over this sheet (131-02).
+    const [showAll, setShowAll] = React.useState(false);
 
     // Vessel-aware window thresholds: wind/gust/wave scale to the actual boat
     // (its maxWindSpeed / learned polar / length and maxWaveHeight). UV / vis /
@@ -793,7 +813,31 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         )}
                     </>
                 )}
+
+                {/* Every metric at once, a week stacked on one clock (131-02). */}
+                <button
+                    type="button"
+                    aria-haspopup="dialog"
+                    onClick={() => setShowAll(true)}
+                    className="w-full min-h-11 py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold hover:bg-sky-500/20 transition-colors"
+                >
+                    All metrics
+                </button>
             </div>
+            {showAll && (
+                <React.Suspense fallback={null}>
+                    <Meteogram
+                        onClose={() => setShowAll(false)}
+                        hourly={hourly}
+                        units={units}
+                        limits={vWindow}
+                        coordinates={coordinates}
+                        timeZone={timeZone}
+                        utcOffset={utcOffset}
+                        offshore={offshore}
+                    />
+                </React.Suspense>
+            )}
         </ModalSheet>
     );
 };

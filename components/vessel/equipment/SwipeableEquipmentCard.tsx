@@ -8,6 +8,7 @@ import React from 'react';
 import type { EquipmentItem, EquipmentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { localDaysUntil } from '../../../utils/localDate';
 import { ClipboardIcon, GearIcon, RadioIcon } from '../../icons/UIIcons';
 import { DropletIcon, ThermometerIcon } from '../../icons/WeatherIcons';
 import { FoodIcon, SailBoatIcon } from '../../icons/MaritimeIcons';
@@ -29,6 +30,17 @@ export const CATEGORY_ICONS: Record<EquipmentCategory, EquipmentCategoryIcon> = 
 /** For a category the register does not know (older rows). */
 export const FALLBACK_CATEGORY_ICON: EquipmentCategoryIcon = ClipboardIcon;
 
+/**
+ * Is the warranty still in force? Through the end of its last day, on the
+ * phone's calendar, as the Equipment PDF reds a name only once it has run
+ * out. Its UTC midnight (the synced '2026-11-01T00:00:00+00:00' too) ended
+ * it a day early in the Americas (131-B11, EQ-2). Null with no date.
+ */
+export function warrantyInForce(warrantyExpiry: string | null | undefined): boolean | null {
+    const days = localDaysUntil(warrantyExpiry);
+    return days === null ? null : days >= 0;
+}
+
 export const CATEGORIES: { id: EquipmentCategory; label: string; Icon: EquipmentCategoryIcon }[] = (
     ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'] as EquipmentCategory[]
 ).map((id) => ({ id, label: id, Icon: CATEGORY_ICONS[id] }));
@@ -45,24 +57,38 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
+    const revealed = swipeOffset > 0;
+    const confirmDelete = () => {
+        resetSwipe();
+        onDelete?.();
+    };
     const CategoryIcon = CATEGORY_ICONS[item.category] ?? FALLBACK_CATEGORY_ICON;
     // Make and model, whichever are set; a lone ' — ' said nothing.
     const makeModel = [item.make, item.model].filter((part) => part && part.trim()).join(' — ') || '--';
 
-    const warrantyActive = item.warranty_expiry ? new Date(item.warranty_expiry).getTime() > Date.now() : null;
+    const warrantyActive = warrantyInForce(item.warranty_expiry);
 
     return (
         <div className="relative overflow-hidden rounded-lg">
-            {/* Delete button (revealed on swipe) */}
+            {/* Delete button (revealed on swipe). Hidden from assistive tech
+                until the swipe reveals it, then a named button, like the
+                maintenance cards (126-B10b): VoiceOver read an unnamed
+                "Delete" before every one of the register's items. */}
             {onDelete && (
                 <div
-                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                    onClick={() => {
-                        resetSwipe();
-                        onDelete();
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    aria-hidden={revealed ? undefined : true}
+                    role={revealed ? 'button' : undefined}
+                    aria-label={revealed ? `Delete ${item.equipment_name}` : undefined}
+                    tabIndex={revealed ? 0 : -1}
+                    onClick={confirmDelete}
+                    onKeyDown={(e) => {
+                        if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                        e.preventDefault();
+                        confirmDelete();
                     }}
                 >
-                    <div className="text-center text-white">
+                    <div className="text-center text-white" aria-hidden="true">
                         <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
                                 strokeLinecap="round"

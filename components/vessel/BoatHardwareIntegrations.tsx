@@ -2,6 +2,7 @@ import React, { Suspense, useId, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { GearIcon } from '../Icons';
+import { piCommandRefusalWords } from '../../services/piCommandRefusal';
 
 const PiCacheTab = lazyRetry(
     () => import('../settings/PiCacheTab').then((module) => ({ default: module.PiCacheTab })),
@@ -17,7 +18,8 @@ const HardwareControls: React.FC = () => {
 
 /** One home for advanced controls, inside Boat Network's existing scroll area. */
 export const BoatHardwareIntegrations: React.FC = () => {
-    const [expanded, setExpanded] = useState(false);
+    // Open already when her Pi just refused this phone (129-12): the code is typed in here.
+    const [expanded, setExpanded] = useState(() => piCommandRefusalWords() !== null);
     const panelId = useId();
 
     return (

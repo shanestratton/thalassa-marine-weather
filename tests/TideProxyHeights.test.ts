@@ -49,6 +49,39 @@ const request = (body: Record<string, unknown>) =>
     );
 
 describe('bounded additive tide heights proxy mode', () => {
+    it('advertises the offline window without upstream calls or coordinates', async () => {
+        const response = await handler(
+            new Request('https://example.com/proxy-tides', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ capabilities: true }),
+            }),
+        );
+        expect(await response.json()).toEqual({ status: 200, offlineTides: { schema: 1, minDays: 14, maxDays: 30 } });
+        expect(upstream).not.toHaveBeenCalled();
+        expect(quota).toHaveBeenCalled();
+    });
+    it('bounds 30-day offline extrema independently of dense heights and retains private caching', async () => {
+        const response = await request({ offlineDays: 30 });
+        expect(response.status).toBe(200);
+        const url = new URL(upstream.mock.calls[0][0]);
+        expect(url.searchParams.get('days')).toBe('32');
+        expect(url.searchParams.has('heights')).toBe(false);
+        const body = await response.json();
+        expect(body.thalassaWindow.schema).toBe(1);
+        expect(body.thalassaWindow.requestedDays).toBe(30);
+        expect(body.thalassaWindow.end - body.thalassaWindow.start).toBe(32 * 86400);
+        expect(response.headers.get('cache-control')).toBe('private, max-age=900');
+    });
+    it.each([
+        { offlineDays: 31 },
+        { offlineDays: 13 },
+        { offlineDays: 30, heights: true },
+        { offlineDays: 14, stations: true },
+    ])('rejects invalid offline window %j before upstream', async (body) => {
+        expect((await request(body)).status).toBe(400);
+        expect(upstream).not.toHaveBeenCalled();
+    });
     it('retains existing extremes-only defaults, server-only credentials and unchanged quota', async () => {
         expect((await request({})).status).toBe(200);
         const url = new URL(upstream.mock.calls[0][0]);

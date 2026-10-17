@@ -86,7 +86,8 @@ describe('the authorisation is short-lived on purpose', () => {
 describe('transports are chosen deliberately', () => {
     it('reaches the Pi over the pinned boat-LAN channel', () => {
         // The Pi is a local device on the boat network, not a cloud endpoint.
-        expect(src).toContain("import { pinnedPiRequest } from './PiPairingService';");
+        // (getPairing beside it since 129-12: the boat named in a refusal's words.)
+        expect(src).toMatch(/import \{[^}]*\bpinnedPiRequest\b[^}]*\} from '\.\/PiPairingService';/);
         expect(src).toContain('/api/anchor/watch');
     });
 

@@ -14,6 +14,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { decode } from 'fast-png';
+import { openFixture, probe } from '../e2e/helpers/logMapBrowser';
 
 const SHOTS = process.env.SIGHTINGS_SHOTS_DIR?.trim() || '';
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -349,5 +351,142 @@ test.describe('Sightings · iPad split pane', () => {
         await expect(page.getByText('Green turtle')).toBeVisible();
         await noSidewaysScroll(page);
         await shot(page, 'split_page_crew_dark');
+    });
+});
+
+async function sightingsMapLoaded(page: Page, style: string) {
+    await page.waitForFunction(
+        (want) => {
+            const map = window.__logMapFixture.maps.at(-1);
+            return map?.getContainer().dataset.logMapStyle === want && map.loaded();
+        },
+        style,
+        { timeout: 45_000 },
+    );
+}
+
+test.describe('Sightings shared map', () => {
+    test.setTimeout(60_000);
+    for (const width of [300, 375])
+        test(`private markers, credits, fallback and offline fit ${width}px`, async ({ page, baseURL }, info) => {
+            const { errors, seen } = await openFixture(page, baseURL!, '/e2e/fixtures/sightings-map.html?online=1', {
+                width,
+                height: 667,
+            });
+            await sightingsMapLoaded(page, 'relief-sat');
+            const map = page.getByTestId('sightings-map');
+            await expect(map.locator('[data-sighting-id]')).toHaveCount(2);
+            await expect(map.locator('.mapboxgl-ctrl-attrib')).toBeVisible();
+            await expect(map.getByRole('button', { name: 'Show Fictional private whale' })).toHaveAttribute(
+                'data-sighting-owner',
+                'mine',
+            );
+            await expect(map.getByRole('button', { name: 'Show Fictional crew turtle' })).toHaveAttribute(
+                'data-sighting-owner',
+                'crew',
+            );
+            await map.getByRole('button', { name: 'Show Fictional private whale' }).click();
+            const selectedCard = map.getByRole('button', { name: /^Fictional private whale / });
+            const cardBox = await selectedCard.boundingBox(),
+                creditBox = await map.getByRole('button', { name: 'Toggle attribution' }).boundingBox();
+            expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(creditBox!.y);
+            await map.getByRole('button', { name: 'Toggle attribution' }).click();
+            await expect(map.locator('.mapboxgl-ctrl-attrib-inner')).toBeVisible();
+            await expect(map.locator('.mapboxgl-ctrl-attrib-inner')).toContainText('GEBCO');
+            await map.getByRole('button', { name: 'Toggle attribution' }).click();
+            await selectedCard.click();
+            await expect(page.getByTestId('opened')).toHaveText('Fictional private whale');
+            expect(await map.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+            const pixel = await probe(page, -1.31, 50.76);
+            expect(pixel?.[3]).toBe(255);
+            expect(
+                seen.all.some(
+                    (url) => url.includes('Fictional') || url.includes('50.765') || url.includes('fictional-mine'),
+                ),
+            ).toBe(false);
+            await page.evaluate(() => window.__logMapFixture.unmount());
+            await expect(map).toHaveCount(0);
+            await page.evaluate(() => window.__logMapFixture.mount());
+            await sightingsMapLoaded(page, 'relief-sat');
+            await expect(page.locator('[data-sighting-id]')).toHaveCount(2);
+            await page.screenshot({ path: info.outputPath(`sightings-shared-${width}.png`) });
+            expect(errors).toEqual([]);
+            const removedBefore = await page.evaluate(
+                () => (window.__logMapFixture as unknown as { removed: number }).removed,
+            );
+            await page.evaluate(() => window.__logMapFixture.unmount());
+            await expect(map).toHaveCount(0);
+            await expect
+                .poll(() => page.evaluate(() => (window.__logMapFixture as unknown as { removed: number }).removed))
+                .toBe(removedBefore + 1);
+            expect(errors).toEqual([]);
+            // Keep both documents' error collectors alive in their own Page.
+            // The old collector was installed before navigating away from a
+            // still-mounted map, so outgoing blob events could enter the new
+            // scenario. The historical WebKit error itself remains unproven.
+            const offlinePage = await page.context().newPage();
+            try {
+                const offline = await openFixture(offlinePage, baseURL!, '/e2e/fixtures/sightings-map.html?offline=1', {
+                    width,
+                    height: 667,
+                });
+                await sightingsMapLoaded(offlinePage, 'fallback');
+                await expect(offlinePage.getByRole('status')).toContainText('Offline map');
+                await expect(offlinePage.locator('[data-sighting-id]')).toHaveCount(2);
+                const state = await offlinePage.evaluate(() => {
+                    const map = window.__logMapFixture.maps.at(-1)! as unknown as {
+                        getStyle(): { sources?: Record<string, unknown> };
+                        getCenter(): { lng: number };
+                    };
+                    const sourceCount = Object.keys(
+                        (map.getStyle() as { sources?: Record<string, unknown> }).sources ?? {},
+                    ).length;
+                    const center = (map as unknown as { getCenter(): { lng: number } }).getCenter().lng;
+                    return { sourceCount, center };
+                });
+                expect(state.sourceCount).toBe(0);
+                expect(Math.abs(Math.abs(state.center) - 180)).toBeLessThan(1);
+                expect(offline.seen.all.filter((url) => !url.startsWith(baseURL!) && !url.startsWith('blob:'))).toEqual(
+                    [],
+                );
+                // The known-offline map intentionally has no provider token; the real themed DOM sea remains
+                // visible even when Mapbox leaves its source-free GPU canvas transparent.
+                const image = decode(await offlinePage.screenshot());
+                const offset =
+                    (Math.floor((480 * image.height) / 667) * image.width + Math.floor(image.width / 2)) *
+                    image.channels;
+                expect([
+                    [31, 90, 133],
+                    [11, 34, 54],
+                ]).toContainEqual(Array.from(image.data.slice(offset, offset + 3)));
+                await offlinePage.getByRole('button', { name: 'Show Fictional crew turtle' }).click();
+                await offlinePage.getByRole('button', { name: /^Fictional crew turtle / }).click();
+                await expect(offlinePage.getByTestId('opened')).toHaveText('Fictional crew turtle');
+                await offlinePage.screenshot({ path: info.outputPath(`sightings-offline-${width}.png`) });
+                expect(offline.errors).toEqual([]);
+                expect(errors).toEqual([]);
+            } finally {
+                await offlinePage.close();
+            }
+        });
+    test('a failed provider style still leaves exact private sightings selectable on plain sea', async ({
+        page,
+        baseURL,
+    }, info) => {
+        const { errors } = await openFixture(
+            page,
+            baseURL!,
+            '/e2e/fixtures/sightings-map.html?failed=1',
+            { width: 375, height: 667 },
+            'nostyle',
+        );
+        await sightingsMapLoaded(page, 'fallback');
+        await expect(page.getByRole('status')).toContainText('plain sea');
+        await expect(page.locator('[data-sighting-id]')).toHaveCount(2);
+        await page.getByRole('button', { name: 'Show Fictional private whale' }).click();
+        await page.getByRole('button', { name: /^Fictional private whale / }).click();
+        await expect(page.getByTestId('opened')).toHaveText('Fictional private whale');
+        await page.screenshot({ path: info.outputPath('sightings-failed-style.png') });
+        expect(errors).toEqual([]);
     });
 });

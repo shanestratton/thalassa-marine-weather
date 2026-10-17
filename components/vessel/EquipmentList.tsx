@@ -38,10 +38,14 @@ import {
     FALLBACK_CATEGORY_ICON,
 } from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
+import { BinderCategoryGrid } from './BinderCategoryGrid';
+import { FoldedNotes } from './FoldedNotes';
 import { useBinderSource } from '../../hooks/useBinderSource';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { isRowInBinder } from '../../services/vessel/sharedBinders';
 import { getById } from '../../services/vessel/LocalDatabase';
 import { changedFields, REMOVED_ELSEWHERE, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
+import { localDayString } from '../../utils/localDate';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import {
     getAuthIdentityScope,
@@ -52,6 +56,8 @@ import {
 
 /** Category display order for the register — module scope, it never changes. */
 const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
+/** The sheet's category grid, each choice spoken as it always was. */
+const CATEGORY_CHOICES = CATEGORIES.map((cat) => ({ ...cat, name: `Select ${cat.label} category` }));
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -100,6 +106,12 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     // 3-dot menu state
     const [menuOpen, setMenuOpen] = useState(false);
+    // Share or save the register (130-B8). The ref is the double-tap guard:
+    // state lands a render late, so a second tap would start a second PDF.
+    const [exporting, setExporting] = useState(false);
+    const exportingRef = useRef(false);
+    // The boat's name on the PDF: it printed 'Vessel' before.
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
     // Soft delete with undo (126-B10a), from the list, its ⋮ sheet and the
     // detail page alike: the item stays in state, hidden, until its delete is
     // committed; that replaces 126-B1's hand-built timer (EQ-1).
@@ -227,6 +239,32 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         rowCount: scopedItems.length,
     });
     const sharedBinder = binder.mode === 'shared';
+    // The skipper's boat on his shared register, not the crew member's own
+    // from settings (130-B8). None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || undefined : ownVesselName;
+
+    // Through sharePdfBlob: the share sheet in the app, a download on the web.
+    const sharePdf = useCallback(async () => {
+        if (exportingRef.current) return;
+        const scope = getAuthIdentityScope();
+        const exportItems = visibleItems.map((item) => ({ ...item }));
+        exportingRef.current = true;
+        setExporting(true);
+        try {
+            const outcome = await exportEquipmentPdf(exportItems, vesselName);
+            if (!currentOperation(scope)) return;
+            if (outcome === 'empty') toast.info('No equipment to put on the register yet.');
+            else if (outcome === 'downloaded') toast.success('PDF downloaded');
+        } catch (e) {
+            if (!currentOperation(scope)) return;
+            log.warn('Equipment PDF export failed:', e);
+            toast.error('Could not make the PDF. Try again.');
+        } finally {
+            exportingRef.current = false;
+            if (mountedRef.current) setExporting(false);
+        }
+    }, [visibleItems, vesselName, currentOperation]);
+
     // Memoised on the two inputs that matter — this used to re-filter, re-sort
     // and re-group on every keystroke in the eight add/edit form fields
     // (InventoryList does the same).
@@ -328,7 +366,14 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         const scope = getAuthIdentityScope();
         // Only what was changed against the item as the sheet opened, so a
         // field another device changed meanwhile keeps its new value (EQ-4).
-        const updates = changedFields(editBaseline, {
+        // Its dates as the sheet showed them, local days: left alone, they
+        // are no change (131-B11).
+        const shown = {
+            ...editBaseline,
+            installation_date: localDayString(editBaseline.installation_date) || null,
+            warranty_expiry: localDayString(editBaseline.warranty_expiry) || null,
+        };
+        const updates = changedFields(shown, {
             equipment_name: newName.trim(),
             category: newCategory,
             make: newMake.trim(),
@@ -381,8 +426,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         setNewMake(item.make);
         setNewModel(item.model);
         setNewSerial(item.serial_number);
-        setNewInstallDate(item.installation_date || '');
-        setNewWarrantyExpiry(item.warranty_expiry || '');
+        // As local days: the synced '2026-11-01T00:00:00+00:00' is no value a
+        // date input takes, so both fields opened blank after a sync (131-B11, EQ-2).
+        setNewInstallDate(localDayString(item.installation_date));
+        setNewWarrantyExpiry(localDayString(item.warranty_expiry));
         setNewNotes(item.notes || '');
         setShowEditForm(true);
     };
@@ -400,43 +447,43 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                 {/* Edit Equipment Modal */}
                 {showEditForm && (
-                    <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit equipment">
+                    <ModalSheet
+                        isOpen={true}
+                        onClose={() => setShowEditForm(false)}
+                        title="Edit equipment"
+                        footer={
+                            <Button
+                                variant="primary"
+                                aria-label="Save equipment changes"
+                                onClick={handleSaveEdit}
+                                className="w-full"
+                            >
+                                Save changes
+                            </Button>
+                        }
+                    >
                         {renderFormFields()}
-                        <Button
-                            variant="primary"
-                            aria-label="Save equipment changes"
-                            onClick={handleSaveEdit}
-                            className="w-full mt-2"
-                        >
-                            Save changes
-                        </Button>
                     </ModalSheet>
                 )}
             </>
         );
     }
 
+    // The sheet's fields; ModalSheet scrolls them above the pinned button (132-B19).
     function renderFormFields() {
         return (
-            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+            <div className="flex flex-col gap-2">
                 <div>
                     <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
                         Category
                     </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                        {CATEGORIES.map((cat) => (
-                            <button
-                                aria-label={`Select ${cat.label} category`}
-                                aria-pressed={newCategory === cat.id}
-                                key={cat.id}
-                                onClick={() => setNewCategory(cat.id)}
-                                className={`flex items-center justify-center gap-1.5 py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-                            >
-                                <cat.Icon className="h-3.5 w-3.5 shrink-0" />
-                                {cat.label}
-                            </button>
-                        ))}
-                    </div>
+                    {/* The Stores grid (132-B19): 'Electronics' ran out of its pill at 320 px. */}
+                    <BinderCategoryGrid
+                        label="Equipment category"
+                        choices={CATEGORY_CHOICES}
+                        value={newCategory}
+                        onChange={setNewCategory}
+                    />
                 </div>
 
                 <FormField
@@ -470,14 +517,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     />
                 </div>
 
-                <FormField
-                    label="Notes (optional)"
-                    type="textarea"
-                    value={newNotes}
-                    onChange={setNewNotes}
-                    placeholder="Additional details…"
-                    rows={1}
-                />
+                <FoldedNotes value={newNotes} onChange={setNewNotes} placeholder="Additional details…" rows={1} />
             </div>
         );
     }
@@ -537,28 +577,19 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {menuOpen && (
                                     <>
                                         <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                            {/* Named by its visible words (WCAG 2.5.3): the old
-                                            'Export equipment register as PDF' did not
-                                            contain 'Export to PDF' (UX scorecard run 8). */}
+                                        <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            {/* Named by its visible words (WCAG 2.5.3, UX
+                                            scorecard run 8). One row (130-B8): the share
+                                            sheet it opens offers Save to Files, Mail,
+                                            AirDrop and Print. */}
                                             <button
                                                 type="button"
-                                                onClick={async () => {
-                                                    const scope = getAuthIdentityScope();
-                                                    const exportItems = visibleItems.map((item) => ({ ...item }));
+                                                disabled={exporting}
+                                                onClick={() => {
                                                     setMenuOpen(false);
-                                                    try {
-                                                        await exportEquipmentPdf(exportItems);
-                                                    } catch (e) {
-                                                        if (!currentOperation(scope)) return;
-                                                        // AbortError = user dismissed the share
-                                                        // sheet; anything else is a real failure.
-                                                        if (e instanceof Error && e.name === 'AbortError') return;
-                                                        log.warn('Equipment PDF export failed:', e);
-                                                        toast.error('Could not export the PDF — try again.');
-                                                    }
+                                                    void sharePdf();
                                                 }}
-                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
+                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 disabled:opacity-40"
                                             >
                                                 <svg
                                                     aria-hidden="true"
@@ -571,10 +602,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                                     <path
                                                         strokeLinecap="round"
                                                         strokeLinejoin="round"
-                                                        d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75"
+                                                        d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
                                                     />
                                                 </svg>
-                                                Export to PDF
+                                                Share or save equipment list
                                             </button>
                                         </div>
                                     </>
@@ -912,19 +943,29 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add equipment">
+                <ModalSheet
+                    isOpen={true}
+                    onClose={() => setShowAddForm(false)}
+                    title="Add equipment"
+                    footer={
+                        <>
+                            {!newName.trim() && (
+                                <p className="text-micro text-amber-400/80 text-center mb-2">
+                                    Equipment name is required
+                                </p>
+                            )}
+                            <button
+                                aria-label="Register new equipment"
+                                onClick={handleAdd}
+                                disabled={!newName.trim()}
+                                className="w-full min-h-[44px] py-3 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-bold text-base rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
+                            >
+                                Register equipment
+                            </button>
+                        </>
+                    }
+                >
                     {renderFormFields()}
-                    {!newName.trim() && (
-                        <p className="text-micro text-amber-400/80 text-center mt-2">Equipment name is required</p>
-                    )}
-                    <button
-                        aria-label="Register new equipment"
-                        onClick={handleAdd}
-                        disabled={!newName.trim()}
-                        className="w-full min-h-[44px] py-3 mt-2 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-bold text-base rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
-                    >
-                        Register equipment
-                    </button>
                 </ModalSheet>
             )}
 

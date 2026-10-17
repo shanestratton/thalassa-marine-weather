@@ -37,7 +37,7 @@ vi.mock('../services/anchorPiHandoff', () => ({
 }));
 
 import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
-import { handOffToPi } from '../services/anchorPiHandoff';
+import { clearWatchOnPi, handOffToPi } from '../services/anchorPiHandoff';
 
 describe('probePiWatchCapability', () => {
     beforeEach(() => {
@@ -226,5 +226,55 @@ describe('AnchorPiWatchKeeper.renewNow', () => {
     it('says false when not even the authorisation went through', async () => {
         vi.mocked(handOffToPi).mockResolvedValue(false);
         expect(await AnchorPiWatchKeeper.renewNow()).toBe(false);
+    });
+});
+
+// 129-12 review (2026-10-14): her Pi may take a stop only from her own
+// devices. A stop it refused changes nothing, here either: this phone still
+// says the Pi is keeping the watch (the Vessel tile, the status row, Shore
+// Watch's Weigh Anchor), and keeps it renewed, rather than forgetting a watch
+// that is still broadcasting.
+describe('AnchorPiWatchKeeper.end, when her Pi refuses the stop', () => {
+    // Fictional: a boat at anchor in Hakodate.
+    const assignment = { sessionCode: 'H4K0D4T3W4TC', anchorLat: 41.77, anchorLon: 140.72, swingRadius: 35 };
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        vi.mocked(clearWatchOnPi).mockResolvedValue(false);
+        await AnchorPiWatchKeeper.end();
+        getStatus.mockReturnValue({ reachable: true, lastCheck: 0, latencyMs: 0, diaryRelayId: 'pi_fictional' });
+        getBaseUrl.mockReturnValue('https://192.168.1.180:3001');
+        getRemoteBaseUrl.mockReturnValue('https://100.86.90.84:3001');
+        vi.mocked(handOffToPi).mockResolvedValueOnce(true);
+        expect(await AnchorPiWatchKeeper.begin(assignment)).toBe(true);
+        vi.mocked(handOffToPi).mockReset();
+    });
+
+    it('keeps the watch it holds, saved and renewed, and says it was refused', async () => {
+        vi.useFakeTimers();
+        try {
+            vi.mocked(clearWatchOnPi).mockResolvedValueOnce(true);
+            expect(await AnchorPiWatchKeeper.end()).toBe(true);
+            expect(clearWatchOnPi).toHaveBeenCalledWith('https://192.168.1.180:3001');
+            expect(AnchorPiWatchKeeper.keepingSessionCode()).toBe('H4K0D4T3W4TC');
+            expect(AnchorPiWatchKeeper.isKeeping()).toBe(true);
+            const saved = Object.keys(localStorage).find((key) => localStorage.getItem(key)?.includes('H4K0D4T3W4TC'));
+            expect(saved, 'still saved for a relaunch').toBeDefined();
+            vi.mocked(handOffToPi).mockResolvedValue(true);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(handOffToPi, 'still renewed, so it does not lapse while shown as kept').toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+        // Set up later: the next Weigh Anchor stops it.
+        expect(await AnchorPiWatchKeeper.end()).toBe(false);
+        expect(AnchorPiWatchKeeper.keepingSessionCode()).toBeNull();
+    });
+
+    it('a stop the Pi took, or one that could not reach it, lets the watch go as before', async () => {
+        expect(await AnchorPiWatchKeeper.end()).toBe(false);
+        expect(AnchorPiWatchKeeper.keepingSessionCode()).toBeNull();
+        expect(Object.keys(localStorage).some((key) => localStorage.getItem(key)?.includes('H4K0D4T3W4TC'))).toBe(
+            false,
+        );
     });
 });

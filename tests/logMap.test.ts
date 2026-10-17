@@ -312,6 +312,19 @@ describe('No WebGL in this web view: no map, and nothing thrown into the Log pag
 });
 
 describe('No internet and no cached style: a plain sea, so the track still draws', () => {
+    it('known offline starts source-free, without a token or any provider style or tiles', () => {
+        const onStyle = vi.fn();
+        const map = newMap({ offline: true, onStyle });
+        expect(map.options.style).toEqual(LOG_MAP_FALLBACK_STYLE);
+        expect(map.options.accessToken).toBe('');
+        map.loadStyle([{ id: 'background', type: 'background', paint: {} }], { composite: false });
+        expect(map.sources.size).toBe(0);
+        expect(map.container.dataset.logMapStyle).toBe('fallback');
+        expect(onStyle).toHaveBeenCalledWith(map);
+        map.fire('error', { error: new Error('offline') });
+        expect(map.styleSet).toHaveLength(0);
+    });
+
     it('falls back once when the style fails, and runs the overlays on the fallback', () => {
         const onStyle = vi.fn();
         const map = newMap({ onStyle });

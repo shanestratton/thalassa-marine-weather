@@ -49,6 +49,16 @@ import { distanceMetres } from './anchorBroadcaster.js';
 
 /** A candidate point, as read off the bus. */
 export interface TrackFix {
+    /** Optional source clocks: older rows cannot qualify a derived vector. */
+    sogAtMs?: number | null;
+    cogTrueAtMs?: number | null;
+    stwAtMs?: number | null;
+    headingTrueDeg?: number | null;
+    headingTrueAtMs?: number | null;
+    engineRpmAtMs?: number | null;
+    leewayDeg?: number | null;
+    leewayAtMs?: number | null;
+    leewaySource?: string | null;
     lat: number;
     lon: number;
     /** Epoch ms, FROM GPS — never the system clock. Null when the bus has not
@@ -90,6 +100,10 @@ export interface TrackFix {
     pressureHpa: number | null;
     /** Heel, degrees, signed to port. */
     heelDeg: number | null;
+    /** PGN 127488, revolutions/minute; absent on older recorded tracks. */
+    engineRpm?: number | null;
+    /** Signed true-wind angle reduced to its 0–180 degree magnitude. */
+    twaDeg?: number | null;
 }
 
 export interface TrackPoint extends TrackFix {

@@ -20,12 +20,14 @@ export function mergeOnboardSensors(
     sources: OnboardSensorSources,
     now = Date.now(),
 ): TelemetrySnapshot | null {
+    const systemsExtra = bus?.systemsExtra;
     // A stalled GPS clock must neither block fresh standalone sensors nor be
     // relabelled as a current position. Discard the old bus as a whole first.
     if (bus && !fresh(Date.parse(bus.reportedAt), now, 600_000)) bus = null;
     const result: TelemetrySnapshot = bus
         ? { ...bus }
         : {
+              ...(systemsExtra ? { systemsExtra } : {}),
               reportedAt: new Date(now).toISOString(),
               lat: null,
               lon: null,

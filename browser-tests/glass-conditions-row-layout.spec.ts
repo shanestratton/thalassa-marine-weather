@@ -182,6 +182,14 @@ for (const width of [320, 375, 390]) {
  * proves they fit, NOT that production draws them: the arrow, unit and
  * wording rules are pinned against the real components in
  * tests/GlassSeaTiles.test.tsx and tests/GlassSeaWording.test.tsx.
+ *
+ * Build 130 (130-04): PER. 2 became WIND SEA, and it and SWELL 2 each draw
+ * their own arrow beside the widest reading; until 130-06 fills the parts
+ * they read "--" with no arrow (the fixture's second grid). Both grids fit,
+ * at the Glass's own size (?seagrid=1: 16 px from each edge, 163 px tall),
+ * and every heading stays on one line, counted from its text's own line
+ * boxes: a heading is a flex item, so its element reports one box however
+ * many lines its words take.
  */
 for (const seas of ['m', 'ft'] as const) {
     for (const width of [320, 375, 390]) {
@@ -200,37 +208,85 @@ for (const seas of ['m', 'ft'] as const) {
                 });
             });
             await page.setViewportSize({ width, height: 1100 });
-            await page.goto(`/e2e/fixtures/glass-legibility.html${seas === 'ft' ? '?seas=ft' : ''}`);
+            // seagrid=1: the offshore grid filled and as it reads before 130-06 fills the parts.
+            await page.goto(`/e2e/fixtures/glass-legibility.html?seagrid=1${seas === 'ft' ? '&seas=ft' : ''}`);
             await page.evaluate(() => document.fonts.ready);
 
-            const grid = page.getByTestId('secondary-metrics');
+            const grid = page.getByTestId('sea-grid');
+            const dash = page.getByTestId('sea-grid-dash');
+            // The Glass's geometry, so a fit here is a fit there.
+            for (const g of [grid, dash]) {
+                const box = (await g.boundingBox())!;
+                expect(Math.round(box.width), `grid width at ${width}px`).toBe(width - 32);
+                expect(Math.round(box.height), 'the 163 px Glass grid').toBe(163);
+            }
             // The fixture drew the variant asked for (so the widths below are its).
             const swell2 = grid.getByText('SWELL 2', { exact: true }).locator('xpath=../..');
             await expect(swell2.locator('span').last()).toHaveText(seas);
 
-            const spills = await grid.evaluate((section) => {
-                const out: string[] = [];
-                for (const row of Array.from(section.querySelectorAll('.grid-cols-3'))) {
-                    for (const cell of Array.from(row.children) as HTMLElement[]) {
-                        const box = cell.getBoundingClientRect();
-                        for (const el of Array.from(cell.querySelectorAll('span')) as HTMLElement[]) {
-                            const r = el.getBoundingClientRect();
-                            if (r.width === 0) continue;
-                            if (
-                                r.left < box.left - 0.5 ||
-                                r.right > box.right + 0.5 ||
-                                r.top < box.top - 0.5 ||
-                                r.bottom > box.bottom + 0.5
-                            )
+            // WIND SEA and SWELL 2 each draw one arrow beside the reading (the
+            // heading's icon is not counted), and in the dash grid none.
+            for (const label of ['WIND SEA', 'SWELL 2']) {
+                const valueRow = (g: typeof grid) =>
+                    g.getByText(label, { exact: true }).locator('xpath=../..').locator(':scope > div').nth(1);
+                await expect(valueRow(grid).locator('svg')).toHaveCount(1);
+                await expect(valueRow(grid).locator('svg')).toBeVisible();
+                await expect(valueRow(dash).locator('svg')).toHaveCount(0);
+                await expect(valueRow(dash).getByText('--', { exact: true })).toBeVisible();
+            }
+            await expect(grid.getByText('PER. 2', { exact: true })).toHaveCount(0);
+            // Every heading on one line: WIND SEA is the longest the grid has.
+            // Lines are counted from the text's own boxes (a Range over it).
+            const brokenHeadings = (g: typeof grid) =>
+                g.evaluate((section) =>
+                    Array.from(section.querySelectorAll('.glass-metric-heading'))
+                        .map((el) => {
+                            const range = document.createRange();
+                            range.selectNodeContents(el);
+                            const tops: number[] = [];
+                            for (const r of Array.from(range.getClientRects())) {
+                                if (r.width < 0.5) continue;
+                                if (!tops.some((t) => Math.abs(t - r.top) < 2)) tops.push(r.top);
+                            }
+                            return { text: el.textContent, lines: tops.length };
+                        })
+                        .filter((h) => h.lines !== 1)
+                        .map((h) => `${h.text}: ${h.lines} lines`),
+                );
+            expect(await brokenHeadings(grid), `headings broken over two lines in ${seas} at ${width}px`).toEqual([]);
+            expect(await brokenHeadings(dash), `dash grid headings in ${seas} at ${width}px`).toEqual([]);
+
+            const measure = (g: typeof grid) =>
+                g.evaluate((section) => {
+                    const out: string[] = [];
+                    const frame = section.getBoundingClientRect();
+                    for (const row of Array.from(section.querySelectorAll('.grid-cols-3'))) {
+                        for (const cell of Array.from(row.children) as HTMLElement[]) {
+                            const box = cell.getBoundingClientRect();
+                            // A row that grows (a heading in two) runs out of the clipped grid.
+                            if (box.top < frame.top - 0.5 || box.bottom > frame.bottom + 0.5)
                                 out.push(
-                                    `"${el.textContent}" ${r.left.toFixed(1)}–${r.right.toFixed(1)} × ${r.top.toFixed(1)}–${r.bottom.toFixed(1)} outside ${box.left.toFixed(1)}–${box.right.toFixed(1)} × ${box.top.toFixed(1)}–${box.bottom.toFixed(1)}`,
+                                    `cell "${cell.textContent}" ${box.top.toFixed(1)}–${box.bottom.toFixed(1)} outside the grid ${frame.top.toFixed(1)}–${frame.bottom.toFixed(1)}`,
                                 );
+                            for (const el of Array.from(cell.querySelectorAll('span, svg')) as Element[]) {
+                                const r = el.getBoundingClientRect();
+                                if (r.width === 0) continue;
+                                if (
+                                    r.left < box.left - 0.5 ||
+                                    r.right > box.right + 0.5 ||
+                                    r.top < box.top - 0.5 ||
+                                    r.bottom > box.bottom + 0.5
+                                )
+                                    out.push(
+                                        `"${el.textContent}" ${r.left.toFixed(1)}–${r.right.toFixed(1)} × ${r.top.toFixed(1)}–${r.bottom.toFixed(1)} outside ${box.left.toFixed(1)}–${box.right.toFixed(1)} × ${box.top.toFixed(1)}–${box.bottom.toFixed(1)}`,
+                                    );
+                            }
                         }
                     }
-                }
-                return out;
-            });
-            expect(spills, `offshore grid in ${seas} at ${width}px`).toEqual([]);
+                    return out;
+                });
+            expect(await measure(grid), `offshore grid in ${seas} at ${width}px`).toEqual([]);
+            expect(await measure(dash), `offshore grid with dashes in ${seas} at ${width}px`).toEqual([]);
 
             // The day card's readings, the two-digit '14s' period among them,
             // stay inside their fifth of the row.

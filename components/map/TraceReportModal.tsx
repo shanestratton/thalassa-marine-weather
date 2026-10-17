@@ -18,41 +18,19 @@ import {
     type TracePoint,
 } from '../../services/routeTracer';
 import { triggerHaptic } from '../../utils/system';
-import { fetchRouteWaypointWeather, windCompass, type WaypointWeather } from '../../services/routeReportWeather';
+import type { RouteWeatherReport } from '../../services/routeMeteogram';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { traceVerificationSummary, type TraceReleaseGate } from '../../services/traceVerification';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { haversineNm } from '../../services/isochrone/geodesy';
+import { estimateRouteFuel } from '../../services/isochrone/routeStats';
+import { vesselIsochroneConfig } from '../../services/routing/isochronePolicy';
+import { RouteEstimateSummary } from '../passage/RouteEstimateSummary';
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
 
-/** "+3h20 · 14:30" arrival label; the start pin reads "now"/"dep". */
-const fmtEta = (w: WaypointWeather, departingNow: boolean): string => {
-    const clock = new Date(w.etaMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
-    if (w.hoursFromDep < 0.02) return `${departingNow ? 'now' : 'dep'} · ${clock}`;
-    // Round to whole minutes FIRST — rounding the remainder alone printed "+2h60" (audit 2026-09-02).
-    const totalMin = Math.round(w.hoursFromDep * 60);
-    const h = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    const rel = h > 0 ? `+${h}h${m > 0 ? String(m).padStart(2, '0') : ''}` : `+${m}m`;
-    return `${rel} · ${clock}`;
-};
-
-/** "Sat 19 Jul 09:00" for a chosen departure. */
-const fmtDepart = (ms: number): string =>
-    new Date(ms).toLocaleString('en-AU', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-    });
-/** "SW 14kt G22", or a beyond-forecast note. */
-const fmtWind = (w: WaypointWeather): string => {
-    if (w.beyondForecast) return 'beyond forecast';
-    if (w.windKts == null || w.windDeg == null) return '';
-    const gust = w.gustKts != null && w.gustKts - w.windKts >= 3 ? ` G${Math.round(w.gustKts)}` : '';
-    return `${windCompass(w.windDeg)} ${Math.round(w.windKts)}kt${gust}`;
-};
+const RouteMeteogram = React.lazy(() => import('../weather/RouteMeteogram'));
 
 interface Props {
     open: boolean;
@@ -84,7 +62,7 @@ interface Props {
     onAckLeg: (i: number) => void;
     vesselName?: string;
     draftM?: number;
-    /** Cruising speed (kts) for the per-waypoint ETA/weather. Defaults to 6. */
+    /** Stated planned speed, editable in route weather. Missing never implies 6 kt. */
     cruisingSpeedKts?: number;
     /** Chosen departure (epoch ms), null/absent = leave now. Anchors the
      *  per-waypoint ETAs + weather (the tide labels are anchored upstream). */
@@ -101,6 +79,22 @@ const ddToDMM = (v: number, isLat: boolean): string => {
     return `${deg}°${min.toFixed(2).padStart(5, '0')}'${hemi}`;
 };
 const fmtFix = (p: TracePoint): string => `${ddToDMM(p.lat, true)}  ${ddToDMM(p.lon, false)}`;
+
+export function formatWaypointEtaUTC(w: { etaMs: number; hoursFromDep: number }): string {
+    if (
+        !Number.isFinite(w.etaMs) ||
+        Math.abs(w.etaMs) > 8.64e15 ||
+        !Number.isFinite(w.hoursFromDep) ||
+        w.hoursFromDep < 0
+    )
+        return 'Unknown';
+    const clock = new Date(w.etaMs).toISOString().slice(11, 16);
+    // Round the whole interval first: a remainder must never become "+2h60".
+    const totalMin = Math.round(w.hoursFromDep * 60);
+    const h = Math.floor(totalMin / 60),
+        m = totalMin % 60;
+    return `${totalMin === 0 ? 'dep' : h ? `+${h}h${m ? String(m).padStart(2, '0') : ''}` : `+${m}m`} · ${clock} UTC`;
+}
 
 const sevRow = (
     v: TraceLegVerdict,
@@ -192,36 +186,68 @@ export const TraceReportModal: React.FC<Props> = ({
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
-    // Per-waypoint weather at the ETA from the chosen departure (or NOW).
-    // Fetched when the report opens; feeds the waypoint list and the PDF.
-    const [weather, setWeather] = React.useState<WaypointWeather[] | null>(null);
-    const [weatherLoading, setWeatherLoading] = React.useState(false);
-    const spd = cruisingSpeedKts && cruisingSpeedKts > 0 ? cruisingSpeedKts : 6;
-    const departingNow = departureMs == null;
+    const [showRouteWeather, setShowRouteWeather] = React.useState(false);
+    const [sampledWeather, setSampledWeather] = React.useState<RouteWeatherReport | null>(null);
+    const vessel = useSettingsStore((state) => state.settings.vessel);
+    const settings = useSettingsStore((state) => state.settings);
+    // Full geometry and actual performance inputs fence stale screen/PDF rows.
+    // This in-memory key is never a provider parameter or a saved chart fact.
+    const weatherIdentity = JSON.stringify([
+        routeName,
+        pins,
+        departureMs,
+        cruisingSpeedKts,
+        vesselName,
+        vessel,
+        settings.polarData,
+        settings.polarSource,
+        settings.polarSource_type,
+        settings.polarBoatModel,
+        settings.smartPolarsEnabled,
+        settings.routingPolarScale,
+    ]);
+    const routeWeather =
+        sampledWeather?.identity === weatherIdentity && isAuthIdentityScopeCurrent(sampledWeather.ownerScope)
+            ? sampledWeather
+            : null;
+    const timingRef = React.useRef({ identity: '', open: false, departure: Date.now() });
+    if (timingRef.current.identity !== weatherIdentity || (open && !timingRef.current.open))
+        timingRef.current = { identity: weatherIdentity, open, departure: departureMs ?? Date.now() };
+    else timingRef.current.open = open;
+    const etaDeparture = routeWeather?.departureMs ?? timingRef.current.departure;
+    const etaSpeed = routeWeather?.speedKts ?? cruisingSpeedKts;
+    const waypointEtas = React.useMemo(() => {
+        if (!Number.isFinite(etaSpeed) || !etaSpeed || etaSpeed <= 0 || etaSpeed > 100 || pins.length > 10000)
+            return null;
+        let distance = 0;
+        return pins.map((p, i) => {
+            if (i) distance += haversineNm(pins[i - 1].lat, pins[i - 1].lon, p.lat, p.lon);
+            const hoursFromDep = distance / etaSpeed;
+            return formatWaypointEtaUTC({ etaMs: etaDeparture + hoursFromDep * 3600000, hoursFromDep });
+        });
+    }, [pins, etaDeparture, etaSpeed]);
+    const exportState = React.useRef({ open, identity: weatherIdentity, routeWeather, releaseGate });
+    exportState.current = { open, identity: weatherIdentity, routeWeather, releaseGate };
+    React.useEffect(
+        () => () => {
+            exportState.current.open = false;
+        },
+        [],
+    );
     React.useEffect(() => {
-        if (!open || pins.length < 2) {
-            setWeather(null);
-            return;
+        if (!open) {
+            setShowRouteWeather(false);
+            setSampledWeather(null);
         }
-        let live = true;
-        setWeatherLoading(true);
-        const departM = departureMs ?? Date.now();
-        void (async () => {
-            try {
-                const rows = await fetchRouteWaypointWeather(pins, departM, spd);
-                if (live) setWeather(rows);
-            } catch {
-                if (live) setWeather(null);
-            } finally {
-                if (live) setWeatherLoading(false);
-            }
-        })();
-        return () => {
-            live = false;
-        };
-        // Re-fetch when the report (re)opens or the route/speed/departure changes.
-    }, [open, pins, spd, departureMs]);
-
+    }, [open]);
+    const routeFuel = React.useMemo(() => {
+        if (pins.length < 2 || (vesselName && vessel?.name !== vesselName)) return null;
+        const distance = pins
+            .slice(1)
+            .reduce((sum, p, i) => sum + haversineNm(pins[i].lat, pins[i].lon, p.lat, p.lon), 0);
+        const motorSpeed = vesselIsochroneConfig(vessel, distance).motoringSpeed;
+        return estimateRouteFuel(null, distance / motorSpeed, vessel);
+    }, [pins, vessel, vesselName]);
     const onExportPdf = React.useCallback(async () => {
         if (pins.length < 2 || exporting) return;
         if (!releaseGate.allowed || !releaseGate.verification) {
@@ -229,6 +255,7 @@ export const TraceReportModal: React.FC<Props> = ({
             return;
         }
         setExporting(true);
+        const scope = getAuthIdentityScope();
         setExportMsg(null);
         triggerHaptic('medium');
         try {
@@ -237,6 +264,16 @@ export const TraceReportModal: React.FC<Props> = ({
                 import('../../services/RouteReportPdfService'),
                 import('../../utils/sharePdf'),
             ]);
+            const latest = exportState.current;
+            if (
+                !isAuthIdentityScopeCurrent(scope) ||
+                (routeWeather && !isAuthIdentityScopeCurrent(routeWeather.ownerScope)) ||
+                !latest.open ||
+                latest.identity !== weatherIdentity ||
+                latest.routeWeather !== routeWeather ||
+                latest.releaseGate !== releaseGate
+            )
+                return;
             const blob = generateRouteReportPdf({
                 routeName,
                 pins,
@@ -245,9 +282,10 @@ export const TraceReportModal: React.FC<Props> = ({
                 departureLabel,
                 vesselName,
                 draftM,
-                weather,
-                cruisingSpeedKts: spd,
-                departureMs,
+                routeWeather,
+                cruisingSpeedKts: routeWeather?.speedKts ?? cruisingSpeedKts,
+                routeFuel,
+                departureMs: routeWeather?.departureMs ?? departureMs,
                 nowMs: Date.now(),
                 verification: releaseGate.verification,
             });
@@ -270,8 +308,10 @@ export const TraceReportModal: React.FC<Props> = ({
         departureLabel,
         vesselName,
         draftM,
-        weather,
-        spd,
+        routeWeather,
+        weatherIdentity,
+        routeFuel,
+        cruisingSpeedKts,
         departureMs,
         exporting,
         releaseGate,
@@ -287,10 +327,19 @@ export const TraceReportModal: React.FC<Props> = ({
             return;
         }
         setExporting(true);
+        const scope = getAuthIdentityScope();
         setExportMsg(null);
         triggerHaptic('medium');
         try {
             const { shareFileBlob } = await import('../../utils/sharePdf');
+            const latest = exportState.current;
+            if (
+                !isAuthIdentityScopeCurrent(scope) ||
+                !latest.open ||
+                latest.identity !== weatherIdentity ||
+                latest.releaseGate !== releaseGate
+            )
+                return;
             const blob = new Blob([traceToGpx(routeName, pins, new Date().toISOString(), releaseGate.verification)], {
                 type: 'application/gpx+xml',
             });
@@ -306,7 +355,7 @@ export const TraceReportModal: React.FC<Props> = ({
         } finally {
             setExporting(false);
         }
-    }, [pins, routeName, exporting, releaseGate]);
+    }, [pins, routeName, exporting, releaseGate, weatherIdentity]);
 
     if (!open) return null;
     const h = traceHealth(verdicts);
@@ -421,6 +470,27 @@ export const TraceReportModal: React.FC<Props> = ({
                     </div>
                 ) : null}
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+                    <RouteEstimateSummary fuel={routeFuel} />
+                    {pins.length >= 2 &&
+                        (showRouteWeather ? (
+                            <React.Suspense fallback={<p className="text-xs text-slate-400">Opening route weather…</p>}>
+                                <RouteMeteogram
+                                    pins={pins}
+                                    departureMs={departureMs}
+                                    cruisingSpeedKts={cruisingSpeedKts}
+                                    identity={weatherIdentity}
+                                    onReport={setSampledWeather}
+                                />
+                            </React.Suspense>
+                        ) : (
+                            <button
+                                type="button"
+                                className="min-h-11 w-full rounded-xl border border-sky-400/20 bg-sky-500/10 px-3 text-xs font-bold text-sky-200"
+                                onClick={() => setShowRouteWeather(true)}
+                            >
+                                Route meteogram
+                            </button>
+                        ))}
                     {verdicts.length === 0 && (
                         <div className="text-[12px] text-gray-400">No legs yet — trace a route first.</div>
                     )}
@@ -444,45 +514,27 @@ export const TraceReportModal: React.FC<Props> = ({
                         straight into a plotter, or tap one to fly there. */}
                     {pins.length > 0 && (
                         <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                            <div className="mb-1.5 flex items-baseline justify-between">
+                            <div className="mb-1.5">
                                 <span className="text-[11px] font-black uppercase tracking-widest text-gray-400">
                                     📍 Waypoints ({pins.length})
                                 </span>
-                                <span className="text-[10px] font-bold text-gray-500">
-                                    {weatherLoading
-                                        ? 'loading weather…'
-                                        : weather
-                                          ? `ETA + wind · leave ${departingNow ? 'now' : fmtDepart(departureMs!)} @ ${spd.toFixed(1)}kt`
-                                          : ''}
-                                </span>
                             </div>
                             <div className="space-y-0.5 font-mono text-[11px] text-gray-200">
-                                {pins.map((p, i) => {
-                                    const w = weather?.[i];
-                                    const windStr = w ? fmtWind(w) : '';
-                                    return (
-                                        <button
-                                            key={i}
-                                            onClick={() => onFlyTo?.(p)}
-                                            className="flex min-h-[44px] w-full items-baseline gap-2 rounded-sm px-1 py-0.5 text-left active:bg-white/10"
-                                        >
-                                            <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
-                                            <span className="tabular-nums">{fmtFix(p)}</span>
-                                            {w && (
-                                                <span className="ml-auto shrink-0 text-right">
-                                                    <span className="text-sky-300/90">{fmtEta(w, departingNow)}</span>
-                                                    {windStr && (
-                                                        <span
-                                                            className={`ml-2 ${w.beyondForecast ? 'text-gray-500' : w.gustKts != null && w.gustKts >= 25 ? 'text-amber-300' : 'text-gray-300'}`}
-                                                        >
-                                                            {windStr}
-                                                        </span>
-                                                    )}
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
+                                {pins.map((p, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => onFlyTo?.(p)}
+                                        className="flex min-h-[44px] w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-sm px-1 py-0.5 text-left active:bg-white/10"
+                                    >
+                                        <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
+                                        <span className="min-w-0 break-words tabular-nums">{fmtFix(p)}</span>
+                                        {waypointEtas && (
+                                            <span className="ml-auto shrink-0 text-[10px] text-slate-400">
+                                                {waypointEtas[i]}
+                                            </span>
+                                        )}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     )}

@@ -160,6 +160,14 @@ const NAVAIDS_BY_HAND = [
     ENC_VEC_LAYERS.BCNSPP,
     ENC_VEC_LAYERS.BOYISD,
     ENC_VEC_LAYERS.BCNISD,
+    ENC_VEC_LAYERS.LITFLT,
+    ENC_VEC_LAYERS.LITVES,
+    ENC_VEC_LAYERS.BOYINB,
+    ENC_VEC_LAYERS.MORFAC,
+    ENC_VEC_LAYERS.MORFAC_GEOMETRY,
+    ENC_VEC_LAYERS.FOGSIG,
+    ENC_VEC_LAYERS.TOPMAR,
+    ENC_VEC_LAYERS.DAYMAR,
 ];
 /** The navaids the bare level may still cut: all but the isolated-danger pair. */
 const CUT_AT_BARE = NAVAIDS_BY_HAND.filter((id) => id !== ENC_VEC_LAYERS.BOYISD && id !== ENC_VEC_LAYERS.BCNISD);
@@ -188,6 +196,7 @@ describe('W1-01: the browse floor keeps every S-52 Standard display navaid', () 
         // navaid class added later is protected without another edit.
         const fromRegistry = [
             ...S57_NAVAID_CLASSES.map((c) => ENC_VEC_LAYERS[c]),
+            ENC_VEC_LAYERS.MORFAC_GEOMETRY,
             ENC_VEC_LAYERS.LIGHTSEC_LEG,
             ENC_VEC_LAYERS.LIGHTSEC_ARC,
         ];
@@ -343,7 +352,8 @@ describe('W1-01: the browsing chart uses the exported floor', () => {
     it('takes its level from browseDetailLevel instead of keeping its own floor', () => {
         expect(hubCode).toMatch(/import \{[^}]*\bbrowseDetailLevel\b[^}]*\} from '\.\/encDetailScrubber';/);
         expect(hubCode).not.toMatch(/const BROWSE_DECLUTTER_FLOOR\s*=/);
-        expect(hubCode).toContain('const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);');
+        expect(hubCode).toContain('CATEGORY_DETAIL[displayCategory]');
+        expect(hubCode).toContain(': browseDetailLevel(coordCaptureMode, declutter);');
         // The slider's leftover value must not reach the browsing chart.
         expect(hubCode).not.toMatch(/Math\.max\(\s*declutter\b/);
     });

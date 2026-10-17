@@ -2,8 +2,9 @@
  * Documents · layout fixture (126-B3b). The real DocumentsHub with the app's
  * CSS under a copy of App.tsx's header and tab bar, over the real local
  * database and the real vault (the browser's Filesystem), so each card's
- * "On this phone" / "Needs signal to open" line and the ⋮ menu's "Share or
- * save selected" are measured against the real chrome and index.css.
+ * "On this phone" / "Needs signal to open" line, the "Not uploaded yet" and
+ * "Upload failed" lines with Retry (131-B9), and the ⋮ menu's "Share or save
+ * selected" are measured against the real chrome and index.css.
  *
  * No account, network or boat: the skipper is signed in by hand, every fetch
  * is refused here (so Storage never answers and nothing downloads), storage
@@ -133,6 +134,16 @@ await database.insertLocal(
     'ship_documents',
     row('5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b', 'Crew list, Papeete', 'Customs Clearances', null),
 );
+// Its upload was refused on the last try (131-B9): its card says why, with
+// Retry. The other papers filed here say "Not uploaded yet": nothing runs the
+// sync engine in this fixture.
+await database.markFailed(
+    database
+        .getFullQueue()
+        .filter((item) => item.record_id === '5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b')
+        .map((item) => item.id),
+    'TypeError: Load failed',
+);
 // The rest synced from the iPad, never opened here.
 await database.mergePulledRecords('ship_documents', [
     row(
@@ -164,7 +175,14 @@ await database.mergePulledRecords('ship_documents', [
     ),
 ]);
 
-/** App.tsx's header on a portrait phone, as e2e/fixtures/galley-scroll.tsx copies it. */
+/**
+ * App.tsx's header on a portrait phone (showHeader), with App.tsx's own
+ * classes, as e2e/fixtures/binder-sheets.tsx copies it (132-B20): the mark,
+ * the wordmark and the SKIPPER · BETA badge every skipper sees while the
+ * public beta is on, the tagline and the status button. The short copy left
+ * the badge out; in wide fonts it wraps under the wordmark, so the header was
+ * ~19 px shorter here than a skipper's phone draws it.
+ */
 const AppHeader: React.FC = () => (
     <header
         data-testid="app-header"
@@ -181,16 +199,28 @@ const AppHeader: React.FC = () => (
                     className="thalassa-header-logo w-[64px] h-[64px] max-[389px]:w-12 max-[389px]:h-12 rounded-lg"
                 />
                 <div className="min-w-0">
-                    <p className="shrink-0 whitespace-nowrap text-xl font-bold tracking-wider uppercase">Thalassa</p>
-                    <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+                        <p className="shrink-0 whitespace-nowrap text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                            Thalassa
+                        </p>
+                        <span className="thalassa-beta-badge flex shrink-0 items-center whitespace-nowrap rounded-sm border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
+                            <span className="text-[11px] font-bold uppercase leading-none tracking-wider">
+                                Skipper
+                                <span className="font-semibold text-amber-200/70"> · Beta</span>
+                            </span>
+                        </span>
+                    </div>
+                    <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md">
                         <span className="min-w-0 flex-1 truncate">Keeps watch with you</span>
                     </p>
                 </div>
             </div>
-            <span
-                aria-hidden="true"
-                className="relative w-12 h-12 rounded-2xl border border-white/10 bg-slate-900/90"
-            />
+            <div className="flex shrink-0 items-center gap-2 pointer-events-auto">
+                <span
+                    aria-hidden="true"
+                    className="relative w-12 h-12 rounded-2xl border border-white/10 bg-slate-900/90"
+                />
+            </div>
         </div>
     </header>
 );

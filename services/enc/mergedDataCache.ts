@@ -19,6 +19,42 @@ import { Capacitor } from '@capacitor/core';
 import type { EncMergedVectorData } from './EncHazardService';
 
 const cache = new Map<string, EncMergedVectorData>();
+const cleanups = new Map<string, () => void>();
+const borrowed = new WeakMap<EncMergedVectorData, { refs: number; cleanup: () => void }>();
+function releaseBorrow(state: { refs: number; cleanup: () => void }): void {
+    if (--state.refs === 0) state.cleanup();
+}
+/** Mapbox's live source holds the same geometry after a memo eviction. Keep
+ * its package lease charged until that source has actually detached. */
+export function retainMergedData(data: EncMergedVectorData): () => void {
+    const state = borrowed.get(data);
+    if (!state) return () => {};
+    if (state.refs === 0) throw Error('NOAA chart view was invalidated before display.');
+    state.refs++;
+    let held = true;
+    return () => {
+        if (held) {
+            held = false;
+            releaseBorrow(state);
+        }
+    };
+}
+export function setMergedCleanup(key: string, cleanup: () => void): void {
+    const data = cache.get(key);
+    if (!data) {
+        cleanup();
+        return;
+    }
+    cleanups.get(key)?.();
+    const state = { refs: 1, cleanup };
+    borrowed.set(data, state);
+    cleanups.set(key, () => releaseBorrow(state));
+}
+function dispose(key: string): void {
+    cleanups.get(key)?.();
+    cleanups.delete(key);
+}
+
 // 2 → 4 (closing audit): keys are zoom-BUCKETED, so a z11↔z13 excursion
 // holds three distinct keys for the same water — 2 slots evicted merges
 // that were about to be re-requested. 4 holds a realistic excursion;
@@ -166,6 +202,7 @@ export function putMergedData(
 
     for (const dead of planMergeEviction([...cache.keys()], (k) => cellSets.get(k), key)) {
         cache.delete(dead);
+        dispose(dead);
         cellSets.delete(dead);
     }
 
@@ -178,6 +215,7 @@ export function putMergedData(
         const oldest = cache.keys().next().value;
         if (oldest === undefined || oldest === key) break;
         cache.delete(oldest);
+        dispose(oldest);
         cellSets.delete(oldest);
     }
 }
@@ -185,6 +223,7 @@ export function putMergedData(
 /** Drop every cached merge (registry version change / reset). */
 export function clearMergedData(): void {
     cache.clear();
+    for (const key of cleanups.keys()) dispose(key);
     cellSets.clear();
     // Sizes are only stable within a registry version, and this is called on
     // the version change.

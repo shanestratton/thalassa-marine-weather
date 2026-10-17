@@ -121,6 +121,11 @@ export function ObsLayerKey(props: ObsLayerKeyProps) {
                         Tap a storm for its last reported position, intensity and track. Forecast segments appear only
                         where supplied by the provider; missing forecasts are not extrapolated.
                     </p>
+                    <p>
+                        A cone is the issuer&rsquo;s own: NHC&rsquo;s official cone (white), or JTWC&rsquo;s danger area
+                        (amber, its track dashed: a US military advisory, not the official warning). Thin coloured lines
+                        are model tracks, each named along the line with its run time (UTC).
+                    </p>
                     <p className="text-amber-200">
                         An empty chart does not establish that no storms exist. Check the report time and official
                         warnings.

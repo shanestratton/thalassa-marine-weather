@@ -38,6 +38,12 @@ vitest.config.ts
 *.test.tsx
 docs/
 tools/
+# Offline NOAA publisher CLIs use the separately deployed Pi/GDAL converter.
+# They are not part of the web runtime or its build dependency graph.
+scripts/noaa-enc/
+# Disposable SQL proof CLIs import the separately deployed wake Edge contract.
+scripts/check-pi-wake-db.mjs
+scripts/check-pi-wake-postgres.mjs
 icons_new/
 bundle-stats.html
 

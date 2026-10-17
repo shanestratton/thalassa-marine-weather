@@ -47,6 +47,14 @@ const areaCheck = vi.hoisted(() => ({
 }));
 vi.mock('../services/anchorAreaCheck', () => areaCheck);
 
+const bottomAdvice = vi.hoisted(() => ({ poor: false }));
+vi.mock('../services/enc/holdingGround', () => ({
+    currentHoldingGroundAt: () =>
+        bottomAdvice.poor
+            ? { kind: 'poor', text: 'Bottom charted as rock: holding may be poor; check.', pointSample: false }
+            : { kind: 'unknown', text: 'Holding ground unknown here.', pointSample: false },
+}));
+
 // The radar itself draws on a canvas jsdom cannot paint; what matters here is
 // WHERE the sheet asks it to put the preview anchor. The offset maths the
 // canvas uses is exported and tested for real below.
@@ -205,6 +213,20 @@ describe('MoveAnchorSheet', () => {
 
             expectRelocatedTo(expected);
             expect(onMoved).toHaveBeenCalledTimes(1);
+        });
+
+        it('shows charted poor holding as advice and still moves a valid anchor', async () => {
+            bottomAdvice.poor = true;
+            try {
+                heading(212, 4_000);
+                render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+                expect(screen.getByTestId('holding-ground-advice')).toHaveTextContent('holding may be poor; check');
+                expect(moveButton()).toBeEnabled();
+                await move();
+                expectRelocatedTo(destinationPoint(boat.latitude, boat.longitude, 212, 33 / 1852));
+            } finally {
+                bottomAdvice.poor = false;
+            }
         });
 
         it('takes a decimal comma, as half the world writes it', async () => {

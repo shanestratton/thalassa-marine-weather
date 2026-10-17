@@ -233,6 +233,8 @@ export interface HourlySeries {
     label: string;
     provider: string;
     hex: string;
+    displayOnly?: boolean;
+    horizonHours?: number;
     /** One value per hour of the block, in display units; null where the
      *  model has no data that hour (a gap, never filled in). */
     values: (number | null)[];
@@ -314,6 +316,8 @@ export function seriesFor(
             label: m.label,
             provider: m.provider,
             hex: m.hex,
+            displayOnly: m.displayOnly,
+            horizonHours: m.horizonHours,
             values: raw.map((v) => (v == null ? null : conv(v))),
         });
     }
@@ -367,6 +371,7 @@ export function chartPath(
 
 /** How many models have a value at each hour. */
 export function memberCounts(series: HourlySeries[], length: number): number[] {
+    series = series.filter((s) => !s.displayOnly);
     return Array.from({ length }, (_, i) => series.reduce((n, s) => n + (s.values[i] != null ? 1 : 0), 0));
 }
 
@@ -423,7 +428,10 @@ export interface DayAgreement {
 /** Spread among the models with a value at hour i, and their median; null
  *  under two members. */
 function hourStats(series: HourlySeries[], i: number, spec: ParamSpec): { spread: number; median: number } | null {
-    const vals = series.map((s) => s.values[i]).filter((v): v is number => v != null);
+    const vals = series
+        .filter((s) => !s.displayOnly)
+        .map((s) => s.values[i])
+        .filter((v): v is number => v != null);
     if (vals.length < 2) return null;
     return {
         spread: spec.circular ? circularSpread(vals) : Math.max(...vals) - Math.min(...vals),
@@ -445,6 +453,8 @@ export function agreementByDay(
     param: MatrixParam,
     speeds?: HourlySeries[],
 ): DayAgreement[] {
+    series = series.filter((s) => !s.displayOnly);
+    speeds = speeds?.filter((s) => !s.displayOnly);
     if (param === 'wind' || param === 'dir') {
         const wind = param === 'wind';
         return windAgreementForDays(wind ? series : (speeds ?? []), wind ? [] : series, starts, length).map(
@@ -678,7 +688,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             if (spec.circular) {
                 // Centred on the compass point nearest the mean: the seam stays at
                 // least 135° from the consensus and the ticks are always five.
-                const lo = Math.round(circularMean(flat) / 90) * 90 - 180;
+                const bearings = series
+                    .filter((s) => !s.displayOnly)
+                    .flatMap((s) => s.values)
+                    .filter((v): v is number => v != null);
+                const lo = Math.round(circularMean(bearings) / 90) * 90 - 180;
                 return {
                     minY: lo,
                     maxY: lo + 360,
@@ -829,11 +843,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-5 pt-3 pb-2">
+                    <div className="flex items-center justify-between px-4 pt-2 pb-1">
                         <div>
                             <h2
                                 id="model-comparison-title"
-                                className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2"
+                                className="text-xs font-black text-white uppercase tracking-wide flex items-center gap-2"
                             >
                                 Model Convergence
                                 {isLoading && (
@@ -864,7 +878,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     </div>
 
                     {/* Parameter tabs — one per grid metric, horizontally scrollable */}
-                    <div className="px-5 pb-2">
+                    <div className="px-4 pb-1">
                         <div className="flex items-center gap-1 bg-white/4 border border-white/6 rounded-xl p-1 overflow-x-auto no-scrollbar">
                             {PARAMS.map((p) => {
                                 const active = p.id === param;
@@ -887,7 +901,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     </div>
 
                     {/* Chart / empty states */}
-                    <div className="px-5 pb-3">
+                    <div className="px-4 pb-1">
                         {hasData ? (
                             <>
                                 <svg
@@ -1085,8 +1099,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
                     {/* Legend: each model's value now (unit on the chart), four to a row
                         whatever the value's length, so seven models take two rows */}
-                    {hasData && (
-                        <div className="px-4 pb-2 grid grid-cols-4 gap-1 leading-tight">
+                    {(hasData || spread?.atmos || spread?.marine) && (
+                        <div className="px-4 pb-1 grid grid-cols-4 gap-1 leading-tight">
                             {series.map((s) => {
                                 const current = sampleAt(times, s.values, nowMs);
                                 return (
@@ -1103,14 +1117,96 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                                 isSelected(s) ? 'text-white' : 'text-gray-400'
                                             }`}
                                         >
-                                            {s.label}
+                                            {s.label}{' '}
+                                            <span className="font-mono font-normal text-gray-300 tabular-nums">
+                                                {current == null ? '—' : current.toFixed(spec.decimals)}
+                                            </span>
                                         </div>
-                                        <div className="text-[11px] font-mono text-gray-300 tabular-nums">
-                                            {current == null ? '—' : current.toFixed(spec.decimals)}
-                                        </div>
+                                        {s.horizonHours !== undefined && (
+                                            <div className="text-xs text-gray-400">
+                                                Up to {s.horizonHours} h{s.displayOnly ? ' · display only' : ''}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
+                            {/* Raw model values only: UKV can be displayed, but never
+                        contributes to agreement, spread, confidence or means. */}
+                            {(spread?.atmos || spread?.marine) && (
+                                <details className="min-w-0 text-xs text-gray-300 open:col-span-4">
+                                    <summary
+                                        className="min-h-[44px] cursor-pointer px-1 py-1 rounded-md bg-white/5 font-semibold"
+                                        aria-label={`All metrics at ${atHour.format(initialDay ?? nowMs)}`}
+                                    >
+                                        All metrics
+                                    </summary>
+                                    <div className="overflow-x-auto">
+                                        <table
+                                            className="w-full text-right tabular-nums whitespace-nowrap"
+                                            aria-label="All model metrics"
+                                        >
+                                            <caption className="py-2 text-left">
+                                                Model values at {atHour.format(initialDay ?? nowMs)}
+                                            </caption>
+                                            <thead>
+                                                <tr>
+                                                    <th scope="col" className="text-left p-1">
+                                                        Model
+                                                    </th>
+                                                    {PARAMS.map((p) => (
+                                                        <th scope="col" className="p-1" key={p.id}>
+                                                            {p.short}
+                                                            {p.unit ? ` (${p.unit})` : ''}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {[
+                                                    ...(spread?.atmos?.models ?? []),
+                                                    ...(spread?.marine?.models ?? []),
+                                                ].map((m) => (
+                                                    <tr key={m.id}>
+                                                        <th scope="row" className="text-left p-1 font-normal">
+                                                            {m.label}
+                                                            {m.displayOnly ? ' (display only)' : ''}
+                                                        </th>
+                                                        {PARAMS.map((p) => {
+                                                            const block =
+                                                                p.block === 'atmos' ? spread?.atmos : spread?.marine;
+                                                            const raw = (
+                                                                m.values as Partial<
+                                                                    Record<AtmosVar | MarineVar, (number | null)[]>
+                                                                >
+                                                            )[p.variable];
+                                                            const value =
+                                                                raw && block
+                                                                    ? sampleAt(block.times, raw, initialDay ?? nowMs)
+                                                                    : null;
+                                                            return (
+                                                                <td className="p-1" key={p.id}>
+                                                                    {value == null
+                                                                        ? '—'
+                                                                        : (p.convert
+                                                                              ? p.convert(value)
+                                                                              : value
+                                                                          ).toFixed(p.decimals)}
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {spread?.atmos?.models.some((m) => m.displayOnly) && (
+                                        <p className="mt-2">
+                                            UKV: UK Met Office · CC BY-SA 4.0. Display only; excluded from derived
+                                            agreement and confidence.
+                                        </p>
+                                    )}
+                                </details>
+                            )}
                         </div>
                     )}
 
@@ -1118,7 +1214,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     {hasData && shown ? (
                         <div
                             data-testid="matrix-day-verdict"
-                            className="mx-5 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-sky-400/20 flex items-center gap-2"
+                            className="mx-4 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-sky-400/20 flex items-center gap-2"
                         >
                             {shown.level !== 'none' && (
                                 <div
@@ -1165,7 +1261,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     ) : (
                         hasData &&
                         (overallLevel ? (
-                            <div className="mx-5 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2">
+                            <div className="mx-4 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2">
                                 <div
                                     className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${LEVEL_DISC[overallLevel]}`}
                                 >
@@ -1192,7 +1288,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 </div>
                             </div>
                         ) : (
-                            <p className="mx-5 mb-2 px-3 py-0.5 text-[11px] text-gray-400 text-center">
+                            <p className="mx-4 mb-2 px-3 py-0.5 text-[11px] text-gray-400 text-center">
                                 {overallLabel}.
                             </p>
                         ))
@@ -1200,7 +1296,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
                     {/* Attribution — a licence condition, not a courtesy: the models on screen */}
                     {credit && (
-                        <div className="px-5 pb-3">
+                        <div className="px-4 pb-2">
                             <p data-testid="matrix-credit" className="text-[9px] text-gray-400 text-center">
                                 {/* ECCC's licence asks for a link to it where possible. */}
                                 {credit.split(ECCC_LICENCE).map((part, i) => (

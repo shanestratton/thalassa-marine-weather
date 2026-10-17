@@ -4,7 +4,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { SavedTrace } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 import type { ComfortParams } from '../types';
 
 const routePlannerState = vi.hoisted(() => ({
@@ -128,8 +128,8 @@ vi.mock('../components/autorouting/RoutingModeDialog', () => ({
         );
     },
 }));
-vi.mock('../services/routeTracer', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../services/routeTracer')>();
+vi.mock('../services/savedTraceStore', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/savedTraceStore')>();
     return { ...actual, deleteTrace: plannerMocks.deleteTrace, loadSavedTraces: () => plannerMocks.savedTraces };
 });
 vi.mock('../components/map/MapHub', () => ({

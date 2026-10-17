@@ -3,7 +3,7 @@
  *
  * Pure string helpers moved verbatim out of components/CrewManagement.tsx.
  */
-import { stripLegBadge } from '../../services/routeTracer';
+import { stripLegBadge } from '../../services/savedTraceStore';
 import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from '../../services/shiplog/plannedRouteNaming';
 import { type Voyage } from '../../services/VoyageService';
 

@@ -36,6 +36,7 @@ import { jsonResponse } from '../_shared/http-security.ts';
 import { type PiRelayIdentity, readRelayCredential, type RelayAuthFailure } from '../_shared/pi-relay-auth.ts';
 import {
     isAlarmKind,
+    isUnderwayKind,
     MAX_BODY_BYTES,
     MAX_NEW_ALARM_PUSHES_PER_HOUR,
     MAX_RESENDS,
@@ -45,6 +46,7 @@ import {
     NOTICE_EVERY_MS,
     notificationTypeFor,
     parseRelayRequest,
+    type PiAlarmFamily,
     type PiAlarmInput,
     type PiAlarmKind,
     type PiAlarmPayload,
@@ -93,8 +95,8 @@ export interface PiAlarmStore {
     /** The owner's registered push devices (push_device_tokens). */
     countDevices(ownerId: string): Promise<number>;
     findEvents(relayId: string, keys: string[]): Promise<PiAlarmEvent[]>;
-    /** This relay's unresolved collision, close-quarters and distress rows. */
-    openEvents(relayId: string): Promise<PiAlarmEvent[]>;
+    /** Only this relay's unresolved alarms in the requested family. Old callers are AIS. */
+    openEvents(relayId: string, family?: PiAlarmFamily): Promise<PiAlarmEvent[]>;
     /** Null when (relay, key) already exists. */
     insertEvent(event: Omit<PiAlarmEvent, 'id'>): Promise<PiAlarmEvent | null>;
     /** False when the row is gone, or its pushed count is no longer `expectPushedCount`. */
@@ -119,6 +121,12 @@ export interface RelayDeps {
     store: PiAlarmStore | null;
     now?: () => number;
     log?: (message: string) => void;
+    /** True only after the separately deployed schema capability RPC reports version 1. */
+    underwayEnabled?: () => Promise<boolean>;
+    /** Separate fixed wake family; the existing authenticated door runs first. */
+    wake?: (body: Record<string, unknown>, identity: PiRelayIdentity, now: number) => Promise<Response>;
+    /** Separate fixed radar family, after the same credential and body-size boundary. */
+    radar?: (body: Record<string, unknown>, identity: PiRelayIdentity, now: number) => Promise<Response>;
 }
 
 const CORS: Record<string, string> = {
@@ -316,7 +324,9 @@ async function sync(ctx: Context, request: Extract<RelayRequest, { action: 'sync
     }
     // Open here but no longer on the Pi: her encounter (or the beacon) is over.
     const listed = new Set(request.listedKeys);
-    const stale = (await ctx.store.openEvents(ctx.identity.relayId)).filter((e) => !listed.has(e.alarmKey));
+    const stale = (await ctx.store.openEvents(ctx.identity.relayId, request.family)).filter(
+        (e) => isUnderwayKind(e.kind) === (request.family === 'underway') && !listed.has(e.alarmKey),
+    );
     if (stale.length > 0) await ctx.store.resolveEvents(stale.map((e) => e.id), ctx.now);
     return {
         ok: true,
@@ -329,10 +339,10 @@ async function sync(ctx: Context, request: Extract<RelayRequest, { action: 'sync
     };
 }
 
-async function probe(ctx: Context) {
+async function probe(ctx: Context, underway?: boolean) {
     const devices = await ctx.store.countDevices(ctx.identity.ownerId);
     await ctx.store.pruneResolved(ctx.identity.relayId, ctx.now - RETENTION_MS, RETENTION_BATCH);
-    return { ok: true, devices };
+    return { ok: true, devices, ...(underway === undefined ? {} : { underway: { v: 1, enabled: underway } }) };
 }
 
 async function test(ctx: Context) {
@@ -390,6 +400,26 @@ export async function handlePiAlarmRelay(req: Request, deps: RelayDeps): Promise
         return identity.status === 401 ? json({ error: 'unauthorised' }, 401) : json({ error: 'unavailable' }, 503);
     }
 
+    if (body.family === 'radar') {
+        if (!deps.radar) return json({ error: 'radar_unavailable' }, 503);
+        try {
+            const response = await deps.radar(body, identity, (deps.now ?? Date.now)());
+            if (response.ok) deps.store.touchRelay(identity.relayId);
+            return response;
+        } catch {
+            return json({ error: 'radar_unavailable' }, 503);
+        }
+    }
+    if (body.family === 'wake') {
+        if (!deps.wake) return json({ error: 'wake_unavailable' }, 503);
+        try {
+            const response = await deps.wake(body, identity, (deps.now ?? Date.now)());
+            if (response.ok) deps.store.touchRelay(identity.relayId);
+            return response;
+        } catch {
+            return json({ error: 'wake_unavailable' }, 503);
+        }
+    }
     const parsed = parseRelayRequest(body);
     if (!parsed.ok) return json({ error: 'invalid_request', detail: parsed.error }, 400);
     const request = parsed.value;
@@ -400,8 +430,17 @@ export async function handlePiAlarmRelay(req: Request, deps: RelayDeps): Promise
         utcOffsetMin: request.utcOffsetMin,
     };
     try {
+        let underway: boolean | undefined;
+        if (request.family === 'underway') {
+            try {
+                underway = (await deps.underwayEnabled?.()) === true;
+            } catch {
+                underway = false;
+            }
+            if (!underway && request.action !== 'probe') return json({ error: 'underway_unavailable' }, 503);
+        }
         const answer = request.action === 'probe'
-            ? await probe(ctx)
+            ? await probe(ctx, underway)
             : request.action === 'raise'
             ? await raise(ctx, request.alarm)
             : request.action === 'sync'

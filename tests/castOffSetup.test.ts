@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { castOffRouteChoices, createCastOffSetup, isUnsavedCastOffSetup } from '../services/castOffSetup';
 import type { Voyage } from '../services/VoyageService';
-import type { SavedTrace } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 
 function row(id: string, overrides: Partial<Voyage> = {}): Voyage {
     return {

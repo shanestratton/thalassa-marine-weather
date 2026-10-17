@@ -3,8 +3,9 @@
  *
  * What Shane was told on 2026-10-09: "When you take the last spare filter, it
  * goes on your shopping list automatically". Narrowly:
- *   - only a manual − on a Stores card or the box page (the Galley's meal
- *     deductions have their own shortfall list);
+ *   - only a manual − on a Stores card, the box page or a scanned item's
+ *     sheet (131-B13) (the Galley's meal deductions have their own shortfall
+ *     list);
  *   - only when the − takes the item INTO Low (from above its minimum to at or
  *     under it), or takes the last one, and only when it has a minimum;
  *   - only for the account's own Stores (crew restock is a later build);

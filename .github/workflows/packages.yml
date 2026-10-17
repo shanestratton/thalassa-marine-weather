@@ -130,3 +130,7 @@ jobs:
             - name: Test Pi cache
               working-directory: pi-cache
               run: npm test
+
+            - name: Verify staged update plans and refusal boundaries
+              working-directory: pi-cache
+              run: node --test scripts/update5.test.mjs scripts/update6.test.mjs scripts/update7.test.mjs

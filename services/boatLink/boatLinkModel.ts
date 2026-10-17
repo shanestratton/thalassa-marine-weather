@@ -32,6 +32,7 @@
  * brand of VPN. "Tailscale" is said only when the tunnel's address proves it.
  */
 import { sameIpv4Subnet, type NetworkInterfaceInfo } from '../../utils/lanRoute';
+import { zoneDisplayName } from '../../utils/timeZones';
 
 // ── WHERE ────────────────────────────────────────────────────────────────
 
@@ -185,7 +186,7 @@ export function resolveWhere(input: WhereInput): WhereResult {
  * PHONE published (the skipper's phone sharing what it reads, for crew or the
  * skipper's iPad): the boat's readings, but never the boat's position.
  */
-export type Lane = 'socket' | 'pi-direct' | 'cloud' | 'shared' | 'none';
+export type Lane = 'socket' | 'pi-direct' | 'cloud' | 'shared' | 'signalk' | 'none';
 /**
  * How it reaches this phone. 'direct' = a boat device answered and nothing
  * here can tell which path carried it (no interface data, place unknown).
@@ -323,7 +324,7 @@ export function fallbackSocketPermitted(
 
 export interface StoreFacts {
     status: SocketStatus | 'remote';
-    via: 'lan' | 'cloud' | null;
+    via: 'lan' | 'cloud' | 'signalk' | null;
     source: 'pi' | 'device' | null;
     /** The Pi's (or the bus's) reading time for the current feed. */
     readingAt: number | null;
@@ -335,6 +336,7 @@ export interface StoreFacts {
 export function resolveLane(store: StoreFacts): Lane {
     if (store.status === 'connected') return 'socket';
     if (store.status !== 'remote') return 'none';
+    if (store.via === 'signalk' && store.source === 'device') return 'signalk';
     if (store.source === 'device') return 'shared';
     if (store.source !== 'pi') return 'none';
     return store.via === 'lan' ? 'pi-direct' : 'cloud';
@@ -361,6 +363,7 @@ export function resolveKind(params: {
 }): LinkKind {
     const { lane, where, network, pi, gatewayHost, piHost = null } = params;
     if (lane === 'none') return 'none';
+    if (lane === 'signalk') return 'direct';
     if (lane === 'cloud' || lane === 'shared') return 'cloud';
     const byPlace = (deviceHost: string | null): LinkKind => {
         if (tunnelUp(network)) return where === 'aboard' ? 'boat-wifi' : 'private-network';
@@ -439,6 +442,7 @@ export function phoneMayStandInForBoat(params: {
     directEvidence: boolean;
 }): boolean {
     const { where, lane, data, directEvidence } = params;
+    if (lane === 'signalk') return false;
     if (where.where === 'aboard') return true;
     return (
         where.where === 'unknown' &&
@@ -557,7 +561,7 @@ export interface WordsInput {
     kind: LinkKind;
     networkName: 'Tailscale' | 'your VPN';
     data: DataResult;
-    setup: { piPaired: boolean; gatewaySaved: boolean; gatewayLabel: string };
+    setup: { piPaired: boolean; gatewaySaved: boolean; gatewayLabel: string; signalkConfigured?: boolean };
     socket: { status: SocketStatus; owner: SocketOwner };
     /**
      * With no lane now and the last reading still on screen ('stale'): the
@@ -585,7 +589,7 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
     const { where, lane, kind, networkName, data, setup, socket, last = null } = input;
     const place = placeWord(where.where);
     const prefix = place ? `${place} · ` : '';
-    const anySetup = setup.piPaired || setup.gatewaySaved;
+    const anySetup = setup.piPaired || setup.gatewaySaved || setup.signalkConfigured === true;
     const label = setup.gatewayLabel;
     const pi = setup.piPaired ? 'your Pi' : 'the boat’s Pi';
     const age = data.ageMs === null ? null : ageWords(data.ageMs);
@@ -638,6 +642,8 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
         line = viaPath ? `Reading the boat through ${pi}, ${viaPath}.` : `Reading the boat directly from ${pi}.`;
     } else if (lane === 'cloud') {
         line = `Reading the boat through ${setup.piPaired ? 'your' : 'the'} Pi’s internet updates.`;
+    } else if (lane === 'signalk') {
+        line = 'Reading the boat directly from Signal K · read only.';
     } else if (lane === 'shared') {
         line = 'Reading the boat through the skipper’s phone.';
     } else if (lane === 'socket') {
@@ -649,11 +655,13 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
     } else if (gone) {
         const lastPath = gone.lane === 'socket' ? pathWords(gone.kind) : null;
         const through =
-            gone.lane === 'socket'
-                ? `the ${label}${lastPath ? ` ${lastPath}` : ''}`
-                : gone.lane === 'shared'
-                  ? 'the skipper’s phone'
-                  : 'the boat’s Pi';
+            gone.lane === 'signalk'
+                ? 'Direct Signal K (read only)'
+                : gone.lane === 'socket'
+                  ? `the ${label}${lastPath ? ` ${lastPath}` : ''}`
+                  : gone.lane === 'shared'
+                    ? 'the skipper’s phone'
+                    : 'the boat’s Pi';
         line = `Last reading came through ${through}, ${age ?? 'some time'} ago.${
             gone.lane === 'socket' ? ' It isn’t connected now.' : ''
         }`;
@@ -677,6 +685,7 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
     let source: string | null = null;
     if (lane === 'pi-direct') source = `Pi ${pathShort}`;
     else if (lane === 'cloud') source = 'Pi through the cloud';
+    else if (lane === 'signalk') source = 'Direct Signal K · read only';
     else if (lane === 'shared') source = 'Skipper’s phone through the cloud';
     else if (lane === 'socket') source = fallback ? `${label} direct, Pi silent` : `${label} ${pathShort}`;
     else if (gone)
@@ -710,19 +719,21 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
                   : 'Not connected';
     const hubPath = kind === 'boat-wifi' ? 'boat Wi-Fi' : kind === 'private-network' ? networkName : null;
     const hubStatus =
-        lane === 'pi-direct'
-            ? `Through the Pi${hubPath ? ` · ${hubPath}` : ''}`
-            : lane === 'cloud'
-              ? 'Through the Pi · cloud'
-              : lane === 'shared'
-                ? 'Through the skipper’s phone'
-                : lane === 'socket'
-                  ? `${label}${fallback ? ' · Pi silent' : hubPath ? ` · ${hubPath}` : ''}`
-                  : gone && setup.piPaired
-                    ? 'Pi not answering'
-                    : gone?.lane === 'socket'
-                      ? `${label} · not connected`
-                      : 'Instruments & AIS';
+        lane === 'signalk'
+            ? 'Direct Signal K · read only'
+            : lane === 'pi-direct'
+              ? `Through the Pi${hubPath ? ` · ${hubPath}` : ''}`
+              : lane === 'cloud'
+                ? 'Through the Pi · cloud'
+                : lane === 'shared'
+                  ? 'Through the skipper’s phone'
+                  : lane === 'socket'
+                    ? `${label}${fallback ? ' · Pi silent' : hubPath ? ` · ${hubPath}` : ''}`
+                    : gone && setup.piPaired
+                      ? 'Pi not answering'
+                      : gone?.lane === 'socket'
+                        ? `${label} · not connected`
+                        : 'Instruments & AIS';
 
     return {
         pill,
@@ -731,4 +742,63 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
         statusRow,
         hub: { value: hubValue, status: hubStatus, tone: data.state === 'none' ? 'grey' : pill.tone },
     };
+}
+
+// ── THE QUIET-BOAT WATCH ─────────────────────────────────────────────────
+
+/**
+ * The cloud's quiet-boat watch (129-08), in one honest line: who it pages,
+ * when, and what it cannot do. It hears her only through her Pi's internet
+ * updates, so a Pi kept off the internet (satellite mode, or a Pi restarted
+ * and not yet allowed back on) reads as a boat gone quiet.
+ *
+ * Until the 129-08 watchdog answers (crewPaging false) the server is still
+ * 125's, and the line says what that one does: the skipper alone, once per
+ * outage, nothing in her quiet window, and no all-clear.
+ */
+export interface QuietWatchFacts {
+    role: 'owner' | 'crew';
+    /** The boat's watch is on (the owner's switch). */
+    watchOn: boolean;
+    graceMin: number;
+    /** The declared weekly window, in the boat's own zone. */
+    window: { dow: number; start: string; end: string; tz: string } | null;
+    /** This phone keeps her Pi off the internet (satellite mode). */
+    satellite: boolean;
+    /** The 129-08 watchdog answers: crew paged, the all-clear, the window's 10-minute allowance. */
+    crewPaging: boolean;
+    /** A crew member's own switch for this boat (crew only; on unless said). */
+    pagingMe?: boolean;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "Wed 19:30–19:50 Auckland time", in the window's own zone. */
+export function quietWindowWords(window: { dow: number; start: string; end: string; tz: string }): string {
+    const hhmm = (t: string) => t.slice(0, 5);
+    const zone = zoneDisplayName(window.tz);
+    return `${WEEKDAYS[window.dow] ?? '?'} ${hhmm(window.start)}–${hhmm(window.end)} ${zone === 'UTC' ? 'UTC' : `${zone} time`}`;
+}
+
+export function describeQuietWatch(facts: QuietWatchFacts): string {
+    const caveat = 'It hears her only while her Pi may use the internet.';
+    if (facts.role === 'crew') {
+        if (!facts.watchOn) return 'Her skipper hasn’t switched the watch on, so nothing pages yet.';
+        return facts.pagingMe === false
+            ? 'Her skipper has the watch on, but you’ve turned these pages off for yourself.'
+            : `Her skipper has the watch on: after ${facts.graceMin} min with nothing from her Pi you’re paged, and told when she’s back. ${caveat}`;
+    }
+    if (facts.watchOn && facts.satellite) {
+        return 'Satellite mode keeps her Pi off the internet, so Thalassa can’t hear her and will page that she has gone quiet. Switch this off first if you don’t want that.';
+    }
+    if (!facts.crewPaging) {
+        const window = facts.window
+            ? ` Silence in her quiet window, ${quietWindowWords(facts.window)}, doesn’t count.`
+            : '';
+        return `After ${facts.graceMin} min with nothing from her Pi, Thalassa pages you, once until she reports again.${window} ${caveat}`;
+    }
+    const window = facts.window
+        ? ` Up to 10 min of a dropout in her quiet window, ${quietWindowWords(facts.window)}, doesn’t count.`
+        : '';
+    return `After ${facts.graceMin} min with nothing from her Pi, Thalassa pages you and the crew (not guests) you share the Instrument Panel with, and once more when she’s back.${window} ${caveat}`;
 }

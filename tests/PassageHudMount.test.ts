@@ -15,8 +15,18 @@ const paneCode = pane.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, 
 
 describe('the passage pane on the Obs chart', () => {
     it('mounts inside the chart main, never over the picker or the route tracer', () => {
-        expect(app).toContain("import { PassageHudPane } from './components/passage/PassageHudPane';");
-        expect(app).toMatch(/\{chartVisible && !mapPickerActive && !tracerActive &&\s*<PassageHudPane \/>\}/);
+        // Loaded on demand (131-01): the shell names it only through lazyRetry,
+        // and mounts it only while it has something to show — a followed route,
+        // an Obs preview (build 124) or a recording — with nothing drawn while
+        // its chunk arrives.
+        expect(app).not.toContain("import { PassageHudPane } from './components/passage/PassageHudPane';");
+        expect(app.replace(/\s+/g, ' ')).toContain(
+            "const PassageHudPane = lazyRetry( () => import('./components/passage/PassageHudPane').then((m) => ({ default: m.PassageHudPane })), 'PassageHudPane', );",
+        );
+        expect(app).toMatch(
+            /\{chartVisible && passageHudShown && !mapPickerActive && !tracerActive && \(\s*<Suspense fallback=\{null\}>\s*<PassageHudPane \/>\s*<\/Suspense>\s*\)\}/,
+        );
+        expect(app).toContain('const passageHudShown = usePassageHudAvailable();');
         expect(paneCode).not.toContain('onBack');
         // Inside the chart <main> (after MapHub, before the offline chip), so it
         // rides with the split frame instead of the device viewport.
@@ -128,8 +138,10 @@ describe('the passage pane on the Obs chart', () => {
             'className="thalassa-helix-legend absolute z-500"',
         );
         const map = readFileSync('components/map/MapHub.tsx', 'utf8');
-        expect(map).toContain('<BlitzortungAttribution visible compact />');
-        expect(map).toContain('top: creditsStripTop(');
+        expect(map).toContain('<ObsCreditsRollup');
+        expect(readFileSync('components/map/ObsCreditsRollup.tsx', 'utf8')).toContain(
+            "top: 'calc(env(safe-area-inset-top) + max(44px, 3rem) + 14px)'",
+        );
         expect(map).toContain('<ObsLayerKey {...obsKeyProps} />');
     });
 
@@ -227,7 +239,7 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
         expect(controls).toContain('const showTimeline = !controlsHidden && !lookingAhead;');
         expect(controls).toContain('{!surfaceAvailable ? null : controlsHidden ? (');
         // The RainViewer credit is gated on the radar being shown — never on the timeline.
-        expect(flat(controls)).toContain('{showRainViewerAttribution && (');
+        expect(flat(controls)).toContain('{showRainViewerAttribution && !creditsInRollup && (');
         expect(controls).not.toMatch(/showRainViewerAttribution\s*=[^;]*lookingAhead/);
     });
 
@@ -428,7 +440,7 @@ describe('phase 3: spread, speed and rain', () => {
         expect(controls).toContain('Rain forecast by Rainbow.ai');
         expect(controls).toContain("currentRainFrame?.type === 'forecast';");
         expect(controls).not.toMatch(/showRainForecastAttribution\s*=[^;]*lookingAhead/);
-        expect(flat(controls)).toContain('{showRainForecastAttribution && (');
+        expect(flat(controls)).toContain('{showRainForecastAttribution && !creditsInRollup && (');
         // …and the Copernicus credit stacks under either of them.
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(flat(hub)).toMatch(

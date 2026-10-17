@@ -42,6 +42,7 @@ vi.mock('../services/piTls', () => ({
 
 import {
     getPairing,
+    getPiEquipmentReadRevision,
     savePairing,
     forgetPairing,
     isLegacyPlainConnectionAllowed,
@@ -72,6 +73,22 @@ function record(over: Partial<PiPairingRecord> & { publicKeySpki: string }): PiP
 beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+});
+
+it('retires equipment reads even when the same Pi or enrollment is replaced and restored', async () => {
+    const r = record({ publicKeySpki: makeSigner().spkiB64 });
+    const a = getPiEquipmentReadRevision();
+    savePairing(r);
+    const b = getPiEquipmentReadRevision();
+    expect(b).toBeGreaterThan(a);
+    savePairing(r);
+    expect(getPiEquipmentReadRevision()).toBeGreaterThan(b);
+    const c = getPiEquipmentReadRevision();
+    await saveChartDevice({ chartDeviceId: 'synthetic-phone', token: 'generated-test-token' });
+    expect(getPiEquipmentReadRevision()).toBeGreaterThan(c);
+    const d = getPiEquipmentReadRevision();
+    dropChartDevice();
+    expect(getPiEquipmentReadRevision()).toBeGreaterThan(d);
 });
 
 describe('PiPairingService — signed response verification', () => {
@@ -360,7 +377,7 @@ describe('PiPairingService — the chart device header (127-C-d)', () => {
 
     beforeEach(() => dropChartDevice());
 
-    it('pinnedPiRequest and fetchVerifiedFromPi add it to /api/enc/* URLs only', async () => {
+    it('pinnedPiRequest and fetchVerifiedFromPi add it to every Pi call since 129-12, /api/enc/* or not', async () => {
         const pi = makeSigner();
         savePairing(record({ publicKeySpki: pi.spkiB64, host: '192.168.4.20' }));
         await saveChartDevice({ chartDeviceId: 'dev-iphone-1', token: TOKEN });
@@ -386,7 +403,10 @@ describe('PiPairingService — the chart device header (127-C-d)', () => {
         await pinnedPiRequest({ url: `${BASE}/api/pair/challenge`, method: 'POST', data: {} });
         await fetchVerifiedFromPi({ url: `${BASE}/api/osm/overlay` });
 
-        expect([0, 1, 2, 3, 4, 5].map(sentHeader)).toEqual([TOKEN, TOKEN, TOKEN, undefined, undefined, undefined]);
+        // Her Pi takes commands only from her own devices (pi-cache/src/piCommandLock.ts): the token is
+        // how it knows this phone is one. The identity challenge itself goes by verifyPairedPi, which
+        // never carries it (tests/PiCommandLock.test.ts).
+        expect([0, 1, 2, 3, 4, 5].map(sentHeader)).toEqual([TOKEN, TOKEN, TOKEN, TOKEN, TOKEN, TOKEN]);
         // A POST keeps its JSON content type beside the header.
         expect(tls.request.mock.calls[2][0].headers['Content-Type']).toBe('application/json');
     });

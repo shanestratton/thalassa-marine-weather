@@ -7,23 +7,51 @@ vi.mock('../utils/createLogger', () => ({ createLogger: () => ({ info: vi.fn(), 
 function providerFetch(name: string, forecast: boolean) {
     return vi.fn(async (input: string) => {
         const url = String(input);
-        if (url.includes('api.knackwx.com'))
+        if (url.endsWith('/functions/v1/cyclone-feed'))
             return {
                 ok: true,
-                json: async () => [
-                    {
-                        atcf_id: '01P',
-                        long_atcf_id: 'CP012026',
-                        storm_name: name,
-                        analysis_time: '2026-09-27T00:00:00Z',
-                        latitude: -20,
-                        longitude: 155,
-                        cyclone_nature: 'TC',
-                        winds: 70,
-                        pressure: 980,
-                        origin_basin: 'P',
-                    },
-                ],
+                json: async () => ({
+                    generatedAt: '2026-09-27T00:00:00.000Z',
+                    sources: { nhc: 'ok', jtwc: 'ok', vitals: 'ok', noaa: 'none', jtwcTracks: 'ok' },
+                    storms: [
+                        {
+                            key: 'SH01',
+                            sid: 'sh012027',
+                            name,
+                            basin: 'P',
+                            nature: '',
+                            current: { lat: -20, lon: 155, time: '2026-09-27T00:00:00Z', windKts: 70, pressureMb: 980 },
+                            positionBy: 'JTWC',
+                            from: ['vitals'],
+                            ...(forecast
+                                ? {
+                                      forecast: {
+                                          by: 'JTWC',
+                                          advisory: '3',
+                                          issued: '2026-09-27T00:00:00.000Z',
+                                          points: [
+                                              {
+                                                  lat: -21,
+                                                  lon: 156,
+                                                  time: '2026-09-27T12:00:00.000Z',
+                                                  windKts: 75,
+                                                  pressureMb: 975,
+                                              },
+                                              {
+                                                  lat: -22,
+                                                  lon: 157,
+                                                  time: '2026-09-28T00:00:00.000Z',
+                                                  windKts: 80,
+                                                  pressureMb: 970,
+                                              },
+                                          ],
+                                          past: [],
+                                      },
+                                  }
+                                : {}),
+                        },
+                    ],
+                }),
             };
         if (url.includes('ibtracs.ACTIVE'))
             return {
@@ -31,35 +59,6 @@ function providerFetch(name: string, forecast: boolean) {
                 text: async () =>
                     `NAME,ISO_TIME,LAT,LON,USA_WIND,USA_PRES\nunits,units,units,units,units,units\n${name},2026-09-26T12:00:00Z,-18,154,65,985\n${name},2026-09-26T18:00:00Z,-19,154.5,68,983`,
             };
-        if (url.includes('FeatureServer/0'))
-            return {
-                ok: true,
-                json: async () => ({
-                    features: forecast
-                        ? [
-                              {
-                                  geometry: { type: 'Point', coordinates: [156, -21] },
-                                  properties: {
-                                      STORMNAME: name,
-                                      MAXWIND: 75,
-                                      MSLP: 975,
-                                      FLDATELBL: '2026-09-27 12:00 PM',
-                                  },
-                              },
-                              {
-                                  geometry: { type: 'Point', coordinates: [157, -22] },
-                                  properties: {
-                                      STORMNAME: name,
-                                      MAXWIND: 80,
-                                      MSLP: 970,
-                                      FLDATELBL: '2026-09-28 12:00 AM',
-                                  },
-                              },
-                          ]
-                        : [],
-                }),
-            };
-        if (url.includes('FeatureServer/1')) return { ok: true, json: async () => ({ features: [] }) };
         throw new Error('Unexpected provider request in fixture');
     });
 }
@@ -69,11 +68,13 @@ describe('cyclone forecast source boundary', () => {
         vi.resetModules();
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-09-27T00:00:00Z'));
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://fixture.supabase.test');
         localStorage.removeItem('thalassa-cyclone-tracks');
     });
     afterEach(() => {
         vi.useRealTimers();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
         localStorage.removeItem('thalassa-cyclone-tracks');
     });
 

@@ -22,7 +22,7 @@ import { inshoreRouteCaveats, isFinalInshoreRefusal, nearShallowSummary } from '
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
-import { vesselDraftMetres, vesselAirDraftMetres, vesselMaxWaveHeightMetres } from '../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres } from '../services/units';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -36,7 +36,13 @@ import {
     PASSAGE_ENHANCEMENT_START_EVENT,
     type PassageEnhancementToken,
 } from '../services/passageEnhancementEvents';
-import { departureOnLocalDate, derivePassageSummarySchedule } from '../services/passageSummarySchedule';
+import {
+    departureOnLocalDate,
+    derivePassageSummarySchedule,
+    localDateValue,
+    clampDepartureToNow,
+} from '../services/passageSummarySchedule';
+import { readPlanDeparture, setPlanDeparture } from '../services/planDeparture';
 import {
     backstopUnavailableWords,
     chartedLandFinding,
@@ -87,7 +93,7 @@ function localTodayDate(): string {
 /** A passage cannot be planned to depart in the past. */
 function clampDepartureDate(value: string | null | undefined): string {
     const today = localTodayDate();
-    const candidate = value?.slice(0, 10) ?? '';
+    const candidate = value?.includes('T') ? localDateValue(value) : (value?.slice(0, 10) ?? '');
     return /^\d{4}-\d{2}-\d{2}$/.test(candidate) && candidate >= today ? candidate : today;
 }
 
@@ -212,9 +218,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [origin, setOrigin] = useIdentityScopedState(identityScope, '');
     const [destination, setDestination] = useIdentityScopedState(identityScope, '');
     const [via, setVia] = useIdentityScopedState(identityScope, '');
-    const [departureDate, setDepartureDate] = useIdentityScopedState(identityScope, () =>
-        clampDepartureDate(voyagePlan?.departureDate),
-    );
+    const [departureDate, setDepartureDate] = useIdentityScopedState(identityScope, () => {
+        const saved = readPlanDeparture(identityScope);
+        return clampDepartureDate(
+            voyagePlan?.departureDate ?? (saved !== null ? new Date(saved).toISOString() : undefined),
+        );
+    });
+    const [selectedDepartureIso, setSelectedDepartureIso] = useIdentityScopedState<string | null>(identityScope, () => {
+        const saved = readPlanDeparture(identityScope);
+        return saved !== null && saved >= Date.now() ? new Date(saved).toISOString() : null;
+    });
+    const effectiveDepartureTime = selectedDepartureIso ? clampDepartureToNow(selectedDepartureIso) : departureDate;
 
     // UI State
     const [isMapOpen, setIsMapOpen] = useIdentityScopedState(identityScope, false);
@@ -327,7 +341,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
      * state. The user can still re-Calculate to force a save.
      */
     const handleDateChange = useCallback(
-        async (newDate: string) => {
+        async (newDate: string, exactIso?: string) => {
             const safeDate = clampDepartureDate(newDate);
             const operationScope = getAuthIdentityScope();
             if (!sameIdentityScope(operationScope, identityScope) || !isAuthIdentityScopeCurrent(operationScope)) {
@@ -343,6 +357,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 isAuthIdentityScopeCurrent(operationScope);
             if (!operationIsCurrent()) return;
             setDepartureDate(safeDate);
+            const exact =
+                exactIso && Number.isFinite(Date.parse(exactIso)) && Date.parse(exactIso) >= Date.now()
+                    ? new Date(exactIso).toISOString()
+                    : null;
+            setSelectedDepartureIso(exact);
+            setPlanDeparture(exact ? Date.parse(exact) : null, operationScope);
 
             // Try to find the matching active voyage and update its
             // departure_time. We try three sources of origin/destination
@@ -405,7 +425,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     return;
                 }
 
-                const newDepartureIso = departureOnLocalDate(safeDate, match.departure_time, new Date());
+                const newDepartureIso = exact ?? departureOnLocalDate(safeDate, match.departure_time, new Date());
                 if (!newDepartureIso) return;
                 const savedCoordinates = voyagePlan?.routeGeoJSON?.geometry.coordinates ?? [];
                 const routeCoordinates = savedCoordinates
@@ -433,7 +453,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // user hasn't Calculated yet, the WeatherContext has
                 // no plan to update.
                 if (voyagePlan && operationIsCurrent()) {
-                    saveVoyagePlan({ ...voyagePlan, departureDate: safeDate });
+                    saveVoyagePlan({ ...voyagePlan, departureDate: exact ?? safeDate });
                 }
 
                 // Notify any open PassageSummaryCard / banner / etc.
@@ -463,7 +483,16 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 console.warn('[useVoyageForm] handleDateChange voyage sync failed:', e);
             }
         },
-        [voyagePlan, saveVoyagePlan, origin, destination, identityScope, setDepartureDate, vessel.cruisingSpeed],
+        [
+            voyagePlan,
+            saveVoyagePlan,
+            origin,
+            destination,
+            identityScope,
+            setDepartureDate,
+            setSelectedDepartureIso,
+            vessel.cruisingSpeed,
+        ],
     );
 
     // Loading Animation Loop
@@ -643,7 +672,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     fmtOrigin,
                     fmtDest,
                     vessel,
-                    departureDate,
+                    effectiveDepartureTime,
                     vesselUnits,
                     generalUnits,
                     fmtVia,
@@ -980,7 +1009,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                             // stalled socket on marine LTE wedged the whole
                             // pipeline for up to 10 minutes (audit 2026-08-02).
                             const isoResult = await withTimeout(
-                                enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, departureDate),
+                                enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, effectiveDepartureTime),
                                 null,
                                 45_000,
                             );
@@ -1015,7 +1044,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                             // the isochrone step — fall back to the unenhanced
                             // plan rather than wedge (audit 2026-08-02).
                             const weatherEnhancedPlan = await withTimeout(
-                                enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate),
+                                enhanceVoyagePlanWithWeather(enhancedPlan, vessel, effectiveDepartureTime),
                                 enhancedPlan,
                                 120_000,
                             );
@@ -1189,7 +1218,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         return precomputeIsochrone(
                             result.originCoordinates!,
                             result.destinationCoordinates!,
-                            departureDate || new Date().toISOString(),
+                            effectiveDepartureTime || new Date().toISOString(),
                             operationScope,
                         );
                     })
@@ -1280,180 +1309,78 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const o = { lat: originGeo.lat, lon: originGeo.lon };
             const d = { lat: destGeo.lat, lon: destGeo.lon };
 
-            // 2. Load engine fields (mirrors isochroneEnhancer)
-            const { WindStore } = await import('../stores/WindStore');
-            if (!operationIsCurrent()) return;
-            const { createWindFieldFromGrid } = await import('../services/weather/WindFieldAdapter');
-            if (!operationIsCurrent()) return;
-            const { resolveRoutingPolar } = await import('../services/routingPolar');
-            if (!operationIsCurrent()) return;
-            const { preloadBathymetry } = await import('../services/BathymetryCache');
-            if (!operationIsCurrent()) return;
-
-            // Wind: ensure grid is loaded for the route bbox
-            if (!WindStore.getState().grid) {
-                // Same fetch logic as isochroneEnhancer.ensureWindGridForRoute
-                const minLat = Math.min(o.lat, d.lat);
-                const maxLat = Math.max(o.lat, d.lat);
-                const minLon = Math.min(o.lon, d.lon);
-                const maxLon = Math.max(o.lon, d.lon);
-                const latPad = Math.max((maxLat - minLat) * 0.3, 2);
-                const lonPad = Math.max((maxLon - minLon) * 0.3, 2);
-                const bbox = {
-                    north: Math.min(maxLat + latPad, 85),
-                    south: Math.max(minLat - latPad, -85),
-                    west: minLon - lonPad,
-                    east: maxLon + lonPad,
-                };
-                // One implementation, shared with isochroneEnhancer and
-                // WindDataController. This copy's own comment said "Same
-                // fetch logic as isochroneEnhancer.ensureWindGridForRoute" —
-                // and it still missed that function's migration to the pinned
-                // transport, so planning a passage ON THE BOAT threw -1202 and
-                // surfaced as a failed plan on the one network where the GRIB
-                // is already cached. See services/weather/fetchWindGrid.ts.
-                const { fetchWindGridOrNull } = await import('../services/weather/fetchWindGrid');
-                const fetchController = new AbortController();
-                const abortFetch = () => fetchController.abort();
-                controller.signal.addEventListener('abort', abortFetch, { once: true });
-                const fetchTimeout = setTimeout(() => fetchController.abort(), 20_000);
-                let buf: ArrayBuffer | null;
-                try {
-                    buf = await fetchWindGridOrNull(bbox, {
-                        timeoutMs: 20_000,
-                        signal: fetchController.signal,
-                    });
-                } finally {
-                    clearTimeout(fetchTimeout);
-                    controller.signal.removeEventListener('abort', abortFetch);
-                }
+            const baseDateIso =
+                selectedDepartureIso ??
+                departureOnLocalDate(departureDate, null, new Date()) ??
+                new Date().toISOString();
+            const { haversineNm } = await import('../services/isochrone/geodesy');
+            let inshoreWindow: Awaited<
+                ReturnType<typeof import('../services/routing/inshoreDepartureWindow').prepareInshoreDepartureWindow>
+            > = null;
+            if (haversineNm(o.lat, o.lon, d.lat, d.lon) < 15) {
+                const { prepareInshoreDepartureWindow } = await import('../services/routing/inshoreDepartureWindow');
                 if (!operationIsCurrent()) return;
-                if (buf) {
-                    const { decodeGrib2WindMultiHour } = await import('../services/weather/decodeGrib2Wind');
-                    if (!operationIsCurrent()) return;
-                    WindStore.setGrid(decodeGrib2WindMultiHour(buf));
-                }
-            }
-            const windGrid = WindStore.getState().grid;
-            if (!windGrid) {
-                throw new Error('Wind data unavailable for this route.');
-            }
-            const windField = createWindFieldFromGrid(windGrid);
-            const { polar } = await resolveRoutingPolar({ vessel });
-            if (!operationIsCurrent()) return;
-            const bathyGrid = await preloadBathymetry(o, d);
-            if (!operationIsCurrent()) return;
-
-            // Currents (non-blocking on failure)
-            let currentField = null;
-            try {
-                const { OceanCurrentService } = await import('../services/OceanCurrentService');
-                if (!operationIsCurrent()) return;
-                const { createCurrentFieldFromVectors } = await import('../services/weather/CurrentFieldAdapter');
-                if (!operationIsCurrent()) return;
-                const briefing = await OceanCurrentService.fetchCurrents(
-                    {
-                        north: Math.max(o.lat, d.lat) + 1,
-                        south: Math.min(o.lat, d.lat) - 1,
-                        east: Math.max(o.lon, d.lon) + 1,
-                        west: Math.min(o.lon, d.lon) - 1,
-                    },
-                    0,
-                    0,
-                    vessel.cruisingSpeed || 6,
-                    settings.currentNrtEnabled === true,
+                setWindowProgress('Checking the inshore chart route and existing tide leave window…');
+                inshoreWindow = await withTimeout(
+                    prepareInshoreDepartureWindow(o, d, vessel, baseDateIso, controller.signal, operationIsCurrent),
+                    null,
+                    90_000,
                 );
                 if (!operationIsCurrent()) return;
-                if (briefing.availability === 'available') {
-                    currentField = createCurrentFieldFromVectors(briefing.vectors);
-                }
-            } catch (_) {
-                if (!operationIsCurrent()) return;
-                /* non-critical */
+                if (!inshoreWindow)
+                    throw new Error(
+                        'The inshore departure comparison could not finish. Try again after the chart route is available.',
+                    );
             }
 
-            // Cyclone exclusions (non-blocking on failure)
-            let exclusionField = null;
-            try {
-                const { buildCycloneExclusionField } = await import('../services/cycloneAvoidance');
-                if (!operationIsCurrent()) return;
-                const cycloneField = await buildCycloneExclusionField(new Date().toISOString(), {
-                    north: Math.max(o.lat, d.lat),
-                    south: Math.min(o.lat, d.lat),
-                    east: Math.max(o.lon, d.lon),
-                    west: Math.min(o.lon, d.lon),
-                });
-                if (!operationIsCurrent()) return;
-                exclusionField = cycloneField;
-            } catch (_) {
-                if (!operationIsCurrent()) return;
-                /* non-critical */
-            }
+            const [
+                { WindStore },
+                { createWindFieldFromGrid },
+                { resolveRoutingPolar },
+                { preloadBathymetry },
+                { loadIsochroneEnvironment },
+                { loadDepartureWeather },
+                { routingComfortConfig },
+            ] = await Promise.all([
+                import('../stores/WindStore'),
+                import('../services/weather/WindFieldAdapter'),
+                import('../services/routingPolar'),
+                import('../services/BathymetryCache'),
+                import('../services/routing/isochroneEnvironment'),
+                import('../services/routing/departureWeather'),
+                import('../services/routing/isochronePolicy'),
+            ]);
             if (!operationIsCurrent()) return;
-
-            // Wave field (non-blocking on failure)
-            let waveField = null;
-            try {
-                const { fetchWaveField } = await import('../services/weather/waveField');
-                if (!operationIsCurrent()) return;
-                const { createWaveFieldFromSamples } = await import('../services/weather/WaveFieldAdapter');
-                if (!operationIsCurrent()) return;
-                const data = await fetchWaveField(
-                    {
-                        north: Math.max(o.lat, d.lat) + 1,
-                        south: Math.min(o.lat, d.lat) - 1,
-                        east: Math.max(o.lon, d.lon) + 1,
-                        west: Math.min(o.lon, d.lon) - 1,
-                    },
-                    new Date().toISOString(),
-                );
-                if (!operationIsCurrent()) return;
-                waveField = createWaveFieldFromSamples(data);
-            } catch (_) {
-                if (!operationIsCurrent()) return;
-                /* non-critical */
-            }
-
-            // Comfort params: blend vessel mechanical caps + user prefs +
-            // preferredAngles. Mirrors the same logic isochroneEnhancer
-            // uses so departure-window scenarios apply the same filter
-            // as the full-resolution route compute.
-            const userComfort = settings.comfortParams ?? {};
-            const tightestWind =
-                vessel.maxWindSpeed != null && userComfort.maxWindKts != null
-                    ? Math.min(vessel.maxWindSpeed, userComfort.maxWindKts)
-                    : (vessel.maxWindSpeed ?? userComfort.maxWindKts);
-            // The SIXTH sink. Commit 974e7dc1 converted five and declared the
-            // job done; this one — the path the departure-window UI actually
-            // calls — was missed, so the repo held a safety fix that believed
-            // itself complete. userComfort.maxWaveM is metres and the profile
-            // stores feet, so Math.min was comparing the two directly.
-            const vesselMaxWaveM = vessel.maxWaveHeight != null ? vesselMaxWaveHeightMetres(vessel) : null;
-            const tightestWave =
-                vesselMaxWaveM != null && userComfort.maxWaveM != null
-                    ? Math.min(vesselMaxWaveM, userComfort.maxWaveM)
-                    : (vesselMaxWaveM ?? userComfort.maxWaveM);
-            const blendedComfort =
-                tightestWind != null ||
-                tightestWave != null ||
-                userComfort.maxGustKts != null ||
-                userComfort.preferredAngles
-                    ? {
-                          maxWindKts: tightestWind,
-                          maxWaveM: tightestWave,
-                          maxGustKts: userComfort.maxGustKts,
-                          preferredAngles: userComfort.preferredAngles,
-                      }
-                    : undefined;
-
-            // 3. Run the planner
+            const [{ polar }, bathyGrid, environment, weatherField] = await Promise.all([
+                resolveRoutingPolar({ vessel }),
+                inshoreWindow ? Promise.resolve(null) : preloadBathymetry(o, d),
+                loadIsochroneEnvironment({
+                    origin: o,
+                    destination: d,
+                    departureTime: baseDateIso,
+                    speedKts: vessel.motoringSpeed || vessel.cruisingSpeed || 6,
+                    currentNrtEnabled: settings.currentNrtEnabled,
+                    satelliteMode: settings.satelliteMode,
+                }),
+                loadDepartureWeather(o, d, settings.satelliteMode),
+            ]);
+            if (!operationIsCurrent()) return;
+            const grid = WindStore.getState().grid;
+            if (!weatherField && !grid)
+                throw new Error('Departure forecasts are unavailable. Load a wind forecast and try again.');
+            const windField = weatherField
+                ? {
+                      getWind: (lat: number, lon: number, hours: number) => {
+                          const value = weatherField.getWeather(lat, lon, Date.parse(baseDateIso) + hours * 3_600_000);
+                          return value?.windSpeedKts != null && value.windDirection != null
+                              ? { speed: value.windSpeedKts, direction: value.windDirection }
+                              : null;
+                      },
+                  }
+                : createWindFieldFromGrid(grid!);
+            const blendedComfort = routingComfortConfig(vessel, settings.comfortParams).comfortParams;
             const { planDepartureWindow } = await import('../services/departureWindow');
             if (!operationIsCurrent()) return;
-            // Window starts now (or at the user's picked date if it's later
-            // than now). We anchor at midnight UTC of that day.
-            const baseDateIso = departureDate
-                ? new Date(`${departureDate}T00:00:00Z`).toISOString()
-                : new Date().toISOString();
             const final = await planDepartureWindow(
                 o,
                 d,
@@ -1461,13 +1388,16 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 windField,
                 polar,
                 bathyGrid,
-                currentField,
-                exclusionField,
-                waveField,
+                environment.currentField,
+                environment.exclusionField,
+                environment.waveField,
                 blendedComfort,
                 baseDateIso,
                 {
                     shouldContinue: operationIsCurrent,
+                    weatherField,
+                    fixedRoute: inshoreWindow?.route,
+                    tideForRoute: inshoreWindow?.tideForRoute,
                     onProgress: ({ completed, total, scenarios }) => {
                         if (!operationIsCurrent()) return;
                         setWindowProgress(`Computing ${completed} of ${total}…`);
@@ -1493,9 +1423,11 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         destination,
         vessel,
         departureDate,
+        selectedDepartureIso,
         onTriggerUpgrade,
         settings.comfortParams,
         settings.currentNrtEnabled,
+        settings.satelliteMode,
         identityScope,
         setError,
         setPlanningWindow,
@@ -1512,9 +1444,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const acceptWindowScenario = useCallback(
         (scenario: import('../services/departureWindow').DepartureScenario) => {
             if (!isAuthIdentityScopeCurrent(identityScope)) return;
-            // Set departureDate to the YYYY-MM-DD of the scenario's UTC departure
-            const dateOnly = scenario.departureTime.split('T')[0];
-            void handleDateChange(dateOnly);
+            if (
+                !scenario.routeFound ||
+                scenario.verdict === 'no-go' ||
+                !Number.isFinite(Date.parse(scenario.departureTime)) ||
+                Date.parse(scenario.departureTime) < Date.now()
+            )
+                return;
+            void handleDateChange(localDateValue(scenario.departureTime), scenario.departureTime);
             setShowWindowSheet(false);
         },
         [identityScope, handleDateChange, setShowWindowSheet],
@@ -1725,6 +1662,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setVia,
         departureDate,
         setDepartureDate,
+        selectedDepartureIso,
         handleDateChange,
         isMapOpen,
         setIsMapOpen,

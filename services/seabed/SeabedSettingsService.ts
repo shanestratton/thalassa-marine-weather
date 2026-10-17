@@ -26,9 +26,9 @@
 import { createLogger } from '../../utils/createLogger';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import { draftConfirmation } from '../draftConfirmation';
-import { getPairing } from '../PiPairingService';
+import { getPairing, pinnedPiRequest } from '../PiPairingService';
 import { piCache } from '../PiCacheService';
-import { isPinnedTransportAvailable, piRequest } from '../piTls';
+import { isPinnedTransportAvailable } from '../piTls';
 import { supabase } from '../supabase';
 import { FEET_PER_METRE } from '../units';
 import type { VesselProfile } from '../../types/vessel';
@@ -420,10 +420,9 @@ export async function piSeabedStatus(): Promise<PiSeabedStatus | 'old' | null> {
     const pinnedSpki = getPairing()?.publicKeySpki;
     if (!pinnedSpki) return null;
     try {
-        const res = await piRequest({
+        const res = await pinnedPiRequest({
             url: `${piCache.baseUrl}/api/seabed/status`,
             method: 'GET',
-            pinnedSpki,
             connectTimeout: 3_000,
             readTimeout: 5_000,
             responseType: 'text',
@@ -460,12 +459,13 @@ export async function pushSeabedToPi(local: SeabedLocal, vessel?: SeabedVessel):
     if (local.known || local.dirty.includes('zones')) data.zones = local.zones;
     if (local.known || local.dirty.includes('sounderNote')) data.sounder_note = local.sounderNote;
     try {
-        const res = await piRequest({
+        // pinnedPiRequest: pinned to the pairing key, with her device token, so a
+        // Pi that takes commands only from her own devices takes it from one (129-12).
+        const res = await pinnedPiRequest({
             url: `${piCache.baseUrl}/api/seabed/config`,
             method: 'POST',
             data,
             headers: { 'content-type': 'application/json' },
-            pinnedSpki,
             connectTimeout: 3_000,
             readTimeout: 5_000,
             responseType: 'text',

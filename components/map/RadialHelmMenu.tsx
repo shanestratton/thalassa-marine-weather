@@ -102,8 +102,6 @@ export interface RadialHelmMenuProps {
         onToggleAnchorage?: () => void;
         mooringsVisible?: boolean;
         onToggleMoorings?: () => void;
-        /** Launches the standalone Weather Window Check tool (navigation, not a toggle). */
-        onOpenWeatherWindow?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
         mpaVisible?: boolean;
         onToggleMpa?: () => void;
@@ -300,8 +298,9 @@ const staggerStyle = (i: number) => ({ '--helm-i': i }) as React.CSSProperties;
 
 // Operational-reference tactical items PARKED (Shane 2026-07-17: "remove
 // marks, tides, protected areas and window from the tactical area — they're on
-// the wrong page"). Marks/MPA/Window remain parked; tide stations have their
-// own Sea entry now. AIS, Anchor and Inspect stay. Handlers remain wired.
+// the wrong page"). Marks/MPA remain parked; tide stations have their own Sea
+// entry now. AIS, Anchor and Inspect stay. Handlers remain wired. The Window
+// item went for good with the page it opened (132-B23).
 const TACTICAL_REFERENCE_ITEMS_VISIBLE = false;
 
 // ── Default categories ──────────────────────────────────────────
@@ -370,7 +369,7 @@ function buildCategories(
     }
 
     // ── Operational reference (lower in the fan) ──
-    // Marks / Window / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
+    // Marks / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
     // Tide stations now live under Sea, beside the other water layers.
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
         tactical.push({
@@ -378,14 +377,6 @@ function buildCategories(
             label: 'Marks',
             icon: <SeamarkIcon />,
             action: tacticalState.onToggleSeamark,
-        });
-    }
-    if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onOpenWeatherWindow) {
-        tactical.push({
-            id: 'weatherwindow',
-            label: 'Window',
-            icon: <WeatherWindowIcon />,
-            action: tacticalState.onOpenWeatherWindow,
         });
     }
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleMpa) {
@@ -1106,6 +1097,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             {tacticalState?.onOpenMob && (
                 <button
                     type="button"
+                    // MOB stays in Obs's clear view (129-13): a safety control is always one tap away.
+                    data-clear-view-keep=""
                     aria-label={
                         tacticalState.mobActive
                             ? 'MOB active, open Man Overboard emergency'
@@ -1686,15 +1679,6 @@ const AnchorageIcon = () => (
             strokeLinejoin="round"
             d="M12 7v13M8 11h8M5 13a7 7 0 0014 0M5 13l-1.6 1M5 13l1.4 1.4M19 13l1.6 1M19 13l-1.4 1.4"
         />
-    </svg>
-);
-
-// Gauge with a needle — the weather-window go/no-go score.
-const WeatherWindowIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" d="M4 15a8 8 0 0116 0" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15l4.5-3.5" />
-        <circle cx="12" cy="15" r="1.1" fill="currentColor" stroke="none" />
     </svg>
 );
 

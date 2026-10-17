@@ -68,6 +68,7 @@ const WarningDetails = lazyRetry(
     () => import('./components/WarningDetails').then((m) => ({ default: m.WarningDetails })),
     'WarningDetails',
 );
+const WeatherBriefingPage = lazyRetry(() => import('./components/warnings/WeatherBriefingPage'), 'WeatherBriefingPage');
 const AnchorWatchPage = lazyRetry(
     () => import('./components/AnchorWatchPage').then((m) => ({ default: m.AnchorWatchPage })),
     'AnchorWatchPage',
@@ -229,10 +230,9 @@ const ChecklistsPage = lazyRetry(
     () => import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
     'ChecklistsPage',
 );
-const WeatherWindowCheckPage = lazyRetry(
-    () => import('./components/weatherWindow/WeatherWindowCheck').then((m) => ({ default: m.WeatherWindowCheck })),
-    'WeatherWindowCheck',
-);
+// The Weather Window Check (the Go/No-Go scorer) is deleted (132-B23, Shane
+// 2026-10-15): nothing had opened it since its binder row and radial-menu item
+// were culled, and the Departure Window on the Plan tab covers leaving times.
 const SkipperReferencePage = lazyRetry(
     () => import('./components/reference/SkipperReference').then((m) => ({ default: m.SkipperReference })),
     'SkipperReference',
@@ -384,7 +384,14 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             coordinates: ctx.weatherCoordinates,
             locationType: ctx.weatherLocationType,
             modelUsed: ctx.weatherModelUsed,
+            briefingNetworkAllowed: ctx.settings.satelliteMode !== true,
         }),
+    },
+    briefing: {
+        component: WeatherBriefingPage,
+        boundaryName: 'Weather briefing',
+        group: 'standalone',
+        getProps: () => ({}),
     },
     chat: {
         component: ChatPage,
@@ -459,12 +466,6 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     compass: {
         component: AnchorWatchPage,
         boundaryName: 'AnchorWatch',
-        group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
-    },
-    weatherWindow: {
-        component: WeatherWindowCheckPage,
-        boundaryName: 'WeatherWindow',
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },

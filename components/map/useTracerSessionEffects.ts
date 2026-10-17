@@ -54,7 +54,7 @@
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
-import { loadSavedTraces, type SavedTrace } from '../../services/routeTracer';
+import { loadSavedTraces, type SavedTrace } from '../../services/savedTraceStore';
 
 export interface TracerSessionEffectDeps {
     coordCaptureMode: boolean;

@@ -802,6 +802,7 @@ export interface LegendDockProps {
     captions?: Partial<Record<NonNullable<HelixLayer>, string>>;
     unavailableLayers?: HelixLayer[];
     pressureOverlay?: boolean;
+    onOfficialCharts?: () => void;
     extraLegend?: React.ReactNode;
     extraLegendCount?: number;
     /** The streaks' own legend on a light base (127-DESKMAP-b: the desk's Light), drawn on its pale sea. */
@@ -817,6 +818,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(
         captions = {},
         unavailableLayers = [],
         pressureOverlay = false,
+        onOfficialCharts,
         extraLegend,
         extraLegendCount,
         windGradient,
@@ -879,6 +881,15 @@ export const LegendDock: React.FC<LegendDockProps> = memo(
                                 >
                                     <p className="font-bold text-slate-100">{LAYER_UNITS[layer] ?? config.label}</p>
                                     {captions[layer] && <p className="mt-1 break-words">{captions[layer]}</p>}
+                                    {layer === 'pressure' && onOfficialCharts && (
+                                        <button
+                                            type="button"
+                                            onClick={onOfficialCharts}
+                                            className="mt-2 min-h-[44px] rounded-lg border border-sky-400/25 bg-sky-500/10 px-3 text-xs font-bold text-sky-200"
+                                        >
+                                            Official analysis charts
+                                        </button>
+                                    )}
                                     {!unavailable && (
                                         <>
                                             {layer === 'pressure' && pressureOverlay ? (

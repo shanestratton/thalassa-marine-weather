@@ -83,6 +83,38 @@ function loadServiceWorker() {
 }
 
 describe('production service worker', () => {
+    it('leaves NOAA mutable edition checks and immutable originals to their bounded app cache', async () => {
+        const { listeners, fetchMock, caches, names } = loadServiceWorker();
+        for (const path of [
+            'index.json',
+            `generations/${'a'.repeat(24)}/shards/x06y12.json`,
+            `objects/${'b'.repeat(64)}.zip`,
+        ]) {
+            const respondWith = vi.fn();
+            const request = new Request(`https://tiles.thalassatiles.com/noaa-enc/v1/${path}`, { cache: 'no-store' });
+            listeners.get('fetch')?.({ request, respondWith, waitUntil: vi.fn() });
+            await respondWith.mock.calls[0][0];
+            expect(fetchMock).toHaveBeenCalledWith(request);
+        }
+        expect(caches.open).not.toHaveBeenCalledWith(names.runtimeTiles);
+        expect(caches.open).not.toHaveBeenCalledWith(names.offlineTiles);
+    });
+    it('never replays or double-caches owned catalogue manifests or shards in the terrain cache', async () => {
+        const { listeners, fetchMock, caches, names } = loadServiceWorker();
+        for (const path of ['places/manifest.json', 'osm/202610-fixture/areas/36_179.json']) {
+            const respondWith = vi.fn();
+            const request = new Request(`https://tiles.thalassatiles.com/marine-catalogue/v1/${path}`, {
+                cache: 'no-store',
+            });
+            listeners.get('fetch')?.({ request, respondWith, waitUntil: vi.fn() });
+            await respondWith.mock.calls[0][0];
+            expect(fetchMock).toHaveBeenCalledWith(request);
+        }
+        // Startup may sweep the separately licensed Mapbox cache. Neither
+        // terrain cache may read/write catalogue objects.
+        expect(caches.open).not.toHaveBeenCalledWith(names.runtimeTiles);
+        expect(caches.open).not.toHaveBeenCalledWith(names.offlineTiles);
+    });
     it('installs only stable URLs that survive Vite fingerprinting', async () => {
         const { listeners, cache } = loadServiceWorker();
         const pending: Promise<unknown>[] = [];
@@ -162,6 +194,44 @@ describe('production service worker', () => {
         expect(runtimeCache.put).not.toHaveBeenCalled();
         expect(offlineCache.put).not.toHaveBeenCalled();
         expect(offlineCache.delete).not.toHaveBeenCalled();
+    });
+
+    it('serves explicitly saved relief ahead of ordinary viewed tiles', async () => {
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+        getCache(names.runtimeTiles).match.mockResolvedValue(new Response('old viewed tile'));
+        getCache(names.offlineTiles).match.mockResolvedValue(new Response('validated saved terrain'));
+        let result: Promise<Response> | undefined;
+        listeners.get('fetch')?.({
+            request: new Request('https://tiles.thalassatiles.com/v1/relief-global/idx/0/0/0.png'),
+            respondWith: (r) => {
+                result = r;
+            },
+            waitUntil: vi.fn(),
+        });
+        expect(await (await result)!.text()).toBe('validated saved terrain');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('lets the explicit relief downloader validate a fresh response rather than an old viewed tile', async () => {
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+        getCache(names.runtimeTiles).match.mockResolvedValue(new Response('stale viewed tile'));
+        let result: Promise<Response> | undefined;
+        const request = new Request('https://tiles.thalassatiles.com/v1/relief-global/idx/0/0/0.png', {
+            cache: 'reload',
+            redirect: 'error',
+            credentials: 'omit',
+        });
+        listeners.get('fetch')?.({
+            request,
+            respondWith: (r) => {
+                result = r;
+            },
+            waitUntil: vi.fn(),
+        });
+        expect(await (await result)!.text()).toBe('network');
+        expect(fetchMock).toHaveBeenCalledWith(request);
+        expect(getCache(names.runtimeTiles).match).not.toHaveBeenCalled();
+        expect(getCache(names.offlineTiles).put).not.toHaveBeenCalled();
     });
 
     it('prunes only the ordinary browsing tile cache to its fixed limit', async () => {

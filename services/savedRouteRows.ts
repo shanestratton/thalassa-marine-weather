@@ -25,8 +25,8 @@
  * one way a route leaves these lists.
  */
 import type { Voyage } from './VoyageService';
-import type { SavedTrace } from './routeTracer';
-import { destNameFromRouteName, originNameFromRouteName } from './routeTracer';
+import type { SavedTrace } from './savedTraceStore';
+import { destNameFromRouteName, originNameFromRouteName } from './savedTraceStore';
 import { routeDistanceNm } from './passageSummarySchedule';
 import { serialiseTraceVerificationNote } from './traceVerification';
 import { vesselCrewAboard } from './units';

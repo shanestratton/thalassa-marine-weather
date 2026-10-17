@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type mapboxgl from 'mapbox-gl';
 import { useTideStationLayer } from '../components/map/useTideStationLayer';
 import type { TideStation, TideStationDetails } from '../services/tides/stationDetails';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const api = vi.hoisted(() => ({
     search: vi.fn(),
@@ -176,6 +177,7 @@ const flush = async () => {
     });
 };
 beforeEach(() => {
+    setAuthIdentityScope('11111111-1111-4111-8111-111111111111');
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-20T00:00:00Z'));
     api.search.mockReset().mockResolvedValue([STATION]);
@@ -185,12 +187,77 @@ beforeEach(() => {
 });
 afterEach(async () => {
     cleanup();
+    setAuthIdentityScope(null);
     await flush();
     document.querySelectorAll('.tide-test-map').forEach((node) => node.remove());
     vi.useRealTimers();
 });
 
 describe('tide station layer lifecycle', () => {
+    it('closes mounted paid detail and removes selected station/gauge data synchronously on account change', async () => {
+        const c = makeMap();
+        const hook = renderHook(() => useTideStationLayer(c.ref, true, true));
+        await flush();
+        c.click();
+        await flush();
+        expect(screen.getByRole('heading', { name: STATION.name })).toBeTruthy();
+        act(() => {
+            setAuthIdentityScope('22222222-2222-4222-8222-222222222222');
+        });
+        expect(c.container.querySelector('.tide-station-detail-overlay')).toBeNull();
+        expect(hook.result.current.stationCount).toBe(0);
+        expect(c.sourceHistory[0].setData.mock.calls.at(-1)?.[0].features).toEqual([]);
+        expect(api.markers[0].remove).toHaveBeenCalledOnce();
+        await flush();
+        expect(screen.queryByRole('heading', { name: STATION.name })).toBeNull();
+        expect(api.search).toHaveBeenCalledOnce();
+    });
+    it('aborts old-account search and detail promises so late results cannot repopulate the active map', async () => {
+        const c = makeMap();
+        const pending = deferred<TideStationDetails | null>();
+        api.details.mockReturnValueOnce(pending.promise);
+        const hook = renderHook(() => useTideStationLayer(c.ref, true, true));
+        await flush();
+        c.click();
+        await flush();
+        const detailSignal = api.details.mock.calls[0][1].signal as AbortSignal;
+        const search = deferred<TideStation[] | null>();
+        api.search.mockReturnValueOnce(search.promise);
+        c.pan(OTHER.lat, OTHER.lon);
+        act(() => vi.advanceTimersByTime(650));
+        const searchSignal = api.search.mock.calls[1][2].signal as AbortSignal;
+        act(() => {
+            setAuthIdentityScope('22222222-2222-4222-8222-222222222222');
+        });
+        expect(detailSignal.aborted).toBe(true);
+        expect(searchSignal.aborted).toBe(true);
+        pending.resolve(details());
+        search.resolve([OTHER]);
+        await flush();
+        expect(hook.result.current.stationCount).toBe(0);
+        expect(c.container.querySelector('.tide-station-detail-overlay')).toBeNull();
+        expect(c.sourceHistory[0].setData.mock.calls.at(-1)?.[0].features).toEqual([]);
+    });
+    it('drops a hidden viewport cache before the new account re-enables the tide layer', async () => {
+        const c = makeMap();
+        const hook = renderHook(({ visible }) => useTideStationLayer(c.ref, true, visible), {
+            initialProps: { visible: true },
+        });
+        await flush();
+        hook.rerender({ visible: false });
+        act(() => {
+            setAuthIdentityScope('22222222-2222-4222-8222-222222222222');
+        });
+        const next = deferred<TideStation[] | null>();
+        api.search.mockReturnValueOnce(next.promise);
+        hook.rerender({ visible: true });
+        expect(hook.result.current.stationCount).toBe(0);
+        expect(c.sourceHistory[1].setData.mock.calls.at(-1)?.[0].features).toEqual([]);
+        expect(api.search).toHaveBeenCalledTimes(2);
+        next.resolve([OTHER]);
+        await flush();
+        expect(c.sourceHistory[1].setData.mock.calls.at(-1)?.[0].features[0].properties.id).toBe(OTHER.id);
+    });
     it('loads stations immediately and never requests every station prediction', async () => {
         const c = makeMap();
         const hook = renderHook(() => useTideStationLayer(c.ref, true, true));

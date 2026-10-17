@@ -45,6 +45,16 @@
  *   - Whether this phone's push token is registered for this account is read
  *     for the AIS key's capability line.
  *
+ * Build 129 (129-12), her Pi may take commands only from her own devices:
+ *   - a STAND-DOWN (this phone's, or for everyone) from a phone not set up for
+ *     her Pi is refused with words ("This phone isn't set up for <boat>'s Pi.
+ *     Type the code from her Pi."). It is not tried again: the row shows the
+ *     Pi still watching, with those words in place of the stand-down.
+ *   - ARMING and ACKNOWLEDGEMENTS are raises, open to every phone aboard, so a
+ *     phone that is not set up still sees the watch and still silences alarms.
+ *     Its acknowledgement silences this phone only (the Pi answers `local`):
+ *     only her own devices silence an alarm for every phone aboard.
+ *
  * Every request to the Pi rides the pinned transport (PiPairingService
  * pinnedPiRequest): the Pi's certificate is pinned to its pairing key, and a
  * plain fetch dies in silence (tests/PiTransportCompleteness.test.ts).
@@ -59,6 +69,7 @@ import { PiNightWatchStatus } from './piNightWatchStatus';
 import { getAuthIdentityScope } from './authIdentityScope';
 import type { PiPushState } from '../utils/collisionWatchRow';
 import { deviceIdReady } from './skipperDevice';
+import { notePiCommandRefusalIn } from './piCommandRefusal';
 import { useSettingsStore } from '../stores/settingsStore';
 import { sanitiseCollisionPrefs, type CollisionPrefs } from '../utils/collisionRule';
 import { createLogger } from '../utils/createLogger';
@@ -226,7 +237,7 @@ class PiNightWatchClient {
     private async sendTest(): Promise<{ push: PiPushState | null; queued: boolean } | null> {
         if (!this.running || !getPairing() || !PiNightWatchStatus.reachable()) return null;
         const body = await this.post('/api/ais-watch/test', {});
-        if (body === null || body === 'gone') return null;
+        if (body === null || body === 'gone' || body === 'refused') return null;
         const push = typeof body.push === 'string' && PUSH_STATES.has(body.push) ? (body.push as PiPushState) : null;
         return { push, queued: body.queued === true };
     }
@@ -243,8 +254,12 @@ class PiNightWatchClient {
         return (remote ?? piCache.getBaseUrl())?.replace(/\/$/, '') ?? null;
     }
 
-    /** The Pi's answer, 'gone' when it has no such endpoint (before Pi update 2), or null when it did not take it. */
-    private async post(path: string, data: unknown): Promise<Record<string, unknown> | 'gone' | null> {
+    /**
+     * The Pi's answer, 'gone' when it has no such endpoint (before Pi update 2),
+     * 'refused' when it takes commands only from her own devices and this phone
+     * is not one (129-12), or null when it did not take it.
+     */
+    private async post(path: string, data: unknown): Promise<Record<string, unknown> | 'gone' | 'refused' | null> {
         const base = this.baseUrl();
         if (!base) return null;
         try {
@@ -259,6 +274,10 @@ class PiNightWatchClient {
             if (res.status === 404) {
                 log.warn(`the Pi has no ${path} (no night watch before Pi update 2)`);
                 return 'gone';
+            }
+            if (notePiCommandRefusalIn(res, () => getPairing()?.boatName)) {
+                log.warn(`the Pi refused ${path}: this phone is not set up for it`);
+                return 'refused';
             }
             if (res.status < 200 || res.status >= 300) {
                 log.warn(`the Pi refused ${path} (HTTP ${res.status})`);
@@ -298,7 +317,8 @@ class PiNightWatchClient {
                         refused = true;
                         break;
                     }
-                    // Sent, or a Pi with no such endpoint: either way nothing waits.
+                    // Sent, a Pi with no such endpoint, or one that will not take it
+                    // from this phone (the row says why): either way nothing waits.
                     if (this.desired === desired) {
                         this.desired = null;
                         PiNightWatchStatus.setPending(null);
@@ -320,6 +340,9 @@ class PiNightWatchClient {
                 }
                 // Taken (the Pi keeps one it has no alarm for yet), or a Pi with no watch to take it.
                 this.acks.shift();
+                // Kept to this phone (129-12): her Pi silences everyone's only for her own devices.
+                if (typeof body === 'object' && body.local === true)
+                    PiNightWatchStatus.keepAckedHere(ack.kind, ack.mmsi);
             }
         } catch (error) {
             refused = true;

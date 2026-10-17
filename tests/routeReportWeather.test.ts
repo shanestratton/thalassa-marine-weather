@@ -53,6 +53,40 @@ describe('routeReportWeather', () => {
         expect(windCompass(-90)).toBe('W');
     });
 
+    it.each([null, '', false])('does not turn absent or malformed waypoint weather %j into calm', async (missing) => {
+        const pins = [
+            { lat: 0, lon: 0 },
+            { lat: 0, lon: 0.01 },
+        ];
+        vi.mocked(fetchOpenMeteoPoints).mockResolvedValueOnce(
+            pins.map(() => ({
+                hourly: {
+                    time: [0],
+                    wind_speed_10m: [missing],
+                    wind_direction_10m: [missing],
+                    wind_gusts_10m: [missing],
+                },
+            })) as never,
+        );
+        const rows = await fetchRouteWaypointWeather(pins, 0, 6);
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => row.windKts === null && row.windDeg === null && row.gustKts === null)).toBe(true);
+    });
+
+    it.each([null, '', false, 0])('counts only actual numeric route conditions for %j', async (value) => {
+        const pins = [
+            { lat: 0, lon: 0 },
+            { lat: 0, lon: 0.01 },
+        ];
+        vi.mocked(fetchOpenMeteoPoints)
+            .mockResolvedValueOnce(pins.map(() => ({ hourly: { time: [0], wind_speed_10m: [value] } })) as never)
+            .mockResolvedValueOnce(pins.map(() => ({ hourly: { time: [0], wave_height: [value] } })) as never);
+        const result = await fetchRouteMaxConditions(pins, 0, 6);
+        expect(result.maxWindKts).toBe(value === 0 ? 0 : null);
+        expect(result.maxWaveM).toBe(value === 0 ? 0 : null);
+        expect(result.forecastPoints).toBe(value === 0 ? 2 : 0);
+    });
+
     it('samples wind and waves at each route ETA rather than reusing departure weather', async () => {
         vi.mocked(fetchOpenMeteoPoints)
             .mockResolvedValueOnce([

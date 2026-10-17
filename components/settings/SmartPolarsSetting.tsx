@@ -17,11 +17,12 @@
 import React, { useEffect, useId, useState } from 'react';
 import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
-import { getPairing } from '../../services/PiPairingService';
+import { boatLinkConfigured } from '../../services/boatLink/boatLinkGate';
 import { SmartPolarService } from '../../services/SmartPolarService';
 import { learnerFeedState, subscribeLearnerFeedState } from '../../services/smartPolarFeed';
 import { Row, Toggle } from './SettingsPrimitives';
 import type { UserSettings } from '../../types';
+import { getPiPolarSyncState, subscribePiPolarSync } from '../../services/piPolarLearner';
 
 /** On: the policy's feed and the learner. Off: the learner only. */
 export function applySmartPolars(enabled: boolean): void {
@@ -37,13 +38,6 @@ export function applySmartPolars(enabled: boolean): void {
     }
 }
 
-/**
- * Any way to the boat's instruments: a Pi paired or a gateway saved. 126-10a's
- * boatLinkConfigured() (services/boatLink/boatLinkGate) answers the same
- * question; use it once it lands.
- */
-const hasBoatLink = (): boolean => getPairing() !== null || NmeaListenerService.getSavedConfig() !== null;
-
 const openNmeaGateway = () => window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'nmea' } }));
 
 export const SmartPolarsSetting: React.FC<{
@@ -51,6 +45,8 @@ export const SmartPolarsSetting: React.FC<{
     onSave: (patch: Partial<UserSettings>) => void;
 }> = ({ settings, onSave }) => {
     const enabled = settings.smartPolarsEnabled === true;
+    const [piSync, setPiSync] = useState(getPiPolarSyncState);
+    useEffect(() => subscribePiPolarSync(() => setPiSync(getPiPolarSyncState())), []);
     // Re-read the link whenever the feed changes (a gateway connecting, the
     // Pi's lane starting), so a link set up while this page is open counts.
     const [, setFeed] = useState(learnerFeedState);
@@ -59,8 +55,9 @@ export const SmartPolarsSetting: React.FC<{
         return subscribeLearnerFeedState(setFeed);
     }, []);
     const captionId = useId();
-    // Off, with no way to the boat's instruments, it cannot turn on.
-    const blocked = !enabled && !hasBoatLink();
+    // Off, with no way to the boat's instruments, it cannot turn on: the boat
+    // link's own set-up check, a Pi paired or a gateway saved (131-01).
+    const blocked = !enabled && !boatLinkConfigured();
 
     return (
         <Row>
@@ -83,6 +80,18 @@ export const SmartPolarsSetting: React.FC<{
                         'Learns your boat’s real performance from the instruments. The Polars page shows what it has learned.'
                     )}
                 </p>
+                {piSync === 'failed' && (
+                    <p className="text-xs text-amber-300">
+                        Pi change not confirmed. Reconnect to your boat; its previous learning setting may still be
+                        active.
+                    </p>
+                )}
+                {piSync === 'saving' && <p className="text-xs text-gray-400">Saving the Pi learning setting…</p>}
+                {piSync === 'saved' && enabled && (
+                    <p className="text-xs text-gray-400">
+                        The Pi keeps learning while this phone sleeps. The boat track recorder must also be on.
+                    </p>
+                )}
             </div>
             {blocked ? (
                 <button

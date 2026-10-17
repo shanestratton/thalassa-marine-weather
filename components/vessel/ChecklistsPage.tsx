@@ -3,11 +3,11 @@
  *
  * Sub-components extracted to ./checklists/:
  *   - SwipeableItemCard: swipeable heading/detail card with reorder controls
+ *   - PastRunsSheet: when each list was last run and what failed (lazy)
  */
-import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { usePanePortalTarget } from '../../context/PanePortalContext';
+import React, { Suspense, useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
 import { createLogger } from '../../utils/createLogger';
+import { lazyRetry } from '../../utils/lazyRetry';
 
 const log = createLogger('ChecklistsPage');
 import {
@@ -19,13 +19,15 @@ import {
 } from '../../services/vessel/LocalChecklistService';
 import { LocalMaintenanceService } from '../../services/vessel/LocalMaintenanceService';
 import { SharedBinderReadOnlyError } from '../../services/vessel/sharedBinders';
-import { toLocalDateString } from '../../utils/localDate';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { CheckIcon, WrenchIcon, XIcon } from '../Icons';
 import { ModalSheet } from '../ui/ModalSheet';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { UndoToast } from '../ui/UndoToast';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
@@ -34,10 +36,13 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
+import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { onSyncComplete } from '../../services/vessel/SyncService';
 import { changedFields, REMOVED_ELSEWHERE, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
+import { clearRunDraft, readRunDraft, saveRunDraft } from '../../services/vessel/checklistRunDraft';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -45,8 +50,22 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 
+// Opened from the ⋮ only, so it is fetched only then (132-B16).
+const PastRunsSheet = lazyRetry(
+    () => import('./checklists/PastRunsSheet').then((m) => ({ default: m.PastRunsSheet })),
+    'PastRunsSheet',
+);
+
 interface ChecklistsPageProps {
     onBack: () => void;
+}
+
+/** The run on screen: one checklist, ticked item by item (132-B16). */
+interface ActiveRun {
+    id: string;
+    heading_id: string;
+    heading: string;
+    started_at: string;
 }
 
 // SwipeableItemCard now in ./checklists/SwipeableItemCard.tsx
@@ -60,8 +79,9 @@ function repairFailureReason(e: unknown): 'read-only' | 'local-db' | 'other' {
 
 /**
  * The toast for repairs that did not reach Maintenance. Complete closes the
- * run and no screen lists past runs yet (126-B16), so it names them (on screen
- * only; the log keeps a reason) and says to add them in Maintenance by hand.
+ * run, and Past runs (132-B16) shows what failed but not which repairs
+ * landed, so it names them (on screen only; the log keeps a reason) and says
+ * to add them in Maintenance by hand.
  */
 function repairsNotAddedMessage(names: string[]): string {
     if (names.length === 1) return `Couldn't add “${names[0]}” to Maintenance — add it there by hand`;
@@ -96,9 +116,11 @@ const STATUS_STYLES: Record<RunItemStatus, { bg: string; border: string; icon: s
 // ── Main Component ─────────────────────────────────────────────
 
 export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
-    const portalTarget = usePanePortalTarget();
     const initialScope = getAuthIdentityScope();
     const [entries, setEntries] = useState<ChecklistEntry[]>([]);
+    // Completed runs, from this device and the skipper's others (132-B16).
+    const [runs, setRuns] = useState<ChecklistRun[]>([]);
+    const [pastRunsOpen, setPastRunsOpen] = useState(false);
     const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
     const [loading, setLoading] = useState(true);
     // A failed fetch used to fall through to the empty state, so a network
@@ -106,6 +128,20 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const [loadError, setLoadError] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    // Reorder mode (132-B20): the items' arrows, 44 pt each, come out only
+    // here, from the ⋮'s Reorder items, and go away with Done.
+    const [reordering, setReordering] = useState(false);
+    /** What the last move did, for VoiceOver: the item and its new place. */
+    const [moveNote, setMoveNote] = useState('');
+    /** The arrow pressed last, refocused once the list has redrawn. */
+    const moveFocusRef = useRef<{ id: string; direction: 'up' | 'down' } | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+    // A checklist that still has items waits for one question before it goes.
+    const [deleteAsk, setDeleteAsk] = useState<{
+        scope: AuthIdentityScope;
+        entry: ChecklistEntry;
+        items: number;
+    } | null>(null);
 
     // Add/Edit form state
     const [showForm, setShowForm] = useState(false);
@@ -113,33 +149,91 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const [formType, setFormType] = useState<'heading' | 'detail'>('heading');
     const [formText, setFormText] = useState('');
     const [formHeadingId, setFormHeadingId] = useState<string>('');
+    /** An Add in flight: a double tap on Add item made the item twice (132-B16, CHK-06). */
+    const savingRef = useRef(false);
+    const [saving, setSaving] = useState(false);
+    /** The checklist made last on this visit: new items go under it (132-B16, CHK-09). */
+    const lastHeadingIdRef = useRef<string | null>(null);
 
     // Run mode state
-    const [showRun, setShowRun] = useState(false);
+    const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
+    const showRun = activeRun !== null;
     const [runItems, setRunItems] = useState<ChecklistRunItem[]>([]);
-    const [runId, setRunId] = useState('');
+    // Leaving a run with anything checked asks first (132-B16, CHK-04).
+    const [abandonAsk, setAbandonAsk] = useState(false);
+    const [completing, setCompleting] = useState(false);
     const runTitleId = useId();
+    const typeLabelId = useId();
+    const headingFieldId = useId();
+    const pageActionsMenuId = useId();
     const pageActionsButtonRef = useRef<HTMLButtonElement>(null);
+    // Diary's menu (132-B20): named a menu with its state, focus goes into it,
+    // the arrows move through it and Escape closes it.
+    const closePageActions = useCallback(() => setHeaderMenuOpen(false), []);
+    const pageActionsMenuRef = useMenuNavigation<HTMLDivElement>(headerMenuOpen, {
+        triggerRef: pageActionsButtonRef,
+        onClose: closePageActions,
+    });
     const runCloseButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
     /** A Complete in flight: a double tap saved the run, and every repair, twice. */
     const completingRef = useRef(false);
+    /** Said once a run: this phone would not keep the run as it was ticked. */
+    const draftWarnedRef = useRef(false);
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const currentOperation = useCallback(
         (scope: AuthIdentityScope) =>
             mountedRef.current && isAuthIdentityScopeCurrent(scope) && dataScopeKey === scope.key,
         [dataScopeKey],
     );
+    /** The run is over (completed or discarded): nothing to bring back. */
+    const closeRun = useCallback((scope: AuthIdentityScope) => {
+        clearRunDraft(scope);
+        setActiveRun(null);
+        setRunItems([]);
+        setAbandonAsk(false);
+    }, []);
     const exitRun = useCallback(() => {
         const scope = getAuthIdentityScope();
-        if (!currentOperation(scope)) return;
-        setShowRun(false);
-        setRunItems([]);
-    }, [currentOperation]);
+        if (!currentOperation(scope) || completingRef.current) return;
+        // Nothing checked yet is nothing to lose: no question.
+        if (runItems.some((item) => item.status !== 'unchecked')) setAbandonAsk(true);
+        else closeRun(scope);
+    }, [closeRun, currentOperation, runItems]);
     const runDialogRef = useFocusTrap(showRun, {
         initialFocusRef: runCloseButtonRef,
         onEscape: exitRun,
     });
+
+    // Every tick is kept on the phone as it lands (132-B16, CHK-04): a crash,
+    // or iOS closing the app in the background, used to lose the whole run.
+    // Not while Complete saves: once saved the phone's copy is cleared, and
+    // writing it back brought a completed run back to be completed again.
+    useEffect(() => {
+        if (!activeRun || completingRef.current) return;
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
+        if (saveRunDraft({ ...activeRun, items: runItems }, scope) || draftWarnedRef.current) return;
+        draftWarnedRef.current = true;
+        log.warn('checklists: run-draft-not-kept');
+        toast.error("This phone couldn't keep the run as you go. Complete it before you close the app.", 8000);
+    }, [activeRun, currentOperation, runItems]);
+
+    // A run left in progress (the app closed or crashed) comes back as it was
+    // left, under the account that ran it (132-B16, CHK-04).
+    const resumeRun = useCallback((scope: AuthIdentityScope) => {
+        const draft = readRunDraft(scope);
+        if (!draft || !mountedRef.current || !isAuthIdentityScopeCurrent(scope)) return;
+        draftWarnedRef.current = false;
+        setActiveRun({
+            id: draft.id,
+            heading_id: draft.heading_id,
+            heading: draft.heading,
+            started_at: draft.started_at,
+        });
+        setRunItems(draft.items);
+        toast.info(`Your “${draft.heading}” run is back where you left it`);
+    }, []);
 
     // ── Load ──
     // A background reload (a change from another device, a sync) keeps the
@@ -153,9 +247,11 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         }
         try {
             const loaded = LocalChecklistService.getAll();
+            const loadedRuns = LocalChecklistService.getRuns().filter((run) => run.completed_at);
             if (!isAuthIdentityScopeCurrent(scope)) return;
             setDataScopeKey(scope.key);
             setEntries(loaded);
+            setRuns(loadedRuns);
             setLoadError(false);
         } catch (e) {
             log.error('Failed to load checklists:', e);
@@ -169,26 +265,58 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     }, []);
     const reloadInBackground = useCallback(() => loadEntries(true), [loadEntries]);
 
+    // Soft delete with undo (126-B10b), as the other binders have had since
+    // 126-B10a: a deleted checklist or item stays in state, hidden, until its
+    // delete is committed (on Back too), so no reload brings it back and Undo
+    // returns it once, in its place. A checklist hides its items with it, and
+    // nothing leaves this device until the five seconds are up, so an Undo
+    // leaves no other device anything to bring back.
+    const undoDelete = useUndoDelete<ChecklistEntry>({
+        rows: entries,
+        // The service takes a checklist's items with it (the server cascades too).
+        commit: (entry) => LocalChecklistService.delete(entry.id),
+        onCommitted: () => reloadInBackground(),
+        onCommitFailed: () => toast.error('Failed to delete'),
+        onRestored: (entry) => toast.success(entry.type === 'heading' ? 'Checklist restored' : 'Item restored'),
+        describe: (entry) => `"${entry.text}" deleted`,
+        alsoHides: (entry) =>
+            entry.type === 'heading'
+                ? entries.filter((e) => e.type === 'detail' && e.heading_id === entry.id).map((e) => e.id)
+                : [],
+    });
+    const { hiddenIds } = undoDelete;
+    const { key: undoToastKey, ...undoToastProps } = undoDelete.toastProps;
+
     useEffect(() => {
         mountedRef.current = true;
         loadEntries();
+        resumeRun(getAuthIdentityScope());
         const unsubscribe = subscribeAuthIdentityScope((next) => {
             if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
             setDataScopeKey(next.key);
             setEntries([]);
+            setRuns([]);
+            setPastRunsOpen(false);
             setLoading(true);
             setSearchQuery('');
             setHeaderMenuOpen(false);
+            setReordering(false);
+            setMoveNote('');
+            setDeleteAsk(null);
             setShowForm(false);
             setEditEntry(null);
             setFormType('heading');
             setFormText('');
             setFormHeadingId('');
-            setShowRun(false);
+            lastHeadingIdRef.current = null;
+            // The run stays on the phone under its own account, for when it signs back in.
+            setActiveRun(null);
             setRunItems([]);
-            setRunId('');
+            setAbandonAsk(false);
             reloadTimerRef.current = setTimeout(() => {
-                if (isAuthIdentityScopeCurrent(next)) loadEntries();
+                if (!isAuthIdentityScopeCurrent(next)) return;
+                loadEntries();
+                resumeRun(next);
             }, 0);
         });
         return () => {
@@ -197,7 +325,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             reloadTimerRef.current = null;
             unsubscribe();
         };
-    }, [loadEntries]);
+    }, [loadEntries, resumeRun]);
 
     // Live across devices (126-B9a): a change saved on the sailor's other
     // device lands within seconds, on one channel for the lists and their
@@ -213,10 +341,13 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     );
 
     // ── Computed ──
-    const visibleEntries = useMemo(
-        () => (dataScopeKey === getAuthIdentityScope().key ? entries : []),
-        [dataScopeKey, entries],
-    );
+    // Without what waits out its Undo: an item added on another device to a
+    // checklist being deleted goes with it, so it is hidden with it too.
+    const visibleEntries = useMemo(() => {
+        if (dataScopeKey !== getAuthIdentityScope().key) return [];
+        if (hiddenIds.size === 0) return entries;
+        return entries.filter((e) => !hiddenIds.has(e.id) && !(e.heading_id && hiddenIds.has(e.heading_id)));
+    }, [dataScopeKey, entries, hiddenIds]);
 
     const headings = useMemo(() => visibleEntries.filter((e) => e.type === 'heading'), [visibleEntries]);
 
@@ -250,15 +381,58 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         [headings, visibleEntries],
     );
 
+    // A checklist whose name matches keeps all its items (132-B16, CHK-11):
+    // searching 'anchor' found the Anchoring list and showed it empty.
     const filtered = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return grouped;
         return grouped
-            .map((g) => ({ ...g, items: g.items.filter((i) => i.text.toLowerCase().includes(q)) }))
+            .map((g) =>
+                g.heading.text.toLowerCase().includes(q)
+                    ? g
+                    : { ...g, items: g.items.filter((i) => i.text.toLowerCase().includes(q)) },
+            )
             .filter((g) => g.heading.text.toLowerCase().includes(q) || g.items.length > 0);
     }, [grouped, searchQuery]);
 
+    // A checklist runs whole, whatever a search is showing of it.
+    const runnable = useMemo(
+        () => new Set(grouped.filter((g) => g.items.length > 0).map((g) => g.heading.id)),
+        [grouped],
+    );
+
     const totalDetails = useMemo(() => visibleEntries.filter((e) => e.type === 'detail').length, [visibleEntries]);
+
+    // Reorder mode is offered while some checklist has two items to swap, and
+    // leaves by itself when none has (deleted on another device meanwhile).
+    const canReorder = useMemo(() => grouped.some((g) => g.items.length > 1), [grouped]);
+    useEffect(() => {
+        if (reordering && !canReorder && !loading) setReordering(false);
+    }, [reordering, canReorder, loading]);
+    // After a move, the arrow that made it has the focus again; at the end of
+    // its list (the arrow now disabled) the other one does.
+    useEffect(() => {
+        const moved = moveFocusRef.current;
+        const list = listRef.current;
+        if (!moved || !list) return;
+        moveFocusRef.current = null;
+        const arrow = (direction: string) =>
+            list.querySelector<HTMLButtonElement>(`[data-move="${moved.id}:${direction}"]`);
+        const pressed = arrow(moved.direction);
+        const target = pressed && !pressed.disabled ? pressed : arrow(moved.direction === 'up' ? 'down' : 'up');
+        if (target && document.activeElement !== target) target.focus({ preventScroll: false });
+    }, [entries]);
+    const startReorder = useCallback(() => {
+        setHeaderMenuOpen(false);
+        setSearchQuery('');
+        setMoveNote('');
+        setReordering(true);
+    }, []);
+    const finishReorder = useCallback(() => {
+        setReordering(false);
+        setMoveNote('');
+        pageActionsButtonRef.current?.focus();
+    }, []);
 
     // ── Form handlers ──
     const resetForm = () => {
@@ -268,11 +442,15 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         setEditEntry(null);
     };
 
+    // The checklist made last on this visit while it is still here, else the
+    // first (132-B16, CHK-09): always the first put a new list's items in another.
+    const defaultHeadingId = () => headings.find((h) => h.id === lastHeadingIdRef.current)?.id ?? headings[0]?.id ?? '';
+
     const openAddForm = () => {
         resetForm();
         // Default to 'detail' if headings exist, otherwise 'heading'
         setFormType(headings.length > 0 ? 'detail' : 'heading');
-        if (headings.length > 0) setFormHeadingId(headings[0].id);
+        if (headings.length > 0) setFormHeadingId(defaultHeadingId());
         setShowForm(true);
     };
 
@@ -285,7 +463,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     };
 
     const handleSave = useCallback(async () => {
-        if (!formText.trim()) return;
+        if (!formText.trim() || savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         const scope = getAuthIdentityScope();
         const text = formText.trim();
         const headingId = formType === 'detail' ? formHeadingId : null;
@@ -305,13 +485,20 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 setShowForm(false);
                 resetForm();
             } else {
-                await LocalChecklistService.create({
+                const created = await LocalChecklistService.create({
                     type: formType,
                     text,
                     heading_id: headingId,
                 });
                 if (!currentOperation(scope)) return;
                 toast.success(formType === 'heading' ? 'Checklist added' : 'Item added');
+                if (formType === 'heading') {
+                    // Its items come next, so the form turns to Item, under
+                    // the checklist just made (132-B16, CHK-09).
+                    lastHeadingIdRef.current = created.id;
+                    setFormType('detail');
+                    setFormHeadingId(created.id);
+                }
                 // Keep form open — just clear text so user can add more
                 setFormText('');
             }
@@ -319,37 +506,31 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         } catch (e) {
             log.error('Failed to save:', e);
             if (currentOperation(scope)) toast.error('Failed to save');
+        } finally {
+            savingRef.current = false;
+            if (mountedRef.current) setSaving(false);
         }
     }, [currentOperation, editEntry, formText, formType, formHeadingId, loadEntries]);
 
+    // ── Delete, with its Undo (useUndoDelete above) ──
+    const { remove: removeEntry } = undoDelete;
     const handleDelete = useCallback(
-        async (id: string) => {
+        (id: string) => {
             const scope = getAuthIdentityScope();
             const entry = visibleEntries.find((e) => e.id === id);
-            if (!entry) return;
-
-            // Guard: don't delete headings that still have items
-            if (entry.type === 'heading') {
-                const children = visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === id);
-                if (children.length > 0) {
-                    toast.error('Remove all items from this checklist first');
-                    return;
-                }
-            }
-
+            if (!entry || !currentOperation(scope)) return;
             triggerHaptic('medium');
-            try {
-                await LocalChecklistService.delete(id);
-                if (!currentOperation(scope)) return;
-                loadEntries();
-                const isH = entry.type === 'heading';
-                toast.success(isH ? 'Checklist deleted' : 'Item deleted');
-            } catch (e) {
-                log.error('Failed to delete:', e);
-                if (currentOperation(scope)) toast.error('Failed to delete');
-            }
+            // A checklist that still has items asks once and says how many go
+            // with it (126-B10b, CHK-05): it used to refuse with a toast, so a
+            // list of twenty items took twenty swipes to clear.
+            const items =
+                entry.type === 'heading'
+                    ? visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === id).length
+                    : 0;
+            if (items > 0) setDeleteAsk({ scope, entry, items });
+            else removeEntry(entry);
         },
-        [currentOperation, loadEntries, visibleEntries],
+        [currentOperation, removeEntry, visibleEntries],
     );
 
     // ── Reorder items ──
@@ -367,6 +548,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 if (!currentOperation(scope)) return;
                 await LocalChecklistService.update(itemB.id, { order: itemA.order });
                 if (!currentOperation(scope)) return;
+                // The arrow pressed keeps the focus as the list redraws, and
+                // VoiceOver hears where the item went (132-B20).
+                moveFocusRef.current = { id: itemA.id, direction };
+                setMoveNote(`${itemA.text} moved to ${targetIndex + 1} of ${groupItems.length}`);
                 loadEntries();
             } catch (e) {
                 log.error('Failed to reorder:', e);
@@ -377,36 +562,53 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     );
 
     // ── Run mode ──
-    const startRun = useCallback(() => {
-        const scope = getAuthIdentityScope();
-        if (!currentOperation(scope)) return;
-        pageActionsButtonRef.current?.focus();
-        setHeaderMenuOpen(false);
-        const details = visibleEntries.filter((e) => e.type === 'detail');
-        if (details.length === 0) {
-            toast.error('No items to check — add some first');
-            return;
-        }
-        triggerHaptic('medium');
-        const items: ChecklistRunItem[] = grouped.flatMap((g) =>
-            g.items.map((item) => ({
+    // One checklist at a time, from its own Run button (132-B16, CHK-03): the
+    // ⋮'s Run checklist ticked every list on the page in one run, so a
+    // pre-departure check came with the anchoring and heavy-weather lists.
+    const startRun = useCallback(
+        (headingId: string) => {
+            const scope = getAuthIdentityScope();
+            if (!currentOperation(scope)) return;
+            const group = grouped.find((g) => g.heading.id === headingId);
+            if (!group || group.items.length === 0) {
+                toast.error('No items to check — add some first');
+                return;
+            }
+            triggerHaptic('medium');
+            const items: ChecklistRunItem[] = group.items.map((item) => ({
                 entry_id: item.id,
-                heading: g.heading.text,
+                heading: group.heading.text,
+                heading_id: group.heading.id,
                 text: item.text,
                 status: 'unchecked' as RunItemStatus,
                 flagged_rm: false,
                 notes: '',
-            })),
-        );
-        setRunItems(items);
-        setRunId(generateUUID());
-        setShowRun(true);
-    }, [currentOperation, grouped, visibleEntries]);
+            }));
+            draftWarnedRef.current = false;
+            setRunItems(items);
+            setActiveRun({
+                id: generateUUID(),
+                heading_id: group.heading.id,
+                heading: group.heading.text,
+                started_at: new Date().toISOString(),
+            });
+        },
+        [currentOperation, grouped],
+    );
 
+    const openPastRuns = useCallback(() => {
+        pageActionsButtonRef.current?.focus();
+        setHeaderMenuOpen(false);
+        setPastRunsOpen(true);
+    }, []);
+
+    // Ticks and flags wait while Complete saves (132-B16): the run saved is the
+    // one on screen when Complete was tapped, so a tick then was left out of
+    // it, and kept on the phone as a run still to finish.
     const toggleRunItem = useCallback(
         (entryId: string) => {
             const scope = getAuthIdentityScope();
-            if (!currentOperation(scope)) return;
+            if (!currentOperation(scope) || completingRef.current) return;
             triggerHaptic('light');
             setRunItems((prev) =>
                 prev.map((item) => {
@@ -424,7 +626,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const toggleRmFlag = useCallback(
         (entryId: string) => {
             const scope = getAuthIdentityScope();
-            if (!currentOperation(scope)) return;
+            if (!currentOperation(scope) || completingRef.current) return;
             triggerHaptic('light');
             setRunItems((prev) =>
                 prev.map((item) => {
@@ -438,16 +640,30 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
     const finishRun = useCallback(async () => {
         const scope = getAuthIdentityScope();
-        if (!currentOperation(scope)) return;
+        if (!currentOperation(scope) || !activeRun) return;
         triggerHaptic('heavy');
         const run: ChecklistRun = {
-            id: runId,
-            started_at: new Date().toISOString(),
-            completed_at: new Date().toISOString(),
+            id: activeRun.id,
+            // When the run began (it used to read Complete's time). Completed
+            // is never before it: the server refuses such a run, and a phone
+            // clock set back mid-run would otherwise produce one.
+            started_at: activeRun.started_at,
+            completed_at: new Date(Math.max(Date.now(), Date.parse(activeRun.started_at) || 0)).toISOString(),
             items: runItems.map((item) => ({ ...item })),
         };
-        await LocalChecklistService.saveRun(run);
+        try {
+            await LocalChecklistService.saveRun(run);
+        } catch (e) {
+            // Nothing was saved: the run stays on screen, and on the phone, for another Complete.
+            log.error('Failed to save checklist run:', e);
+            if (currentOperation(scope)) toast.error("Couldn't save this run. Try Complete again.");
+            return;
+        }
+        // Saved, so the phone's copy is done with, whoever is signed in now.
+        clearRunDraft(scope);
         if (!currentOperation(scope)) return;
+        // Past runs has it now.
+        reloadInBackground();
 
         // Create R&M tasks for flagged items, counting what actually landed:
         // the toast used to count the flags, so a repair that failed to save
@@ -457,18 +673,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         const notAdded: string[] = [];
         for (const item of flagged) {
             try {
-                await LocalMaintenanceService.createTask({
-                    title: `[Checklist] ${item.text}`,
-                    description: `Flagged during checklist run (${item.heading}). Status: FAIL.`,
-                    category: 'Repair',
-                    trigger_type: 'monthly',
-                    interval_value: 30,
-                    // Today on the skipper's own calendar, not the UTC day.
-                    next_due_date: toLocalDateString(),
-                    next_due_hours: null,
-                    last_completed: null,
-                    is_active: true,
-                });
+                // The one repair shape, as R&M and the log raise it (132-B15, CHK-12).
+                await LocalMaintenanceService.createRepair(item.text, `Failed on the ${item.heading} checklist.`);
                 added++;
                 if (!currentOperation(scope)) return;
             } catch (e) {
@@ -481,7 +687,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         const failCount = runItems.filter((i) => i.status === 'fail').length;
         const total = runItems.length;
 
-        setShowRun(false);
+        setActiveRun(null);
         setRunItems([]);
 
         if (failCount > 0) {
@@ -497,17 +703,20 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         }
         // Held twice the usual 4 s: it names what to add by hand.
         if (notAdded.length > 0) toast.error(repairsNotAddedMessage(notAdded), 8000);
-    }, [currentOperation, runItems, runId]);
+    }, [activeRun, currentOperation, reloadInBackground, runItems]);
 
     // One Complete at a time (the Complete half of CHK-06, pulled forward from
-    // 126-B16): a double tap doubled the very repair count above.
+    // 126-B16): a double tap doubled the very repair count above. The button
+    // greys while it saves (132-B16), so the first tap visibly took.
     const completeRun = useCallback(async () => {
         if (completingRef.current) return;
         completingRef.current = true;
+        setCompleting(true);
         try {
             await finishRun();
         } finally {
             completingRef.current = false;
+            if (mountedRef.current) setCompleting(false);
         }
     }, [finishRun]);
 
@@ -555,11 +764,12 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             'Pre‑departure & passage lists'
                         )
                     }
-                    // The menu's one action, Run checklist, needs an item to check,
-                    // so the ⋮ waits for one instead of opening onto a disabled row
-                    // (UX scorecard run 8), as the Diary's does.
+                    // Past runs (132-B16; Run moved onto each checklist) and
+                    // Reorder items (132-B20). The ⋮ waits until one of them has
+                    // something to do, instead of opening onto an empty sheet (UX
+                    // scorecard run 8), as the Diary's waits for its own.
                     action={
-                        totalDetails > 0 ? (
+                        runs.length > 0 || canReorder ? (
                             <div className="relative">
                                 <button
                                     type="button"
@@ -567,6 +777,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
                                     className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                     aria-label="Page actions"
+                                    aria-expanded={headerMenuOpen}
+                                    aria-haspopup="menu"
+                                    aria-controls={headerMenuOpen ? pageActionsMenuId : undefined}
                                 >
                                     <svg
                                         aria-hidden="true"
@@ -581,30 +794,70 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </button>
                                 {headerMenuOpen && (
                                     <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                            <button
-                                                type="button"
-                                                aria-label="Run checklist inspection"
-                                                onClick={startRun}
-                                                className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
-                                            >
-                                                <svg
-                                                    aria-hidden="true"
-                                                    className="w-4 h-4 text-emerald-400"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2}
+                                        <div
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            className="fixed inset-0 z-40"
+                                            onClick={closePageActions}
+                                        />
+                                        <div
+                                            ref={pageActionsMenuRef}
+                                            id={pageActionsMenuId}
+                                            role="menu"
+                                            aria-label="Checklist actions"
+                                            className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                        >
+                                            {canReorder && (
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={startReorder}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
                                                 >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                                    />
-                                                </svg>
-                                                Run checklist
-                                            </button>
+                                                    <svg
+                                                        aria-hidden="true"
+                                                        className="w-4 h-4 text-sky-400"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                        strokeWidth={2}
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"
+                                                        />
+                                                    </svg>
+                                                    Reorder items
+                                                </button>
+                                            )}
+                                            {canReorder && runs.length > 0 && (
+                                                <div role="separator" className="border-t border-white/5" />
+                                            )}
+                                            {runs.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={openPastRuns}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
+                                                >
+                                                    <svg
+                                                        aria-hidden="true"
+                                                        className="w-4 h-4 text-emerald-400"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                        strokeWidth={2}
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                        />
+                                                    </svg>
+                                                    Past runs
+                                                </button>
+                                            )}
                                         </div>
                                     </>
                                 )}
@@ -613,9 +866,30 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     }
                 />
 
+                {/* Reorder mode (132-B20): what it is for, and Done, where the
+                    search was. Every item shows, a search's filter put away. */}
+                {reordering && (
+                    <div className="shrink-0 px-4 pb-3 flex items-center gap-3">
+                        <p className="flex-1 min-w-0 text-xs font-semibold text-gray-300">
+                            Move items with the arrows, then tap Done.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={finishReorder}
+                            className="shrink-0 min-h-[44px] px-5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sm font-black text-sky-300 hover:bg-sky-500/30 active:scale-95 transition-all"
+                        >
+                            Done
+                        </button>
+                    </div>
+                )}
+                {/* Each move said once, for VoiceOver. Always mounted, so the text change is heard. */}
+                <p className="sr-only" role="status" aria-live="polite">
+                    {moveNote}
+                </p>
+
                 {/* Search — only once there is something to search (UX scorecard
                     run 7: a live field sat over an empty list). */}
-                {(visibleEntries.length > 0 || searchQuery) && (
+                {!reordering && (visibleEntries.length > 0 || searchQuery) && (
                     <div className="shrink-0 px-4 pb-3">
                         <input
                             type="text"
@@ -629,7 +903,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 )}
 
                 {/* Checklist entries (scrollable, grouped) */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-4">
+                <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-4">
                     {loading ? (
                         <div className="space-y-3">
                             <ShimmerBlock variant="list" rows={3} />
@@ -676,6 +950,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     onDelete={() => handleDelete(group.heading.id)}
                                     isHeading
                                     itemCount={group.items.length}
+                                    onRun={
+                                        runnable.has(group.heading.id) ? () => startRun(group.heading.id) : undefined
+                                    }
+                                    reordering={reordering}
                                 />
                                 <div className="space-y-1.5 mt-1.5">
                                     {group.items.map((item, idx) => (
@@ -684,6 +962,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                             entry={item}
                                             onEdit={() => openEditForm(item)}
                                             onDelete={() => handleDelete(item.id)}
+                                            reordering={reordering}
                                             onMoveUp={() => handleMoveItem(group.items, idx, 'up')}
                                             onMoveDown={() => handleMoveItem(group.items, idx, 'down')}
                                             isFirst={idx === 0}
@@ -742,13 +1021,18 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                   : 'Add to checklists'
                         }
                     >
-                        {/* Type toggle — Heading or Detail */}
+                        {/* Type toggle — Heading or Detail. A named group (132-B20):
+                            its 'Type' was a label tied to nothing, so VoiceOver
+                            heard two buttons with no question over them. */}
                         {!editEntry && (
                             <div className="mb-4">
-                                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
+                                <p
+                                    id={typeLabelId}
+                                    className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2"
+                                >
                                     Type
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
+                                </p>
+                                <div role="group" aria-labelledby={typeLabelId} className="grid grid-cols-2 gap-2">
                                     <button
                                         aria-pressed={formType === 'heading'}
                                         onClick={() => setFormType('heading')}
@@ -779,7 +1063,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         aria-pressed={formType === 'detail'}
                                         onClick={() => {
                                             setFormType('detail');
-                                            if (headings.length > 0 && !formHeadingId) setFormHeadingId(headings[0].id);
+                                            if (headings.length > 0 && !formHeadingId)
+                                                setFormHeadingId(defaultHeadingId());
                                         }}
                                         disabled={headings.length === 0}
                                         type="button"
@@ -817,13 +1102,18 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         {/* Heading dropdown (for details only) */}
                         {formType === 'detail' && headings.length > 0 && (
                             <div className="mb-3">
-                                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5">
+                                {/* Tied to its select (132-B20): it was a 'pop-up button' with no name. */}
+                                <label
+                                    htmlFor={headingFieldId}
+                                    className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5"
+                                >
                                     Under checklist
                                 </label>
                                 <select
+                                    id={headingFieldId}
                                     value={formHeadingId}
                                     onChange={(e) => setFormHeadingId(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-hidden focus:border-sky-500/30 appearance-none"
+                                    className="w-full min-h-[44px] bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-hidden focus:border-sky-500/30 appearance-none"
                                 >
                                     {headings.map((h) => (
                                         <option key={h.id} value={h.id} className="bg-slate-800">
@@ -857,289 +1147,322 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         <Button
                             variant="primary"
                             onClick={handleSave}
-                            disabled={!formText.trim()}
+                            disabled={!formText.trim() || saving}
+                            aria-busy={saving || undefined}
                             className="w-full mt-1 disabled:cursor-not-allowed"
                         >
                             {editEntry ? 'Save changes' : formType === 'heading' ? 'Add checklist' : 'Add item'}
                         </Button>
 
-                        {/* Delete button — only in edit mode */}
-                        {editEntry &&
-                            (() => {
-                                const isHeading = editEntry.type === 'heading';
-                                const childCount = isHeading
-                                    ? visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === editEntry.id)
-                                          .length
-                                    : 0;
-                                const canDelete = !isHeading || childCount === 0;
-
-                                return (
-                                    <>
-                                        <Button
-                                            variant="danger"
-                                            onClick={() => {
-                                                handleDelete(editEntry.id);
-                                                setShowForm(false);
-                                                resetForm();
-                                            }}
-                                            disabled={!canDelete}
-                                            className="w-full mt-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        >
-                                            Delete {isHeading ? 'checklist' : 'item'}
-                                        </Button>
-                                        {isHeading && childCount > 0 && (
-                                            <p className="text-micro text-amber-400/80 text-center mt-1.5">
-                                                Remove all {childCount} item{childCount !== 1 ? 's' : ''} first
-                                            </p>
-                                        )}
-                                    </>
-                                );
-                            })()}
+                        {/* Delete button — only in edit mode. A checklist with
+                            items asks first, as its swipe does (126-B10b). */}
+                        {editEntry && (
+                            <Button
+                                variant="danger"
+                                onClick={() => {
+                                    handleDelete(editEntry.id);
+                                    setShowForm(false);
+                                    resetForm();
+                                }}
+                                className="w-full mt-2"
+                            >
+                                Delete {editEntry.type === 'heading' ? 'checklist' : 'item'}
+                            </Button>
+                        )}
                     </ModalSheet>
                 )}
 
                 {/* ═══ RUN CHECKLIST OVERLAY ═══ */}
-                {showRun &&
-                    createPortal(
-                        <div
-                            ref={runDialogRef}
-                            className="fixed inset-0 z-999 bg-slate-950 flex flex-col"
-                            style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
-                            role="dialog"
-                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
-                            aria-labelledby={runTitleId}
-                        >
-                            {/* Run header */}
-                            <div className="shrink-0 px-4 pb-3">
-                                <div className="flex items-center justify-between mb-3">
-                                    <button
-                                        type="button"
-                                        ref={runCloseButtonRef}
-                                        aria-label="Exit checklist run"
-                                        onClick={exitRun}
-                                        className="flex h-11 w-11 -ml-2 items-center justify-center rounded-xl hover:bg-white/5 transition-colors"
-                                    >
-                                        <svg
-                                            className="w-5 h-5 text-gray-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15.75 19.5L8.25 12l7.5-7.5"
-                                            />
-                                        </svg>
-                                    </button>
-                                    <h2 id={runTitleId} className="text-lg font-black text-white tracking-wide">
-                                        Run checklist
-                                    </h2>
-                                    <div className="w-11" aria-hidden="true" />
-                                </div>
-
-                                {/* Progress bar */}
-                                <div
-                                    className="relative h-2 rounded-full bg-white/6 overflow-hidden mb-1"
-                                    role="progressbar"
-                                    aria-label="Checklist completion"
-                                    aria-valuemin={0}
-                                    aria-valuemax={runTotal}
-                                    aria-valuenow={runCheckedCount}
-                                    aria-valuetext={`${runCheckedCount} of ${runTotal} checked`}
-                                >
-                                    <div
-                                        className="absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out"
-                                        style={{
-                                            width: `${runProgress * 100}%`,
-                                            background:
-                                                runFailCount > 0
-                                                    ? 'linear-gradient(90deg, rgba(239,68,68,0.6) 0%, rgba(239,68,68,0.8) 100%)'
-                                                    : 'linear-gradient(90deg, rgba(16,185,129,0.4) 0%, rgba(16,185,129,0.8) 100%)',
-                                        }}
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-micro text-gray-400 font-bold uppercase tracking-widest">
-                                        {runCheckedCount}/{runTotal} checked
-                                    </span>
-                                    <div className="flex items-center gap-3">
-                                        {runPassCount > 0 && (
-                                            <span className="inline-flex items-center gap-1 text-micro text-emerald-400 font-bold">
-                                                <CheckIcon className="h-3 w-3 shrink-0" />
-                                                {runPassCount}
-                                                <span className="sr-only"> passed</span>
-                                            </span>
-                                        )}
-                                        {runFailCount > 0 && (
-                                            <span className="inline-flex items-center gap-1 text-micro text-red-400 font-bold">
-                                                <XIcon className="h-3 w-3 shrink-0" />
-                                                {runFailCount}
-                                                <span className="sr-only"> failed</span>
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Run items list */}
-                            <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-5">
-                                {runGrouped.map((group) => (
-                                    <div key={group.heading}>
-                                        {/* Section header */}
-                                        <div className="flex items-center gap-2 mb-2.5 sticky top-0 bg-slate-950 py-1 z-10">
-                                            <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                            <span className="text-micro font-black text-emerald-400 uppercase tracking-[0.2em]">
-                                                {group.heading}
-                                            </span>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            {group.items.map((item) => {
-                                                const styles = STATUS_STYLES[item.status];
-                                                const nextStatus: RunItemStatus =
-                                                    item.status === 'unchecked'
-                                                        ? 'pass'
-                                                        : item.status === 'pass'
-                                                          ? 'fail'
-                                                          : 'unchecked';
-                                                const statusLabel =
-                                                    item.status === 'unchecked'
-                                                        ? 'not checked'
-                                                        : item.status === 'pass'
-                                                          ? 'passed'
-                                                          : 'failed';
-                                                const nextStatusLabel =
-                                                    nextStatus === 'unchecked'
-                                                        ? 'not checked'
-                                                        : nextStatus === 'pass'
-                                                          ? 'passed'
-                                                          : 'failed';
-                                                return (
-                                                    <div
-                                                        key={item.entry_id}
-                                                        className={`rounded-xl border ${styles.border} ${styles.bg} overflow-hidden transition-all duration-200`}
-                                                    >
-                                                        <div className="flex items-center gap-2 p-3.5">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => toggleRunItem(item.entry_id)}
-                                                                className="flex flex-1 min-w-0 min-h-[44px] items-center gap-3 text-left rounded-lg active:scale-[0.98] transition-transform"
-                                                                aria-label={`${item.text}: ${statusLabel}. Change status to ${nextStatusLabel}`}
-                                                            >
-                                                                {/* Status checkbox */}
-                                                                <span
-                                                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${
-                                                                        item.status === 'pass'
-                                                                            ? 'bg-emerald-500/20'
-                                                                            : item.status === 'fail'
-                                                                              ? 'bg-red-500/20'
-                                                                              : 'bg-white/5'
-                                                                    }`}
-                                                                    aria-hidden="true"
-                                                                >
-                                                                    {item.status === 'pass' && (
-                                                                        <svg
-                                                                            className="w-4 h-4 text-emerald-400"
-                                                                            fill="none"
-                                                                            viewBox="0 0 24 24"
-                                                                            stroke="currentColor"
-                                                                            strokeWidth={3}
-                                                                        >
-                                                                            <path
-                                                                                strokeLinecap="round"
-                                                                                strokeLinejoin="round"
-                                                                                d="M5 13l4 4L19 7"
-                                                                            />
-                                                                        </svg>
-                                                                    )}
-                                                                    {item.status === 'fail' && (
-                                                                        <svg
-                                                                            className="w-4 h-4 text-red-400"
-                                                                            fill="none"
-                                                                            viewBox="0 0 24 24"
-                                                                            stroke="currentColor"
-                                                                            strokeWidth={3}
-                                                                        >
-                                                                            <path
-                                                                                strokeLinecap="round"
-                                                                                strokeLinejoin="round"
-                                                                                d="M6 18L18 6M6 6l12 12"
-                                                                            />
-                                                                        </svg>
-                                                                    )}
-                                                                    {item.status === 'unchecked' && (
-                                                                        <span className="w-4 h-4 rounded-sm border-2 border-gray-500/40" />
-                                                                    )}
-                                                                </span>
-
-                                                                {/* Label */}
-                                                                <span
-                                                                    className={`text-sm font-medium flex-1 ${styles.text} ${
-                                                                        item.status === 'pass'
-                                                                            ? 'line-through opacity-60'
-                                                                            : ''
-                                                                    }`}
-                                                                >
-                                                                    {item.text}
-                                                                </span>
-                                                            </button>
-
-                                                            {/* R&M flag button (visible when failed) */}
-                                                            {item.status === 'fail' && (
-                                                                <button
-                                                                    type="button"
-                                                                    aria-label={`Flag ${item.text} for repair and maintenance`}
-                                                                    aria-pressed={item.flagged_rm}
-                                                                    onClick={() => toggleRmFlag(item.entry_id)}
-                                                                    className={`hit-target-44 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-micro font-bold uppercase tracking-wider transition-all ${
-                                                                        item.flagged_rm
-                                                                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                                                            : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
-                                                                    }`}
-                                                                >
-                                                                    <WrenchIcon className="w-3 h-3" />
-                                                                    Log repair
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Complete button */}
-                            <div
-                                className="shrink-0 px-4 pt-3 bg-slate-950"
-                                style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
-                            >
+                {/* The shared overlay shell (132-B16, CHK-13): its own portal sat
+                    at a hand-set z-999 and left its pane unlocked in split view. */}
+                {showRun && (
+                    <OverlayPortal
+                        ref={runDialogRef}
+                        className="bg-slate-950 flex flex-col"
+                        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={runTitleId}
+                    >
+                        {/* Run header */}
+                        <div className="shrink-0 px-4 pb-3">
+                            <div className="flex items-center justify-between mb-3">
                                 <button
                                     type="button"
-                                    aria-label="Complete checklist run"
-                                    onClick={completeRun}
-                                    className={`w-full min-h-[44px] py-4 rounded-2xl text-sm font-black text-white transition-all active:scale-[0.97] shadow-xl ${
-                                        runFailCount > 0
-                                            ? 'bg-linear-to-r from-red-600 to-red-700 shadow-red-500/20'
-                                            : runCheckedCount === runTotal
-                                              ? 'bg-linear-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
-                                              : 'bg-linear-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
-                                    }`}
+                                    ref={runCloseButtonRef}
+                                    aria-label="Exit checklist run"
+                                    onClick={exitRun}
+                                    className="flex h-11 w-11 -ml-2 items-center justify-center rounded-xl hover:bg-white/5 transition-colors"
                                 >
-                                    {runCheckedCount === runTotal
-                                        ? runFailCount > 0
-                                            ? `Complete — ${runFailCount} failed`
-                                            : 'Complete — all passed'
-                                        : `Complete (${runCheckedCount}/${runTotal})`}
+                                    <svg
+                                        className="w-5 h-5 text-gray-400"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M15.75 19.5L8.25 12l7.5-7.5"
+                                        />
+                                    </svg>
                                 </button>
+                                <h2 id={runTitleId} className="text-lg font-black text-white tracking-wide">
+                                    Run checklist
+                                </h2>
+                                <div className="w-11" aria-hidden="true" />
                             </div>
-                        </div>,
-                        portalTarget!,
-                    )}
+
+                            {/* Progress bar */}
+                            <div
+                                className="relative h-2 rounded-full bg-white/6 overflow-hidden mb-1"
+                                role="progressbar"
+                                aria-label="Checklist completion"
+                                aria-valuemin={0}
+                                aria-valuemax={runTotal}
+                                aria-valuenow={runCheckedCount}
+                                aria-valuetext={`${runCheckedCount} of ${runTotal} checked`}
+                            >
+                                <div
+                                    className="absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out"
+                                    style={{
+                                        width: `${runProgress * 100}%`,
+                                        background:
+                                            runFailCount > 0
+                                                ? 'linear-gradient(90deg, rgba(239,68,68,0.6) 0%, rgba(239,68,68,0.8) 100%)'
+                                                : 'linear-gradient(90deg, rgba(16,185,129,0.4) 0%, rgba(16,185,129,0.8) 100%)',
+                                    }}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-micro text-gray-400 font-bold uppercase tracking-widest">
+                                    {runCheckedCount}/{runTotal} checked
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    {runPassCount > 0 && (
+                                        <span className="inline-flex items-center gap-1 text-micro text-emerald-400 font-bold">
+                                            <CheckIcon className="h-3 w-3 shrink-0" />
+                                            {runPassCount}
+                                            <span className="sr-only"> passed</span>
+                                        </span>
+                                    )}
+                                    {runFailCount > 0 && (
+                                        <span className="inline-flex items-center gap-1 text-micro text-red-400 font-bold">
+                                            <XIcon className="h-3 w-3 shrink-0" />
+                                            {runFailCount}
+                                            <span className="sr-only"> failed</span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Run items list */}
+                        <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-5">
+                            {runGrouped.map((group) => (
+                                <div key={group.heading}>
+                                    {/* Section header */}
+                                    <div className="flex items-center gap-2 mb-2.5 sticky top-0 bg-slate-950 py-1 z-10">
+                                        <div className="w-1 h-4 rounded-full bg-emerald-500" />
+                                        <span className="text-micro font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                            {group.heading}
+                                        </span>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        {group.items.map((item) => {
+                                            const styles = STATUS_STYLES[item.status];
+                                            const nextStatus: RunItemStatus =
+                                                item.status === 'unchecked'
+                                                    ? 'pass'
+                                                    : item.status === 'pass'
+                                                      ? 'fail'
+                                                      : 'unchecked';
+                                            const statusLabel =
+                                                item.status === 'unchecked'
+                                                    ? 'not checked'
+                                                    : item.status === 'pass'
+                                                      ? 'passed'
+                                                      : 'failed';
+                                            const nextStatusLabel =
+                                                nextStatus === 'unchecked'
+                                                    ? 'not checked'
+                                                    : nextStatus === 'pass'
+                                                      ? 'passed'
+                                                      : 'failed';
+                                            return (
+                                                <div
+                                                    key={item.entry_id}
+                                                    className={`rounded-xl border ${styles.border} ${styles.bg} overflow-hidden transition-all duration-200`}
+                                                >
+                                                    <div className="flex items-center gap-2 p-3.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleRunItem(item.entry_id)}
+                                                            disabled={completing}
+                                                            className="flex flex-1 min-w-0 min-h-[44px] items-center gap-3 text-left rounded-lg active:scale-[0.98] transition-transform"
+                                                            aria-label={`${item.text}: ${statusLabel}. Change status to ${nextStatusLabel}`}
+                                                        >
+                                                            {/* Status checkbox */}
+                                                            <span
+                                                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${
+                                                                    item.status === 'pass'
+                                                                        ? 'bg-emerald-500/20'
+                                                                        : item.status === 'fail'
+                                                                          ? 'bg-red-500/20'
+                                                                          : 'bg-white/5'
+                                                                }`}
+                                                                aria-hidden="true"
+                                                            >
+                                                                {item.status === 'pass' && (
+                                                                    <svg
+                                                                        className="w-4 h-4 text-emerald-400"
+                                                                        fill="none"
+                                                                        viewBox="0 0 24 24"
+                                                                        stroke="currentColor"
+                                                                        strokeWidth={3}
+                                                                    >
+                                                                        <path
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                            d="M5 13l4 4L19 7"
+                                                                        />
+                                                                    </svg>
+                                                                )}
+                                                                {item.status === 'fail' && (
+                                                                    <svg
+                                                                        className="w-4 h-4 text-red-400"
+                                                                        fill="none"
+                                                                        viewBox="0 0 24 24"
+                                                                        stroke="currentColor"
+                                                                        strokeWidth={3}
+                                                                    >
+                                                                        <path
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                            d="M6 18L18 6M6 6l12 12"
+                                                                        />
+                                                                    </svg>
+                                                                )}
+                                                                {item.status === 'unchecked' && (
+                                                                    <span className="w-4 h-4 rounded-sm border-2 border-gray-500/40" />
+                                                                )}
+                                                            </span>
+
+                                                            {/* Label */}
+                                                            <span
+                                                                className={`text-sm font-medium flex-1 ${styles.text} ${
+                                                                    item.status === 'pass'
+                                                                        ? 'line-through opacity-60'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {item.text}
+                                                            </span>
+                                                        </button>
+
+                                                        {/* R&M flag button (visible when failed) */}
+                                                        {item.status === 'fail' && (
+                                                            <button
+                                                                type="button"
+                                                                aria-label={`Flag ${item.text} for repair and maintenance`}
+                                                                aria-pressed={item.flagged_rm}
+                                                                onClick={() => toggleRmFlag(item.entry_id)}
+                                                                disabled={completing}
+                                                                className={`hit-target-44 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-micro font-bold uppercase tracking-wider transition-all ${
+                                                                    item.flagged_rm
+                                                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                                        : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
+                                                                }`}
+                                                            >
+                                                                <WrenchIcon className="w-3 h-3" />
+                                                                Log repair
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Complete button */}
+                        <div
+                            className="shrink-0 px-4 pt-3 bg-slate-950"
+                            style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                        >
+                            <button
+                                type="button"
+                                aria-label="Complete checklist run"
+                                onClick={completeRun}
+                                disabled={completing}
+                                aria-busy={completing || undefined}
+                                className={`w-full min-h-[44px] py-4 rounded-2xl text-sm font-black text-white transition-all active:scale-[0.97] shadow-xl disabled:opacity-60 ${
+                                    runFailCount > 0
+                                        ? 'bg-linear-to-r from-red-600 to-red-700 shadow-red-500/20'
+                                        : runCheckedCount === runTotal
+                                          ? 'bg-linear-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
+                                          : 'bg-linear-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
+                                }`}
+                            >
+                                {runCheckedCount === runTotal
+                                    ? runFailCount > 0
+                                        ? `Complete — ${runFailCount} failed`
+                                        : 'Complete — all passed'
+                                    : `Complete (${runCheckedCount}/${runTotal})`}
+                            </button>
+                        </div>
+                    </OverlayPortal>
+                )}
             </div>
+
+            {/* Leaving a run with anything checked: one question, as nothing
+                from it is kept (132-B16, CHK-04). It mounts over the run. */}
+            {abandonAsk && (
+                <ConfirmDialog
+                    isOpen={true}
+                    title="Discard this run?"
+                    message={`${runCheckedCount} of ${runTotal} checked so far. Nothing from this run is kept.`}
+                    confirmLabel="Discard run"
+                    cancelLabel="Keep going"
+                    destructive
+                    onConfirm={() => {
+                        const scope = getAuthIdentityScope();
+                        if (currentOperation(scope)) closeRun(scope);
+                        else setAbandonAsk(false);
+                    }}
+                    onCancel={() => setAbandonAsk(false)}
+                />
+            )}
+
+            {pastRunsOpen && (
+                <Suspense fallback={null}>
+                    <PastRunsSheet runs={runs} entries={entries} onClose={() => setPastRunsOpen(false)} />
+                </Suspense>
+            )}
+
+            {/* Delete a checklist that still has items? One question, which
+                says what goes with it; Undo still follows (126-B10b). */}
+            {deleteAsk && (
+                <ConfirmDialog
+                    isOpen={true}
+                    title={`Delete “${deleteAsk.entry.text}”?`}
+                    message={`Its ${deleteAsk.items} item${deleteAsk.items === 1 ? ' goes' : 's go'} with it.`}
+                    confirmLabel={`Delete checklist and item${deleteAsk.items === 1 ? '' : 's'}`}
+                    cancelLabel="Keep"
+                    destructive
+                    onConfirm={() => {
+                        setDeleteAsk(null);
+                        if (currentOperation(deleteAsk.scope)) removeEntry(deleteAsk.entry);
+                    }}
+                    onCancel={() => setDeleteAsk(null)}
+                />
+            )}
+
+            <UndoToast key={undoToastKey} {...undoToastProps} />
         </div>
     );
 };

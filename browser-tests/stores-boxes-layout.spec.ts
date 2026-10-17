@@ -88,12 +88,14 @@ function sheetIssues(dialog: Locator) {
         if (r.top < frame.top - 0.5) issues.push(`starts above its frame (${r.top} < ${frame.top})`);
         if (r.bottom > frame.bottom + 0.5) issues.push(`ends below its frame (${r.bottom} > ${frame.bottom})`);
         if (r.bottom > nav.top + 0.5) issues.push(`runs under the tab bar (${r.bottom} > ${nav.top})`);
-        const style = getComputedStyle(panel);
+        // A sheet with a pinned main button scrolls its fields above it (132-B19).
+        const scroller = panel.querySelector<HTMLElement>('[data-modal-sheet-body]') ?? panel;
+        const style = getComputedStyle(scroller);
         if (!/(auto|scroll)/.test(style.overflowY)) issues.push(`does not scroll inside itself (${style.overflowY})`);
         const page = document.scrollingElement!;
         if (page.scrollHeight > page.clientHeight + 1) issues.push('the page scrolls');
         if (page.scrollWidth > page.clientWidth + 1) issues.push('the page scrolls sideways');
-        if (panel.scrollWidth > panel.clientWidth + 1) issues.push('the sheet scrolls sideways');
+        if (scroller.scrollWidth > scroller.clientWidth + 1) issues.push('the sheet scrolls sideways');
         for (const button of panel.querySelectorAll('button')) {
             const b = button.getBoundingClientRect();
             const name = button.getAttribute('aria-label') || button.textContent?.trim() || '?';

@@ -11,6 +11,7 @@ import {
     routeEngineChunkOf,
     routeEngineLoggerSource,
     routeJobClosure,
+    ROUTE_ENGINE_SHARED_LEAVES,
 } from '../scripts/route-job-closure.mjs';
 
 const ROOT = process.cwd();
@@ -29,19 +30,25 @@ function meta(graph: Record<string, [string[], string[]?]>, entries: string[]) {
 const JOB = '/repo/services/routing/routeJob.ts';
 
 describe('the router-engine chunk', () => {
-    it("is the job's whole static closure; what another entry also loads goes to engine-leaf", () => {
-        const m = meta(
+    /** The app as it stands since 131-04: the shell reaches the router by import(). */
+    const app = (shellImports: string[], shellLazy: string[]) =>
+        meta(
             {
                 '/repo/index.html': [['/repo/index.tsx']],
                 '/repo/index.tsx': [['/repo/services/enc/types.ts'], ['/repo/ApplicationShell.tsx']],
-                '/repo/ApplicationShell.tsx': [['/repo/services/InshoreRouter.ts']],
+                '/repo/ApplicationShell.tsx': [shellImports, shellLazy],
                 '/repo/services/InshoreRouter.ts': [[JOB]],
                 [JOB]: [['/repo/services/inshoreRouterEngine.ts', '/repo/utils/createLogger.ts?route-engine']],
                 '/repo/services/inshoreRouterEngine.ts': [
-                    ['/repo/services/engine/navGrid.ts', '/repo/services/enc/types.ts'],
+                    [
+                        '/repo/services/engine/navGrid.ts',
+                        '/repo/services/enc/types.ts',
+                        '/repo/services/engine/types.ts',
+                    ],
                 ],
                 '/repo/services/engine/navGrid.ts': [[]],
                 '/repo/services/enc/types.ts': [[]],
+                '/repo/services/engine/types.ts': [[]],
                 '/repo/utils/createLogger.ts?route-engine': [[]],
                 '/repo/ocean.html': [['/repo/ocean.tsx']],
                 '/repo/ocean.tsx': [[], ['/repo/services/engine/navGridLazyUser.ts']],
@@ -49,17 +56,61 @@ describe('the router-engine chunk', () => {
             },
             ['/repo/index.html', '/repo/ocean.html'],
         );
+
+    it("is the job's whole static closure; what another entry or the start-up also loads goes to engine-leaf", () => {
+        const m = app(['/repo/services/engine/types.ts'], ['/repo/services/InshoreRouter.ts']);
         const chunk = (id: string) => routeEngineChunkOf(id, m);
         expect(chunk(JOB)).toBe('router-engine');
         expect(chunk('/repo/services/inshoreRouterEngine.ts')).toBe('router-engine');
         expect(chunk('/repo/utils/createLogger.ts?route-engine')).toBe('router-engine');
         // The legal boot shell imports it statically: a leaf.
         expect(chunk('/repo/services/enc/types.ts')).toBe('engine-leaf');
+        // The app shell imports it statically (131-04): a leaf, so launching
+        // the app never loads the router for a result type.
+        expect(chunk('/repo/services/engine/types.ts')).toBe('engine-leaf');
         // Another entry reaches it, even lazily: a leaf, so that page never loads the router.
         expect(chunk('/repo/services/engine/navGrid.ts')).toBe('engine-leaf');
         // Not the router's: Rollup decides as before.
         expect(chunk('/repo/services/InshoreRouter.ts')).toBeUndefined();
         expect(chunk('/repo/ApplicationShell.tsx')).toBeUndefined();
+    });
+
+    it('a module only the router imports stays in router-engine, whatever the shell loads lazily', () => {
+        const m = app([], ['/repo/services/InshoreRouter.ts']);
+        expect(routeEngineChunkOf('/repo/services/engine/types.ts', m)).toBe('router-engine');
+    });
+
+    it('puts the exact pure helpers used by lazy passage screens in engine-leaf', () => {
+        expect(ROUTE_ENGINE_SHARED_LEAVES).toEqual([
+            'services/isochrone/polar.ts',
+            'services/isochrone/geodesy.ts',
+            'services/isochrone/routeSailingStats.ts',
+        ]);
+        const helpers = ROUTE_ENGINE_SHARED_LEAVES.map((leaf: string) => `/repo/${leaf}`);
+        const graph: Record<string, [string[], string[]?]> = {
+            '/repo/index.html': [[], ['/repo/Today.tsx']],
+            '/repo/Today.tsx': [helpers],
+            [JOB]: [helpers],
+            ...Object.fromEntries(helpers.map((id: string) => [id, [[]]])),
+        };
+        const m = meta(graph, ['/repo/index.html']);
+        for (const helper of helpers) expect(routeEngineChunkOf(helper, m)).toBe('engine-leaf');
+        expect(routeEngineChunkOf(JOB, m)).toBe('router-engine');
+    });
+
+    it('fails closed if a shared helper starts importing runtime code', () => {
+        for (const leaf of ROUTE_ENGINE_SHARED_LEAVES) {
+            const helper = `/repo/${leaf}`;
+            for (const dependency of [[[JOB]], [[], [JOB]]] as [string[], string[]?][]) {
+                const m = meta({ [JOB]: [[helper]], [helper]: dependency }, []);
+                expect(() => routeEngineChunkOf(helper, m), leaf).toThrow(/must have no runtime imports/);
+            }
+        }
+    });
+
+    it("fails the build when the app's start-up imports the router statically (131-04)", () => {
+        const m = app(['/repo/services/InshoreRouter.ts'], []);
+        expect(() => routeEngineChunkOf(JOB, m)).toThrow(/start-up \(ApplicationShell\.tsx\) imports .* statically/);
     });
 
     it("fails the build when the job's closure reaches the app's logger, a package or a virtual module", () => {
@@ -105,5 +156,6 @@ describe("the route job's own logger copy", () => {
         expect(importers).toEqual(
             expect.arrayContaining(['services/routing/routeJob.ts', 'services/engine/constants.ts']),
         );
-    });
+        // A whole-graph walk: seconds under coverage on a two-core runner, so not the 5 s default.
+    }, 60_000);
 });

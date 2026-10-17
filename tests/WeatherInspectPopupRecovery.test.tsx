@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { WeatherInspectPopup } from '../components/map/WeatherInspectPopup';
 import type { PointWeatherData } from '../services/weather/pointWeather';
+import { SEA_CREDIT } from '../services/weather/seaPartitions';
 
 const point = (overrides: Partial<PointWeatherData> = {}): PointWeatherData => ({
     lat: -27.47,
@@ -15,12 +16,15 @@ const point = (overrides: Partial<PointWeatherData> = {}): PointWeatherData => (
     temperatureC: 24,
     humidity: 70,
     cloudCover: 20,
-    waveHeightM: 1.2,
-    wavePeriodS: 8,
-    waveDirectionDeg: 110,
-    swellHeightM: 0.8,
-    swellPeriodS: 10,
-    swellDirectionDeg: 120,
+    sea: {
+        total: { hM: 1.2, periodS: 8, fromDeg: 110 },
+        windSea: { hM: 0.6, periodS: 4, fromDeg: 100 },
+        swell: { hM: 0.8, periodS: 10, fromDeg: 120 },
+        swell2: null,
+        differ: null,
+        credit: SEA_CREDIT,
+        snappedKm: 3.1,
+    },
     ...overrides,
 });
 
@@ -45,7 +49,7 @@ describe('WeatherInspectPopup recovery and provenance', () => {
     it('identifies a partial marine-source failure while retaining atmospheric data', () => {
         render(
             <WeatherInspectPopup
-                data={point({ marineStatus: 'unavailable', waveHeightM: null, swellHeightM: null })}
+                data={point({ marineStatus: 'unavailable', sea: null })}
                 loading={false}
                 onClose={vi.fn()}
             />,

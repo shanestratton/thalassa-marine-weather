@@ -127,7 +127,8 @@ describe('signInWithApple', () => {
         expect(auth.signInWithIdToken.mock.invocationCallOrder[0]).toBeLessThan(
             functions.invoke.mock.invocationCallOrder[0],
         );
-        expect(nativeCredentialState.bindAppleCredentialUser).toHaveBeenCalledWith('apple-user-1');
+        // Bound to this account's own Keychain item, keyed by its Supabase user id (131-01).
+        expect(nativeCredentialState.bindAppleCredentialUser).toHaveBeenCalledWith('apple-user-1', 'user-1');
         expect(nativeCredentialState.bindAppleCredentialUser.mock.invocationCallOrder[0]).toBeLessThan(
             functions.invoke.mock.invocationCallOrder[0],
         );
@@ -236,6 +237,7 @@ describe('signInWithApple', () => {
 
         expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
         expect(nativeCredentialState.clearBoundAppleCredential).toHaveBeenCalledOnce();
+        expect(nativeCredentialState.clearBoundAppleCredential).toHaveBeenCalledWith('user-1');
         expect(auth.updateUser).not.toHaveBeenCalled();
         expect(reportedFailures()).toEqual(['apple_signin_failed step=register_token code=fetch reason=fetch_error']);
         // Supabase signed it out, so nothing further is needed.
@@ -334,6 +336,8 @@ describe('signInWithApple', () => {
 
         expect(functions.invoke).not.toHaveBeenCalled();
         expect(nativeCredentialState.clearBoundAppleCredential).toHaveBeenCalledOnce();
+        // Only the failed sign-in's own binding (131-01).
+        expect(nativeCredentialState.clearBoundAppleCredential).toHaveBeenCalledWith('user-1');
         expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
         expect(reportedFailures()).toEqual(['apple_signin_failed step=bind_credential code=native reason=unknown']);
     });
@@ -342,6 +346,7 @@ describe('signInWithApple', () => {
         ['Apple credential is not authorized', 'not_authorized'],
         ['Could not secure the Apple credential binding', 'keychain'],
         ['Could not verify the Apple credential state', 'state_check'],
+        ['A valid account identifier is required', 'invalid_account'],
     ])('classifies the native binding failure %j without echoing it', async (nativeMessage, reason) => {
         nativeAuth.appleAuthorize.mockResolvedValue(appleSuccess());
         auth.signInWithIdToken.mockResolvedValue({ data: { session: session() }, error: null });

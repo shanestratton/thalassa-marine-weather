@@ -4,6 +4,7 @@ import type { MarineWeatherReport, OffshoreModel, StormGlassHour } from '../type
 const mocks = vi.hoisted(() => ({
     settings: { offshoreModel: 'sg' as unknown },
     fetchSG: vi.fn(),
+    legacyBeacon: vi.fn(async () => ({ name: 'Forbidden legacy station', windSpeed: 99, pressure: 900 })),
     cache: new Map<string, MarineWeatherReport>(),
 }));
 vi.mock('../stores/settingsStore', () => ({ useSettingsStore: { getState: () => ({ settings: mocks.settings }) } }));
@@ -15,7 +16,7 @@ vi.mock('../services/weather/marineProximity', () => ({
 }));
 vi.mock('../services/weather/api/geocoding', () => ({ reverseGeocodeContext: vi.fn(async () => null) }));
 vi.mock('../services/weather/locationType', () => ({ determineLocationType: () => 'offshore' }));
-vi.mock('../services/weather/api/beaconService', () => ({ findAndFetchNearestBeacon: vi.fn(async () => null) }));
+vi.mock('../services/weather/api/beaconService', () => ({ findAndFetchNearestBeacon: mocks.legacyBeacon }));
 vi.mock('../services/weather/apiCache', () => ({
     apiCacheGet: (provider: string, lat: number, lon: number, suffix?: string) =>
         mocks.cache.get(`${provider}:${lat}:${lon}:${suffix}`),
@@ -53,9 +54,18 @@ beforeEach(() => {
     mocks.settings.offshoreModel = 'sg';
     mocks.cache.clear();
     mocks.fetchSG.mockReset().mockImplementation(async () => payload());
+    mocks.legacyBeacon.mockClear();
 });
 
 describe('model-scoped StormGlass requests', () => {
+    it('keeps station observations out of forecast values and never calls the retired atmospheric beacon path', async () => {
+        const report = await fetchStormGlassWeather(-24, 153, 'Fixed public test point', 'offshore');
+        expect(mocks.legacyBeacon).not.toHaveBeenCalled();
+        expect(report.current.windSpeed).not.toBe(99);
+        expect(report.current.pressure).toBe(1015);
+        expect(report.current.sources?.pressure?.source).toBe('stormglass');
+        expect(report.beaconObservation).toBeUndefined();
+    });
     it.each([
         ['ecmwf', 'ecmwf,sg'],
         ['gfs', 'noaa,sg'],

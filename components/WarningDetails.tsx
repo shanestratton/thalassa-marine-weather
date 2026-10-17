@@ -13,6 +13,10 @@ import { openExternalUrl } from '../services/externalLinks';
 import { servedModelDisplayName } from '../services/weather/servedModelName';
 import { forecastAlertRule, isCriticalForecastAlert as isCritical } from '../utils/forecastAlerts';
 import { officialWarningsSource } from '../utils/officialWarningsSource';
+import { useOfficialWarnings } from '../hooks/useOfficialWarnings';
+import { answerHolds, OfficialWarningsSection, PinnedOfficialPush } from './warnings/OfficialWarningsSection';
+import { type OfficialPushPin, takeOfficialPushPin, useOfficialPushPin } from '../services/officialPushPin';
+const BriefingCard = React.lazy(() => import('./warnings/BriefingCard'));
 
 interface WarningDetailsProps {
     alerts: string[];
@@ -26,6 +30,8 @@ interface WarningDetailsProps {
     locationType?: string;
     /** The pipeline's model tag ('wx:ecmwf_ifs025', …), named on each card. */
     modelUsed?: string;
+    /** Explicit parent policy; keeps the optional cache reader absent on metered/legacy surfaces. */
+    briefingNetworkAllowed?: boolean;
 }
 
 /**
@@ -59,6 +65,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
     coordinates,
     locationType,
     modelUsed,
+    briefingNetworkAllowed = false,
 }) => {
     // These are Thalassa's own model checks, never official warnings (build
     // 123, W1-02). Each card says so, and the onward link goes to the
@@ -68,14 +75,31 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
         () => officialWarningsSource(coordinates?.lat, coordinates?.lon, { offshore: locationType === 'offshore' }),
         [coordinates?.lat, coordinates?.lon, locationType],
     );
+    // The official warnings in force here (129-06), once official_alerts_at
+    // answers: null until then (not deployed, signed out, offline), and the
+    // page stays the Forecast alerts page with its position-aware link.
+    const official = useOfficialWarnings(coordinates);
+    // A tapped official push (129-06) is kept while the page is open. It was
+    // decided for the boat's position, which this page's place need not be.
+    const waitingPin = useOfficialPushPin();
+    const [pin, setPin] = useState<OfficialPushPin | null>(waitingPin);
+    useEffect(() => {
+        if (!waitingPin) return;
+        setPin(waitingPin);
+        takeOfficialPushPin();
+    }, [waitingPin]);
     // Age, not clock time: 'checked at 08:01' read as this morning after a
     // night with the app closed. Re-rendered each minute so it stays honest.
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
-        if (!checkedAt) return;
+        if (!checkedAt && !official && !pin) return;
         const id = window.setInterval(() => setNow(Date.now()), 60_000);
         return () => window.clearInterval(id);
-    }, [checkedAt]);
+    }, [checkedAt, official, pin]);
+    // The pin while its warning is in force; shown on its own where this place's answer does not list it.
+    const livePin = pin && (!pin.expires || !(Date.parse(pin.expires) <= now)) ? pin : null;
+    const pinApart = livePin && !answerHolds(official, livePin, now) ? livePin : null;
+    const officialPage = !!official || !!pinApart;
     const checkedLabel = (() => {
         if (!checkedAt) return null;
         const d = new Date(checkedAt);
@@ -129,15 +153,17 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
                     GLASS crumb and a 'Back to The Glass' chevron, like its
                     siblings, instead of a bare 'Go back' (UX scorecard run 9). */}
                 <PageHeader
-                    title="Forecast alerts"
+                    title={officialPage ? 'Warnings' : 'Forecast alerts'}
                     subtitle={placeName || undefined}
                     onBack={() => setPage('dashboard')}
-                    breadcrumbs={['The Glass', 'Forecast alerts']}
+                    breadcrumbs={['The Glass', officialPage ? 'Warnings' : 'Forecast alerts']}
                     status={
                         activeAlerts.length > 0 ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black">
                                 <AlertTriangleIcon className="w-3.5 h-3.5" />
-                                {activeAlerts.length} active
+                                {/* Beside the official section, it says whose count it is. */}
+                                {activeAlerts.length}{' '}
+                                {officialPage ? `forecast ${activeAlerts.length === 1 ? 'alert' : 'alerts'}` : 'active'}
                             </span>
                         ) : undefined
                     }
@@ -162,10 +188,23 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
 
             {/* Content */}
             <div className="thalassa-scroll-fade thalassa-scroll-fade--nav flex-1 overflow-y-auto p-4 pb-[calc(var(--thalassa-tabbar-height)+16px)] space-y-4">
+                {/* Official first, in its own style; the forecast checks follow
+                    under their own heading, never mixed in (129-06). */}
+                {pinApart && <PinnedOfficialPush pin={pinApart} placeName={placeName} />}
+                {official && <OfficialWarningsSection answer={official} source={source} nowMs={now} pinned={livePin} />}
+                {briefingNetworkAllowed && (
+                    <React.Suspense fallback={null}>
+                        <BriefingCard point={coordinates} place={placeName} />
+                    </React.Suspense>
+                )}
+                {officialPage && (
+                    <h2 className="pt-2 text-sm font-bold uppercase tracking-wider text-slate-300">Forecast alerts</h2>
+                )}
                 {activeAlerts && activeAlerts.length > 0 ? (
                     activeAlerts.map((alert, _index) => (
                         <div
                             key={alert}
+                            data-alert-style="forecast"
                             className="bg-red-500/10 border border-red-500/20 rounded-2xl p-5 shadow-lg relative overflow-hidden animate-in fade-in slide-in-from-top-2"
                         >
                             <div className="absolute top-0 right-0 p-3 opacity-10">
@@ -204,6 +243,49 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({
                             </div>
                         </div>
                     ))
+                ) : officialPage ? (
+                    // Under the official section: the forecast answer in words,
+                    // with no big green check, which beside an official warning
+                    // (or "unavailable") would read as an all-clear; and no
+                    // second link, the official section carries the issuer's
+                    // (unless only a tapped push is above: then this place's).
+                    <>
+                        <div role="status">
+                            <h3 className="text-base font-semibold text-slate-200 text-balance">
+                                {placeName ? `No forecast alerts for ${placeName}` : 'No forecast alerts'}
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-400">
+                                {checkedLabel ? `Forecast checked ${checkedLabel}` : 'Forecast not checked yet'}
+                            </p>
+                            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                                Thalassa checks the forecast for gale, storm, fog and heat thresholds. It is not an
+                                official warning service;{' '}
+                                {official
+                                    ? 'for the issuer’s own warnings, see above.'
+                                    : `only the notification above came from one, so check ${source.checkPhrase} too.`}
+                            </p>
+                            {dismissed.size > 0 && (
+                                <p className="text-gray-400 text-sm mt-2">
+                                    {dismissed.size} alert{dismissed.size > 1 ? 's' : ''} dismissed this session
+                                </p>
+                            )}
+                        </div>
+                        {/* No answer for this place (only a tapped push above): its issuer's link stays. */}
+                        {!official && (
+                            <a
+                                href={source.url}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void openExternalUrl(source.url);
+                                }}
+                                className={`${buttonTheme.secondary} ${touchTarget.button} mt-3 text-sky-300`}
+                            >
+                                Open {source.shortName} warnings
+                                <span className="sr-only"> ({source.name} website)</span>
+                                <ExternalLinkIcon className="h-4 w-4 shrink-0" />
+                            </a>
+                        )}
+                    </>
                 ) : (
                     <div className="flex flex-col items-center justify-center h-full pb-20">
                         {/* The status region holds the state sentences only; the link

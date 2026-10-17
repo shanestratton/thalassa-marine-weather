@@ -34,10 +34,9 @@ vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
         getDownloadUrl: vi.fn(),
         openDownload: vi.fn(),
-        pullFromCloud: vi.fn().mockResolvedValue(0),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
+        uploadStates: () => ({}),
+        onUploadsChanged: () => () => undefined,
+        retryUploads: vi.fn().mockResolvedValue(undefined),
     },
 }));
 vi.mock('../hooks/useRealtimeSync', () => ({ useRealtimeSync: vi.fn(), useRealtimeSyncMulti: vi.fn() }));
@@ -95,7 +94,6 @@ function Form({
 }) {
     return (
         <DocumentForm
-            isEdit={false}
             formName="Passport — Ana Ribeiro"
             formCategory={category}
             formIssueDate=""
@@ -110,7 +108,6 @@ function Form({
             onNotesChange={vi.fn()}
             onFileSelect={vi.fn()}
             onRemoveFile={vi.fn()}
-            onSave={vi.fn()}
             crewView={crewView}
         />
     );

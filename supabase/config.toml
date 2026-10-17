@@ -241,6 +241,32 @@ verify_jwt = true
 # requires an exact service-role POST before any work; no user JWT exists.
 verify_jwt = false
 
+[functions.cyclone-feed]
+# The storm list and the warning centres' own tracks (129-09b: NOAA, JTWC,
+# NCEP; no Esri, no knackwx). CycloneTrackingService and the Pi call it with a
+# bare fetch(url) and the function enforces a per-client public quota. Public
+# cyclone positions, not sensitive.
+verify_jwt = false
+
+[functions.cyclone-watch]
+# Cron entry point (129-09, cyclones near the boat). pg_cron/pg_net POSTs with
+# the service key and the function requires an exact service-role POST before
+# any work; no user JWT exists.
+verify_jwt = false
+
+[functions.ingest-official-alerts]
+# Cron entry point (129-05, official warnings from the issuers' CAP feeds).
+# pg_cron/pg_net POSTs every 5 minutes with the service key, and the function
+# requires an exact service-role POST before any work; no user JWT exists.
+verify_jwt = false
+
+[functions.official-alerts-watch]
+# Cron entry point (129-06, official marine warnings pushed to the boat).
+# pg_cron/pg_net POSTs every 5 minutes, two minutes after each ingest, with the
+# service key, and the function requires an exact service-role POST before any
+# work; no user JWT exists.
+verify_jwt = false
+
 [functions.deepgram-ws-proxy]
 # Browser WebSocket upgrade: no Authorization header is possible. The function
 # consumes a 60-second one-use ticket minted by deepgram-token (which IS
@@ -267,3 +293,33 @@ verify_jwt = false
 # pg_net with the service key; the function requires an exact service-role
 # POST before any database or Gemini work. No user JWT exists in that path.
 verify_jwt = false
+
+[functions.wx-publisher]
+# wx authenticates with its dedicated 256-bit token, checked against a public
+# SHA256 verifier before any privileged database access. No service-role key
+# leaves the Edge runtime; a Supabase user JWT is not this producer's identity.
+verify_jwt = false
+
+[functions.morning-briefing]
+# Held weather work retains gateway JWT and exact service-role POST checks.
+verify_jwt = true
+[functions.nowcast-watch]
+# Held weather work cannot accept a caller coordinate or provider URL.
+verify_jwt = true
+[functions.convective-watch]
+# Held weather work retains gateway JWT and exact service-role POST checks.
+verify_jwt = true
+
+[functions.anchor-alert-messaging]
+# Shore recipient confirmation/revocation uses an explicit one-use nonce POST;
+# invitations verify the current owner, work/proof actions require the service key.
+# New messaging stays disabled by default in both environment and database control.
+verify_jwt = false
+
+[functions.telegram-webhook]
+# Telegram supplies its fixed webhook secret; absent/invalid secrets fail before parsing.
+verify_jwt = false
+
+[functions.overdue-watch]
+# Overdue work is service-only and retains both gateway JWT and exact service auth.
+verify_jwt = true

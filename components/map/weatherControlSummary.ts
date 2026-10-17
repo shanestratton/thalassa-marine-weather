@@ -4,6 +4,7 @@ import type { CmemsLayerId } from './CmemsAttribution';
 import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isUsableWindGrid, windForecastHourAtFrame } from './windTimeAxis';
 import { PRESSURE_REFRESH_MS, pressureProvenance } from '../../services/weather/pressureProvenance';
+import { localWindSource } from './localWindSource';
 
 type Weather = ReturnType<typeof useWeatherLayers>;
 type SummaryLayer = Exclude<HelixLayer, null | 'velocity' | 'traffic'>;
@@ -99,7 +100,8 @@ function describeLayer(
     const label = LABELS[layer];
     const result: LayerSummary = { label, state: 'Paused', time: 'UTC unknown', details: [], issues: [] };
     if (layer === 'wind') {
-        result.source = MODELS[weather.windModel] ?? 'Model unknown';
+        const localSource = localWindSource(weather.windState);
+        result.source = localSource ?? MODELS[weather.windModel] ?? 'Model unknown';
         const grid = weather.windState?.grid;
         const ready =
             weather.windReady &&
@@ -133,7 +135,9 @@ function describeLayer(
             if (weather.windState?.loading)
                 issue(result, 'Wind refreshing', 'Wind is refreshing; the existing field is retained', 3);
         }
-        if (!MODELS[weather.windModel]) issue(result, 'Wind model unknown', 'The wind model is unknown', 2);
+        if (!localSource && !MODELS[weather.windModel])
+            issue(result, 'Wind model unknown', 'The wind model is unknown', 2);
+        if (localSource) result.details.push('File coverage only; blank cells are unknown');
         result.details.push('Model forecast, not observations');
         return result;
     }

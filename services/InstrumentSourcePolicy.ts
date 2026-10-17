@@ -30,17 +30,31 @@
  * opens only aboard, or with the place unknown and the phone on the gateway's
  * own network with no VPN up (services/boatLink). Ashore, a fallback socket
  * that is open closes, and a parked one stays parked.
+ *
+ * The boat link loads only for a boat with a Pi (131-01): a Pi-first boot
+ * starts the load, and only the Pi-first rules read it. Until it has loaded
+ * the place is unknown and the fallback not permitted, which is the answer an
+ * unknown place gets anyway; the fallback cannot open in the first minute.
  */
 import { NmeaListenerService, type SocketRestartKind } from './NmeaListenerService';
 import { NmeaStore } from './NmeaStore';
 import { PiTelemetryService } from './PiTelemetryService';
 import { getPairing } from './PiPairingService';
-import { BoatLinkService } from './boatLink/BoatLinkService';
+import { boatLinkIfConfigured, loadBoatLink } from './boatLink/boatLinkGate';
 import { setSocketOwnerReader } from './boatLink/socketOwner';
-import type { SocketOwner } from './boatLink/boatLinkModel';
+import type { SocketOwner, Where } from './boatLink/boatLinkModel';
 import { createLogger } from '../utils/createLogger';
+import { readSignalKDeviceConfig, saveSignalKDeviceConfig } from './signalk/config';
 
 const log = createLogger('InstrumentSource');
+
+/** What the rules read from the boat link while it is still loading. */
+const LINK_CHECKING: { where: Where; fallbackPermitted: boolean } = { where: 'unknown', fallbackPermitted: false };
+
+/** Where the phone is and whether the fallback may open, or the checking answer while the boat link loads. */
+function boatLinkNow(): { where: Where; fallbackPermitted: boolean } {
+    return boatLinkIfConfigured()?.evaluate() ?? LINK_CHECKING;
+}
 
 /** The Pi has not answered for this long → the gateway may be read direct. */
 export const PI_SILENT_MS = 60_000;
@@ -54,8 +68,15 @@ export const CLOUD_PRESENCE_POLL_MS = 30_000;
 /** A cloud row this fresh means the Pi is alive — this phone is merely not aboard. */
 export const CLOUD_PRESENCE_MAX_AGE_MS = 60_000;
 
-export type InstrumentBoot = 'pi-first' | 'direct' | 'idle';
-export type InstrumentSourceMode = 'pi' | 'pi-silent-direct' | 'direct' | 'manual' | 'none';
+export type InstrumentBoot = 'pi-first' | 'direct' | 'signalk' | 'idle';
+export type InstrumentSourceMode = 'pi' | 'pi-silent-direct' | 'direct' | 'signalk' | 'manual' | 'none';
+
+function startSelectedSignalK(): boolean {
+    if (!readSignalKDeviceConfig()?.selected) return false;
+    NmeaListenerService.stop();
+    void import('./signalk/DirectSignalKService').then(({ DirectSignalKService }) => DirectSignalKService.start());
+    return true;
+}
 
 class InstrumentSourcePolicyClass {
     private booted: InstrumentBoot | null = null;
@@ -83,12 +104,13 @@ class InstrumentSourcePolicyClass {
      * 2026-09-08: "if we have a pi at the vessel, then nothing should try to
      * connect").
      */
-    ensureFeed(direct?: { host: string; port: number }): 'pi' | 'direct' | 'none' {
+    ensureFeed(direct?: { host: string; port: number }): 'pi' | 'direct' | 'signalk' | 'none' {
         NmeaStore.start();
         if (getPairing()) {
             PiTelemetryService.start();
             return 'pi';
         }
+        if (!direct && startSelectedSignalK()) return 'signalk';
         if (direct) NmeaListenerService.configure(direct.host, direct.port);
         else if (!NmeaListenerService.getSavedConfig()) return 'none';
         NmeaListenerService.start();
@@ -104,14 +126,22 @@ class InstrumentSourcePolicyClass {
 
         if (getPairing()) {
             // Pi first. The store starts here so the LAN lane has somewhere to
-            // put the boat; the socket does not.
+            // put the boat; the socket does not. The boat link loads beside it.
             NmeaStore.start();
             PiTelemetryService.start();
+            void loadBoatLink();
             this.timer = setInterval(() => this.tick(), POLICY_TICK_MS);
             this.booted = 'pi-first';
             return this.booted;
         }
 
+        if (readSignalKDeviceConfig()?.selected) {
+            NmeaStore.start();
+            startSelectedSignalK();
+            void loadBoatLink();
+            this.booted = 'signalk';
+            return this.booted;
+        }
         const saved = NmeaListenerService.getSavedConfig();
         if (!saved) {
             this.booted = 'idle';
@@ -129,6 +159,13 @@ class InstrumentSourcePolicyClass {
 
     /** The skipper pressed Connect on the NMEA page: that socket is theirs. */
     noteManualConnect(now = Date.now()): void {
+        const selected = readSignalKDeviceConfig();
+        if (selected?.selected) {
+            saveSignalKDeviceConfig({ ...selected, selected: false });
+            void import('./signalk/DirectSignalKService').then(({ DirectSignalKService }) =>
+                DirectSignalKService.stop(),
+            );
+        }
         this.manual = true;
         this.socketOwned = false;
         this.lastSwitchAt = now;
@@ -142,6 +179,7 @@ class InstrumentSourcePolicyClass {
 
     mode(): InstrumentSourceMode {
         if (this.manual) return 'manual';
+        if (this.booted === 'signalk') return 'signalk';
         if (this.booted === 'direct') return 'direct';
         if (this.booted !== 'pi-first') return 'none';
         return this.socketOwned ? 'pi-silent-direct' : 'pi';
@@ -170,7 +208,7 @@ class InstrumentSourcePolicyClass {
     mayRestartSocket(kind: SocketRestartKind = 'parked'): boolean {
         if (this.booted !== 'pi-first' || this.manual) return true;
         if (!this.socketOwned) return false;
-        const link = BoatLinkService.evaluate();
+        const link = boatLinkNow();
         return kind === 'rung' ? link.where !== 'ashore' : link.fallbackPermitted;
     }
 
@@ -231,7 +269,7 @@ class InstrumentSourcePolicyClass {
             if (this.cloudCheckInFlight && !this.cloudAnswered) return;
             if (now - this.lastSwitchAt < FLAP_GUARD_MS) return;
             if (!NmeaListenerService.getSavedConfig()) return;
-            const link = BoatLinkService.evaluate();
+            const link = boatLinkNow();
             if (!link.fallbackPermitted) {
                 // Ashore, or nowhere this phone can show it is with her: a
                 // silent Pi is not a reason to take one of the gateway's slots.
@@ -255,7 +293,7 @@ class InstrumentSourcePolicyClass {
         // A fallback socket open while this phone has left the boat: close it
         // now, flap guard or not — the boat's slot is not this phone's to hold
         // from ashore, and a parked one must not reopen on the next foreground.
-        if (BoatLinkService.evaluate().where === 'ashore') {
+        if (boatLinkNow().where === 'ashore') {
             log.warn('this phone is away from the boat — giving the gateway its slot back');
             NmeaListenerService.stop();
             this.socketOwned = false;

@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildTraceStubRows, traceStubId, TRACE_STUB_ID_PREFIX } from '../services/savedRouteRows';
-import type { SavedTrace } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 import type { SavedRouteRow } from '../services/savedRouteRows';
 
 const PTS = [

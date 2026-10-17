@@ -1037,7 +1037,7 @@ export async function castOff(
         // join this module's cold-start path.
         let plannedDestination: string | null = null;
         try {
-            const { tripLegPlannedDestination, tripLegAnchorOrdinal } = await import('./routeTracer');
+            const { tripLegPlannedDestination, tripLegAnchorOrdinal } = await import('./savedTraceStore');
             plannedDestination = tripLegPlannedDestination(
                 voyage.saved_route_id,
                 tripLegAnchorOrdinal(voyage.saved_route_id),

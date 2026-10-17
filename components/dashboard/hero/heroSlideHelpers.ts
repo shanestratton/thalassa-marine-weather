@@ -186,10 +186,17 @@ export function computeCardDisplayValues(
             return v != null && !isNaN(v) ? (convertLength(v, seaUnit) ?? '--') : '--';
         })(),
         secondarySwellUnit: seaUnit,
-        secondarySwellPeriod: (() => {
-            const v = cardData.secondarySwellPeriod;
-            return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
+        // PER. 2 became WIND SEA (130-04): the wind sea's height, feet like
+        // the others, in the same Seas unit. Each sea cell has its own arrow,
+        // drawn only beside a height: SWELL 2's from the second swell's own
+        // direction (W1-07 had none to give it), WIND SEA's from the wind sea's.
+        // Nothing fills these until 130-06, so the cells read '--'.
+        windWaveHeight: (() => {
+            const v = cardData.windWaveHeight;
+            return v != null && !isNaN(v) ? (convertLength(v, seaUnit) ?? '--') : '--';
         })(),
+        windWaveDirDeg: seaArrowDeg(cardData.windWaveHeight, cardData.windWaveDirection),
+        secondarySwellDirDeg: seaArrowDeg(cardData.secondarySwellHeight, cardData.secondarySwellDirection),
         ...(() => {
             if (!isHourly && index === 0) {
                 const nav = ShipLogService.getGpsNavData();
@@ -803,7 +810,17 @@ export interface HeroDisplayValues {
     secondarySwellHeight: number | string;
     /** The unit secondarySwellHeight was converted to: print this beside it. */
     secondarySwellUnit: string;
-    secondarySwellPeriod: number | string;
+    /** The wind sea's height, in secondarySwellUnit (130-04). */
+    windWaveHeight: number | string;
+    /** Where the wind sea comes FROM, degrees; null without a height to sit beside. */
+    windWaveDirDeg: number | null;
+    /** Where the second swell comes FROM, degrees; null without a height to sit beside. */
+    secondarySwellDirDeg: number | null;
+}
+
+/** A sea cell's arrow: its own direction, and only beside a height. */
+function seaArrowDeg(height: number | null | undefined, dirDeg: number | null | undefined): number | null {
+    return height != null && Number.isFinite(height) && dirDeg != null && Number.isFinite(dirDeg) ? dirDeg : null;
 }
 
 /**

@@ -76,19 +76,23 @@ export const getBeaufortDescription = (scale: number): string => {
 };
 
 /**
- * Convert wave height (meters) to Douglas sea state (0-9)
- * Based on WMO sea state code
+ * Significant wave height (metres) to the WMO sea state, code 3700 (the
+ * Douglas sea scale), 0-9; each band includes its lower bound.
+ *
+ * Until build 130 this ran one band calm (1.5 m read "Slight" where WMO says
+ * Moderate), and its test pinned the wrong bands. The ship's log records the
+ * corrected code from 130 on; rows already stored keep the number they have.
  */
 export const waveToSeaState = (meters: number): number => {
-    if (meters < 0.1) return 0; // Glassy
-    if (meters < 0.5) return 1; // Calm (rippled)
-    if (meters < 1.25) return 2; // Smooth
-    if (meters < 2.5) return 3; // Slight
-    if (meters < 4) return 4; // Moderate
-    if (meters < 6) return 5; // Rough
-    if (meters < 9) return 6; // Very rough
-    if (meters < 14) return 7; // High
-    if (meters < 20) return 8; // Very high
+    if (meters <= 0) return 0; // Calm (glassy)
+    if (meters < 0.1) return 1; // Calm (rippled)
+    if (meters < 0.5) return 2; // Smooth (wavelets)
+    if (meters < 1.25) return 3; // Slight
+    if (meters < 2.5) return 4; // Moderate
+    if (meters < 4) return 5; // Rough
+    if (meters < 6) return 6; // Very rough
+    if (meters < 9) return 7; // High
+    if (meters < 14) return 8; // Very high
     return 9; // Phenomenal
 };
 

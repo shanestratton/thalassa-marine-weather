@@ -126,6 +126,8 @@ export interface AisWatchAlarm {
     name: string;
     /** The last computed CPA and TCPA (null for a beacon, or before one could be computed). */
     cpaNm: number | null;
+    positionBasis?: 'report' | 'dead-reckoned';
+    uncertaintyNm?: number;
     tcpaMin: number | null;
     /** From our own fix; null without one, or without her position. */
     rangeNm: number | null;
@@ -338,6 +340,27 @@ export class AisNightWatch {
             console.log(`[ais-watch] armed by another device too (${this.armers.size})`);
         }
         if (changed) this.keep();
+    }
+
+    /**
+     * An arm from a phone or tablet that is not set up for this Pi, while it
+     * only takes commands from her own devices (129-12, piCommandLock.ts): it
+     * may add to the watch, never weaken it. Off, it arms as arm() does. On,
+     * that device's thresholds can only tighten (the stricter of its old and
+     * new), a new device joins only while there is room (nobody already on the
+     * list is pushed off). Its MMSI is never taken, whether or not one is known
+     * (null keeps what arm() already holds): a guest cannot make another ship
+     * 'our own boat' and drop her from every alarm. Signal K's own `self` still
+     * keeps our boat off the list.
+     */
+    raiseArm(rawPrefs: unknown, opts: { ownMmsi?: number | null; device?: string | null } = {}): void {
+        const ownMmsi = null;
+        if (!this.armed) return this.arm(rawPrefs, { ownMmsi, device: opts.device });
+        const device = isDeviceId(opts.device) ? opts.device : AIS_WATCH_UNNAMED_DEVICE;
+        const before = this.armers.get(device);
+        if (!before && this.armers.size >= AIS_WATCH_MAX_DEVICES) return;
+        const prefs = sanitiseCollisionPrefs(rawPrefs);
+        this.arm(before ? strictest([before, prefs]) : prefs, { ownMmsi, device });
     }
 
     /**
@@ -854,6 +877,13 @@ export class AisNightWatch {
         const a = g.assessment;
         alarm.name = g.target.name || alarm.name;
         alarm.cpaNm = round(a.cpaNm, 2);
+        if (a.positionBasis) {
+            alarm.positionBasis = a.positionBasis;
+            alarm.uncertaintyNm = a.uncertaintyNm;
+        } else {
+            delete alarm.positionBasis;
+            delete alarm.uncertaintyNm;
+        }
         alarm.tcpaMin = round(a.tcpaMin, 1);
         alarm.rangeNm = round(a.rangeNm, 2);
         alarm.bearingDeg = round(a.bearingDeg, 0);

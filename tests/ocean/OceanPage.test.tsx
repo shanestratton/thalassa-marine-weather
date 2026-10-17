@@ -4,12 +4,16 @@
  * offer fish, and must credit every historical dataset it draws.
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import OceanPage, { layerExplanation, type OceanBoot } from '../../src/ocean/OceanPage';
 import { parseContext, parseSummary, type ContextState, type FleetState } from '../../src/ocean/oceanApi';
 import { fleetFilter, regionReport, rowBoxes, tallyContext } from '../../src/ocean/mapLayers';
 import { inBox } from '../../src/ocean/regions';
 
+// OceanPage reads the Mapbox token once, at import, and with none it starts in the no-map fallback.
+// CI sets one from repo vars; a checkout with no .env has none, so the test supplies its own.
+vi.hoisted(() => vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', 'pk.test-not-a-token'));
+afterAll(() => vi.unstubAllEnvs());
 vi.mock('../../src/ocean/OceanMap', () => ({ default: () => <div data-testid="map-stub" /> }));
 
 const CONTEXT = parseContext({

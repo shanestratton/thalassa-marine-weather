@@ -3,6 +3,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
+const appJsonSource = readFileSync(new URL('./appJson.ts', import.meta.url), 'utf8');
+function assertAdminBodyParser() {
+    assert.match(source, /app\.use\(createAppJsonParser\(UNSAFE_ADMIN_API_ENABLED\)\)/);
+    assert.match(appJsonSource, /unsafeAdmin \? '100mb' : '64kb'/);
+}
 const proxySource = readFileSync(new URL('./proxy.ts', import.meta.url), 'utf8');
 const encRouteSource = readFileSync(new URL('./routes/enc.ts', import.meta.url), 'utf8');
 const chartRouteSource = readFileSync(new URL('./routes/charts.ts', import.meta.url), 'utf8');
@@ -53,7 +58,7 @@ test('only what the app never calls keeps the unsafe-admin gate', () => {
     // Hosting the built web app, and the 100 MB body limit that only the chart
     // upload path needs, are administration too.
     assert.match(source, /UNSAFE_ADMIN_API_ENABLED && fs\.existsSync/);
-    assert.match(source, /UNSAFE_ADMIN_API_ENABLED \? '100mb' : '64kb'/);
+    assertAdminBodyParser();
 });
 
 test('the endpoints the app calls are behind the APP gate, not the admin one', () => {
@@ -313,7 +318,14 @@ test('background workers are NOT behind the unsafe-admin gate', () => {
     assert.match(source, /if \(process\.env\.ENC_WATCHER_ENABLED === 'true'\) \{\s*\n\s*startEncWatcher\(/);
 
     // Specifically: neither start call may mention the admin flag again.
-    for (const call of ['startScheduler(cache, proxyConfig);', 'startEncWatcher();']) {
+    assert.match(
+        source,
+        /if \(SUPABASE_ANON_KEY\) \{\s*startScheduler\(cache, proxyConfig, \{\s*internetAllowed: \(\) => diaryRelayOutbox\.getConfiguration\(\)\.allowInternet,?\s*\}\);/,
+        'automatic prefetch must retain its explicit boat internet-policy gate',
+    );
+    for (const call of ['startScheduler(cache, proxyConfig, {', 'startEncWatcher();']) {
+        // The final automatic startup call, after the earlier restart inside
+        // an authenticated configuration request handler.
         const at = source.lastIndexOf(call);
         assert.ok(at > -1, `${call} not found`);
         const guard = source.slice(Math.max(0, at - 200), at);
@@ -326,7 +338,7 @@ test('the admin flag still guards what it should', () => {
     // genuinely mutates the Pi or proxies arbitrary upstreams.
     assert.match(source, /const requireUnsafeAdmin/);
     assert.match(source, /app\.use\('\/api\/misc\/proxy', requireUnsafeAdmin\)/);
-    assert.match(source, /UNSAFE_ADMIN_API_ENABLED \? '100mb' : '64kb'/);
+    assertAdminBodyParser();
 });
 
 test('the passthrough reads its query params as strings, never casts them', () => {

@@ -151,6 +151,8 @@ import { AnchorWatchSyncService, type PositionBroadcast, type SyncState } from '
 import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
 import { ShoreSwingTrail } from '../services/shoreSwingTrail';
 import { useSettingsStore } from '../stores/settingsStore';
+import { clearPiCommandRefusal, notePiCommandRefusal } from '../services/piCommandRefusal';
+import { toast } from '../components/Toast';
 
 const CONNECTED_SHORE_STATE: SyncState = {
     connected: true,
@@ -418,6 +420,43 @@ describe('AnchorWatchPage', () => {
         expect(screen.getByRole('button', { name: 'Stop Watch' })).toHaveTextContent('Weigh Anchor');
         expect(screen.queryByText('Holding')).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /^(Start|Sign in for) Shore Watch$/ })).not.toBeInTheDocument();
+    });
+
+    // 129-12 review (2026-10-14): Weigh Anchor on this phone's own watch while
+    // it also handed one to her Pi, and her Pi refuses the stop. This phone's
+    // own alarm still stops (a safety stop never waits on the Pi), and it goes
+    // ashore on the Pi's watch, as after a hand-off, rather than forget it.
+    it('a stop her Pi refuses still stops this phone, which then follows the watch her Pi keeps', async () => {
+        const paused = makePausedSnapshot();
+        vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValue(true);
+        vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(paused as never);
+        vi.mocked(AnchorWatchService.subscribe).mockImplementation((listener) => {
+            listener(paused);
+            return vi.fn();
+        });
+        const keeping = vi.spyOn(AnchorPiWatchKeeper, 'keepingSessionCode').mockReturnValue('PSYCH3W4TCH2');
+        const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockImplementation(async () => {
+            notePiCommandRefusal('pi-device-not-set-up', 'Ψυχή');
+            return true;
+        });
+        const sync = AnchorWatchSyncService as unknown as { joinSession?: (code: string) => Promise<boolean> };
+        sync.joinSession = vi.fn().mockResolvedValue(true);
+        const said = vi.spyOn(toast, 'error');
+        try {
+            render(<AnchorWatchPage {...defaultProps} />);
+            fireEvent.click(await screen.findByRole('button', { name: 'Stop Watch' }));
+            await waitFor(() => expect(sync.joinSession).toHaveBeenCalledWith('PSYCH3W4TCH2'));
+            expect(AnchorWatchService.stopWatch).toHaveBeenCalled();
+            expect(AnchorWatchSyncService.leaveSession).not.toHaveBeenCalled();
+            expect(said).toHaveBeenCalledWith("This phone isn't set up for Ψυχή's Pi. Type the code from her Pi.");
+            expect(await screen.findByTestId('shore-watch-page')).toBeInTheDocument();
+        } finally {
+            delete sync.joinSession;
+            clearPiCommandRefusal();
+            keeping.mockRestore();
+            end.mockRestore();
+            said.mockRestore();
+        }
     });
 
     it('shows only cleanup controls when a paused watch belongs to the previous account', async () => {
@@ -738,7 +777,7 @@ describe('AnchorWatchPage', () => {
         });
 
         it('dismisses for this anchor; the next anchor is checked, and said, again', async () => {
-            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(false);
             try {
                 armsAt(1_000);
                 render(<AnchorWatchPage {...defaultProps} />);
@@ -1062,7 +1101,7 @@ describe('AnchorWatchPage', () => {
             const keeping = vi
                 .spyOn(AnchorPiWatchKeeper, 'keepingSessionCode')
                 .mockReturnValue(CONNECTED_SHORE_STATE.sessionCode);
-            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(false);
             const onBack = vi.fn();
             try {
                 await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_HORTA, onBack);
@@ -1086,7 +1125,7 @@ describe('AnchorWatchPage', () => {
             const keeping = vi
                 .spyOn(AnchorPiWatchKeeper, 'keepingSessionCode')
                 .mockReturnValue(CONNECTED_SHORE_STATE.sessionCode);
-            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(false);
             try {
                 await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_HORTA);
                 fireEvent.click(screen.getByRole('button', { name: '⏏ Weigh Anchor' }));
@@ -1110,8 +1149,9 @@ describe('AnchorWatchPage', () => {
             let piAnswers: () => void = () => {};
             const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockImplementation(() => {
                 keptCode = null;
-                return new Promise<void>((resolve) => {
-                    piAnswers = resolve;
+                // end() says whether her Pi refused (129-12): this one took it.
+                return new Promise<boolean>((resolve) => {
+                    piAnswers = () => resolve(false);
                 });
             });
             try {
@@ -1140,9 +1180,52 @@ describe('AnchorWatchPage', () => {
             }
         });
 
+        // 129-12 review (2026-10-14): her Pi may take a stop only from her own
+        // devices. A refused stop changes nothing: the Pi is still watching, so
+        // this phone keeps showing it, says why in her Pi's words, and offers
+        // the way to set this phone up. Fictional: Ψυχή, off Horta.
+        const REFUSED = "This phone isn't set up for Ψυχή's Pi. Type the code from her Pi.";
+        it("a Weigh Anchor her Pi refuses leaves the Pi's watch on screen, with her Pi's words and the way to set up", async () => {
+            const keeping = vi
+                .spyOn(AnchorPiWatchKeeper, 'keepingSessionCode')
+                .mockReturnValue(CONNECTED_SHORE_STATE.sessionCode);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockImplementation(async () => {
+                notePiCommandRefusal('pi-device-not-set-up', 'Ψυχή');
+                return true;
+            });
+            const said = vi.spyOn(toast, 'error');
+            const navigate = vi.fn();
+            window.addEventListener('thalassa:navigate', navigate);
+            try {
+                await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_HORTA);
+                fireEvent.click(screen.getByRole('button', { name: '⏏ Weigh Anchor' }));
+                await waitFor(() => expect(said).toHaveBeenCalledWith(REFUSED));
+                expect(end).toHaveBeenCalledOnce();
+                expect(AnchorWatchSyncService.leaveSession).not.toHaveBeenCalled();
+                expect(screen.getByTestId('shore-watch-page')).toBeInTheDocument();
+                expect(screen.getByText('Holding')).toBeInTheDocument();
+                const bar = screen.getByTestId('shore-weigh-anchor');
+                expect(within(bar).getByRole('button', { name: '⏏ Weigh Anchor' })).toBeEnabled();
+                expect(within(bar).getByText(REFUSED)).toBeInTheDocument();
+                fireEvent.click(within(bar).getByRole('button', { name: 'Set up this phone' }));
+                expect(navigate).toHaveBeenCalledOnce();
+                expect((navigate.mock.calls[0][0] as CustomEvent).detail).toEqual({ tab: 'avnav' });
+                // Set up now: the next Weigh Anchor is taken, and the session is left as before.
+                end.mockResolvedValue(false);
+                fireEvent.click(within(bar).getByRole('button', { name: '⏏ Weigh Anchor' }));
+                await waitFor(() => expect(AnchorWatchSyncService.leaveSession).toHaveBeenCalledOnce());
+            } finally {
+                window.removeEventListener('thalassa:navigate', navigate);
+                clearPiCommandRefusal();
+                keeping.mockRestore();
+                end.mockRestore();
+                said.mockRestore();
+            }
+        });
+
         it('keeps Leave for crew following another boat, and it leaves the session with the Pi still watching', async () => {
             const keeping = vi.spyOn(AnchorPiWatchKeeper, 'keepingSessionCode').mockReturnValue('SOMEONEELSE1');
-            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(false);
             try {
                 await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_BOCAS);
                 expect(screen.queryByRole('button', { name: '⏏ Weigh Anchor' })).toBeNull();

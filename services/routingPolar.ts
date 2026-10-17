@@ -19,7 +19,9 @@
  *        yacht database: the SHAPE, scaled to her cruising speed with
  *        passagePlan.polarScale — the Passage HUD's rule, and its speed
  *        (vesselCruisingSpeedKts: a stored 0 means "auto", sqrt(LOA) × 1.2);
- *        the generated tables run ~45% slow, raw they would cripple every ETA;
+ *        the generated tables run ~45% slow, raw they would cripple every ETA.
+ *        The Polars page shows and edits these scaled figures, to 0.01 kn
+ *        (yourPolarAsSailed; build 131, 130-B6);
  *   4. otherwise the generic cruising polar — its SHAPE scaled to her
  *      cruising speed exactly as a database shape is (build 125, 125-08: it
  *      was sailed raw, ~5.9 kn on a fair reach whatever the boat, while the
@@ -59,12 +61,14 @@ import { vesselCruisingSpeedKts } from './units';
 import { useSettingsStore } from '../stores/settingsStore';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
 import { createLogger } from '../utils/createLogger';
+import { routingPolarScale, scalePolar } from './polarTools';
 
 const log = createLogger('RoutingPolar');
 
 export type RoutingPolarSource = 'learned' | 'imported' | 'manual' | 'database-scaled' | 'default';
 
 export interface ResolvedRoutingPolar {
+    routingScale?: number;
     polar: PolarData;
     source: RoutingPolarSource;
     /** Plain words for the banner: "Beneteau Oceanis 38.1 (shape scaled to 6.5 kn)". */
@@ -84,7 +88,13 @@ export interface ResolvedRoutingPolar {
 export type RoutingPolarSettings = Partial<
     Pick<
         UserSettings,
-        'polarData' | 'polarBoatModel' | 'polarSource_type' | 'polarSource' | 'smartPolarsEnabled' | 'vessel'
+        | 'polarData'
+        | 'polarBoatModel'
+        | 'polarSource_type'
+        | 'polarSource'
+        | 'smartPolarsEnabled'
+        | 'vessel'
+        | 'routingPolarScale'
     >
 >;
 
@@ -97,7 +107,7 @@ export interface LearnedPolarSnapshot {
 /** Below this many of the 42 learned cells, the learned polar is not used at all. */
 export const LEARNED_MIN_FILLED_CELLS = 8;
 /** The learned grid's cells: SmartPolarStore exports 7 wind speeds × 6 angles. */
-export const LEARNED_CELLS = 42;
+export const LEARNED_CELLS = 63;
 /** The no-go ramp: zero speed this many degrees inside the first priced angle. */
 const NO_GO_RAMP_DEG = 5;
 /** Columns under this are dropped: the edge refuses them, and the router motors there. */
@@ -212,6 +222,17 @@ function checkPolar(value: unknown): { polar: PolarData } | { why: string } {
 }
 
 /**
+ * Why routes could not sail on this polar, in the resolver's own words; null
+ * when they can. The Polars page refuses an imported file with it (132-B22):
+ * before, a file routes could not use was saved, and every route then sailed
+ * the generic polar while the page showed the file.
+ */
+export function whyRoutesCannotSail(polar: PolarData): string | null {
+    const checked = checkPolar(polar);
+    return 'why' in checked ? checked.why : null;
+}
+
+/**
  * Give a sailing polar its no-go zone: zero-speed rows at 0° and at five
  * degrees inside its first priced angle (its own leading all-zero rows are
  * replaced), and no TWS column under 0.1 kn.
@@ -309,6 +330,42 @@ const scaleBy = (p: PolarData, scale: number): PolarData => ({
     matrix: p.matrix.map((r) => r.map((v) => v * scale)),
 });
 
+/** What a database shape is scaled by for her, and the cruising speed it is matched to. */
+function databaseScale(polar: PolarData, vessel: VesselProfile): { scale: number | null; cruiseKts: number } {
+    // The Passage HUD's own speed: a stored 0 is "auto" (VesselTab's
+    // "Reset to auto"), sqrt(LOA) × 1.2 for a sailing boat.
+    const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
+    return { scale: polarScale(polar, cruiseKts), cruiseKts };
+}
+
+/**
+ * "Your polar" with the figures routes sail on, on its own rows and columns,
+ * for the Polars page to show, chart and edit (build 131, 130-B6). The page
+ * showed a yacht-database table raw, ~45% slow, and one changed cell saved
+ * the whole raw table as her own figures — sailed as given, so every route
+ * went ~45% slow. Now a database shape is shown scaled by the scale routes
+ * use, each figure to 0.01 kn (within 0.005 kn of the route's), and an edit
+ * saves those figures. Imported or typed-in figures, a table routes cannot
+ * use and any boat that is not a sailing boat are shown as stored (the
+ * page's top line says what routes sail then).
+ * `scaledToKts`: the cruising speed a database shape was scaled to.
+ */
+export function yourPolarAsSailed(
+    polar: PolarData,
+    kind: UserSettings['polarSource_type'],
+    vessel: VesselProfile | null | undefined,
+): { polar: PolarData; scaledToKts: number | null } {
+    const asStored = { polar, scaledToKts: null };
+    const boat = resolveEffectiveVessel(vessel);
+    if (kind !== 'database' || boat.type !== 'sail') return asStored;
+    const checked = checkPolar(polar);
+    if ('why' in checked) return asStored;
+    const { scale, cruiseKts } = databaseScale(checked.polar, boat);
+    if (scale === null) return asStored;
+    const matrix = polar.matrix.map((r) => r.map((v) => round2(v * scale)));
+    return { polar: { ...polar, matrix }, scaledToKts: cruiseKts };
+}
+
 /**
  * The generic polar for her: its shape scaled so a fair reaching breeze gives
  * her cruising speed (vesselCruisingSpeedKts: a stored 0 is "auto"), as a
@@ -347,10 +404,7 @@ function factoryPolar(settings: RoutingPolarSettings, vessel: VesselProfile): Om
     const name = settings.polarBoatModel?.trim() || '';
     switch (kind) {
         case 'database': {
-            // The Passage HUD's own speed: a stored 0 is "auto" (VesselTab's
-            // "Reset to auto"), sqrt(LOA) × 1.2 for a sailing boat.
-            const cruise = vesselCruisingSpeedKts(vessel, 0);
-            const scale = polarScale(checked.polar, cruise);
+            const { scale, cruiseKts: cruise } = databaseScale(checked.polar, vessel);
             if (scale === null) {
                 return generic(`the yacht database polar cannot be matched to a cruising speed of ${kn(cruise)} kn`);
             }
@@ -382,7 +436,7 @@ function factoryPolar(settings: RoutingPolarSettings, vessel: VesselProfile): Om
  * Which polar a route sails by — pure: the settings, the vessel and a
  * snapshot of the learned grid in; the polar, its name and why out.
  */
-export function resolveRoutingPolarFrom(input: {
+function resolveUnscaledRoutingPolar(input: {
     settings: RoutingPolarSettings | null | undefined;
     vessel: VesselProfile;
     learned: LearnedPolarSnapshot | null;
@@ -398,16 +452,15 @@ export function resolveRoutingPolarFrom(input: {
         // The learner is its own switch (Settings → Preferences), apart from
         // "Routing uses: Smart": off — or never on — nothing is learning.
         const learning = settings.smartPolarsEnabled === true;
-        const cells = `${filled} of ${LEARNED_CELLS} cells`;
+        const totalCells = input.learned?.polar?.matrix.flat().length ?? LEARNED_CELLS;
+        const cells = `${filled} of ${totalCells} cells`;
         const counted = learning ? cells : `${cells}, learning off`;
         const learned = { cells: filled, learning };
         if (input.learned?.polar && filled >= LEARNED_MIN_FILLED_CELLS) {
             return finish(
                 normaliseRoutingPolar(blendLearned(input.learned.polar, factoryNormalised)),
                 'learned',
-                filled >= LEARNED_CELLS
-                    ? `Learned (${counted})`
-                    : `Learned (${counted}), the rest from ${factory.label}`,
+                filled >= totalCells ? `Learned (${counted})` : `Learned (${counted}), the rest from ${factory.label}`,
                 `learned in ${counted}; the rest from ${factory.label}`,
                 learned,
             );
@@ -424,6 +477,23 @@ export function resolveRoutingPolarFrom(input: {
         );
     }
     return finish(factoryNormalised, factory.source, factory.label, factory.reason);
+}
+
+/** Apply the owner's sailing adjustment once, after learned/factory blending. */
+export function resolveRoutingPolarFrom(
+    input: Parameters<typeof resolveUnscaledRoutingPolar>[0],
+): ResolvedRoutingPolar {
+    const resolved = resolveUnscaledRoutingPolar(input);
+    if (input.vessel.type !== 'sail' || input.settings?.routingPolarScale === undefined) return resolved;
+    const factor = routingPolarScale(input.settings.routingPolarScale);
+    const polar = scalePolar(resolved.polar, factor);
+    return {
+        ...resolved,
+        polar,
+        routingScale: factor,
+        label: `${resolved.label} · routing ${Math.round(factor * 100)}%`,
+        signature: signatureOf(resolved.source, polar),
+    };
 }
 
 /**
@@ -449,10 +519,15 @@ export function sailsHerOwnFigures(source: RoutingPolarSource): boolean {
  * table's ends (passagePlan.passageSpeed).
  */
 export function routingSpeedModel(
-    routing: Pick<ResolvedRoutingPolar, 'polar' | 'source'>,
+    routing: Pick<ResolvedRoutingPolar, 'polar' | 'source' | 'routingScale'>,
     base: Omit<PassageSpeedModel, 'polar' | 'polarKind'>,
 ): PassageSpeedModel {
-    return { ...base, polar: routing.polar, polarKind: sailsHerOwnFigures(routing.source) ? 'figures' : 'shape' };
+    return {
+        ...base,
+        polar: routing.polar,
+        polarKind: sailsHerOwnFigures(routing.source) ? 'figures' : 'shape',
+        polarScaleFactor: routing.routingScale,
+    };
 }
 
 /**
@@ -463,7 +538,7 @@ export function routingSpeedModel(
  * routing is set to use it. Never throws: the generic polar is the floor.
  */
 export async function resolveRoutingPolar(
-    input: { settings?: RoutingPolarSettings; vessel?: VesselProfile | null } = {},
+    input: { settings?: RoutingPolarSettings; vessel?: VesselProfile | null; period?: 'all' | 'day' | 'night' } = {},
 ): Promise<ResolvedRoutingPolar> {
     try {
         const settings = input.settings ?? useSettingsStore.getState().settings;
@@ -472,7 +547,9 @@ export async function resolveRoutingPolar(
         if (settings.polarSource === 'smart' && vessel.type === 'sail') {
             try {
                 await SmartPolarStore.ensureLoaded();
-                learned = learnedPolarSnapshot();
+                const { getPiLearnedPolar } = await import('./piPolarLearner');
+                const polar = SmartPolarStore.exportToRoutingPolar(await getPiLearnedPolar(input.period));
+                learned = { polar, filledCells: polar?.matrix.flat().filter((v) => v > 0).length ?? 0 };
             } catch (e) {
                 log.warn('learned polar unreadable; routing on the factory polar:', e);
             }
@@ -515,7 +592,8 @@ function spread(n: number, max: number): number[] {
  * The edge still applies its own light-air, wave and gale rules on top.
  */
 export function toEdgePolar(resolved: ResolvedRoutingPolar): PolarData | null {
-    if (resolved.source === 'default') return null;
+    if (resolved.source === 'default' && (resolved.routingScale === undefined || resolved.routingScale === 1))
+        return null;
     const p = resolved.polar;
     const zero = (row: number[]) => row.every((v) => !(v > 0));
     let first = 0;

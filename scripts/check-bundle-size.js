@@ -80,7 +80,13 @@ const BUDGETS = {
     // 10.13 line, with the routing worker, orientation and the wind layer still to land.
     // +41,943 B (10,664,017 B). At 127 assembly this is tightened to the measured total plus
     // the usual headroom, and it does not move again for 127.
-    javascript: 10.17 * MIB,
+    // 10.15, was 10.17 (2026-10-14, build 129 assembly). 129-10's code cut took 245,716 B out
+    // (the PDFs drawn by hand, html2canvas and dompurify stubbed, do-nothing logging stripped),
+    // and the rest of 129 (cyclones, official warnings, the Pi lock, the quiet watch, forecast
+    // alerts, clear view, the Vessel housekeeping) put 61 KB back. Measured 10,462,440 B
+    // (9.98 MiB). Lowered to the measured figure + ~180 KB (10,643,610 B, 181,170 B headroom),
+    // as at 126, so an accidental dependency still trips it. Build 130 plans ~45 KB.
+    javascript: 10.15 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };
@@ -92,7 +98,7 @@ function getFiles(dir, files = []) {
         if (entry.isDirectory()) {
             getFiles(full, files);
         } else if (!entry.name.endsWith('.map')) {
-            files.push({ path: full.replace(DIST + '/', ''), size: fs.statSync(full).size });
+            files.push({ path: path.relative(DIST, full).split(path.sep).join('/'), size: fs.statSync(full).size });
         }
     }
     return files;

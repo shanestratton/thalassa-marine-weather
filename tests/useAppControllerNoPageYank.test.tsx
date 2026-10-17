@@ -133,6 +133,37 @@ describe('useAppController — the boot steer must not yank a working skipper', 
         localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded', getAuthIdentityScope()), 'true');
     });
 
+    it('uses the compact landscape layout on the first render and follows one viewport snapshot on rotation', () => {
+        vi.stubGlobal('innerWidth', 844);
+        vi.stubGlobal('innerHeight', 390);
+        const frames: boolean[] = [];
+        try {
+            const { result, unmount } = renderHook(() => {
+                const controller = useAppController();
+                frames.push(controller.isMobileLandscape);
+                return controller;
+            });
+            // A post-paint correction is too late: the real header had already
+            // exposed 28 extra pixels to its page and the layout measurement.
+            expect(frames[0]).toBe(true);
+            act(() => {
+                vi.stubGlobal('innerWidth', 390);
+                vi.stubGlobal('innerHeight', 844);
+                window.dispatchEvent(new Event('resize'));
+            });
+            expect(result.current.isMobileLandscape).toBe(false);
+            act(() => {
+                vi.stubGlobal('innerWidth', 844);
+                vi.stubGlobal('innerHeight', 390);
+                window.dispatchEvent(new Event('resize'));
+            });
+            expect(result.current.isMobileLandscape).toBe(true);
+            unmount();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('does NOT navigate to the dashboard while the skipper is on the chart', async () => {
         const { rerender } = renderHook(() => useAppController());
         await waitFor(() => expect(h.fetchWeather).toHaveBeenCalled());

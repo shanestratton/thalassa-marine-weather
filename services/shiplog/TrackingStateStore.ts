@@ -23,6 +23,7 @@ import {
     type AuthIdentityScope,
 } from '../authIdentityScope';
 import type { TrackSourcePlan } from './trackSourcePlan';
+import { suspendEngineRunCounter, validEngineRunCounter, type EngineRunCounter } from './engineRunCounter';
 
 const log = createLogger('ShipLog.Store');
 
@@ -144,6 +145,8 @@ export interface TrackingState {
      * sets this — only the live "engine on/off" control does.
      */
     engineRunning?: boolean;
+    /** Explicit log declarations and source-clock-qualified RPM only. Never inferred propulsion. */
+    engineRun?: EngineRunCounter;
     /**
      * Which receiver feeds this voyage, decided at Start (build 123, package
      * VL): her source, the phone's keep-alive need, and whether this phone may
@@ -309,6 +312,11 @@ export function suspendTrackingStateForIdentityChange(
                   isRapidMode: false,
                   isPrecisionMode: false,
                   voyageEndTime: undefined,
+                  engineRunning: undefined,
+                  engineRun:
+                      state.currentVoyageId && validEngineRunCounter(state.engineRun, state.currentVoyageId)
+                          ? suspendEngineRunCounter(state.engineRun, Date.now())
+                          : undefined,
               }
             : { ...state };
     return withScopeLock(

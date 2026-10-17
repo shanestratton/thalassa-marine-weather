@@ -8,7 +8,7 @@
  * DOM.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../context/WeatherContext', () => ({
@@ -118,6 +118,9 @@ vi.mock('../services/anchorPiWatchKeeper', () => ({
 
 import { AnchorWatchPage } from '../components/AnchorWatchPage';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
+import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
+import { clearPiCommandRefusal, notePiCommandRefusal } from '../services/piCommandRefusal';
+import { toast } from '../components/Toast';
 
 function watchingSnapshot(): AnchorWatchSnapshot {
     return {
@@ -176,5 +179,46 @@ describe('Pi watch offer — real render', () => {
         await waitFor(() => expect(screen.queryByText('Let the boat keep the watch?')).toBeTruthy(), {
             timeout: 3000,
         });
+    });
+
+    // 129-12 review (2026-10-14): her Pi may refuse the hand-off (a watch it
+    // already keeps, from a phone not set up for her). Its own words then, and
+    // this phone keeps the watch. Fictional: 海风 (Hǎi Fēng).
+    it("a hand-off her Pi refuses says so in her Pi's words, and this phone keeps the watch", async () => {
+        const said = vi.spyOn(toast, 'error');
+        try {
+            vi.mocked(AnchorPiWatchKeeper.begin).mockImplementationOnce(async () => {
+                notePiCommandRefusal('pi-device-not-set-up', '海风');
+                return false;
+            });
+            render(<AnchorWatchPage onBack={vi.fn()} />);
+            fireEvent.click(await screen.findByRole('button', { name: 'Yes — the Pi watches' }, { timeout: 3000 }));
+            await waitFor(() =>
+                expect(said).toHaveBeenCalledWith(
+                    "This phone isn't set up for 海风's Pi. Type the code from her Pi. This phone is still keeping the watch.",
+                ),
+            );
+            expect(AnchorWatchService.stopWatch).not.toHaveBeenCalled();
+        } finally {
+            said.mockRestore();
+            clearPiCommandRefusal();
+        }
+    });
+
+    it('a hand-off refused for another reason keeps its own words, even just after a refusal elsewhere', async () => {
+        const said = vi.spyOn(toast, 'error');
+        try {
+            notePiCommandRefusal('pi-device-not-set-up', '海风');
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            vi.mocked(AnchorPiWatchKeeper.begin).mockResolvedValueOnce(false);
+            render(<AnchorWatchPage onBack={vi.fn()} />);
+            fireEvent.click(await screen.findByRole('button', { name: 'Yes — the Pi watches' }, { timeout: 3000 }));
+            await waitFor(() =>
+                expect(said).toHaveBeenCalledWith('The Pi would not take the watch — this phone is still keeping it.'),
+            );
+        } finally {
+            said.mockRestore();
+            clearPiCommandRefusal();
+        }
     });
 });

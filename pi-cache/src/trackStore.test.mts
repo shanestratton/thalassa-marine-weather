@@ -58,6 +58,29 @@ test('a point survives the round trip with every instrument intact', () => {
     }
 });
 
+test('polar RPM/TWA columns migrate as nullable and the append cursor survives duplicate GPS time', () => {
+    const { store, dir } = tmpStore();
+    try {
+        store.append([pt(), pt({ engineRpm: 0, twaDeg: 90 })]);
+        const rows = store.polarPointsAfter(0);
+        assert.equal(rows.length, 2);
+        assert.equal(rows[0].engine_rpm, null);
+        assert.equal(rows[0].twa_deg, null);
+        assert.equal(rows[1].engine_rpm, 0);
+        assert.equal(rows[1].twa_deg, 90);
+        assert.deepEqual(
+            store.polarPointsAfter(Number(rows[0].sample_id)).map((row) => row.sample_id),
+            [rows[1].sample_id],
+        );
+        store.writePolarState(JSON.stringify({ cursor: rows[1].sample_id, samples: 1 }));
+        assert.equal(store.polarLastRowId(), rows[1].sample_id);
+        assert.deepEqual(JSON.parse(store.readPolarState()!), { cursor: rows[1].sample_id, samples: 1 });
+    } finally {
+        store.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('points come back oldest first, which is the order a track is drawn in', () => {
     const { store, dir } = tmpStore();
     try {
@@ -128,6 +151,54 @@ test('reopening the same directory keeps the track', () => {
         assert.equal(second.summary().points, 1);
         second.close();
     } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('derived-instrument source clocks migrate nullable and round-trip without borrowing row time', () => {
+    const { store, dir } = tmpStore();
+    try {
+        store.append([
+            pt(),
+            pt({
+                gpsTimeMs: T0 + 5000,
+                sogAtMs: T0 - 1000,
+                cogTrueAtMs: T0 - 2000,
+                stwAtMs: T0 - 3000,
+                headingTrueDeg: 0,
+                headingTrueAtMs: T0 - 4000,
+                engineRpm: 0,
+                engineRpmAtMs: T0 - 5000,
+                leewayDeg: -2,
+                leewayAtMs: T0 - 6000,
+                leewaySource: 'explicit sensor',
+            }),
+        ]);
+        const rows = store.points({ fromMs: T0, toMs: T0 + 10000 });
+        for (const key of [
+            'sog_at_ms',
+            'cog_true_at_ms',
+            'stw_at_ms',
+            'heading_true_deg',
+            'heading_true_at_ms',
+            'engine_rpm_at_ms',
+            'leeway_deg',
+            'leeway_at_ms',
+            'leeway_source',
+        ])
+            assert.equal(rows[0][key], null);
+        assert.equal(rows[1].heading_true_deg, 0);
+        assert.equal(rows[1].heading_true_at_ms, T0 - 4000);
+        assert.equal(rows[1].engine_rpm_at_ms, T0 - 5000);
+        assert.equal(rows[1].leeway_source, 'explicit sensor');
+        store.close();
+        const reopened = new TrackStore(dir);
+        assert.equal(reopened.points({ fromMs: T0, toMs: T0 + 10000 })[1].stw_at_ms, T0 - 3000);
+        reopened.close();
+    } finally {
+        try {
+            store.close();
+        } catch {}
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });

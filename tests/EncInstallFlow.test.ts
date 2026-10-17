@@ -30,6 +30,7 @@ vi.mock('../services/PiPairingService', () => ({
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => mocks.accountRevision,
     isAuthIdentityScopeCurrent: (revision: number) => revision === mocks.accountRevision,
+    subscribeAuthIdentityScope: () => () => undefined,
 }));
 // The boat registry (127-C-c): the install flow's licensed rows register in
 // memory; its state and the account flag are not the subject here.

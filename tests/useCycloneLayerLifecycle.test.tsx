@@ -8,6 +8,8 @@ vi.mock('../services/weather/CycloneTrackingService', () => ({
     fetchActiveCyclones: mocks.fetch,
     fetchGfsTrackerPositions: async () => new Map(),
     findClosestCyclone: (storms: ActiveCyclone[]) => storms[0] ?? null,
+    modelTracksFor: () => [],
+    cycloneFeedStatus: () => ({ unavailableSince: null }),
 }));
 vi.mock('../stores/WindStore', () => ({ WindStore: { subscribe: () => () => undefined } }));
 vi.mock('../components/map/cloudOverlay', () => ({
@@ -55,6 +57,19 @@ function storm(sid: string): ActiveCyclone {
             { ...current, lat: -21, time: '2026-09-27T06:00:00Z' },
             { ...current, lat: -22, time: '2026-09-27T12:00:00Z' },
         ],
+        // The issuer's own published polygon (129-09): the layer draws a cone
+        // only where one was published, never one of its own.
+        cone: {
+            type: 'Polygon',
+            coordinates: [
+                [
+                    [155, -20],
+                    [156, -22],
+                    [154, -22],
+                    [155, -20],
+                ],
+            ],
+        },
         maxWindKts: 70,
         minPressureMb: 980,
         nature: 'TC',
@@ -196,7 +211,9 @@ describe('cyclone catalogue lifecycle', () => {
 
     it('does not retain the old probability sleeve when the refreshed storm has no forecast', async () => {
         const first = storm('FIRST');
-        mocks.fetch.mockResolvedValueOnce([first]).mockResolvedValueOnce([{ ...first, forecastTrack: [] }]);
+        mocks.fetch
+            .mockResolvedValueOnce([first])
+            .mockResolvedValueOnce([{ ...first, forecastTrack: [], cone: undefined }]);
         const h = makeMap();
         const ref = { current: h.map as never };
         const hook = renderHook(() => useCycloneLayer(ref, true, true, -20, 155));

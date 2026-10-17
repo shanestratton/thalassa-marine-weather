@@ -36,11 +36,14 @@ export const RemoteAccessSection: React.FC = () => {
      * only way to the Pi, and turning it off would cut the link. It used to fire on "a
      * tunnel is up and the Pi answered at its boat address" — which is true at
      * home over a subnet route, so it told Shane, 900 km from the boat, to
-     * turn off his only link to her (2026-10-07).
+     * turn off his only link to her (2026-10-07). Nothing is proven while
+     * the boat link loads (131-01).
      */
     const boatLink = useBoatLink();
-    const vpnUpOnLan = boatLink.hairpin;
-    const overTailnetNow = boatLink.lane === 'pi-direct' && boatLink.kind === 'private-network';
+    const vpnUpOnLan = boatLink?.hairpin === true;
+    // The private network the Pi answers over right now, if it does.
+    const overTailnetNow =
+        boatLink?.lane === 'pi-direct' && boatLink.kind === 'private-network' ? boatLink.networkName : null;
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const refresh = useCallback(async () => {
@@ -116,7 +119,7 @@ export const RemoteAccessSection: React.FC = () => {
                             <p className="text-sm font-medium text-white">Reachable away from the boat</p>
                             <p className="text-xs text-gray-400 mt-0.5 break-all">
                                 {ra.dnsName?.replace(/\.$/, '') || ra.tailscaleIps?.[0]}
-                                {overTailnetNow ? ` · reaching it over ${boatLink.networkName} now` : ''}
+                                {overTailnetNow ? ` · reaching it over ${overTailnetNow} now` : ''}
                             </p>
                             <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
                                 Your phone needs the free Tailscale app signed into the same account to reach the Pi

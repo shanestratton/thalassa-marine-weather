@@ -16,7 +16,7 @@ import { openOrientation as open, windProbes, type Pt } from './helpers/chartOri
 
 test.describe('the wind field turns with the chart', () => {
     for (const bearing of [0, 37, 90, 200]) {
-        test(`at ${bearing}°, the field’s north-up Leaflet points land on the chart within 2 px`, async ({ page }) => {
+        test(`at ${bearing}°, the field's canvas points land on the chart within 2 px`, async ({ page }) => {
             const errors = await open(page, { scene: 'wind', bearing: String(bearing) });
             const read = await windProbes(page);
             for (const { mapbox, css } of read.probes) {
@@ -26,14 +26,14 @@ test.describe('the wind field turns with the chart', () => {
             if (bearing === 0) {
                 // North up: today's div exactly.
                 expect(read.div.inset).toBe('0px');
-                expect(read.div.width).toBe('');
+                expect(read.div.width).toBe(`${read.view.width}px`);
                 expect(read.div.transform).not.toContain('rotate');
             } else {
                 const side = Math.ceil(Math.hypot(read.view.width, read.view.height));
                 expect(read.div.width).toBe(`${side}px`);
-                // Mapbox keeps a bearing in (-180, 180]: 200° is -160°.
-                const kept = ((bearing + 180) % 360) - 180;
-                expect(read.div.transform).toContain(`rotate(${-kept}deg)`);
+                // The field is projected by the actual Mapbox camera at each settle;
+                // CSS carries only the delta during a moving camera.
+                expect(read.div.transform).toBe('');
             }
             expect(errors).toEqual([]);
         });

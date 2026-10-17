@@ -9,11 +9,11 @@ import { useUI } from './context/UIContext';
 // entry import useAuthStore + SignInScreen directly where they need it.
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './services/authIdentityScope';
 import { useHudRecordingActivation } from './hooks/useHudRecording';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { AisGuardAlert } from './components/map/AisGuardAlert';
-import { PassageHudPane } from './components/passage/PassageHudPane';
 import { usePassageHudOpen } from './stores/passageHudStore';
 import { usePassageHudAvailable } from './hooks/usePassageHudAvailable';
 import { LocationStarMenu } from './components/LocationStarMenu';
@@ -55,6 +55,8 @@ import { PageTransition } from './components/ui/PageTransition';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { PlanSignOutButton } from './components/PlanSignOutButton';
 import { DraftConfirmModal } from './components/vessel/DraftConfirmModal';
+import { GlobalEngineHoursReviewGate } from './components/vessel/GlobalEngineHoursReviewGate';
+import { ShoreConsentHost } from './components/anchor-watch/ShoreConsentHost';
 import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
@@ -110,6 +112,14 @@ const DeparturePrompts = lazyRetry(
 const PassageKitPrompt = lazyRetry(
     () => import('./components/vessel/PassageKitPrompt').then((m) => ({ default: m.PassageKitPrompt })),
     'PassageKitPrompt',
+);
+// The passage pane, loaded when it has something to show (131-01): a route
+// followed or previewed on Obs, or a track recording (usePassageHudAvailable).
+// Until then its 2,000 lines and their forecast, sea and plan code stay out
+// of the shell every launch pays for.
+const PassageHudPane = lazyRetry(
+    () => import('./components/passage/PassageHudPane').then((m) => ({ default: m.PassageHudPane })),
+    'PassageHudPane',
 );
 // SignInScreen is no longer lazy-imported here — it's rendered by
 // the save-point sheets and the Settings → Account entry in their
@@ -1064,7 +1074,7 @@ const App: React.FC<AppProps> = (props) => {
     // header row beside the status button: bottom-left it sat over the
     // instrument grid's UV cell (UX scorecard run 5).
     const renderLandscapeNavToggle = (docked: boolean) => (
-        <nav aria-label={landscapeNavOpen ? 'Navigation toggle' : 'Main'}>
+        <nav aria-label={landscapeNavOpen ? 'Navigation toggle' : 'Main'} data-thalassa-tab-bar="">
             <button
                 type="button"
                 onClick={() => setLandscapeNavOpen((v) => !v)}
@@ -1149,6 +1159,8 @@ const App: React.FC<AppProps> = (props) => {
                 leads). Renders nothing until stores/draftConfirmStore asks.
                 Not lazy: an ask must never wait on a chunk download. */}
             <DraftConfirmModal />
+            <GlobalEngineHoursReviewGate />
+            <ShoreConsentHost />
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* Active-route status and stop controls live in SystemStatusButton
@@ -1240,6 +1252,29 @@ const App: React.FC<AppProps> = (props) => {
                                 break;
                             case 'weather_alert':
                                 setPage('dashboard');
+                                break;
+                            case 'overdue_notice':
+                                setPage('vessel');
+                                break;
+                            case 'buddy_notice':
+                                setPage('map');
+                                break;
+                            case 'radar_alarm': {
+                                const radarScope = getAuthIdentityScope();
+                                void import('./services/radar/radarPush')
+                                    .then(({ refreshRadarAlarmPush }) => {
+                                        if (isAuthIdentityScopeCurrent(radarScope)) refreshRadarAlarmPush(data, true);
+                                    })
+                                    .catch(() => undefined);
+                                setPage('map');
+                                break;
+                            }
+                            case 'cyclone_notice':
+                            case 'cyclone_urgent':
+                                setPage('map');
+                                break;
+                            case 'official_warning':
+                                setPage('warnings');
                                 break;
                             case 'anchor_alarm':
                                 // 'compass' is the anchor-watch page (swing circle,
@@ -1741,8 +1776,15 @@ const App: React.FC<AppProps> = (props) => {
                             split frame; never over the location picker or the route
                             tracer, which own the whole chart while they are up. The
                             passage planner and the consensus matrix hide it from CSS
-                            (index.css, main:has(...)), because only MapHub knows them. */}
-                            {chartVisible && !mapPickerActive && !tracerActive && <PassageHudPane />}
+                            (index.css, main:has(...)), because only MapHub knows them.
+                            Mounted, and so loaded, only when it has something to show:
+                            a followed route, an Obs preview (build 124) or a recording
+                            (131-01); nothing is drawn while its chunk arrives. */}
+                            {chartVisible && passageHudShown && !mapPickerActive && !tracerActive && (
+                                <Suspense fallback={null}>
+                                    <PassageHudPane />
+                                </Suspense>
+                            )}
                             {/* OBS is a top-level tab, not a Back destination.
                             Only the temporary location-picking workflow needs
                             a cancel action so a tap is never compulsory. */}
@@ -1767,6 +1809,8 @@ const App: React.FC<AppProps> = (props) => {
                             on every other page. */}
                             {isOffline && (
                                 <div
+                                    // Hidden with Obs's own controls in its clear view (129-13, index.css).
+                                    data-obs-chrome=""
                                     className="absolute z-601 pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
                                     style={{
                                         top: 'calc(env(safe-area-inset-top) + 8px)',
@@ -1802,6 +1846,7 @@ const App: React.FC<AppProps> = (props) => {
                             {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right on map view.
                             The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
                             <div
+                                data-obs-chrome=""
                                 className="absolute z-601 pointer-events-auto flex items-center gap-2"
                                 style={{
                                     top: 'calc(env(safe-area-inset-top) + 8px)',
@@ -1886,6 +1931,8 @@ const App: React.FC<AppProps> = (props) => {
                 {(!isMobileLandscape || landscapeNavOpen) && !isStandalonePlan && (
                     <nav
                         className="fixed bottom-0 left-0 right-0 z-900 border-t pb-[env(safe-area-inset-bottom)]"
+                        // Obs's clear view hides it in place, never moving the chart (129-13, index.css).
+                        data-thalassa-tab-bar=""
                         style={{
                             // Fully opaque: at 0.985 + blur, page text still ghosted
                             // through the tab labels (UX scorecard run 5). The tokens

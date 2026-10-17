@@ -11,7 +11,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deskWindToggle, windCreditLine, windModelLabel } from '../components/map/deskWind';
 import { DeskMapStrip } from '../components/map/DeskMapStrip';
 import { DESK_MAP_BASE_OPTIONS, MapBaseSelector } from '../components/map/MapBaseSelector';
-import { creditStackPx, CREDITS_SLOT_PX } from '../components/map/creditsStrip';
 import { useDeviceMode } from '../hooks/useDeviceMode';
 import { WIND_OVERLAY_MODELS } from '../services/weather/MultiModelWeatherService';
 
@@ -38,8 +37,8 @@ describe('the wind credit names the model’s provider and its licence', () => {
         expect(windCreditLine(model)).toBe(line);
     });
 
-    it('names each of the Glass’s five by the chips’ own label', () => {
-        expect(WIND_OVERLAY_MODELS.map(windModelLabel)).toEqual(['ICON', 'ECMWF', 'AIFS', 'UKMO', 'JMA']);
+    it('names each of the Glass’s six by the chips’ own label', () => {
+        expect(WIND_OVERLAY_MODELS.map(windModelLabel)).toEqual(['ICON', 'ECMWF', 'AIFS', 'UKMO', 'JMA', 'GFS']);
     });
 });
 
@@ -91,6 +90,11 @@ describe('the desk menu’s Wind row', () => {
             on: true,
         });
     });
+    it('names an imported file instead of attributing it to the retained online model', () => {
+        expect(deskWindToggle(true, 'ecmwf', () => undefined, 'Imported GRIB').detail).toBe(
+            'Model forecast · Imported GRIB',
+        );
+    });
 
     it('is offered on a desk window 768 px wide or more, never narrower', () => {
         const at = (width: number) => {
@@ -108,7 +112,11 @@ describe('the desk menu’s Wind row', () => {
     it('is session-only state, OFF at every mount, and Obs’s own wind never turns it on', () => {
         expect(hub).toMatch(/const \[deskWindOn, setDeskWindOn\] = useState\(false\);/);
         expect(hub).toMatch(/const deskWind = deskWindOffered && deskWindOn;/);
-        expect(hub).toContain('deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))');
+        expect(
+            /deskWindToggle\(\s*deskWindOn,\s*weather\.windModel,\s*\(\) => setDeskWindOn\(\(on\) => !on\),\s*localWindSource\(weather\.windState\) \?\? undefined,?\s*\)/.test(
+                hub,
+            ),
+        ).toBe(true);
         expect(source('components/map/deskWind.ts')).not.toMatch(/localStorage|sessionStorage|usePersistedState/);
     });
 });
@@ -129,8 +137,10 @@ describe('MapHub paints the desk’s wind through the planner’s own layers', (
         expect(overlay![0]).toContain('palette={windPalette}');
         // Dark ink on Light by day; Light's night palette is dim, so white streaks there.
         expect(hub).toMatch(/const windPalette = shownBase === 'light' && !nightMode \? 'light' : 'dark';/);
-        expect(overlay![0]).toContain("boatInstruments={!planningSurface && obsStart.kind === 'follow'}");
-        expect(overlay![0]).toContain('boatLookUp={!planningSurface && obsShowing}');
+        expect(overlay![0]).toMatch(
+            /boatInstruments=\{\s*weather\.windState\.isGlobalMode && !planningSurface && obsStart.kind === 'follow'\s*\}/,
+        );
+        expect(overlay![0]).toContain('boatLookUp={weather.windState.isGlobalMode && !planningSurface && obsShowing}');
     });
 
     it('gives the panel its desk place, the first pin (or the still centre) and the start', () => {
@@ -156,36 +166,30 @@ describe('the credit is in the strip wherever wind draws', () => {
         expect(slot2).toHaveAttribute('data-map-credit');
         const order = [...screen.getByTestId('desk-map-strip').children].map((el) => el.getAttribute('data-testid'));
         expect(order).toEqual(['desk-strip-slot-0', 'desk-strip-slot-1', 'desk-strip-slot-2', 'desk-strip-seabed']);
-        expect(hub).toMatch(/wind=\{deskWind && weather\.windReady \? windCreditLine\(weather\.windModel\) : null\}/);
+        expect(
+            /wind=\{\s*deskWind && weather\.windReady\s*\?\s*\(localWindSource\(weather\.windState\) \?\? windCreditLine\(weather\.windModel\)\)\s*:\s*null\s*\}/.test(
+                hub,
+            ),
+        ).toBe(true);
     });
 
-    it('on Obs: after the radar and Copernicus credits, and lightning and the cloud stack under it', () => {
-        expect(creditStackPx({ rain: true, cmems: true })).toBe(3 * CREDITS_SLOT_PX);
-        expect(creditStackPx({ rain: true, cmems: true, wind: true })).toBe(4 * CREDITS_SLOT_PX);
-        expect(creditStackPx({ rain: false, cmems: false, wind: true, lightning: true })).toBe(2 * CREDITS_SLOT_PX);
-        const pill = hub.match(/<div\s+data-testid="wind-credit"[\s\S]*?<\/div>/);
-        expect(pill).not.toBeNull();
-        expect(pill![0]).toContain('data-map-credit');
-        expect(pill![0]).toContain('windCreditLine(weather.windModel)');
-        expect(hub).toMatch(/creditStackPx\(\{ rain: rainCreditShown, cmems: cmemsAttributionLayers\.length > 0 \}\)/);
+    it('on Obs: one rollup receives the same actual wind source and is cleared by the passage strip', () => {
+        const rollup = hub.match(/<ObsCreditsRollup[\s\S]*?\/>/);
+        expect(rollup).not.toBeNull();
+        expect(rollup![0]).toContain('windCreditLine(weather.windModel)');
+        expect(rollup![0]).toContain('localWindSource(weather.windState)');
         expect(hub).toMatch(/const obsWindCredit =\s*ownshipStartup &&/);
         expect(hub).toMatch(/const ownshipStartup = !embedded && !pickerMode && !planningSurface && !isPinView;/);
-        // The passage strip clears it as it clears the other credits.
-        expect(source('components/passage/PassageHudPane.tsx')).toContain('[data-testid="wind-credit"]');
+        expect(source('components/passage/PassageHudPane.tsx')).toContain('[data-testid="obs-credits-rollup"]');
     });
-
-    // A phone-visible change, pinned (review 2026-10-10): lightning now counts
-    // Copernicus as the two slots its three-line credit takes (at one slot it
-    // lay on the DOI line), then the wind pill.
-    it('lightning sits under the radar, both Copernicus slots and the wind pill', () => {
-        expect(creditStackPx({ cmems: true })).toBe(2 * CREDITS_SLOT_PX);
-        expect(creditStackPx({ rain: true, cmems: true, wind: true })).toBe(4 * CREDITS_SLOT_PX);
-        const lightning = hub.match(
-            /top: creditsStripTop\(\s*creditStackPx\(\{([^}]*)\}\),?\s*\),\s*\}\}\s*>\s*<BlitzortungAttribution/,
-        );
-        expect(lightning).not.toBeNull();
-        expect(lightning![1].replace(/\s+/g, ' ').trim()).toBe(
-            'rain: rainCreditShown, cmems: cmemsAttributionLayers.length > 0, wind: obsWindCredit,',
-        );
+    it('lightning and wind share the fixed-height rollup rather than independent stacked chips', () => {
+        const rollup = source('components/map/ObsCreditsRollup.tsx');
+        expect(hub).toContain('lightning={browseLightningVisible}');
+        expect(rollup).toContain('data-testid="obs-credits-rollup"');
+        expect(rollup).toContain('flex h-[44px]');
+        expect(rollup).toContain('<BlitzortungAttribution visible />');
+        expect(rollup).toContain('{wind}');
+        expect(hub).not.toContain('data-testid="wind-credit"');
+        expect(hub).not.toContain('data-testid="lightning-credit"');
     });
 });

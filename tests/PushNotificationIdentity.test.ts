@@ -417,11 +417,14 @@ describe('PushNotificationService identity ownership', () => {
             data: nativeForegroundData,
         });
         emit('pushNotificationActionPerformed', {
-            notification: { data: { notification_type: 'weather_alert' } },
+            notification: { title: 'B warning', body: 'for B', data: { notification_type: 'weather_alert' } },
         });
 
         expect(foregroundB).toHaveBeenCalledOnce();
         expect(tapB).toHaveBeenCalledOnce();
+        // The tapped notification's own words ride along (an official warning shows them, 129-06).
+        expect(tapB.mock.calls[0][1]).toEqual({ title: 'B warning', body: 'for B' });
+        expect(Object.isFrozen(tapB.mock.calls[0][1])).toBe(true);
         expect(Object.isFrozen(foregroundB.mock.calls[0][0])).toBe(true);
         expect(Object.isFrozen(foregroundB.mock.calls[0][0].data)).toBe(true);
         expect(Object.isFrozen(tapB.mock.calls[0][0])).toBe(true);

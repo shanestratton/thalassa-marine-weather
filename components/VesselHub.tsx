@@ -21,7 +21,7 @@
  * Recipe Library has moved to the Galley; keeping it in two places
  * confused users and the Galley is the natural home for it.
  */
-import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
@@ -39,6 +39,7 @@ import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
 import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
 import { useBoatLink } from '../hooks/useBoatLink';
+import { BOAT_LINK_CHECKING } from '../services/boatLink/boatLinkGate';
 import type { Tone } from '../services/boatLink/boatLinkModel';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
@@ -47,7 +48,6 @@ import { triggerHaptic } from '../utils/system';
 import { daylightUiColor } from '../utils/daylightUiColor';
 import { convertLength } from '../utils/units';
 import { calculateDistance } from '../utils/navigationCalculations';
-import { getMyCrew } from '../services/CrewService';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { GpsService, type GpsPosition } from '../services/GpsService';
@@ -75,11 +75,11 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
-import { BackButton } from './ui/BackButton';
+import { PageHeader } from './ui/PageHeader';
 import { PUBLIC_BETA_ACCESS, TIER_INFO } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
+import { SystemsEntry } from './vessel/SystemsEntry';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
-import { vesselCrewAboard } from '../services/units';
 
 import { CONTOUR_BG, GLASS } from './vesselHub/glass';
 import { formatCoord, formatDuration, formatTimeSince, pressureTrendIndicator } from './vesselHub/format';
@@ -118,6 +118,13 @@ const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 // (2026-10-13), in the app's one card hue (styles/card-hue.css) in this same
 // sky: the hue sets it apart from the box, and no new colour joins the page.
 const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
+/**
+ * A row's small status words when something is past due ('2 overdue', '1
+ * expired'): red-400, 6.8:1 on the hub's glass (132-B20). The red-500 they
+ * wore measured 5.0:1, and 4.7:1 under a pressed row: a hair over the 4.5:1
+ * floor for 12 px text. The icons and badges keep their own reds.
+ */
+const HUB_DANGER_TEXT = '#f87171';
 /** The NMEA Gateway row's value colour, by the boat link's tone (the same palette it always used). */
 const HUB_TONE_COLOUR: Record<Tone, string> = {
     green: '#6ee7b7',
@@ -147,6 +154,8 @@ const HUB_PORT_FADE_BOTTOM =
 const HUB_PORT_FADE_BOTH =
     '[-webkit-mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)]';
 import { BinderSubLabel, ListDivider, OfficeRow } from './vesselHub/listRows';
+import { binderBadge, documentsDueStatus } from './vesselHub/binderBadge';
+import { markBinderReturn, takeBinderReturn } from './vesselHub/binderReturn';
 import { JournalCard } from './vesselHub/JournalCard';
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SwingArc } from './vesselHub/SwingArc';
@@ -157,7 +166,9 @@ import { usePendingCrewInvites } from './vesselHub/usePendingCrewInvites';
 import { useCrewingVessel } from '../hooks/useCrewingVessel';
 import { useCrewVesselView } from '../hooks/useCrewVesselView';
 import { crewVesselAboard, crewVesselName } from '../services/crew/crewVesselView';
-import { floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
+import { crewRegisterCount, floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
+import type { FloatPlanCrew } from '../services/floatPlanCrew';
+import { crewCountWords, crewInvitedWords } from './vesselHub/crewCardWords';
 import { SKIPPER_BOAT_FALLBACK } from './vessel/SharedBinderLine';
 import { useTripLogActive } from './vesselHub/useTripLogActive';
 
@@ -276,17 +287,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // Gateway, Boat Network, Music) and the per-device memory of whether it
     // was left open went with it; those rows are in the box.
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
-    const [binderOpen, setBinderOpen] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        const key = authScopedStorageKey('thalassa_boat_binder_return');
-        try {
-            const shouldReturn = sessionStorage.getItem(key) === '1';
-            sessionStorage.removeItem(key);
-            return shouldReturn;
-        } catch {
-            return false;
-        }
-    });
+    // It reopens only on the way straight back from the page it opened, never
+    // from a mark left over when that page was left by the tab bar (131-B12,
+    // BH-10; vesselHub/binderReturn).
+    const arrivedFrom = useUIStore((s) => s.previousView);
+    const [binderOpen, setBinderOpen] = useState(() => takeBinderReturn(arrivedFrom));
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
     const rawVesselName = (ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined;
@@ -299,7 +304,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // The state sits in the right-hand slot, as the Settings rows show
     // theirs, and the subtitle names the route ('Through the Pi · Tailscale')
     // or what the row is for (UX scorecard run 10, vessel-row-status-slot).
-    const boatLink = useBoatLink();
+    // 'Checking…' while the boat link loads (131-01), never 'Not connected'.
+    const boatLink = useBoatLink() ?? BOAT_LINK_CHECKING;
     const gatewayStatus = boatLink.hub.status;
     const gatewayState = boatLink.hub.value;
     const gatewayStatusColor = HUB_TONE_COLOUR[boatLink.hub.tone];
@@ -521,14 +527,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const { guardianArmed, guardianNearby } = useGuardianTileState();
 
     // ── Live counts for Boat Binder row badges ──
-    // Maintenance overdue / Documents expiring / Equipment warranty.
+    // Maintenance overdue / Documents expired and expiring / Equipment warranty.
     // Extracted to a hook (useVesselReadinessCounts) so the
     // mutation→event→refetch propagation path — the one behind the
     // "1 Overdue still showing" bug — is independently testable.
-    const { overdueCount, expiringDocsCount, expiringEquipCount } = useVesselReadinessCounts();
+    const readiness = useVesselReadinessCounts();
+    const { overdueCount, expiredDocsCount, expiringDocsCount, expiringEquipCount } = readiness;
+    // Papers split as the Documents header splits them: '1 expired · 1
+    // expiring' (131-B12, BH-2). Red once one has expired, amber before.
+    const documentsDue = documentsDueStatus(expiredDocsCount, expiringDocsCount);
+    const documentsDueCount = expiredDocsCount + expiringDocsCount;
+    // The most urgent of them, on the Vessel page's Boat Binder row (BH-4).
+    const binderDue = binderBadge(readiness);
 
-    // ── Draft passage plans ──
-    const [passageCrewCount, setPassageCrewCount] = useState(0);
+    // ── The crew register's count ──
     // Refresh the crew count whenever vessel_crew changes (invite
     // accepted / crew removed) — not just on mount. Added 2026-05-20
     // in the staleness-hardening sweep: this tile was the one
@@ -536,12 +548,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // trigger, so the "{n} crew" planning hint could go stale while
     // the Nav Station stayed open. useRealtimeSync mirrors the
     // pattern the Documents / Equipment tiles already use.
-    // Only a count the skipper actually set, or real registered crew, may show.
-    // vesselCrewAboard() answers 2 for an unset field, and "2 crew" on a fresh
-    // or signed-out install read as a count (UX scorecard run 6).
-    const passageVessel = (ctx as { vessel?: { crewCount?: number } }).vessel;
-    const crewCountSet = typeof passageVessel?.crewCount === 'number' && Number.isFinite(passageVessel.crewCount);
-    const configuredPassageCrewCount = crewCountSet ? vesselCrewAboard(passageVessel) : 0;
+    // Everyone on the crew register, once, the float plan's way (129-14,
+    // Shane 2026-10-14: "the crew and float plan card says two crew. But
+    // there is actually three. 2+1 invitee"). It read the larger of the
+    // profile's "Crew aboard" and the account's vessel_crew rows plus the
+    // skipper, so two people on the profile and one accepted invitee read 2.
+    // Now the profile's people, the skipper and accepted crew merged as the
+    // float plan merges them, then pending invitees, never fewer than "Crew
+    // aboard" (crewRegisterCount); the subtitle says how many are still
+    // invited. Only a count the skipper actually set, his profile's people or
+    // real registered crew may show: "2 crew" on a fresh or signed-out
+    // install read as a count (UX scorecard run 6).
+    const [crewRegister, setCrewRegister] = useState<FloatPlanCrew | null>(null);
     // Crewing on a skipper's boat (2026-10-03): the row names that boat and
     // counts its people, from the cached crew view, not the account's own crew.
     const { vessel: crewingVessel } = useCrewingVessel();
@@ -549,25 +567,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const { view: crewingBoatView } = useCrewVesselView(crewingOwnerId, 0, { live: false });
     const loadPassageCrew = useCallback(async () => {
         const scope = getAuthIdentityScope();
-        if (scope.userId !== authenticatedUserId || crewingOwnerId) return;
+        if (!authenticatedUserId || scope.userId !== authenticatedUserId || crewingOwnerId) return;
         try {
-            const c = await getMyCrew();
-            if (!isAuthIdentityScopeCurrent(scope)) return;
-            // max(settings count, actual crew + captain) — the captain is only
-            // counted alongside registered crew, never on his own as a default.
-            const actualWithCaptain = c.length > 0 ? c.length + 1 : 0;
-            setPassageCrewCount(Math.max(configuredPassageCrewCount, actualWithCaptain));
+            // Names only, every passage's invites (services/floatPlanCrew.ts).
+            const { loadFloatPlanCrew } = await import('../services/floatPlanCrew');
+            const crew = await loadFloatPlanCrew(null, { forCount: true });
+            // Null is "could not ask" (offline, a failure): keep the last answer.
+            if (crew && isAuthIdentityScopeCurrent(scope)) setCrewRegister(crew);
         } catch {
             /* offline — keep previous count */
         }
-    }, [authenticatedUserId, configuredPassageCrewCount, crewingOwnerId]);
+    }, [authenticatedUserId, crewingOwnerId]);
     useEffect(() => {
-        setPassageCrewCount(0);
+        setCrewRegister(null);
         void loadPassageCrew();
     }, [loadPassageCrew]);
-    const passageCrewCountShown = crewingOwnerId
-        ? (crewVesselAboard(crewingBoatView, floatPlanSelfDetails(ctx.vessel)) ?? 0)
-        : passageCrewCount;
+    const ownCrewCount = useMemo(() => crewRegisterCount(ctx.vessel, crewRegister), [ctx.vessel, crewRegister]);
+    const crewCountShown = crewingOwnerId
+        ? { crew: crewVesselAboard(crewingBoatView, floatPlanSelfDetails(ctx.vessel)) ?? 0, invited: 0 }
+        : (ownCrewCount ?? { crew: 0, invited: 0 });
     const crewingBoatName = crewingOwnerId
         ? crewVesselName(crewingVessel?.vesselName, crewingBoatView) || SKIPPER_BOAT_FALLBACK
         : null;
@@ -596,7 +614,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
             void (async () => {
                 try {
-                    const { loadSavedTraces } = await import('../services/routeTracer');
+                    const { loadSavedTraces } = await import('../services/savedTraceStore');
                     if (cancelled || thisRequest !== requestId || !isAuthIdentityScopeCurrent(scope)) {
                         return;
                     }
@@ -681,11 +699,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     const navigateFromBinder = useCallback(
         (page: string) => {
-            try {
-                sessionStorage.setItem(authScopedStorageKey('thalassa_boat_binder_return'), '1');
-            } catch {
-                /* navigation still works when session storage is unavailable */
-            }
+            markBinderReturn(page);
             onNavigate(page);
         },
         [onNavigate],
@@ -707,19 +721,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     backgroundColor: 'var(--vessel-surface-bg, transparent)',
                 }}
             >
-                <div className="vessel-binder-header flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
-                    <BackButton
-                        onClick={() => {
+                {/* The house header (132-B20): PageHeader's chevron, h1
+                    and toast anchor, as every page the binder opens has. It
+                    was a hand-built copy of the same row. The wrapper carries
+                    the tightening for short screens and split panes
+                    (styles/menu-page-fit.css). */}
+                <div className="vessel-binder-header shrink-0">
+                    <PageHeader
+                        title="Boat Binder"
+                        onBack={() => {
                             triggerHaptic('light');
                             setBinderOpen(false);
                         }}
-                        label="Back to Vessel"
-                        className="shrink-0"
+                        backLabel="Back to Vessel"
                     />
-                    {/* The binder is its own screen, so its title is the page's
-                        h1 (it was a span, leaving the screen with no heading).
-                        Same classes, so it looks exactly as before. */}
-                    <h1 className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</h1>
                 </div>
                 <div className="vessel-binder-port flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
                     {/* The Passage subgroup is gone (Shane 2026-09-02, binder
@@ -731,7 +746,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* — Inventory & Stores subgroup — */}
                     {/* Icons in the hub's one accent, like the hub's own rows;
-                        red stays for overdue and expiring (UX scorecard run 7). */}
+                        red stays for what is past due (UX scorecard run 7): an
+                        overdue task and, since 131-B12, an expired paper. A
+                        paper still in date says so in amber, as its card does. */}
                     <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
                     <div className="vessel-hub-menu" style={GLASS.listContainer}>
                         <OfficeRow
@@ -784,7 +801,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             }
                             label="Maintenance"
                             status={overdueCount > 0 ? `${overdueCount} overdue` : 'Tasks & expiry'}
-                            statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
+                            statusColor={overdueCount > 0 ? HUB_DANGER_TEXT : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('maintenance');
@@ -796,18 +813,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={
                                 <DocShieldIcon
-                                    color={expiringDocsCount > 0 ? 'var(--day-ui-danger, #ef4444)' : HUB_ACCENT}
+                                    color={expiredDocsCount > 0 ? 'var(--day-ui-danger, #ef4444)' : HUB_ACCENT}
                                 />
                             }
                             label="Documents"
-                            status={expiringDocsCount > 0 ? `${expiringDocsCount} expiring` : 'Legal papers'}
-                            statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
+                            status={documentsDue ?? 'Legal papers'}
+                            statusColor={expiredDocsCount > 0 ? HUB_DANGER_TEXT : documentsDue ? '#f59e0b' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('documents');
                             }}
-                            badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
-                            badgeUrgent={expiringDocsCount > 0}
+                            badge={documentsDueCount > 0 ? documentsDueCount : undefined}
+                            badgeUrgent={expiredDocsCount > 0}
                         />
                     </div>
 
@@ -1462,10 +1479,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
                                     : crewingBoatName
                                       ? `Crewing on ${crewingBoatName}`
-                                      : 'Readiness checks & cast off'
+                                      : crewCountShown.invited > 0
+                                        ? crewInvitedWords(crewCountShown.invited)
+                                        : 'Readiness checks & cast off'
                             }
                             statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                            value={passageCrewCountShown > 0 ? `${passageCrewCountShown} crew` : undefined}
+                            value={crewCountShown.crew > 0 ? crewCountWords(crewCountShown.crew) : undefined}
                             valueColor="#e2e8f0"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -1482,18 +1501,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         {/* BOAT BINDER — its OWN SCREEN (Shane 2026-07-19: "can boat
                             binder be its own screen when you click on it"). The row
                             opens it in place; stores, equipment, maintenance,
-                            documents and reference live there. */}
+                            documents and reference live there. It carries the
+                            most urgent count from inside (131-B12, BH-4): an
+                            overdue task or a lapsed paper shows here without
+                            opening the binder. */}
                         <OfficeRow
                             icon={<BinderIcon color={HUB_ACCENT} />}
                             label="Boat Binder"
-                            status="Inventory & reference"
-                            statusColor="#94a3b8"
+                            status={binderDue?.status ?? 'Inventory & reference'}
+                            statusColor={binderDue ? (binderDue.urgent ? HUB_DANGER_TEXT : '#f59e0b') : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 // The hub port remounts at the top on the way back.
                                 setPortScrolled(false);
                                 setBinderOpen(true);
                             }}
+                            badge={binderDue?.count}
+                            badgeUrgent={binderDue?.urgent}
                         />
                         <ListDivider />
                         <OfficeRow
@@ -1508,25 +1532,30 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('nmea');
                             }}
                         />
-                        {/* No ENC Library on this menu: it is retired (127-C-c). */}
                         <ListDivider />
-                        {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
-                            ask: the mic and the now-playing bar do not help when you
-                            want to go and choose something. */}
-                        <OfficeRow
-                            icon={
-                                <span className="flex" style={{ color: HUB_ACCENT }}>
-                                    <SpeakerWaveIcon className={HUB_ICON} />
-                                </span>
-                            }
-                            label="Music"
-                            status="Apple Music & speakers"
-                            statusColor="#94a3b8"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('music');
-                            }}
-                        />
+                        {/* Both shortcuts stay visible. Compact pages share one
+                            row; taller pages keep the full-width list. */}
+                        <div className="vessel-hub-tools">
+                            <SystemsEntry />
+                            <div aria-hidden="true" className="vessel-hub-tool-divider" />
+                            {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
+                                ask: the mic and the now-playing bar do not help when you
+                                want to go and choose something. */}
+                            <OfficeRow
+                                icon={
+                                    <span className="flex" style={{ color: HUB_ACCENT }}>
+                                        <SpeakerWaveIcon className={HUB_ICON} />
+                                    </span>
+                                }
+                                label="Music"
+                                status="Apple Music & speakers"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('music');
+                                }}
+                            />
+                        </div>
                         <ListDivider />
                         <OfficeRow
                             // "Settings", with what is in it, not "Account &

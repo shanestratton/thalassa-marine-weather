@@ -167,6 +167,13 @@ export const S57_NAVAID_CLASSES = [
     'BCNSAW',
     'BOYISD',
     'BCNISD',
+    'LITFLT',
+    'LITVES',
+    'BOYINB',
+    'MORFAC',
+    'FOGSIG',
+    'TOPMAR',
+    'DAYMAR',
 ] as const;
 
 /** Buoy/beacon navaids that mount as IALA symbol layers — the navaids
@@ -182,6 +189,13 @@ export const S57_BUOY_BEACON_CLASSES = [
     'BCNSAW',
     'BOYISD',
     'BCNISD',
+    'LITFLT',
+    'LITVES',
+    'BOYINB',
+    'MORFAC',
+    'FOGSIG',
+    'TOPMAR',
+    'DAYMAR',
 ] as const;
 
 /** Every S-57 point-mark class — the PARTITION of hazard-points ∪ navaids,
@@ -364,6 +378,11 @@ export function isS57ChartProps(props: Record<string, unknown> | null | undefine
     );
 }
 
+/** IHO S-57 TOPSHP shapes rendered explicitly; unsupported shapes stay unknown. */
+export const TOPMARK_SHAPES: ReadonlySet<number> = new Set([
+    1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 19, 20, 21, 24, 25, 26,
+]);
+
 export function encNavaidIconId(
     kind: Exclude<EncNavaidLayer, 'LIGHTS'>,
     props: Record<string, unknown> | null | undefined,
@@ -420,6 +439,16 @@ export function encNavaidIconId(
     // beats structure fidelity, same call as the cardinals.
     if (kind === 'BOYSAW' || kind === 'BCNSAW') return 'sm-safe-water';
     if (kind === 'BOYISD' || kind === 'BCNISD') return 'sm-isolated-danger';
+    // Schema 3 chart furniture: never imply a lateral hand or cardinal quadrant.
+    if (kind === 'LITFLT') return 'sm-light-float';
+    if (kind === 'LITVES') return 'sm-light-vessel';
+    if (kind === 'BOYINB') return 'sm-installation-buoy';
+    if (kind === 'MORFAC') return Number(readS57(p, 'CATMOR')) === 7 ? 'sm-mooring-buoy' : 'sm-mooring-facility';
+    if (kind === 'FOGSIG') return 'sm-fog-signal';
+    if (kind === 'TOPMAR' || kind === 'DAYMAR') {
+        const shape = Number(readS57(p, 'TOPSHP'));
+        return Number.isInteger(shape) && TOPMARK_SHAPES.has(shape) ? `sm-topmark-${shape}` : 'sm-mark-unknown';
+    }
     // Special-purpose marks.
     return kind === 'BCNSPP' ? 'sm-beacon-yellow' : 'sm-special';
 }
@@ -644,6 +673,13 @@ export interface EncHazard {
  * Australian cell). Edition + source HO let us de-duplicate when a
  * user re-imports an updated cell.
  */
+/** Stored identity only; this pure type leaf must not import storage/plugins. */
+export interface NoaaPackageReference {
+    owner: string;
+    manifestSha256: string;
+    path: string;
+}
+
 export interface EncCell {
     /** S-57 dataset name (DSID/DSNM). */
     id: string;
@@ -656,6 +692,8 @@ export interface EncCell {
     updateNumber?: number;
     /** SHA-256 of the signed Pi response that supplied this revision. */
     contentSha256?: string;
+    /** Explicit, fully verified public NOAA record package; never a Pi/vault file. */
+    noaaPackage?: NoaaPackageReference;
     /** S-57 issue date (ISO 8601). */
     issued: string;
     /** When the user imported this cell into the device. */
@@ -825,6 +863,12 @@ export interface EncConversionResult {
     updateNumber?: number;
     issued: string;
     bbox: [number, number, number, number];
+    /** Raw cell datums, retained only in its blob (licensed blobs stay in memory).
+     * soundingDatum = DSPM SDAT or the SENC header; verticalDatum = DSPM VDAT.
+     * VDAT describes heights/clearances and MUST NOT substitute for SDAT. */
+    soundingDatum?: string | number;
+    verticalDatum?: number;
+    extractorSchema?: number;
     layers: {
         DEPARE?: GeoJSON.FeatureCollection;
         LNDARE?: GeoJSON.FeatureCollection;
@@ -874,6 +918,16 @@ export interface EncConversionResult {
         BOYISD?: GeoJSON.FeatureCollection;
         /** Isolated-danger beacons. Display only. */
         BCNISD?: GeoJSON.FeatureCollection;
+        LITFLT?: GeoJSON.FeatureCollection;
+        LITVES?: GeoJSON.FeatureCollection;
+        BOYINB?: GeoJSON.FeatureCollection;
+        MORFAC?: GeoJSON.FeatureCollection;
+        FOGSIG?: GeoJSON.FeatureCollection;
+        TOPMAR?: GeoJSON.FeatureCollection;
+        DAYMAR?: GeoJSON.FeatureCollection;
+        /** Local sounding datum overrides (VERDAT); not a visual layer. */
+        M_SDAT?: GeoJSON.FeatureCollection;
+        M_VDAT?: GeoJSON.FeatureCollection;
         /** Depth contour lines (VALDCO metres). Display only. */
         DEPCNT?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */
@@ -900,6 +954,8 @@ export interface EncConversionResult {
         PIPARE?: GeoJSON.FeatureCollection;
         /** Seabed nature (NATSUR: sand/mud/rock). Anchoring-aid polygon. */
         SBDARE?: GeoJSON.FeatureCollection;
+        /** Weed/kelp (CATWED), an anchoring aid; never a crossing caution. */
+        WEDKLP?: GeoJSON.FeatureCollection;
         /** Traffic Separation Scheme lane part (ORIENT). Info polygon. */
         TSSLPT?: GeoJSON.FeatureCollection;
         /** Caution area — "see the chart note". Info polygon. */
@@ -925,6 +981,7 @@ export const CAUTION_AREA_CLASSES = [
     'CBLARE',
     'PIPARE',
     'SBDARE',
+    'WEDKLP',
     'TSSLPT',
     'CTNARE',
     'TSEZNE',

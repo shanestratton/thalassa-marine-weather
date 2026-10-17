@@ -566,7 +566,7 @@ export async function lookUpFollowedBoatCloudRow(now = Date.now()): Promise<void
 /** The instrument feed, as NmeaStore describes it. */
 export interface InstrumentFeedState {
     connectionStatus: string;
-    remote: { via: 'lan' | 'cloud' } | null;
+    remote: { via: 'lan' | 'cloud' | 'signalk' } | null;
 }
 
 /**
@@ -585,6 +585,7 @@ export function followedBoatOwnsInstruments(feed: InstrumentFeedState, cloudOwne
     if (feed.connectionStatus === 'connected') return devicesAreHers('bus', follow.crewOwnerId);
     if (feed.connectionStatus !== 'remote' || !feed.remote) return false;
     if (feed.remote.via === 'lan') return devicesAreHers('pi', follow.crewOwnerId);
+    if (feed.remote.via === 'signalk') return false;
     const hers = follow.crewOwnerId ?? getAuthIdentityScope().userId;
     return Boolean(cloudOwnerId && hers && cloudOwnerId === hers);
 }

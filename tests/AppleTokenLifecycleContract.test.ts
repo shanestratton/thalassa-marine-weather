@@ -177,6 +177,48 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
         expect(bootstrap).toContain('handleNativeAppleCredentialRevocation(event.userId)');
     });
 
+    it('keys each account’s Keychain binding by its Supabase user id, deletes only the caller’s, and moves the old fixed item once (131-01)', () => {
+        // Swift cannot be compiled here: these pin the shape a Mac build and a device test confirm.
+        const swift = read('ios/App/App/AppleCredentialStatePlugin.swift')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '');
+        // One item per account; the older builds' fixed item is the account-less one.
+        expect(swift).toContain('private let keychainAccount = "sign-in-with-apple-user-id"');
+        expect(swift).toContain(
+            'kSecAttrAccount as String: accountID.map { "\\(keychainAccount):\\($0)" } ?? keychainAccount',
+        );
+        // Bind and clear name the account; clear deletes that account's item and nothing else.
+        const bind = swift.slice(
+            swift.indexOf('@objc func bindCredential'),
+            swift.indexOf('@objc func clearCredential'),
+        );
+        const clear = swift.slice(
+            swift.indexOf('@objc func clearCredential'),
+            swift.indexOf('@objc func checkCredentialState'),
+        );
+        expect(bind).toContain('validIdentifier(call.getString("accountId"))');
+        expect(bind).toContain('try saveUserID(userID, accountID: accountID)');
+        expect(clear).toContain('validIdentifier(call.getString("accountId"))');
+        expect(clear.match(/deleteUserID\(accountID: (\w+)\)/g)).toEqual(['deleteUserID(accountID: accountID)']);
+        // Never a delete without an account in mind: the old fixed item (nil) only by a
+        // sign-in, which always replaced it, and by the one-time move.
+        expect(swift).not.toMatch(/deleteUserID\(\)/);
+        expect([...swift.matchAll(/deleteUserID\(accountID: nil\)/g)]).toHaveLength(2);
+        expect(bind).toContain('try? deleteUserID(accountID: nil)');
+        // The one-time move: only to the account whose Apple identity is in it.
+        expect(swift).toContain(
+            'adoptLegacyBinding(accountID: accountID, appleUserIDs: call.getArray("userIds", String.self) ?? [])',
+        );
+        expect(swift).toContain(
+            'guard let legacyUserID = readUserID(accountID: nil), appleUserIDs.contains(legacyUserID) else { return }',
+        );
+        // A revoked report drops the binding it checked, no other.
+        expect(swift).toContain('try? self.deleteUserID(accountID: accountID)');
+        // The cold start still checks the old item; the live notification re-checks the active account's too.
+        expect(swift).toContain('checkPersistedCredentials(reason: "cold_start", emitRevoked: true)');
+        expect(swift).toContain('var accountIDs: [String?] = [nil]');
+    });
+
     it('verifies Apple server JWS claims, queues account deletion, and runs the durable deletion processor', () => {
         const shared = read('supabase/functions/_shared/apple-auth.ts');
         const receiver = read('supabase/functions/apple-server-notification/index.ts');

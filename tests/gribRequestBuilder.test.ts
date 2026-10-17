@@ -159,7 +159,7 @@ describe('GribRequestBuilder.getGridInfo', () => {
 
     it('calculates correct time steps', () => {
         const info = GribRequestBuilder.getGridInfo(makeRequest({ forecastHours: 72, timeStep: 6 }));
-        expect(info.timeSteps).toBe(12);
+        expect(info.timeSteps).toBe(13);
     });
 });
 
@@ -169,7 +169,7 @@ describe('GribRequestBuilder.formatSaildocsRequest', () => {
         expect(str).toMatch(/^send GFS:/);
         expect(str).toContain('-35,-25,150,160');
         expect(str).toContain('|1,1|');
-        expect(str).toContain('0,72..6');
+        expect(str).toContain('0,6..72');
         expect(str).toContain('WIND');
         expect(str).toContain('PRESS');
     });

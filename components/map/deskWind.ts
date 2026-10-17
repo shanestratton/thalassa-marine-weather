@@ -35,8 +35,19 @@ export function windCreditLine(id: WeatherModelId): string {
 }
 
 /** The desk menu's Wind row, after Seamarks: "Model forecast · ECMWF". */
-export function deskWindToggle(on: boolean, model: WeatherModelId, onToggle: () => void): MapBaseToggle {
-    return { id: 'wind', label: 'Wind', detail: `Model forecast · ${windModelLabel(model)}`, on, onToggle };
+export function deskWindToggle(
+    on: boolean,
+    model: WeatherModelId,
+    onToggle: () => void,
+    localSource?: string,
+): MapBaseToggle {
+    return {
+        id: 'wind',
+        label: 'Wind',
+        detail: `Model forecast · ${localSource ?? windModelLabel(model)}`,
+        on,
+        onToggle,
+    };
 }
 
 /**

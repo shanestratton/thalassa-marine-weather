@@ -36,6 +36,11 @@ export interface TelemetryRow {
 
 export const MAX_REPORT_AGE_MS = 15 * 60_000;
 export const MAX_REPORT_FUTURE_MS = 2 * 60_000;
+/**
+ * How old a reading may be when the post itself is live (sent_at, 129-08):
+ * a boat whose bus went silent a month ago is history, not a reading.
+ */
+export const MAX_READING_AGE_MS = 30 * 24 * 3_600_000;
 export const MAX_EXTRA_KEYS = 40;
 export const MAX_EXTRA_BYTES = 4_096;
 
@@ -87,10 +92,26 @@ function parseExtra(value: unknown): Record<string, number | string> {
 
 export type ParsedTelemetry = { ok: true; row: TelemetryRow } | { ok: false; error: string };
 
+/**
+ * The age fence. A Pi from 129-08 on says when it sent the post by its own
+ * clock (sent_at): the post must be live, and reported_at, the readings' own
+ * time (the GPS clock, which stops with the GPS), may be older. That is how
+ * the quiet-boat watchdog still hears a Pi whose instruments have gone
+ * silent (vessel_telemetry.updated_at moves), while the row keeps the
+ * readings' real time, so nothing old is shown as current. Without sent_at
+ * (an older Pi, a phone), reported_at must be live itself, as before.
+ */
 export function parseTelemetryBody(body: Record<string, unknown>, nowMs = Date.now()): ParsedTelemetry {
     const reportedMs = typeof body.reported_at === 'string' ? Date.parse(body.reported_at) : Number.NaN;
     if (!Number.isFinite(reportedMs)) return { ok: false, error: 'reported_at must be an ISO timestamp' };
-    if (nowMs - reportedMs > MAX_REPORT_AGE_MS) return { ok: false, error: 'reported_at is too old to be live' };
+    const sentMs = typeof body.sent_at === 'string' ? Date.parse(body.sent_at) : Number.NaN;
+    if (Number.isFinite(sentMs)) {
+        if (nowMs - sentMs > MAX_REPORT_AGE_MS) return { ok: false, error: 'sent_at is too old to be live' };
+        if (sentMs - nowMs > MAX_REPORT_FUTURE_MS) return { ok: false, error: 'sent_at is in the future' };
+        if (nowMs - reportedMs > MAX_READING_AGE_MS) return { ok: false, error: 'reported_at is too old to keep' };
+    } else if (nowMs - reportedMs > MAX_REPORT_AGE_MS) {
+        return { ok: false, error: 'reported_at is too old to be live' };
+    }
     if (reportedMs - nowMs > MAX_REPORT_FUTURE_MS) return { ok: false, error: 'reported_at is in the future' };
 
     const source = body.source === 'device'

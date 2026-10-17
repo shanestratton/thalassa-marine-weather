@@ -210,6 +210,107 @@ export function parseOsmReferences(body: unknown, retrievedAt: string): Cruising
     });
 }
 
+// ── Named places (131-PYD-10) ──────────────────────────────────
+
+/** A name on the map for Plan Your Day outside the Queensland atlas: a bay
+ *  it can suggest, or a marina, town or village that names the start. */
+export type NamedPlaceKind = 'bay' | 'marina' | 'city' | 'town' | 'village';
+export interface NamedPlace {
+    id: string;
+    kind: NamedPlaceKind;
+    name: string;
+    lat: number;
+    lon: number;
+}
+const SETTLEMENTS: readonly NamedPlaceKind[] = ['city', 'town', 'village'];
+const NAMED_KINDS: readonly NamedPlaceKind[] = ['bay', 'marina', ...SETTLEMENTS];
+/**
+ * Each layer has its own cap, so the towns can never sink the bays. Counted in October 2026: the cell round
+ * Lorient and Quiberon (47:-4) holds 136 bays and marinas, 7 towns and 99 villages (and 5,113 named hamlets,
+ * which are not asked for); Tromsø's (69:18) 140 bays and marinas and 19 towns and villages.
+ * More bays and marinas than this in a cell and the answer is cut short: refused, never cached as complete.
+ */
+export const NAMED_PLACES_MAX = 2000;
+/** More towns and villages than this in a cell and they are left out; its bays still count. */
+export const SETTLEMENTS_MAX = 1000;
+/** The most one cell can bring. */
+export const NAMED_PLACES_CELL_MAX = NAMED_PLACES_MAX + SETTLEMENTS_MAX;
+/** A cell with more bays and marinas than a plan takes: the whole answer came back, and it was too much. */
+export class CrowdedCellError extends Error {
+    constructor() {
+        super('Too many bays and marinas mapped in this cell');
+    }
+}
+
+/**
+ * The bays and marinas the Queensland atlas is built from (scripts/anchorages/build-qld.mjs), then the towns
+ * and villages, in one coarse cell; centres for ways. Every filter is a key and a value: Overpass answered
+ * this in 5 to 13 s where the same ask with a bare ["name"] filter and a place regex took 51 s or timed out.
+ * The unnamed few are dropped on the phone.
+ */
+export function namedPlacesQuery(tile: ReferenceTile): string {
+    const bbox = `${tile.south},${tile.west},${tile.north},${tile.east}`;
+    const towns = SETTLEMENTS.map((kind) => `node["place"="${kind}"](${bbox});`).join('');
+    return `[out:json][timeout:25];(nw["natural"="bay"](${bbox});nw["leisure"="marina"](${bbox}););out tags center ${NAMED_PLACES_MAX + 1};(${towns});out tags center ${SETTLEMENTS_MAX + 1};`;
+}
+
+export function validNamedPlace(value: unknown): value is NamedPlace {
+    const p = value as NamedPlace;
+    return (
+        !!p &&
+        NAMED_KINDS.includes(p.kind) &&
+        typeof p.id === 'string' &&
+        /^osm-(?:node|way)[1-9]\d*$/.test(p.id) &&
+        typeof p.name === 'string' &&
+        p.name.length > 0 &&
+        p.name.length <= 120 &&
+        validReferencePosition(p.lon, p.lat)
+    );
+}
+
+export function parseNamedPlaces(body: unknown): NamedPlace[] {
+    const payload = body as { elements?: unknown[]; remark?: unknown };
+    if (!payload || !Array.isArray(payload.elements) || payload.remark)
+        throw new Error('Incomplete named places response');
+    type Element = {
+        id?: unknown;
+        type?: unknown;
+        lat?: number;
+        lon?: number;
+        center?: { lat?: number; lon?: number };
+        tags?: Record<string, string>;
+    };
+    // A bay that is also a village comes back in both layers: once here, counted in each.
+    const elements = new Map<string, Element>();
+    for (const raw of payload.elements) {
+        const e = raw as Element;
+        if (e?.tags && (e.type === 'node' || e.type === 'way') && Number.isSafeInteger(e.id))
+            elements.set(`osm-${e.type}${e.id}`, e);
+    }
+    const all = [...elements.values()];
+    const water = (e: Element) => e.tags!.natural === 'bay' || e.tags!.leisure === 'marina';
+    const town = (e: Element) => e.type === 'node' && SETTLEMENTS.includes(e.tags!.place as NamedPlaceKind);
+    if (all.filter(water).length > NAMED_PLACES_MAX) throw new CrowdedCellError();
+    // Cut short, the towns are left out whole, never kept in part; the bays stand.
+    const towns = all.filter(town).length <= SETTLEMENTS_MAX;
+    return [...elements].flatMap(([id, e]) => {
+        const t = e.tags!;
+        const kind: NamedPlaceKind | null =
+            t.natural === 'bay'
+                ? 'bay'
+                : t.leisure === 'marina'
+                  ? 'marina'
+                  : towns && town(e)
+                    ? (t.place as NamedPlaceKind)
+                    : null;
+        // Rounded to about a metre: the cache holds thousands of them.
+        const lat = Math.round((e.lat ?? e.center?.lat ?? NaN) * 1e5) / 1e5;
+        const lon = Math.round((e.lon ?? e.center?.lon ?? NaN) * 1e5) / 1e5;
+        const point = { id, kind, name: str(t.name).slice(0, 120), lat, lon };
+        return kind && validNamedPlace(point) ? [point] : [];
+    });
+}
+
 export const QPWS_URL =
     'https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Environment/ParksMarineMoorings/FeatureServer/20';
 const QPWS_BANDS: Record<string, string> = { T: 'brown', A: 'yellow', B: 'green', C: 'blue', D: 'red' };

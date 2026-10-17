@@ -6,7 +6,8 @@
  * a one-time code, at most five, over the boat's own Wi-Fi. The first code is
  * printed at the Pi's install; an enrolled device can mint more. The token the
  * Pi issues is kept by PiPairingService (Keychain, this device only) and sent
- * as one header on /api/enc/*.
+ * as one header on every Pi call (since 129-12, when her Pi also takes commands
+ * only from her own devices: pi-cache/src/piCommandLock.ts).
  *
  * The routes, as this module reads them (Pi update 3, decisions 4-5):
  *   GET    /api/enc/devices/status  { enrolled, removed?, cells?, vault? }

@@ -110,9 +110,19 @@ describe('findCountryData', () => {
         expect(result?.country).toBe('British Virgin Islands');
     });
 
-    it('should match via partial — "new zeal" → New Zealand', () => {
-        const result = findCountryData('new zeal');
-        expect(result?.country).toBe('New Zealand');
+    // Whole words only since 130-09: a fragment like 'new zeal' is no longer
+    // a country, and a short alias is never found inside another word.
+    it('should match a name as whole words — "Russell, Bay of Islands, New Zealand" → New Zealand', () => {
+        expect(findCountryData('Russell, Bay of Islands, New Zealand')?.country).toBe('New Zealand');
+        expect(findCountryData('new zeal')).toBeUndefined();
+    });
+
+    it('should match an alias as a whole word — "Russell, NZ" → New Zealand, not the "us" in Russell', () => {
+        expect(findCountryData('Russell, NZ')?.country).toBe('New Zealand');
+    });
+
+    it('should match a port of entry — "Sydney" → Australia', () => {
+        expect(findCountryData('Sydney')?.country).toBe('Australia');
     });
 
     it('should handle whitespace', () => {

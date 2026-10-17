@@ -46,7 +46,7 @@ function retainedForecast(fixAge: string | null, updatedAt: number | null | unde
 export function resolveGpsSourceState(input: {
     weatherKind: WeatherFixKind | null;
     storeStatus: 'connected' | 'connecting' | 'disconnected' | 'error' | 'remote';
-    remoteVia: 'lan' | 'cloud' | null;
+    remoteVia: 'lan' | 'cloud' | 'signalk' | null;
     target?: WeatherFollowTarget;
     status?: 'live' | 'last-known' | 'unavailable' | 'resolving';
     retainedWeather?: boolean;

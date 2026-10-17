@@ -72,6 +72,7 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
 
         // Should have nav status
         expect(result.navStatus).toBeDefined();
+        expect(result.aisClass).toBe('A');
     });
 
     it('should reject Null Island (0,0) position as likely invalid', () => {
@@ -102,8 +103,8 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
 describe('AIS Message Type 5 (Static / Voyage Data)', () => {
     it('should reassemble and decode a 2-fragment message', () => {
         // Two-part AIS sentence (message type 5)
-        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
-        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
+        const part1 = '!AIVDM,2,1,7,A,57Ojo>02:N2W<HtKP00EHE:0@T4@Dl000000,0*66';
+        const part2 = '!AIVDM,2,2,7,A,0016L961O400003QEl3lU00000000000000,2*5C';
 
         // First fragment should return null (incomplete)
         const result1 = processAisSentence(part1);
@@ -121,6 +122,13 @@ describe('AIS Message Type 5 (Static / Voyage Data)', () => {
         expect(typeof result2.name).toBe('string');
         expect(typeof result2.shipType).toBe('number');
     });
+
+    it('rejects a checksummed but truncated voyage report instead of padding unavailable fields', () => {
+        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
+        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
+        expect(processAisSentence(part1)).toBeNull();
+        expect(processAisSentence(part2)).toBeNull();
+    });
 });
 
 // ── Message Type 18 — Class B Position Report ──
@@ -136,6 +144,7 @@ describe('AIS Message Type 18 (Class B Position Report)', () => {
         }
         expect(result.mmsi).toBeDefined();
         expect(result.navStatus).toBe(15); // Class B always 15 (not defined)
+        expect(result.aisClass).toBe('B');
     });
 });
 
@@ -149,6 +158,41 @@ describe('AIS Message Type 24 (Class B Static Data)', () => {
 
         expect(result.mmsi).toBeDefined();
         expect(typeof result.name).toBe('string');
+    });
+
+    const staticPartB = (mmsi: number, offsets: [number, number, number, number]): string => {
+        const bits = new Uint8Array(168);
+        const put = (start: number, width: number, value: number) => {
+            for (let i = 0; i < width; i++) bits[start + i] = (value >>> (width - 1 - i)) & 1;
+        };
+        put(0, 6, 24);
+        put(8, 30, mmsi);
+        put(38, 2, 1);
+        put(132, 9, offsets[0]);
+        put(141, 9, offsets[1]);
+        put(150, 6, offsets[2]);
+        put(156, 6, offsets[3]);
+        return Array.from({ length: bits.length / 6 }, (_, i) => {
+            const value = getUint(bits, i * 6, 6);
+            return String.fromCharCode(value + (value < 40 ? 48 : 56));
+        }).join('');
+    };
+
+    it('adds the available offsets into Class B length and beam', () => {
+        expect(decodePayload(staticPartB(232123456, [20, 10, 3, 4]))).toMatchObject({ length: 30, beam: 7 });
+    });
+
+    it('never reads an auxiliary craft mothership MMSI as dimensions', () => {
+        const auxiliary = decodePayload(staticPartB(982321234, [20, 10, 3, 4]))!;
+        expect(auxiliary.mmsi).toBe(982321234);
+        expect(auxiliary.length).toBeUndefined();
+        expect(auxiliary.beam).toBeUndefined();
+    });
+
+    it('does not invent a complete dimension from an unavailable offset', () => {
+        const incomplete = decodePayload(staticPartB(232123456, [20, 0, 0, 4]))!;
+        expect(incomplete.length).toBeUndefined();
+        expect(incomplete.beam).toBeUndefined();
     });
 });
 

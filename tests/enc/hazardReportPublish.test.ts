@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../services/enc/EncHazardService', () => ({ getIndexForCell: vi.fn() }));
+vi.mock('../../services/enc/EncHazardService', () => ({ getIndexForCell: vi.fn(), releaseIndexForCell: vi.fn() }));
 vi.mock('../../services/enc/EncCellMetadata', () => ({ listCells: vi.fn(async () => []) }));
 
 import {

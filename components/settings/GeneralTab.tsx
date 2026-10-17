@@ -14,9 +14,13 @@ import {
 } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
 import { SeabedMappingSection } from './SeabedMappingSection';
+import { BoatQuietSection } from './BoatQuietSection';
 import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
+import { InstrumentPanelSettings } from './InstrumentPanelSettings';
+import { AisDisplaySettings } from './AisDisplaySettings';
+import { WakeRulesSection } from './WakeRulesSection';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { Button } from '../ui/Button';
 import type { LengthUnit } from '../../types';
@@ -38,6 +42,7 @@ import { underKeelClearanceM } from '../../services/underway/underKeelClearance'
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';
 import { DebugAisInjectorSection } from './debugAisInjectorGate';
 import { screenHoldsTwoPages } from '../../utils/glassBesideChartStart';
+import { CURRENCY_CHOICES, resolveCurrency } from '../../utils/money';
 
 /** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
  *  surface with the one sky accent on the glyph, in both display modes. */
@@ -138,6 +143,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             {/* Australian spelling, as the rest of the app ('Centre', 'Centreboard')
                 — the options said 'Meters' and 'Liters' (UX scorecard run 7).
                 Sentence case and the one field label (UX scorecard run 8). */}
+            <InstrumentPanelSettings />
             <Section title="Units">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
                     <div>
@@ -252,6 +258,40 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             <option value="l">Litres</option>
                         </select>
                     </div>
+                </div>
+            </Section>
+
+            {/* Grocery list prices (132-B17, GAL-09): every row was stamped AUD
+                and every price '$'. Unset, the phone's region decides; a pick
+                here rides the account to every phone. Rows already on the list
+                keep the currency they were added in: nothing is converted. */}
+            <Section title="Currency">
+                <div className="p-4">
+                    <label htmlFor="settings-currency" className={FIELD_LABEL_CLASS}>
+                        Grocery list prices
+                    </label>
+                    <select
+                        id="settings-currency"
+                        value={settings.currency ?? ''}
+                        // "Follow this phone" writes null, not undefined, so the
+                        // cloud patch carries the key and other phones follow too.
+                        onChange={(e) => onSave({ currency: e.target.value || null })}
+                        aria-describedby="settings-currency-help"
+                        className={SELECT_CLASS}
+                    >
+                        <option value="">Follow this phone ({resolveCurrency(null)})</option>
+                        {settings.currency && !CURRENCY_CHOICES.some((choice) => choice.code === settings.currency) && (
+                            <option value={settings.currency}>{settings.currency}</option>
+                        )}
+                        {CURRENCY_CHOICES.map((choice) => (
+                            <option key={choice.code} value={choice.code}>
+                                {choice.name} ({choice.code})
+                            </option>
+                        ))}
+                    </select>
+                    <p id="settings-currency-help" className="mt-1.5 text-xs text-gray-400">
+                        New items and prices use it. Items already on the list keep the currency they were added in.
+                    </p>
                 </div>
             </Section>
 
@@ -474,6 +514,28 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 4, 2026-09-30). A bridge or power line the mast cannot clear
                 makes the line red: blocked (owner decision 5). */}
             <Section title="Chart">
+                <AisDisplaySettings settings={settings} onSave={onSave} />
+                <Row>
+                    <label htmlFor="ais-vector-minutes" className="text-sm text-white font-medium">
+                        AIS vector length
+                    </label>
+                    <select
+                        id="ais-vector-minutes"
+                        className="min-h-[44px] rounded-lg bg-slate-800 px-3 text-white"
+                        value={
+                            settings.aisVectorMinutes === 6 || settings.aisVectorMinutes === 30
+                                ? settings.aisVectorMinutes
+                                : 12
+                        }
+                        onChange={(event) => onSave({ aisVectorMinutes: Number(event.target.value) as 6 | 12 | 30 })}
+                    >
+                        {[6, 12, 30].map((minutes) => (
+                            <option key={minutes} value={minutes}>
+                                {minutes} min
+                            </option>
+                        ))}
+                    </select>
+                </Row>
                 <Row>
                     <div className="flex-1 min-w-0">
                         <p className="text-sm text-white font-medium">Show charted leads</p>
@@ -521,6 +583,15 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         checked={settings.obsEncOnOpen === true}
                         onChange={(on) => onSave({ obsEncOnOpen: on })}
                     />
+                </Row>
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">Clear the Obs screen</p>
+                        <p className="text-xs text-gray-400">
+                            Choose Clear the screen in the top-centre map dropdown to hide controls; tap the chart to
+                            bring them back. MOB, the credits and the forecast scrubber stay.
+                        </p>
+                    </div>
                 </Row>
             </Section>
 
@@ -726,6 +797,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </div>
             </Section>
 
+            <WakeRulesSection />
+
             {/* Anchor watch (build 126, 126-07a): moving the mark of a watch the
                 boat's Pi keeps, from Shore Watch on the phone that handed it
                 over. A trial, off by default, until Shane's smoke test aboard;
@@ -749,6 +822,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     />
                 </Row>
             </Section>
+
+            {/* If the boat goes quiet (129-08): the cloud watchdog's switches, the
+                skipper's for the boat and a crew member's own, hidden until
+                their probe answers. */}
+            <BoatQuietSection satellite={satellite} />
 
             {/* Smoke builds only (THALASSA_DEBUG_AIS_INJECTOR=1): null, and folded
                 out, in every release build. */}
@@ -794,13 +872,10 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             role="list"
                             className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300"
                         >
-                            {/* The forecast still runs every source it normally
-                                does — five small JSON calls every three hours.
-                                "StormGlass only" was never true; the cadence is
-                                the saving, and the cadence is what is promised.
-                                The middle of the list is rendered FROM the policy
-                                module, so what it says and what the fetchers
-                                enforce are one thing. */}
+                            <li className="text-xs text-amber-200/70">
+                                Compact atmosphere only: 24 hours and up to 5 days. Waves, currents and tides are
+                                unavailable.
+                            </li>
                             <li className="flex items-center gap-2 text-xs">
                                 <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                                 <span className="text-amber-200/70">Weather updates every 3 hours</span>

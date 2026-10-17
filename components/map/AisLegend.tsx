@@ -27,6 +27,9 @@ import { presentCollisionWatchRow, type CollisionWatchRow } from '../../utils/co
 import { triggerHaptic } from '../../utils/system';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { AIS_LEGEND_ITEMS } from './aisPresentationPalette';
+import { AisCoverageNotice } from './AisCoverageNotice';
+import { PiRadarWatchControls } from './PiRadarWatchControls';
+import { PiRadarWatchStateStore } from '../../services/radar/piRadarWatchState';
 
 /** The anchor's real sound check, in its collision wording (loaded only when arming). */
 const SoundCheckModal = lazyRetry(
@@ -132,8 +135,10 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
     // Disarming stays one tap.
     const toggleGuard = useCallback(() => {
         triggerHaptic('medium');
-        if (guardState.enabled) AisGuardZone.setEnabled(false);
-        else setSoundCheck(true);
+        if (guardState.enabled) {
+            AisGuardZone.setEnabled(false);
+            void PiRadarWatchStateStore.standDownDeliberately();
+        } else setSoundCheck(true);
     }, [guardState.enabled]);
 
     const selectRadius = useCallback((r: number) => {
@@ -331,6 +336,35 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                                 {confirmStandDown ? 'Tap again: stand down for everyone' : 'Stand the Pi down'}
                             </button>
                         )}
+                        {/* Her Pi refused this phone (129-12): to Boat Network, where the code is typed. */}
+                        {watchRow.setUp && (
+                            <button
+                                type="button"
+                                data-testid="collision-watch-set-up"
+                                className="hit-target-44"
+                                onClick={() =>
+                                    window.dispatchEvent(
+                                        new CustomEvent('thalassa:navigate', { detail: { tab: 'avnav' } }),
+                                    )
+                                }
+                                style={{
+                                    alignSelf: 'flex-start',
+                                    marginTop: 2,
+                                    minHeight: 44,
+                                    minWidth: 44,
+                                    padding: '3px 10px',
+                                    borderRadius: 10,
+                                    border: `1px solid ${ROW_TONE.warn.border}`,
+                                    background: 'transparent',
+                                    color: ROW_TONE.warn.colour,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Set up this phone
+                            </button>
+                        )}
                     </div>
                 )}
 
@@ -377,6 +411,26 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                 </span>
             </div>
 
+            <div
+                style={
+                    embedded
+                        ? { paddingTop: 8 }
+                        : {
+                              position: 'absolute',
+                              bottom: 84,
+                              left: 12,
+                              right: 12,
+                              maxWidth: 420,
+                              padding: 8,
+                              borderRadius: 10,
+                              background: 'rgba(15,23,42,.95)',
+                              zIndex: 400,
+                          }
+                }
+            >
+                <AisCoverageNotice />
+                <PiRadarWatchControls />
+            </div>
             {soundCheck && (
                 <React.Suspense fallback={null}>
                     <SoundCheckModal
@@ -384,6 +438,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                         onConfirm={() => {
                             setSoundCheck(false);
                             AisGuardZone.armAfterSoundCheck();
+                            void PiRadarWatchStateStore.armDeliberately();
                         }}
                         onCancel={() => setSoundCheck(false)}
                     />

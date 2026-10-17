@@ -68,7 +68,9 @@ describe('Instrument Panel in a split pane', () => {
     it('the phone keeps its peek: the pages still stop 24 px above the tab bar', () => {
         expect(panel).toContain("const sectionHeight = 'h-[calc(100%_-_var(--thalassa-tabbar-height)_-_24px)]';");
         const sections = [...panel.matchAll(/<section\b[\s\S]*?<\/section>/g)].map(([section]) => section);
-        for (const section of sections.slice(0, -1)) expect(section).toContain('w-full ${sectionHeight} snap-start');
-        expect(sections.at(-1)).toContain('w-full h-full snap-start snap-always');
+        for (const section of sections)
+            expect(section).toMatch(/w-full \$\{sectionSizing\('[^']+'\)\} snap-start snap-always/);
+        // Auto-hiding can make any instrument the last page; that visible last page gets full height.
+        expect(panel).toContain('panelPages.at(-1) === title ? `h-full ${sectionPb}` : sectionHeight');
     });
 });

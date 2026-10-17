@@ -32,6 +32,8 @@
  */
 import type mapboxgl from 'mapbox-gl';
 import type { MapBaseKind } from './MapBaseSelector';
+import { RELIEF_DISPLAY_REGIONS, reliefRegionBase } from '../../services/reliefDisplayRegions';
+export { RELIEF_AU_BOUNDS } from '../../services/reliefDisplayRegions';
 
 /**
  * The public URL of the relief tiles, with its version prefix: bucket
@@ -53,9 +55,6 @@ export const RELIEF_TILE_BASE = String(import.meta.env.VITE_RELIEF_TILE_BASE || 
     /\/+$/,
     '',
 );
-
-/** GA's GBR 30 m grids A-D (about 10-29°S): no AU tile is requested outside this box. */
-export const RELIEF_AU_BOUNDS: [number, number, number, number] = [142, -29.5, 156.5, -9];
 
 /**
  * Each source's licence condition: credit GEBCO and GA, say the work is
@@ -87,20 +86,13 @@ export const SEA_BASE_LAND_SHADE = 'sea-base-land-shade';
 export const SEA_BASE_BANDS = 'sea-base-depth-bands';
 export const SEA_BASE_COAST = 'sea-base-coastline';
 /** Relief, bottom to top: world tint and shade, then the Australian grid's. */
-export const RELIEF_LAYER_IDS = ['relief-global-tint', 'relief-global-shade', 'relief-au-tint', 'relief-au-shade'];
+export const RELIEF_LAYER_IDS = RELIEF_DISPLAY_REGIONS.flatMap(({ id }) => [`relief-${id}-tint`, `relief-${id}-shade`]);
 /**
- * [set, minzoom, source maxzoom, tint fade-out start, end, shade fade-out
- * start, end]. Each layer's maxzoom is where its fade ends: mapbox-gl keeps a
+ * Each published region owns its bounds, generation, credits and fade ranges.
+ * Each layer's maxzoom is where its fade ends: mapbox-gl keeps a
  * source loading for any layer inside its zoom range, whatever its opacity.
  */
-const SETS = [
-    // The world's COLOUR runs to the 30 m grid's fade (review 2026-10-05): gone
-    // at z11, it left the grid's overzoomed edge as a straight line at z10.5+
-    // (156.09°E, 9.80°S, 140.625°E, 29.54°S). Its hillshade still goes at
-    // z10-11, where overzoomed relief stops being shape.
-    ['global', 0, 9, 13.5, 14.5, 10, 11],
-    ['au', 8, 13, 13.5, 14.5, 13.5, 14.5],
-] as const;
+const SETS = RELIEF_DISPLAY_REGIONS;
 const BANDS_FADE = [7.5, 9] as const;
 
 /**
@@ -271,8 +263,8 @@ const whole = new WeakSet<object>();
 export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE): void {
     const layers = map.getStyle()?.layers ?? [];
     const waterAt = layers.findIndex((layer) => layer.id === 'water');
-    if (waterAt < 0 || !map.getSource('composite')) return;
-    const above = layers[waterAt + 1]?.id;
+    const vectorSea = waterAt >= 0 && !!map.getSource('composite');
+    const above = vectorSea ? layers[waterAt + 1]?.id : undefined;
     painted.delete(map);
     whole.delete(map);
     const add = (layer: Record<string, unknown>, before: string | undefined) => {
@@ -281,7 +273,7 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
     };
     const sea = { source: 'composite', paint: {} as Record<string, unknown> };
 
-    if (map.getSource('satellite-base'))
+    if (vectorSea && map.getSource('satellite-base'))
         add(
             {
                 id: LAND_IMAGERY_LAYER,
@@ -291,48 +283,58 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
             },
             'water',
         );
-    add(
-        {
-            ...sea,
-            id: SEA_BASE_LAND_SHADE,
-            type: 'fill',
-            'source-layer': 'hillshade',
-            paint: {
-                'fill-antialias': false,
-                'fill-color': ['match', ['get', 'class'], 'shadow', 'rgba(0,0,0,0.16)', 'rgba(255,255,255,0.05)'],
+    if (vectorSea)
+        add(
+            {
+                ...sea,
+                id: SEA_BASE_LAND_SHADE,
+                type: 'fill',
+                'source-layer': 'hillshade',
+                paint: {
+                    'fill-antialias': false,
+                    'fill-color': ['match', ['get', 'class'], 'shadow', 'rgba(0,0,0,0.16)', 'rgba(255,255,255,0.05)'],
+                },
             },
-        },
-        'water',
-    );
-    add(
-        {
-            ...sea,
-            id: SEA_BASE_BANDS,
-            type: 'fill',
-            'source-layer': 'depth',
-            maxzoom: BANDS_FADE[1],
-            paint: {
-                'fill-antialias': false,
-                'fill-color': bandColour(DAY),
-                'fill-opacity': zoomFade([BANDS_FADE[0], 1, BANDS_FADE[1], 0]),
+            'water',
+        );
+    if (vectorSea)
+        add(
+            {
+                ...sea,
+                id: SEA_BASE_BANDS,
+                type: 'fill',
+                'source-layer': 'depth',
+                maxzoom: BANDS_FADE[1],
+                paint: {
+                    'fill-antialias': false,
+                    'fill-color': bandColour(DAY),
+                    'fill-opacity': zoomFade([BANDS_FADE[0], 1, BANDS_FADE[1], 0]),
+                },
             },
-        },
-        above,
-    );
+            above,
+        );
     if (base) {
-        for (const [set, minzoom, maxzoom, t0, t1, s0, s1] of SETS) {
+        for (const region of SETS) {
+            const {
+                    id: set,
+                    minzoom,
+                    maxzoom,
+                    tintFade: [t0, t1],
+                    shadeFade: [s0, s1],
+                } = region,
+                tileBase = reliefRegionBase(base, region);
             for (const kind of ['idx', 'dem'] as const) {
                 const id = `relief-${set}-${kind}`;
                 if (!map.getSource(id))
                     map.addSource(id, {
                         type: kind === 'dem' ? 'raster-dem' : 'raster',
-                        tiles: [`${base}/relief-${set}/${kind}/{z}/{x}/{y}.${kind === 'dem' ? 'webp' : 'png'}`],
+                        tiles: [`${tileBase}/relief-${set}/${kind}/{z}/{x}/{y}.${kind === 'dem' ? 'webp' : 'png'}`],
                         tileSize: 256,
                         minzoom,
                         maxzoom,
                         ...(kind === 'dem' ? { encoding: 'terrarium' } : {}),
-                        ...(set === 'au' ? { bounds: RELIEF_AU_BOUNDS } : {}),
-                        attribution: RELIEF_ATTRIBUTION,
+                        ...(region.bounds ? { bounds: [...region.bounds] } : {}),
+                        attribution: region.attribution ?? RELIEF_ATTRIBUTION,
                     } as mapboxgl.AnySourceData);
             }
             add(
@@ -372,16 +374,38 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
             );
         }
     }
-    add(
-        {
-            ...sea,
-            id: SEA_BASE_COAST,
-            type: 'line',
-            'source-layer': 'water',
-            paint: { 'line-color': DAY.coast, 'line-width': zoomFade([5, 0.5, 10, 0.9, 14, 1.3]) },
-        },
-        above,
-    );
+    if (vectorSea)
+        add(
+            {
+                ...sea,
+                id: SEA_BASE_COAST,
+                type: 'line',
+                'source-layer': 'water',
+                paint: { 'line-color': DAY.coast, 'line-width': zoomFade([5, 0.5, 10, 0.9, 14, 1.3]) },
+            },
+            above,
+        );
+}
+
+/** A cold offline launch cannot depend on an uncached Mapbox style request. */
+export function offlineReliefStyle(): mapboxgl.StyleSpecification {
+    return {
+        version: 8,
+        sources: {},
+        layers: [{ id: 'land', type: 'background', paint: { 'background-color': '#333b45' } }],
+    };
+}
+
+/** Public API only: retry missing tiles after hydration/download/delete without replacing the style. */
+export function reloadReliefSources(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE): void {
+    for (const region of SETS)
+        for (const kind of ['idx', 'dem']) {
+            const set = region.id;
+            const source = map.getSource(`relief-${set}-${kind}`) as mapboxgl.RasterTileSource | undefined;
+            source?.setTiles?.([
+                `${reliefRegionBase(base, region)}/relief-${set}/${kind}/{z}/{x}/{y}.${kind === 'dem' ? 'webp' : 'png'}`,
+            ]);
+        }
 }
 
 /** The sea layers a base shows, as [layer id, visible]. Satellite and Hybrid show none. */
@@ -410,14 +434,18 @@ export function seaBaseLayers(base: MapBaseKind): Array<[string, boolean]> {
  * the same, so leaving it restores the whole style.
  */
 export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette): boolean {
-    if (painted.get(map) === mode || !map.getLayer(SEA_BASE_BANDS)) return false;
+    if (painted.get(map) === mode || (!map.getLayer(SEA_BASE_BANDS) && !map.getLayer(RELIEF_LAYER_IDS[0])))
+        return false;
     painted.set(map, mode);
     if (mode === 'light') whole.add(map);
     const p = mode === 'night' ? NIGHT : mode === 'light' ? LIGHT_PALETTE : DAY;
     const set = (id: string, prop: string, value: unknown) => {
         if (map.getLayer(id)) map.setPaintProperty(id, prop as 'fill-color', value as string);
     };
-    for (const [setName, , , t0, t1] of SETS) {
+    for (const {
+        id: setName,
+        tintFade: [t0, t1],
+    } of SETS) {
         const tint = `relief-${setName}-tint`;
         // Light's world tint ends at z12 (GA's keeps its own fade): past it a
         // harbour shows flat water, never 450 m blobs or a tile seam.

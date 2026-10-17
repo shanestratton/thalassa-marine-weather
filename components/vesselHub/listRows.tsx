@@ -56,7 +56,7 @@ export const OfficeRow: React.FC<{
     /** Short live value on the right ("2 crew") — never a description. */
     value?: string;
     valueColor?: string;
-    onClick: () => void;
+    onClick: React.MouseEventHandler<HTMLButtonElement>;
     disabled?: boolean;
     badge?: number;
     badgeUrgent?: boolean;
@@ -65,12 +65,18 @@ export const OfficeRow: React.FC<{
     // it); the status line and any live value are read as its description.
     const id = useId();
     return (
+        // A disabled row is a disabled button (132-B20): the observer's
+        // Polars row only looked dim, and VoiceOver and the keyboard still
+        // offered it as a working button that did nothing. Now VoiceOver reads
+        // it as dimmed, Tab passes it, and its status line says why.
         <button
+            type="button"
             aria-label={label}
             aria-describedby={value ? `${id}-status ${id}-value` : `${id}-status`}
             onClick={onClick}
-            className={`hub-row w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all active:scale-[0.98] ${
-                disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3'
+            disabled={disabled}
+            className={`hub-row w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all ${
+                disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3 active:scale-[0.98]'
             }`}
         >
             <div

@@ -14,7 +14,8 @@
  *
  * The one exception is the reader's own row (2026-10-04): their own name,
  * phone and age from their Settings, which their app shares with the skipper
- * for this plan. Everyone else is a name and a role; the count is everyone.
+ * for this plan (since 129-14 their date of birth, shown here as the age it
+ * gives). Everyone else is a name and a role; the count is everyone.
  *
  * One glass card in the page's tier-1 look (2026-10-06, styles/crew-page.css),
  * the same content as before.
@@ -82,8 +83,10 @@ export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({
     // The skipper's profile roster and the app crew not on it, you included,
     // in rank order: the one sortByCrewRank FloatPlanSheet lists them with.
     const people = crewVesselPeople(view, self);
-    const gaps = [!self?.name && 'name', !self?.phone && 'mobile', !self?.age && 'age'].filter((gap): gap is string =>
-        Boolean(gap),
+    // Settings asks a date of birth, not an age, since 129-14; an age typed
+    // before then still counts as given.
+    const gaps = [!self?.name && 'name', !self?.phone && 'mobile', !self?.age && 'date of birth'].filter(
+        (gap): gap is string => Boolean(gap),
     );
     const missing = gaps.length > 1 ? `${gaps.slice(0, -1).join(', ')} and ${gaps[gaps.length - 1]}` : gaps[0];
     const route =
@@ -171,9 +174,11 @@ export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({
             </p>
             {self && sharing && (
                 <p className="crew-muted mt-2 text-[12px] leading-relaxed">
-                    {`Your name, mobile and age from Settings → Vessel Profile go on ${boatName}'s float plan. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.`}
+                    {/* 129-14: the date of birth itself is shared (crew_float_plan_details),
+                        so the notice names it; the plan prints only the age it gives. */}
+                    {`Your name, mobile and date of birth from Settings → Vessel Profile go to ${boatName}'s skipper for the float plan, which prints your age, never the date. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.`}
                     {missing &&
-                        ` Add your ${missing} there: on your own profile you're the Skipper, so your name and age go in the Skipper row under Crew, and your mobile in Skipper mobile.`}
+                        ` Add your ${missing} there: on your own profile you're the Skipper, so your name and date of birth go in the Skipper row under Crew, and your mobile in Skipper mobile.`}
                 </p>
             )}
         </section>

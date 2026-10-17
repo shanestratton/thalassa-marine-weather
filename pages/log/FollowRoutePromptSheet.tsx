@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import React from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { SavedRoutePassageHeading } from '../../components/routes/SavedRouteRows';
-import { ordinalLegLabel } from '../../services/routeTracer';
+import { ordinalLegLabel } from '../../services/savedTraceStore';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import type { TraceCheckState } from '../../services/traceBackgroundCheck';

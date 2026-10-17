@@ -346,7 +346,7 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
     if (stillCurrent) {
         const results = await Promise.allSettled([
             PushNotificationService.clearUser(),
-            clearBoundAppleCredential(),
+            clearBoundAppleCredential(userId),
             supabase.auth.signOut({ scope: 'local' }),
             initLocalDatabase(null),
         ]);

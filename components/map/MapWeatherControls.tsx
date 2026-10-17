@@ -33,6 +33,8 @@ import { lazyRetry } from '../../utils/lazyRetry';
 import { useFollowedBoatKey } from './useFollowedBoatKey';
 import { WIND_PARTICLE_GRADIENT_LIGHT, type WindPalette } from './windRamp';
 import { DeskWindAgreement, useWindStartHandOff } from './DeskWindLine';
+import { WindStore } from '../../stores/WindStore';
+import { localWindSource } from './localWindSource';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -40,6 +42,10 @@ type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 const ModelCheckAtBoat = lazyRetry(
     () => import('./ModelCheckAtBoat').then((module) => ({ default: module.ModelCheckAtBoat })),
     'ModelCheckAtBoat',
+);
+const SynopticChartSheet = lazyRetry(
+    () => import('./SynopticChartSheet').then((module) => ({ default: module.SynopticChartSheet })),
+    'SynopticChartSheet',
 );
 
 const CMEMS_STATUS_LABELS: Record<CmemsLayerId, string> = {
@@ -62,6 +68,7 @@ interface MapWeatherControlsProps {
     /** Already-active non-weather chart layers; this surface does not own their lifecycle. */
     extraLegend?: React.ReactNode;
     extraLegendCount?: number;
+    chartPoint?: { lat: number; lon: number } | null;
     /**
      * The desk planner's wind (127-DESKMAP-b): the panel at the bottom right,
      * clear of the tracer; the legend in the base's streak palette; the models'
@@ -74,6 +81,16 @@ interface MapWeatherControlsProps {
         pinned?: boolean;
         startMs: number | null;
     };
+    /**
+     * On Obs, whose clear view keeps the scrubber (129-13;
+     * mapHub/useObsClearView.ts). Shane: "Maybe the scrubber button. As that
+     * should stay." With a weather layer up, the pill and the timeline stay in
+     * the clear view and work as ever, so the forecast can be scrubbed over a
+     * clear chart. Clear the screen lives in the top-centre map menu (133).
+     */
+    keepInClearView?: boolean;
+    /** Obs puts these same credits in its one-row rollup; other map surfaces retain their existing credit. */
+    creditsInRollup?: boolean;
 }
 
 /**
@@ -91,7 +108,10 @@ export function MapWeatherControls({
     onControlsHiddenChange,
     extraLegend,
     extraLegendCount,
+    chartPoint,
     desk,
+    keepInClearView,
+    creditsInRollup = false,
 }: MapWeatherControlsProps): React.ReactElement | null {
     // Above the early return: a hook is called on every render or on none.
     const passageLookAheadOn = usePassageLookAheadOn();
@@ -100,12 +120,17 @@ export function MapWeatherControls({
     // Close-in mode's local wind (high zoom), in the user's speed unit.
     const closeInWind = useCloseInWindReadout();
     const speedUnit = useSettingsStore((state) => state.settings?.units?.speed);
-    const windCloseIn = closeInWind
-        ? { value: formatCloseInWind(closeInWind, speedUnit), source: closeInWind.source, stale: closeInWind.stale }
-        : null;
+    const windCloseIn =
+        closeInWind && !localWindSource(weather.windState)
+            ? { value: formatCloseInWind(closeInWind, speedUnit), source: closeInWind.source, stale: closeInWind.stale }
+            : null;
     // "Her wind vs the models" is offered only while Current Location follows a boat.
     const followedBoatKey = useFollowedBoatKey();
     const [checkOpen, setCheckOpen] = useState(false);
+    const [officialChartsOpen, setOfficialChartsOpen] = useState(false);
+    const [removingImport, setRemovingImport] = useState(false);
+    const localSource = localWindSource(weather.windState);
+    const imported = localSource === 'Imported GRIB';
     // The desk's start hand-off.
     const startHandOff = useWindStartHandOff(weather, desk?.startMs);
 
@@ -150,6 +175,8 @@ export function MapWeatherControls({
         onHiddenChange: onControlsHiddenChange,
     });
     if (!visible) return null;
+    // Kept in the clear view while there is a forecast to scrub; a layer key alone hides with the rest.
+    const clearViewKeep = keepInClearView && activeWeatherLayers.length > 0 ? '' : undefined;
     const compactSummary = summarizeWeatherControls({
         weather,
         activeLayer: activeLayer ?? null,
@@ -669,6 +696,7 @@ export function MapWeatherControls({
                 <section
                     ref={autoHide.panelRef}
                     {...autoHide.interactionProps}
+                    data-clear-view-keep={clearViewKeep}
                     aria-label={hasExtraLegend ? 'Chart layer controls' : 'Weather controls'}
                     // On the chart the geometry lives in index.css
                     // (.thalassa-chart-controls-panel): it is measured from the
@@ -722,7 +750,76 @@ export function MapWeatherControls({
                                 ))}
                             </div>
                         )}
-                        {showTimeline && activeLayer === 'wind' && (
+                        {showTimeline && localSource && (
+                            <div className="space-y-2 rounded-xl border border-white/10 p-2 text-xs text-slate-300">
+                                <p>
+                                    {localSource}
+                                    {Number.isFinite(windReference)
+                                        ? ` · Run ${new Date(windReference).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+                                        : ''}
+                                </p>
+                                {imported && weather.windState.grid?.source && (
+                                    <p>
+                                        GRIB{weather.windState.grid.edition} · Centre{' '}
+                                        {weather.windState.grid.source.centre}, process{' '}
+                                        {weather.windState.grid.source.process}
+                                    </p>
+                                )}
+                                {imported && weather.windState.grid?.stepHours?.length && (
+                                    <p>
+                                        Coverage:{' '}
+                                        {validTime(windReference + weather.windState.grid.stepHours[0] * 3600000)} to{' '}
+                                        {validTime(windReference + weather.windState.grid.stepHours.at(-1)! * 3600000)}
+                                    </p>
+                                )}
+                                <p>
+                                    File coverage only. Blank cells are unknown; instruments do not replace imported
+                                    wind.
+                                </p>
+                                {weather.windState.error && <p role="status">{weather.windState.error}</p>}
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        className="min-h-[44px] rounded-xl border border-white/20 px-3"
+                                        onClick={() =>
+                                            WindStore.setState({
+                                                isGlobalMode: true,
+                                                grid: null,
+                                                error: null,
+                                                loading: false,
+                                                hour: 0,
+                                                totalHours: 0,
+                                            })
+                                        }
+                                    >
+                                        Use online forecasts
+                                    </button>
+                                    {imported && (
+                                        <button
+                                            type="button"
+                                            disabled={removingImport}
+                                            className="min-h-[44px] rounded-xl border border-white/20 px-3"
+                                            onClick={() => {
+                                                setRemovingImport(true);
+                                                void import('../../services/weather/localGribImport')
+                                                    .then((module) => module.removeSelectedImportedGrib())
+                                                    .catch((error) =>
+                                                        WindStore.setError(
+                                                            error instanceof Error
+                                                                ? error.message
+                                                                : 'The saved GRIB could not be removed.',
+                                                        ),
+                                                    )
+                                                    .finally(() => setRemovingImport(false));
+                                            }}
+                                        >
+                                            {removingImport ? 'Removing…' : 'Remove imported file'}
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {showTimeline && activeLayer === 'wind' && !localSource && (
                             <WindModelFieldSelector
                                 model={weather.windModel}
                                 onModelChange={weather.setWindModel}
@@ -730,25 +827,30 @@ export function MapWeatherControls({
                                 inline
                             />
                         )}
-                        {showTimeline && activeLayer === 'wind' && desk && (
+                        {showTimeline && activeLayer === 'wind' && desk && !localSource && (
                             <DeskWindAgreement point={desk.point} pinned={desk.pinned} validMs={windValidMs} />
                         )}
                         {content}
                         {/* After the timeline, so it stays above the fold at 320x568. */}
-                        {showTimeline && activeLayer === 'wind' && !embedded && !desk && followedBoatKey !== null && (
-                            <button
-                                type="button"
-                                data-model-check-row
-                                aria-haspopup="dialog"
-                                aria-expanded={checkOpen}
-                                aria-label="Compare her wind with the models now"
-                                onClick={() => setCheckOpen(true)}
-                                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-left text-xs font-bold text-slate-200 active:scale-[0.99]"
-                            >
-                                <span>Her wind vs the models</span>
-                                <span aria-hidden="true">›</span>
-                            </button>
-                        )}
+                        {showTimeline &&
+                            activeLayer === 'wind' &&
+                            !localSource &&
+                            !embedded &&
+                            !desk &&
+                            followedBoatKey !== null && (
+                                <button
+                                    type="button"
+                                    data-model-check-row
+                                    aria-haspopup="dialog"
+                                    aria-expanded={checkOpen}
+                                    aria-label="Compare her wind with the models now"
+                                    onClick={() => setCheckOpen(true)}
+                                    className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-left text-xs font-bold text-slate-200 active:scale-[0.99]"
+                                >
+                                    <span>Her wind vs the models</span>
+                                    <span aria-hidden="true">›</span>
+                                </button>
+                            )}
                         {showTimeline &&
                             activeWeatherLayers.includes('pressure') &&
                             hasWindLayer &&
@@ -769,6 +871,7 @@ export function MapWeatherControls({
                             captions={captions}
                             unavailableLayers={unavailableLayers}
                             pressureOverlay={weather.activeLayers.size > 1}
+                            onOfficialCharts={() => setOfficialChartsOpen(true)}
                             extraLegend={extraLegend}
                             extraLegendCount={extraLegendCount}
                             windGradient={desk?.palette === 'light' ? WIND_PARTICLE_GRADIENT_LIGHT : undefined}
@@ -777,6 +880,14 @@ export function MapWeatherControls({
                 </section>
             )}
             {/* Outside the section: its auto-hide and interaction handlers must not see the card. */}
+            {officialChartsOpen && (
+                <Suspense fallback={null}>
+                    <SynopticChartSheet
+                        point={desk?.point ?? chartPoint ?? null}
+                        onClose={() => setOfficialChartsOpen(false)}
+                    />
+                </Suspense>
+            )}
             {checkOpen && (
                 <Suspense fallback={null}>
                     <ModelCheckAtBoat
@@ -799,7 +910,7 @@ export function MapWeatherControls({
                 non-interactive text, and only the small ⓘ is a tap target.
                 Since 2026-09-06 the credit sits top-centre under the basemap
                 dropdown, clear of the chart's working area altogether. */}
-            {showRainViewerAttribution && (
+            {showRainViewerAttribution && !creditsInRollup && (
                 <div
                     // Centred directly under the basemap dropdown (MapBaseSelector:
                     // top = inset + 8px, trigger h-12) — out of the main viewing
@@ -829,7 +940,7 @@ export function MapWeatherControls({
                     </a>
                 </div>
             )}
-            {showRainForecastAttribution && (
+            {showRainForecastAttribution && !creditsInRollup && (
                 <div
                     className={`${CREDITS_STRIP_POSITION_CLASS} z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
                     style={{ top: creditsStripTop(0) }}
@@ -855,6 +966,7 @@ export function MapWeatherControls({
                     ref={autoHide.triggerRef}
                     type="button"
                     onClick={autoHide.show}
+                    data-clear-view-keep={clearViewKeep}
                     data-testid="weather-status-pill"
                     data-tone={compactSummary.tone}
                     // Chart geometry: .thalassa-chart-controls-pill in index.css,

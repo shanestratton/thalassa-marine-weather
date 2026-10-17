@@ -18,13 +18,8 @@
  * (useTraceDraft), which is why it survives a reload.
  */
 import { useCallback, useMemo, useRef } from 'react';
-import {
-    displayRouteLabel,
-    loadSavedTraces,
-    nextLegSeed,
-    type SavedTrace,
-    type TracePoint,
-} from '../../services/routeTracer';
+import type { TracePoint } from '../../services/routeTracer';
+import { displayRouteLabel, loadSavedTraces, nextLegSeed, type SavedTrace } from '../../services/savedTraceStore';
 import {
     describeReversalSource,
     distanceNM,

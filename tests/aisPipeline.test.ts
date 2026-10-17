@@ -121,8 +121,8 @@ describe('AIS Pipeline — raw sentence → GeoJSON', () => {
     });
 
     it('should handle the two-part message 5 pipeline', () => {
-        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
-        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
+        const part1 = '!AIVDM,2,1,7,A,57Ojo>02:N2W<HtKP00EHE:0@T4@Dl000000,0*66';
+        const part2 = '!AIVDM,2,2,7,A,0016L961O400003QEl3lU00000000000000,2*5C';
 
         // Part 1 should not produce a result yet
         const r1 = processAisSentence(part1);

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const overlaySource = readFileSync(resolve(process.cwd(), 'components/map/MapboxVelocityOverlay.tsx'), 'utf8');
 const mapHubSource = readFileSync(resolve(process.cwd(), 'components/map/MapHub.tsx'), 'utf8');
+const fieldSource = readFileSync(resolve(process.cwd(), 'components/map/MapboxWindField.ts'), 'utf8');
 
 describe('MapboxVelocityOverlay selected-grid architecture', () => {
     it('does not run a second private GFS/cache/static wind pipeline or render its stale badge', () => {
@@ -21,19 +22,19 @@ describe('MapboxVelocityOverlay selected-grid architecture', () => {
         expect(mapHubSource).toContain('windNowIdx={weather.windNowIdx}');
     });
 
-    it('covers frame zero in both grid-arrival orders and clears an absent grid', () => {
+    it('hands only the selected frame to the native field, including zero and missing frames', () => {
         expect(overlaySource).toContain('windGridFrameToVelocityData(windGrid, windHour)');
-        expect(overlaySource).toContain('windGridFrameToVelocityData(windGridPropRef.current, windHourRef.current)');
-        expect(overlaySource).toMatch(
-            /if \(!nextData\) \{[\s\S]*?removeVelocityLayer\(leafletMap, velocityLayerRef\.current\);[\s\S]*?velocityLayerRef\.current = null;/,
-        );
+        expect(overlaySource).toContain('field.setData(data)');
+        expect(overlaySource).toContain('field.setData(null)');
         expect(overlaySource).not.toContain('curHour > 0');
+        expect(fieldSource).not.toMatch(/\bfetch\(|WeatherService|WindStore|NmeaStore|supabase/);
     });
 
-    it('cancels the deferred view snap before an overlay remount can reuse shared refs', () => {
-        expect(overlaySource).toMatch(
-            /return \(\) => \{\s*cancelled = true;\s*if \(snapTimer\) \{\s*clearTimeout\(snapTimer\);/,
-        );
-        expect(overlaySource).toMatch(/snapTimer = setTimeout\(\(\) => \{\s*if \(cancelled\) return;/);
+    it('tears down its owned native field without creating another map or loading a plugin', () => {
+        expect(overlaySource).toContain('field.destroy()');
+        expect(overlaySource).not.toMatch(/new mapboxgl.Map|leafletRuntime|import\('leaflet/);
+        expect(fieldSource).not.toMatch(/new mapboxgl.Map|setTimeout\(/);
+        expect(fieldSource).toContain('this.observer?.disconnect()');
+        expect(fieldSource).toContain('this.cancelFrame(this.frame)');
     });
 });

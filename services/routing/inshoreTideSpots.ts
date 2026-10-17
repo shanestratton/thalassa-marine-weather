@@ -10,6 +10,7 @@
  * tide-gating inputs.
  */
 
+import type { ChartBounds, SoundingDatum } from '../enc/chartDatum';
 import type { ShallowRunInfo } from '../engine/types';
 import type { ShallowSpot } from './DepartureSweepInshore';
 import type { LonLat } from './TideAwareAnnotator';
@@ -173,4 +174,45 @@ export function tideAnchorForShallowRuns(runs: readonly ShallowRunInfo[]): { lat
         );
 
     return anchor ? { lat: anchor.midLat, lon: anchor.midLon } : null;
+}
+
+/** Datum proof for every charted gate, not just the longest run's tide
+ * station. Unknown/mixed cells make the sweep's UKC unknown, never clear.
+ * The precise chart positions remain local to this function. */
+export async function shallowRunTideDatum(runs: readonly ShallowRunInfo[]): Promise<SoundingDatum | null> {
+    const bounds = shallowRunBounds(runs);
+    const { readChartDatumForBounds } = await import('../enc/readChartDatum');
+    return bounds ? readChartDatumForBounds(bounds) : null;
+}
+
+export function shallowRunBounds(
+    runs: readonly ShallowRunInfo[],
+    positions: readonly LonLat[] = [],
+): ChartBounds | null {
+    let west = Infinity,
+        south = Infinity,
+        east = -Infinity,
+        north = -Infinity;
+    for (const run of runs) {
+        if (run.dryTail || !Number.isFinite(run.minDepthM)) continue;
+        for (const [lon, lat] of [
+            [run.midLon, run.midLat],
+            [run.minAtLon, run.minAtLat],
+        ]) {
+            if (typeof lon !== 'number' || typeof lat !== 'number' || !Number.isFinite(lon) || !Number.isFinite(lat))
+                continue;
+            west = Math.min(west, lon);
+            south = Math.min(south, lat);
+            east = Math.max(east, lon);
+            north = Math.max(north, lat);
+        }
+    }
+    for (const [lon, lat] of positions) {
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+        west = Math.min(west, lon);
+        south = Math.min(south, lat);
+        east = Math.max(east, lon);
+        north = Math.max(north, lat);
+    }
+    return Number.isFinite(west) ? [west, south, east, north] : null;
 }

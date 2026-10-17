@@ -196,7 +196,17 @@ function Fixture() {
                                     ) : undefined
                                 }
                             />
-                            {params.has('ownPi') && <ShoreWeighAnchorBar onWeighAnchor={() => setWeighed(true)} />}
+                            {/* &refused=<boat>: her Pi refused this phone's stop (129-12), in its words. */}
+                            {params.has('ownPi') && (
+                                <ShoreWeighAnchorBar
+                                    onWeighAnchor={() => setWeighed(true)}
+                                    refused={
+                                        params.has('refused')
+                                            ? `This phone isn't set up for ${params.get('refused')}'s Pi. Type the code from her Pi.`
+                                            : null
+                                    }
+                                />
+                            )}
                         </div>
                     </div>
                     {weighed && <p role="alert">Weigh anchor pressed</p>}

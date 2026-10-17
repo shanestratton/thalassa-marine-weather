@@ -143,7 +143,8 @@ for (const size of sizes) {
  *   - the row is whole in the pane, nothing under the header, nothing sideways;
  *   - the code field stays above a 300 px keyboard;
  *   - "Remove" takes a second tap and opens no modal;
- *   - the device token rides /api/enc/* only, and never a URL.
+ *   - the device token rides every pinned call since 129-12, never the
+ *     identity challenge, and never a URL.
  */
 const chartSizes = [
     { name: '320x568', width: 320, height: 568, pane: false },
@@ -258,12 +259,14 @@ for (const size of chartSizes) {
             await expect(row.getByText('1 of 5 devices')).toBeVisible();
             await expectRowWhole(page, row);
             const pi = await kestrelPi(page);
-            const enc = pi.requests.filter((r) => r.path.startsWith('/api/enc/'));
-            // The enrol carries no token (there is none yet); every call after it does.
-            const enrolAt = enc.findIndex((r) => r.path === '/api/enc/devices/enrol');
-            expect(enc.slice(enrolAt + 1).length).toBeGreaterThan(0);
-            expect(enc.slice(enrolAt + 1).every((r) => r.header === pi.token)).toBe(true);
-            expect(pi.requests.filter((r) => !r.path.startsWith('/api/enc/')).every((r) => r.header === null)).toBe(
+            // The enrol carries no token (there is none yet); every pinned call after it
+            // does, /api/enc/* or not (129-12); the identity challenge never.
+            const enrolAt = pi.requests.findIndex((r) => r.path === '/api/enc/devices/enrol');
+            const after = pi.requests.slice(enrolAt + 1).filter((r) => r.path !== '/api/pair/challenge');
+            expect(after.length).toBeGreaterThan(0);
+            expect(after.every((r) => r.header === pi.token)).toBe(true);
+            expect(pi.requests.slice(0, enrolAt + 1).every((r) => r.header === null)).toBe(true);
+            expect(pi.requests.filter((r) => r.path === '/api/pair/challenge').every((r) => r.header === null)).toBe(
                 true,
             );
             expect(pi.requests.filter((r) => r.url.includes(pi.token))).toEqual([]);
@@ -319,10 +322,11 @@ for (const size of chartSizes) {
             await screenshot(page, testInfo, `charts-set-up-code-${size.width}`);
 
             const pi = await kestrelPi(page);
-            expect(pi.requests.filter((r) => r.path.startsWith('/api/enc/')).every((r) => r.header === pi.token)).toBe(
-                true,
-            );
-            expect(pi.requests.filter((r) => !r.path.startsWith('/api/enc/')).every((r) => r.header === null)).toBe(
+            // Set up from the start: every pinned call carries the token (129-12), the challenge never.
+            const pinned = pi.requests.filter((r) => r.path !== '/api/pair/challenge');
+            expect(pinned.some((r) => !r.path.startsWith('/api/enc/'))).toBe(true);
+            expect(pinned.every((r) => r.header === pi.token)).toBe(true);
+            expect(pi.requests.filter((r) => r.path === '/api/pair/challenge').every((r) => r.header === null)).toBe(
                 true,
             );
             expect(pi.requests.filter((r) => r.url.includes(pi.token))).toEqual([]);
@@ -373,6 +377,111 @@ for (const size of chartSizes) {
             await screenshot(page, testInfo, `charts-old-pi-${size.width}`);
             // No token exists, so nothing carried one: the old Pi sees today's requests.
             expect((await kestrelPi(page)).requests.every((r) => r.header === null)).toBe(true);
+            expect(errors).toEqual([]);
+        });
+    });
+}
+
+/**
+ * "Only her own devices can command the Pi" (129-12): the row under Charts
+ * from Kestrel, live from Pi update 4. Hidden on a Pi that does not report it
+ * (today's Pi answers /api/pi-lock with a 404). Observing, from a phone set
+ * up: the switch, how many devices are set up, who was seen without a code;
+ * on, it says only those can change her Pi. Enforcing, from a phone not set
+ * up: the Pi's words, with the code field right above. The row is whole in the
+ * pane at 320 x 568, 375 x 667 and the iPad half pane, in wide fonts.
+ */
+for (const size of chartSizes) {
+    test.describe(`Only her own devices can command the Pi, ${size.name}`, () => {
+        test.setTimeout(60_000);
+
+        async function openLockRow(page: Page, query: string) {
+            const errors: string[] = [];
+            page.on('pageerror', (error) => errors.push(error.message));
+            await page.route('**/*', (route) =>
+                ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)
+                    ? route.continue()
+                    : route.abort(),
+            );
+            await applyWideFonts(page);
+            await page.setViewportSize({ width: size.width, height: size.height });
+            await page.goto(`/e2e/fixtures/boat-network-layout.html?mode=dark&pane=${size.pane}&${query}`);
+            await page.waitForFunction(() => (window as unknown as { __kestrelPi?: KestrelPi }).__kestrelPi?.ready);
+            await page.getByRole('button', { name: 'Boat hardware & integrations', exact: true }).click();
+            await expect(page.getByTestId('charts-from-boat')).toBeVisible({ timeout: 20_000 });
+            await page.evaluate(() => document.fonts.ready);
+            return errors;
+        }
+
+        test('observing, set up: the switch turns it on, and the row says what that means', async ({
+            page,
+        }, testInfo) => {
+            const errors = await openLockRow(page, 'charts=set-up&lock=observe');
+            const row = page.getByTestId('pi-command-lock');
+            await expect(row).toBeVisible({ timeout: 20_000 });
+            await expectWideFaceDrawn(row.getByText('Only her own devices can command the Pi', { exact: true }));
+            await expect(row.getByText("Off: any phone on Kestrel's Wi-Fi can change her Pi.")).toBeVisible();
+            await expect(row.getByText('Anyone aboard can still see the watches and raise an alarm.')).toBeVisible();
+            await expect(row.getByText('2 devices set up')).toBeVisible();
+            await expect(
+                row.getByText(
+                    'Seen without a code since the Pi started: stand the night watch down ×2, change her settings ×1',
+                ),
+            ).toBeVisible();
+            const toggle = row.getByRole('switch', { name: 'Only her own devices can command the Pi' });
+            await expect(toggle).toHaveAttribute('aria-checked', 'false');
+            await expectRowWhole(page, row);
+            await screenshot(page, testInfo, `pi-lock-observe-${size.width}`);
+            await toggle.click();
+            await expect(toggle).toHaveAttribute('aria-checked', 'true');
+            await expect(row.getByText('On: only the 2 devices set up for Kestrel can change her Pi.')).toBeVisible();
+            await expectRowWhole(page, row);
+            await screenshot(page, testInfo, `pi-lock-enforce-${size.width}`);
+            const posts = (await kestrelPi(page)).requests.filter(
+                (r) => r.path === '/api/pi-lock' && r.method === 'POST',
+            );
+            expect(posts).toHaveLength(1);
+            expect(posts[0].header).toBe((await kestrelPi(page)).token);
+            await expect(page.getByRole('dialog')).toHaveCount(0);
+            expect(errors).toEqual([]);
+        });
+
+        test("enforcing, not set up: the Pi's words, the switch held, the code field right above, then set up", async ({
+            page,
+        }, testInfo) => {
+            const errors = await openLockRow(page, 'charts=not-set-up&lock=enforce');
+            const row = page.getByTestId('pi-command-lock');
+            await expect(row).toBeVisible({ timeout: 20_000 });
+            await expect(
+                row.getByText("This phone isn't set up for Kestrel's Pi. Type the code from her Pi."),
+            ).toBeVisible();
+            await expect(row.getByText('On: only the 2 devices set up for Kestrel can change her Pi.')).toBeVisible();
+            await expect(row.getByRole('switch', { name: 'Only her own devices can command the Pi' })).toBeDisabled();
+            await expect(
+                page.getByTestId('charts-from-boat').getByRole('textbox', { name: 'Chart code' }),
+            ).toBeVisible();
+            await expectRowWhole(page, row);
+            await screenshot(page, testInfo, `pi-lock-refused-${size.width}`);
+            // Set up by the code just above: the row hears it at once (129-12 review), no reopening the page.
+            const charts = page.getByTestId('charts-from-boat');
+            await charts.getByRole('textbox', { name: 'Chart code' }).fill('hjkmn 4pqrs');
+            await charts.getByRole('button', { name: 'Set up', exact: true }).click();
+            await expect(charts.getByText(/^This (iPhone|iPad) is set up/)).toBeVisible();
+            await expect(
+                row.getByText("This phone isn't set up for Kestrel's Pi. Type the code from her Pi."),
+            ).toHaveCount(0);
+            await expect(row.getByRole('switch', { name: 'Only her own devices can command the Pi' })).toBeEnabled();
+            await expectRowWhole(page, row);
+            expect(errors).toEqual([]);
+        });
+
+        test("today's Pi (no lock): no row at all, and nothing else changes", async ({ page }) => {
+            const errors = await openLockRow(page, 'charts=set-up');
+            await expect(page.getByTestId('charts-from-boat').getByText('2 of 5 devices')).toBeVisible();
+            await expect
+                .poll(async () => (await kestrelPi(page)).requests.some((r) => r.path === '/api/pi-lock'))
+                .toBe(true);
+            await expect(page.getByTestId('pi-command-lock')).toHaveCount(0);
             expect(errors).toEqual([]);
         });
     });

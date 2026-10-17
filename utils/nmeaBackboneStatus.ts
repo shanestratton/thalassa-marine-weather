@@ -24,6 +24,12 @@ export interface NmeaBackboneStatusInput {
      * VPN, and so read as aboard from 900 km away (Shane 2026-10-07).
      */
     link?: { statusRow: string; data: { state: DataState } } | null;
+    /**
+     * Why there is no `link` (131-01): 'checking' while it loads for a boat
+     * with a Pi or a gateway, 'not-set-up' for a phone with neither. The row
+     * then says so, never 'Not connected', which reads as a boat gone quiet.
+     */
+    linkAbsent?: 'checking' | 'not-set-up';
     now?: number;
 }
 
@@ -59,7 +65,7 @@ const FUTURE_TOLERANCE_MS = 1_000;
  * because those modules construct service singletons; a status resolver must
  * not import their transport and authentication lifecycle merely for limits.
  */
-const REMOTE_MAX_AGE_MS = { lan: 20_000, cloud: 60_000 } as const;
+const REMOTE_MAX_AGE_MS = { lan: 20_000, cloud: 60_000, signalk: 13_000 } as const;
 
 function withinAge(timestamp: number, now: number, maxAge: number): boolean {
     return (
@@ -106,6 +112,7 @@ export function deriveNmeaBackboneStatus({
     deviceLabel,
     lastError,
     link = null,
+    linkAbsent,
     now = Date.now(),
 }: NmeaBackboneStatusInput): NmeaBackboneStatus {
     const usableReading = hasUsableReading(store, now);
@@ -124,6 +131,15 @@ export function deriveNmeaBackboneStatus({
 
     const remote = store.connectionStatus === 'remote' ? store.remote : null;
     if (remote) {
+        if (remote.via === 'signalk')
+            return {
+                active: remote.source === 'device' && usableReading && withinAge(remote.receivedAt, now, 13_000),
+                detail: usableReading
+                    ? 'Direct Signal K · read only'
+                    : 'Direct Signal K · no current instrument readings',
+                faulted: false,
+                showRates: false,
+            };
         // A phone can publish a fresh position without receiving the NMEA bus.
         // Its cloud row must not make this separate backbone indicator green.
         if (remote.source !== 'pi') {
@@ -186,9 +202,10 @@ export function deriveNmeaBackboneStatus({
             showRates: false,
         };
     }
+    const idle = linkAbsent === 'checking' ? 'Checking…' : linkAbsent === 'not-set-up' ? 'Not set up' : 'Not connected';
     return {
         active: false,
-        detail: fault ?? (directStatus === 'error' ? 'Gateway connection failed' : 'Not connected'),
+        detail: fault ?? (directStatus === 'error' ? 'Gateway connection failed' : idle),
         faulted: directStatus === 'error' || fault !== null,
         showRates: false,
     };

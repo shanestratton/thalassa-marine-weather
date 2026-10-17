@@ -537,9 +537,9 @@
 // kept every Mapbox answer): their age is unknowable, so none is grandfathered.
 const CACHE_NAME = 'thalassa-v199-core';
 const RUNTIME_TILE_CACHE = 'thalassa-v199-runtime-tiles';
-// MapOfflineService writes explicit web downloads here (OSM and OpenSeaMap,
-// never Mapbox). Do not prune it from the service worker: doing so would
-// silently punch holes in an offline area. Only Mapbox copies are removed.
+// OfflineReliefService manages explicit public terrain downloads with a 128 MiB
+// LRU. Other legacy public entries are preserved; Mapbox is never stored here.
+// The SW must not prune an explicitly saved area behind the downloader's back.
 const OFFLINE_TILE_CACHE = 'thalassa-v195-tiles';
 const DATA_CACHE = 'thalassa-v196-data';
 // 127-C-b: no cache of AvNav/Pi chart tiles (pictures of licensed charts stay
@@ -689,11 +689,34 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     if (event.request.headers.has('authorization')) return;
 
+    // Public marine catalogues have their own validated, 24 MiB app cache.
+    // The broad terrain-host cache must not replay a stale mutable manifest
+    // or retain a second copy after the skipper deletes the saved catalogue.
+    if (
+        url.origin === 'https://tiles.thalassatiles.com' &&
+        (/^\/marine-catalogue\/v1\/(places|osm|noaa)\//.test(url.pathname) || url.pathname.startsWith('/noaa-enc/v1/'))
+    ) {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+
     // ── DEV MODE BYPASS ──
     // On localhost, let ALL requests pass through to Vite dev server directly.
     // Without this, the stale SW cache serves old module files, blocking hot reload.
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         return; // Don't call event.respondWith — browser fetches normally
+    }
+
+    // Explicit owned-terrain downloads validate bytes before writing the saved
+    // cache. Do not substitute an old normal-browsing response for that fetch.
+    if (
+        event.request.cache === 'reload' &&
+        url.origin === 'https://tiles.thalassatiles.com' &&
+        /^\/v[1-9]\d{0,2}\/relief-(global|au)\/(dem|idx)\/\d+\/\d+\/\d+\.(webp|png)$/.test(url.pathname) &&
+        !url.search
+    ) {
+        event.respondWith(fetch(event.request));
+        return;
     }
 
     // 1a. MAPBOX TILES — CACHE FIRST, UNDER 29 DAYS (127-H)
@@ -734,7 +757,7 @@ self.addEventListener('fetch', (event) => {
                 ([runtimeCache, offlineCache]) =>
                     Promise.all([runtimeCache.match(event.request), offlineCache.match(event.request)]).then(
                         ([runtimeResponse, offlineResponse]) => {
-                            const cachedResponse = runtimeResponse || offlineResponse;
+                            const cachedResponse = offlineResponse || runtimeResponse;
                             // Return any normal-browsing or explicitly downloaded tile.
                             if (cachedResponse) {
                                 return cachedResponse;

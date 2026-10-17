@@ -10,6 +10,7 @@ import {
     type TideDisplayTrend,
 } from './tideStationPresentation';
 import './TideStationCard.css';
+const OfflineTidesSheet = React.lazy(() => import('./OfflineTidesSheet'));
 
 export interface TideStationCardProps {
     station: TideStationDetails['station'];
@@ -124,6 +125,7 @@ export function TideStationCard({
     onRetry,
 }: TideStationCardProps) {
     const titleId = useId();
+    const [offlineTables, setOfflineTables] = React.useState(false);
     const gradientId = useId().replace(/:/g, '');
     const zone = useMemo(() => stationZone(station, detail?.timezone ?? station.timezone), [station, detail?.timezone]);
     const gauge = useMemo(() => tideGaugePresentation(detail?.heights ?? [], nowMs), [detail?.heights, nowMs]);
@@ -172,6 +174,14 @@ export function TideStationCard({
             </header>
 
             <div className="tide-station-card__body">
+                <button type="button" className="min-h-11 underline" onClick={() => setOfflineTables(true)}>
+                    Offline tide tables
+                </button>
+                {offlineTables && (
+                    <React.Suspense fallback={<p role="status">Opening saved tides…</p>}>
+                        <OfflineTidesSheet station={station} onClose={() => setOfflineTables(false)} />
+                    </React.Suspense>
+                )}
                 {loading && !hasData ? (
                     <p className="tide-station-card__status" role="status">
                         Loading tide predictions…
@@ -324,12 +334,18 @@ export function TideStationCard({
                     {detail ? (
                         <p>
                             {detail.source} predictions
+                            {detail.savedAtMs ? ` · saved table ${localTime(detail.savedAtMs, zone, true)}` : ''}
                             {Number.isFinite(detail.fetchedAtMs)
                                 ? ` · fetched ${localTime(detail.fetchedAtMs, zone, true)}`
                                 : ''}
                         </p>
                     ) : null}
                     {detail?.copyright ? <p className="tide-station-card__copyright">{detail.copyright}</p> : null}
+                    {detail?.source === 'WorldTides' && (
+                        <a href="https://www.worldtides.info/copyright" target="_blank" rel="noopener noreferrer">
+                            WorldTides copyright · informational use only
+                        </a>
+                    )}
                     <p className="tide-station-card__safety">Tide height is not water depth or clearance.</p>
                 </footer>
             </div>

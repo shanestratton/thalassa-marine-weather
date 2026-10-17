@@ -1,3 +1,4 @@
+import type { InstrumentEvidence, InstrumentMeasurementTimes } from '../services/instruments/measurements';
 /**
  * types/navigation.ts — Navigation & voyage domain types
  *
@@ -81,6 +82,9 @@ export interface Waypoint {
 }
 
 export interface VoyagePlan {
+    sailingStats?: import('../services/isochrone/routeStats').RouteSailingStats;
+    routeFuel?: import('../services/isochrone/routeStats').RouteFuelEstimate;
+    routeComfort?: import('../services/isochrone/routeComfort').RouteComfortSummary;
     origin: string;
     destination: string;
     departureDate: string;
@@ -225,11 +229,17 @@ export interface PolarData {
     matrix: number[][];
 }
 
-export type NmeaDepthSource = 'DBT' | 'DPT';
+export type NmeaDepthSource = 'DBT' | 'DPT' | 'PCDIN';
 export type NmeaDepthReference = 'below-transducer' | 'below-waterline' | 'below-keel';
 
 /** Raw NMEA instrument sample (emitted every 5s by NmeaListenerService) */
 export interface NmeaSample {
+    engineTelemetry?: import('../services/instruments/engineTelemetry').EngineTelemetry;
+    /** Receiver's water-referenced log, distinct from this app's SOG trip integration. */
+    distanceLog?: { totalNm: number | null; tripNm: number | null; reference: 'water'; at: number };
+    /** Qualified per-sentence readings; absent from legacy samples. */
+    instrumentReadings?: InstrumentEvidence['readings'];
+    measurementTimes?: InstrumentMeasurementTimes;
     timestamp: number;
     tws: number | null;
     /** True wind angle off the bow, 0-180 MAGNITUDE. SmartPolarStore buckets
@@ -291,6 +301,8 @@ export interface SmartPolarBucket {
 /** Full grid of Smart Polar buckets — serialized to Capacitor Filesystem */
 export interface SmartPolarBucketGrid {
     version: number;
+    /** A running engine stays excluded until an explicit zero-RPM report, including after restart. */
+    engineRunning?: boolean;
     twsBucketSize: number;
     twaBucketSize: number;
     twsMin: number;
@@ -304,6 +316,14 @@ export interface SmartPolarBucketGrid {
 
 /** Decoded AIS vessel target from NMEA !AIVDM / !AIVDO sentences */
 export interface AisTarget {
+    /** Transponder class, learned from the AIS message family. */
+    aisClass?: 'A' | 'B';
+    /** Metres reported by AIS; absent when the transmitter reports unavailable. */
+    length?: number;
+    beam?: number;
+    draught?: number;
+    /** AIS ETA has no year: retain its UTC month/day/hour/minute without inventing one. */
+    eta?: string;
     mmsi: number; // 9-digit Maritime Mobile Service Identity
     name: string; // Vessel name (from msg 5/24)
     lat: number; // Decimal degrees

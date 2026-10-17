@@ -40,6 +40,7 @@ export function useRoutingPolar(vessel: VesselProfile | null | undefined): Resol
     const polarBoatModel = useSettingsStore((st) => st.settings.polarBoatModel);
     const polarSourceType = useSettingsStore((st) => st.settings.polarSource_type);
     const polarSource = useSettingsStore((st) => st.settings.polarSource);
+    const routingPolarScale = useSettingsStore((st) => st.settings.routingPolarScale);
     // The learner's own switch (Preferences): it decides "Learning" vs "learning off".
     const smartPolarsEnabled = useSettingsStore((st) => st.settings.smartPolarsEnabled);
     const boat = resolveEffectiveVessel(vessel);
@@ -49,17 +50,29 @@ export function useRoutingPolar(vessel: VesselProfile | null | undefined): Resol
     useEffect(() => {
         if (!smart) return;
         let live = true;
-        const take = () => {
+        let request = 0;
+        const take = async () => {
+            const ticket = ++request;
             if (!live) return;
-            const next = learnedPolarSnapshot();
+            let next = learnedPolarSnapshot();
+            try {
+                const { getPiLearnedPolar } = await import('../services/piPolarLearner');
+                const polar = SmartPolarStore.exportToRoutingPolar(await getPiLearnedPolar());
+                next = { polar, filledCells: polar?.matrix.flat().filter((v) => v > 0).length ?? 0 };
+            } catch {
+                /* The phone's learned cells remain usable without a paired Pi. */
+            }
+            if (!live || ticket !== request) return;
             setLearned((prev) => (sameLearned(prev, next) ? prev : next));
         };
-        const unsubscribe = SmartPolarStore.subscribe(take);
+        const unsubscribe = SmartPolarStore.subscribe(() => void take());
         SmartPolarStore.ensureLoaded().then(take, () => {
             /* unreadable: she sails on the factory polar, as the routers do */
         });
+        const timer = setInterval(() => void take(), 60000);
         return () => {
             live = false;
+            clearInterval(timer);
             unsubscribe();
         };
     }, [smart]);
@@ -72,12 +85,23 @@ export function useRoutingPolar(vessel: VesselProfile | null | undefined): Resol
                     polarBoatModel,
                     polarSource_type: polarSourceType,
                     polarSource,
+                    routingPolarScale,
                     smartPolarsEnabled,
                 },
                 vessel: boat,
                 learned: smart ? learned : null,
             }),
-        [polarData, polarBoatModel, polarSourceType, polarSource, smartPolarsEnabled, boat, smart, learned],
+        [
+            polarData,
+            polarBoatModel,
+            polarSourceType,
+            polarSource,
+            routingPolarScale,
+            smartPolarsEnabled,
+            boat,
+            smart,
+            learned,
+        ],
     );
 
     // The same polar and the same words → the same object, so nothing downstream re-walks.

@@ -51,6 +51,12 @@ describe('internet AIS feature boundary', () => {
                 // tests/AisSourceAttribution.test.ts.
                 source: 'cloud',
                 statusColor: '#22c55e',
+                informational: true,
+                dataSource: 'Internet AIS',
+                draught: null,
+                eta: '',
+                safetyText: '',
+                safetyTextAt: null,
             },
         });
     });

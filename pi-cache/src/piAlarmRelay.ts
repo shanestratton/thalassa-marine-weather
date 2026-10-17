@@ -109,6 +109,7 @@ export function wireAlarm(alarm: AisWatchAlarm, now: number): Record<string, unk
         mmsi: alarm.mmsi,
         name: alarm.name.slice(0, MAX_NAME_CHARS),
         cpa_nm: alarm.cpaNm,
+        ...(alarm.positionBasis ? { position_basis: alarm.positionBasis, uncertainty_nm: alarm.uncertaintyNm } : {}),
         tcpa_min: alarm.tcpaMin,
         range_nm: alarm.rangeNm,
         bearing_deg: alarm.bearingDeg,

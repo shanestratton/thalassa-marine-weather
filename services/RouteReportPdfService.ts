@@ -17,6 +17,8 @@ import { traceHealth } from './routeTracer';
 import { traceVerificationSummary, type TraceVerification } from './traceVerification';
 import { windCompass, type WaypointWeather } from './routeReportWeather';
 import { chartFactsKeeper, PDF_FIGURES_ABOARD, TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
+import { routeEstimateLines, type RouteFuelEstimate } from './isochrone/routeStats';
+import type { RouteWeatherReport } from './routeMeteogram';
 
 type RGB = [number, number, number];
 const COLORS = {
@@ -69,6 +71,9 @@ function nowLabel(nowMs: number): string {
 }
 
 export interface RouteReportPdfData {
+    /** Explicitly sampled planned-position weather, shared with the route meteogram. */
+    routeWeather?: RouteWeatherReport | null;
+    routeFuel?: RouteFuelEstimate | null;
     /** The route heading, e.g. "Bribie - Newport". */
     routeName: string;
     pins: TracePoint[];
@@ -185,6 +190,14 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     doc.text(pdfSafe(verificationText), margin + 6, y + 7.8);
     y += 12 + 5;
 
+    for (const line of routeEstimateLines(null, data.routeFuel)) {
+        const wrapped = doc.splitTextToSize(pdfSafe(line), contentW - 12) as string[];
+        ensure(wrapped.length * 4 + 5);
+        doc.setFontSize(8);
+        doc.setTextColor(...COLORS.muted);
+        doc.text(wrapped, margin + 6, y + 4);
+        y += wrapped.length * 4 + 5;
+    }
     // ── Health tally ──
     const h = traceHealth(data.verdicts);
     ensure(13);
@@ -256,6 +269,79 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     });
     y += 5;
 
+    // Planned position at each absolute UTC hour, with the exact arrival too.
+    // Public weather and the skipper's own line contain no licensed chart facts.
+    if (data.routeWeather) {
+        const report = data.routeWeather;
+        const utc = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+        const line = (text: string) => {
+            doc.setFontSize(7.5);
+            const words = doc.splitTextToSize(pdfSafe(text), contentW) as string[];
+            for (const word of words) {
+                ensure(4);
+                doc.text(word, margin, y + 3);
+                y += 4;
+            }
+        };
+        ensure(13);
+        doc.setFontSize(10);
+        doc.setTextColor(...COLORS.primary);
+        doc.text('PASSAGE WEATHER - UTC', margin, y + 4);
+        y += 8;
+        doc.setTextColor(...COLORS.muted);
+        line(
+            `${report.source} | Planned constant ${report.speedKts.toFixed(1)} kt | ${report.totalDistanceNM.toFixed(1)} NM`,
+        );
+        line(`Departure ${utc(report.departureMs)} | Arrival ${utc(report.arrivalMs)}`);
+        line(`Source run: ${report.sourceRun ?? 'unknown'} | Received ${utc(report.loadedAtMs)}`);
+        if (report.polarLabel) line(`Polar: ${report.polarLabel}`);
+        line(
+            'Polar speed is a sailing model figure, not the planned speed or evidence of motoring. Unknown means no covered data.',
+        );
+        line('Wind angle uses route course, without a current or leeway correction.');
+        if (report.note) line(report.note);
+        if (report.limited)
+            line('Hourly preview limited to 16 days; actual arrival retained. The skipped middle was not sampled.');
+        if (report.credit) line(report.credit);
+        y += 3;
+        const columns = [margin, margin + 40, margin + 77, margin + 107, margin + 158];
+        const widths = [39, 36, 29, 50, 24];
+        const heading = () => {
+            ensure(21);
+            doc.setFontSize(7.5);
+            doc.setTextColor(...COLORS.primary);
+            ['UTC / position', 'Wind / gust kt', 'TWA', 'Point of sail', 'Polar kt'].forEach((title, i) =>
+                doc.text(title, columns[i], y + 4),
+            );
+            y += 7;
+        };
+        heading();
+        for (const row of report.rows) {
+            const n = (v: number | null) => (v === null ? 'Unknown' : v.toFixed(1));
+            const cells = [
+                `${utc(row.atMs).slice(5, 19)}\n${row.lat.toFixed(3)}, ${row.lon.toFixed(3)}${row.gapBeforeHours > 0 ? '\nAfter unsampled gap' : ''}`,
+                `${row.windKts === 0 ? 'Calm' : row.windKts === null ? 'Unknown' : `${n(row.windKts)} ${row.windDeg === null ? 'dir unknown' : windCompass(row.windDeg)}`}\nG ${n(row.gustKts)}`,
+                row.twaDeg === null ? 'Unknown' : `${Math.round(row.twaDeg)}°`,
+                row.pointOfSail ?? 'Unknown',
+                n(row.polarSpeedKts),
+            ].map((text, i) =>
+                text.split('\n').flatMap((paragraph) => doc.splitTextToSize(pdfSafe(paragraph), widths[i]) as string[]),
+            );
+            const height = Math.max(...cells.map((cell) => cell.length)) * 3.5 + 3;
+            if (y + height > H - margin) {
+                ensure(height + 8);
+                heading();
+            }
+            doc.setFontSize(7.5);
+            doc.setTextColor(...COLORS.white);
+            cells.forEach((cell, i) => doc.text(cell, columns[i], y + 3));
+            doc.setDrawColor(...COLORS.cardBg);
+            doc.line(margin, y + height - 1, W - margin, y + height - 1);
+            y += height;
+        }
+        y += 5;
+    }
+
     // ── Legs ──
     ensure(9);
     doc.setFontSize(9);
@@ -313,11 +399,15 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
         y += rowH;
     });
 
-    // ── Footer (current page) ──
-    doc.setFontSize(6.5);
-    doc.setTextColor(...COLORS.dim);
-    if (aboardOnly) doc.text(PDF_FIGURES_ABOARD, margin, H - 10.5);
-    doc.text('Advisory only - always cross-check against official charts and Notices to Mariners.', margin, H - 7);
+    // Shared files retain their scope and page number on every weather page.
+    for (let page = 1; page <= doc.getNumberOfPages(); page++) {
+        doc.setPage(page);
+        doc.setFontSize(6.5);
+        doc.setTextColor(...COLORS.dim);
+        if (aboardOnly) doc.text(PDF_FIGURES_ABOARD, margin, H - 10.5);
+        doc.text('Advisory only - always cross-check against official charts and Notices to Mariners.', margin, H - 7);
+        doc.text(`${page} / ${doc.getNumberOfPages()}`, W - margin, H - 7, { align: 'right' });
+    }
 
     return doc.output('blob');
 }

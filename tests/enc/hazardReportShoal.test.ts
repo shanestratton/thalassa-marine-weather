@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Geometry } from 'geojson';
 
-vi.mock('../../services/enc/EncHazardService', () => ({ getIndexForCell: vi.fn() }));
+vi.mock('../../services/enc/EncHazardService', () => ({ getIndexForCell: vi.fn(), releaseIndexForCell: vi.fn() }));
 vi.mock('../../services/enc/EncCellMetadata', () => ({ cellsForBBox: vi.fn(), getCell: vi.fn() }));
 
 import { findHazardsAlongRoute } from '../../services/enc/EncHazardReportService';

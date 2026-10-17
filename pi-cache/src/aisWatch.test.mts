@@ -38,6 +38,7 @@ interface ParityCase {
     name: string;
     fn: string;
     expect: unknown;
+    reportedExpect?: unknown;
     [key: string]: unknown;
 }
 const PARITY = JSON.parse(
@@ -90,7 +91,13 @@ function runParity(c: ParityCase): unknown {
 
 test('parity: every case gives the app’s answer through the Pi’s copy of the rule', () => {
     assert.ok(PARITY.cases.length >= 30);
-    for (const c of PARITY.cases) assert.deepEqual(runParity(c), c.expect, c.name);
+    for (const c of PARITY.cases) {
+        assert.deepEqual(runParity(c), c.expect, c.name);
+        if (c.reportedExpect !== undefined) {
+            const target = { ...(c.target as rule.CollisionTarget), reportAgeSec: 0 };
+            assert.deepEqual(runParity({ ...c, target }), c.reportedExpect, `${c.name}: original report geometry`);
+        }
+    }
 });
 
 // ── A fake Signal K ────────────────────────────────────────────────────────

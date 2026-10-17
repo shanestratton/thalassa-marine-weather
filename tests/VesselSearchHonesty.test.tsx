@@ -24,6 +24,8 @@ vi.mock('../components/ui/OverlayPortal', () => ({
     OverlayPortal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+import { AisStore } from '../services/AisStore';
+import { publishAisTargetPicture } from '../services/ais/aisTargetCache';
 import { VesselSearch } from '../components/map/VesselSearch';
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -48,7 +50,12 @@ const type = async (text: string) => {
 };
 
 beforeEach(() => rpc.mockReset());
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    AisStore.stop();
+    publishAisTargetPicture([]);
+    vi.restoreAllMocks();
+});
 
 describe('VesselSearch shows what the table holds', () => {
     it('lists a named vessel that has no position yet, and says so', async () => {
@@ -111,5 +118,35 @@ describe('VesselSearch never presents a failure as "no such ship"', () => {
         await type('  bungaree  ');
         await waitFor(() => expect(rpc).toHaveBeenCalled());
         expect(rpc).toHaveBeenCalledWith('search_vessels', { search_query: 'bungaree', max_results: 10 });
+    });
+});
+
+describe('receiver-first vessel search', () => {
+    it('shows and selects a receiver target offline without making an RPC request', async () => {
+        vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        AisStore.update({ mmsi: 503111222, name: 'LOCAL KESTREL', lat: -27.2, lon: 153.1, sog: 4, aisClass: 'B' });
+        const onSelect = vi.fn();
+        render(<VesselSearch visible onSelect={onSelect} onClose={vi.fn()} />);
+        await type('kestrel');
+        expect(screen.getByText('LOCAL KESTREL')).toBeTruthy();
+        expect(screen.getByText(/Boat receiver/)).toBeTruthy();
+        expect(rpc).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByText('LOCAL KESTREL'));
+        expect(onSelect).toHaveBeenCalledWith(-27.2, 153.1, 503111222, 'LOCAL KESTREL');
+    });
+    it('keeps received results usable while remote search is pending or fails', async () => {
+        AisStore.update({ mmsi: 503111222, name: 'LOCAL KESTREL', lat: -27.2, lon: 153.1 });
+        let done!: (value: unknown) => void;
+        rpc.mockReturnValue(
+            new Promise((resolve) => {
+                done = resolve;
+            }),
+        );
+        render(<VesselSearch visible onSelect={vi.fn()} onClose={vi.fn()} />);
+        await type('kestrel');
+        expect(screen.getByText('LOCAL KESTREL')).toBeTruthy();
+        done({ data: null, error: { message: 'offline' } });
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('showing received targets'));
+        expect(screen.getByText('LOCAL KESTREL')).toBeTruthy();
     });
 });

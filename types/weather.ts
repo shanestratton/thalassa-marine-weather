@@ -1,3 +1,4 @@
+import type { OfficialTideObservation, OfficialTideProvider } from '../services/tides/officialTides';
 /**
  * types/weather.ts — Weather domain types
  *
@@ -16,6 +17,7 @@ export type WeatherModel =
     // These are what the Glass model picker offers.
     | 'dwd_icon'
     | 'ecmwf_ifs025'
+    | 'ecmwf_ifs'
     | 'ecmwf_aifs025_single'
     | 'ukmo_global_deterministic_10km'
     | 'jma_gsm'
@@ -146,6 +148,17 @@ export interface WeatherMetrics {
     cape?: number | null;
     secondarySwellHeight?: number | null;
     secondarySwellPeriod?: number | null;
+    /**
+     * The sea in parts (130-04): the wind sea's height in FEET, like
+     * waveHeight; its period, s; and where it and the second swell come
+     * FROM, degrees true. The Glass's WIND SEA and SWELL 2 cells read them;
+     * nothing fills them until 130-06 moves the sea to Open-Meteo, so the
+     * cells read '--' (and draw no arrow) until then.
+     */
+    windWaveHeight?: number | null;
+    windWavePeriod?: number | null;
+    windWaveDirection?: number | null;
+    secondarySwellDirection?: number | null;
     precipChance?: number;
 }
 
@@ -223,6 +236,11 @@ export interface HourlyForecast {
     precipChance?: number;
     secondarySwellHeight?: number | null;
     secondarySwellPeriod?: number | null;
+    /** The sea in parts (130-04), as on WeatherMetrics: feet, seconds, degrees FROM. Filled from 130-06. */
+    windWaveHeight?: number | null;
+    windWavePeriod?: number | null;
+    windWaveDirection?: number | null;
+    secondarySwellDirection?: number | null;
     /** SPITFIRE only — per-hour spread across the blend's members. */
     windSpeedMin?: number | null;
     windSpeedMax?: number | null;
@@ -293,6 +311,12 @@ export interface MarineWeatherReport {
     generatedAt: string;
     aiGeneratedAt?: string;
     modelUsed: string;
+    /** wx rows sample the centre of an anonymous 0.25° cell, not this exact position. */
+    forecastSampling?: 'quarter-degree-cell';
+    /** Actual model initialisation, independent of when the phone read the row. */
+    forecastRunAt?: string;
+    /** Limited atmospheric response, with no extra marine/tide provider calls. */
+    limitedForecast?: 'satellite';
     stationId?: string;
     groundingSource?: string;
     groundingUrls?: GroundingSource[];
@@ -317,13 +341,7 @@ export interface MarineWeatherReport {
         locationName: string;
         generatedAt: string;
     };
-    tideGUIDetails?: {
-        stationName: string;
-        isSecondary: boolean;
-        referenceStation?: string;
-        timeOffsetHigh?: number;
-        timeOffsetLow?: number;
-    };
+    tideGUIDetails?: TideGUIDetails;
     _stale?: boolean;
     _staleAgeMinutes?: number;
     /** True when wave heights were capped to local fetch because the point is
@@ -382,4 +400,28 @@ export interface GribDownloadState {
     startedAt: number;
     lastChunkAt: number;
     errorMessage?: string;
+}
+
+/** Display metadata stays with its high/low table, never another datum. */
+export interface TideGUIDetails {
+    stationName: string;
+    isSecondary: boolean;
+    referenceStation?: string;
+    timeOffsetHigh?: number;
+    timeOffsetLow?: number;
+    source?: 'official' | 'worldtides' | 'saved-official' | 'saved-worldtides';
+    savedAt?: string;
+    coverageStart?: string;
+    coverageEnd?: string;
+    provider?: OfficialTideProvider | 'WorldTides';
+    stationId?: string;
+    datumId?: string;
+    datumLabel?: string;
+    rawDatum?: string;
+    attribution?: string;
+    sourceUrl?: string;
+    licenceUrl?: string;
+    generatedAt?: string;
+    expiresAt?: string;
+    observation?: OfficialTideObservation;
 }

@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { PassageSpeedModel } from '../../services/passagePlan';
 import type { LatLon } from '../../services/dayPlanner/places';
+import type { PictureCoast } from '../../services/dayPlanner/stopPicture';
 import {
     LEAVING_MARINA,
     distanceLine,
@@ -14,6 +15,7 @@ import {
     type DayWindow,
     type DepartureEval,
     type StayOption,
+    type StopDetail,
     type StopDetailArgs,
     type StopRow,
 } from '../../services/dayPlanner/today';
@@ -28,6 +30,59 @@ import { useDraftConfirmRequest } from '../../stores/draftConfirmStore';
 import { TodayModal } from './TodayModal';
 
 type Landing = { fromMs: number; toMs: number } | 'no-curve';
+
+// The route picture and the shelter rose (132-PYD-9), drawn in their own chunk. One that will not load says so in
+// the picture's room and leaves the rose out: never an error screen, never a reload.
+type Pictures = typeof import('./TodayStopPicture');
+const pictures = () => import('./TodayStopPicture').catch(() => null);
+const StopMap = React.lazy<React.ComponentType<React.ComponentProps<Pictures['StopMap']>>>(() =>
+    pictures().then((m) => ({
+        default: m?.StopMap ?? (() => <p className="today-pic-band">Picture didn&rsquo;t load</p>),
+    })),
+);
+const ShelterRose = React.lazy<React.ComponentType<React.ComponentProps<Pictures['ShelterRose']>>>(() =>
+    pictures().then((m) => ({ default: m?.ShelterRose ?? (() => null) })),
+);
+
+/**
+ * How tall the route picture may be (132-PYD-9): what the page has left with
+ * it out, as much as the room allows (96-160 px, half its column's width), or
+ * nothing. The plan comes first: where only the picture would make the page
+ * scroll, or under 72 px are left (too small to read its words and the wind
+ * apart), it is not drawn. Where the page scrolls without it (large text, a
+ * reviewed stop's notes on an SE) and in phone landscape's two columns, it
+ * takes its full size in the scroll. 0 with no layout (a test's DOM).
+ */
+export function pictureHeight(plan: HTMLElement): number {
+    const room = pictureRoom(plan);
+    if (!room) return 0;
+    const tall = Math.min(160, Math.max(96, 96 + (room.inner - 576) / 4), plan.clientWidth / 2);
+    const fit = room.left < -1 || room.row ? tall : Math.min(tall, room.left - room.gap);
+    return fit >= 72 ? Math.floor(fit) : 0;
+}
+
+/** The room the stop page has, as if the picture were not on it: what the card could still grow by, or less what
+ *  its body already scrolls by (`left`, the picture's gap included); the room the card is given (`inner`). */
+export function pictureRoom(plan: HTMLElement) {
+    const body = plan.closest('.today-body');
+    const card = plan.closest('.today-card');
+    const overlay = card?.parentElement;
+    if (!body || !card || !overlay) return null;
+    const px = (value: string) => parseFloat(value) || 0;
+    const pad = getComputedStyle(overlay);
+    const inner = overlay.clientHeight - px(pad.paddingTop) - px(pad.paddingBottom);
+    const over = body.scrollHeight - body.clientHeight;
+    const gap = px(getComputedStyle(plan).rowGap);
+    const box = plan.querySelector<HTMLElement>('.today-pic');
+    return {
+        inner,
+        gap,
+        row: getComputedStyle(body).flexDirection === 'row',
+        left:
+            (over > 0.5 ? -over : Math.max(0, inner - card.getBoundingClientRect().height)) +
+            (box ? box.offsetHeight + gap : 0),
+    };
+}
 
 /** The landing window at a reviewed stop (todayLoader.loadLandingWindow), asked only when its detail opens. */
 export type LandingLoader = (
@@ -59,18 +114,22 @@ export interface StopRouteView {
 export type LeaveSay = (chosenMs: number | null) => { text: string; more: string | null; footnote: string | null };
 
 /**
- * Plan Your Day, screen 2 (build 124): one stop, and how each time on screen
- * 1 was worked out — leave and there, ashore or at anchor, the landing tide
- * where Queensland Parks name one, home, the light, the sea, the distance and
- * how it was measured, and the marina line when she starts in one. A
- * reviewed stop's own Parks notes (Cid Harbour's sharks) sit under the stay.
- * Since 127-PYD-1 it opens on its verdict when it is not Inside ("✕ Over your
- * limits: SE 30 kn on the way"), drawn in its level's colour; since 127-PYD-4
- * the next row says why it is here ("In the lee of the NE breeze · sailing
- * both ways · 3 h 29 under way"), and a place with no local notes says what
- * it is and what her charts say at its pin.
- * The leave chips are the best departure's window; a tap recomputes in place.
- * Where routing is offered (127-PYD-2, his account in 127) a route row says
+ * Plan Your Day, screen 2 (build 124): one stop. Since 132-PYD-8 a plan read
+ * at a glance, not ten rows of prose: its level at the top, always, in its
+ * colour ("✓ Inside your limits", "✕ Over your limits: SE 30 kn on the way",
+ * 127-PYD-1); the route row, with the distance; the times big ("LEAVE 07:00 ·
+ * ASHORE 10:28 · HOME 15:57", what each leg takes under them); the leave
+ * chips, the best departure's window (a tap recomputes in place); up to four
+ * facts (shelter, sea, the light to spare, local notes); and a reviewed
+ * stop's own Parks notes (Cid Harbour's sharks) in full, never folded, with
+ * the landing tide where Queensland Parks name one. How each time was worked
+ * out is a tap away, every row as it was: why it is here (127-PYD-4), leave
+ * and there, ashore or at anchor with the shelter's reason, what a place with
+ * no local notes is and what her charts say at its pin, home, the light, the
+ * sea, and the polar and wind the times were sailed on. What is not checked,
+ * and "Not a clearance", stay under it all. With no times it says why where
+ * they would be.
+ * Where routing is offered (127-PYD-2, his account in 127) the route row says
  * each stage with its own seconds, then the routed distance and what the
  * router found (it is then the distance row), or why there is no route with
  * the estimate under it; the owner's timing line sits under it. The one main
@@ -78,10 +137,17 @@ export type LeaveSay = (chosenMs: number | null) => { text: string; more: string
  * "Route round the land", "Finding the way…", then "Show route on chart"
  * (Auto's chart over this page, at the chosen leave); "Plot your saved route"
  * for her own line; else "Plot by hand", her start and the stop as two marks
- * with why there is no route. Each sets the departure. Fits outright at normal text
- * from 375 × 667; at 320 × 568 a reviewed stop's notes may push the later
- * rows into a scroll (the first note in view as it opens), and anything may
- * scroll at large text.
+ * with why there is no route. Each sets the departure. Fits outright at normal
+ * text from 320 × 568 for a stop with no local notes and from 375 × 667 with
+ * them; at 320 × 568 a reviewed stop's notes may push the leave chips and the
+ * details into a scroll (the first note in view as it opens). Phone landscape
+ * reads it in two columns, the plan on the left and the facts and notes on the
+ * right, and anything may scroll at large text.
+ * 132-PYD-9: a small rose beside the shelter word shows which way the land
+ * shelters her, and under the facts and notes a small picture of the way:
+ * land from OpenStreetMap, her start, the stop and the wind, with the routed
+ * line once routed, never a straight line. It takes only the room the plan
+ * leaves (pictureHeight).
  */
 export function TodayStopDetail({
     row,
@@ -96,11 +162,17 @@ export function TodayStopDetail({
     onBack,
     route = null,
     hidden,
+    start,
+    coastline,
 }: {
     row: StopRow;
     view: DayPlanView;
     stay: StayOption;
     speed: PassageSpeedModel;
+    /** Where she plans from, and the coastline read round it (TodayBase): the picture's dot and land. The
+     *  coastline is 'loading' while the places are, and null when it did not load. */
+    start: LatLon;
+    coastline: PictureCoast;
     polarIsOwn: boolean;
     /** The routers' polar the times were sailed on; it decides the footnote's words. */
     polar?: StopDetailArgs['polar'];
@@ -174,7 +246,7 @@ export function TodayStopDetail({
         wasHidden.current = !!hidden;
     }, [hidden]);
     // Times only from a route forecast that loaded (a failed leg's walk is in no wind).
-    const detail = plan?.weatherLoaded
+    const detail: StopDetail = plan?.weatherLoaded
         ? stopDetail({
               plan,
               departure: chosen,
@@ -193,33 +265,39 @@ export function TodayStopDetail({
         : {
               title: row.name,
               sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? wallTime(window.date, 12, 0, zone), zone)}`,
-              rows: [
-                  // Over on the wind at the place, even with no route weather: its verdict first.
-                  ...(row.level === 'over' ? [stopVerdict('over', row.reason)] : []),
-                  ...(row.why ? [row.why] : []),
-                  row.pending
-                      ? 'Checking the weather along the way…'
-                      : plan
-                        ? "Weather not checked: the forecast along the way didn't load."
-                        : 'Weather not checked: no forecast loaded.',
-                  ...(row.place ? [row.place] : []),
-                  ...parksNotes(candidate),
-                  // Routed, the route row is the distance row.
-                  ...(routed ? [] : [distanceLine(candidate.distance)]),
-                  ...(marina ? [LEAVING_MARINA] : []),
-              ],
+              rows: [row.why, row.place].filter((text): text is string => !!text),
               footnote: 'No times without a forecast. Depth and tide over the route are not checked. Not a clearance.',
-              chips: [] as { ms: number; label: string; best: boolean }[],
+              how: '',
+              chips: [],
+              // Over on the wind at the place, even with no route weather: its verdict first.
+              verdict: row.level === 'over' ? stopVerdict('over', row.reason) : null,
+              times: [],
+              facts: [row.shelter],
           };
 
     // A place beyond the five opens on the area wind's times, under them its weather along the way, loading
     // or failed; one in Not today with times (a gap in a day over her limits) opens on why (127-PYD-5).
-    if (row.along) detail.rows.splice(detail.rows.findIndex((t) => t.startsWith('Leave ')) + 1, 0, row.along);
     const gap = row.line2Reason ? undefined : view.notToday.find((r) => r.id === row.id)?.reason;
-    if (gap) detail.rows.unshift(`✕ ${gap[0].toUpperCase()}${gap.slice(1)}`);
-    // A reviewed stop's own Parks notes stand out from the times around them, and the verdict in its level's colour.
-    const notes = new Set(parksNotes(candidate));
+    const verdict = gap ? `✕ ${gap[0].toUpperCase()}${gap.slice(1)}` : detail.verdict;
     const level = gap ? 'over' : ((plan?.weatherLoaded ? chosen?.level : row.level) ?? 'unknown');
+    // A reviewed stop's own Parks notes, whole on the page, and the landing tide's window with them.
+    const notes = parksNotes(candidate);
+    const landingRow = detail.rows.find((text) => text.startsWith('Landing window'));
+    // The distance is in the route block: the route row is it once routed, and holds the estimate with no route.
+    const far = distanceLine(candidate.distance);
+    // The rest of the rows as they were, and how the times were worked out, a tap away (132-PYD-8). A gap's
+    // page keeps its leave's own verdict there.
+    const rest = [
+        ...detail.rows.filter(
+            (text) =>
+                text !== verdict &&
+                text !== far &&
+                text !== landingRow &&
+                text !== LEAVING_MARINA &&
+                !notes.includes(text),
+        ),
+        ...(detail.how ? [detail.how] : []),
+    ];
     const departure = plan?.weatherLoaded ? (chosen?.departureMs ?? null) : null;
     const said = leave && leave !== 'checking' ? leave(departure) : null;
     // The plan's fold 2 (127-PYD-11): where the leave row's closing sentences alone stand between the page and one
@@ -234,28 +312,35 @@ export function TodayStopDetail({
     }, []);
     const foldKey = said?.more ? `${resizes}|${said.text}|${detail.rows.join('|')}|${detail.chips.length}` : null;
     const [fold, setFold] = useState<{ key: string; on: boolean } | null>(null);
+    // The facts' half of the page, where the route picture goes (132-PYD-9).
+    const glance = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         const body = leaveLi.current?.closest('.today-body');
-        if (!foldKey || !body) return;
-        const over = body.scrollHeight - body.clientHeight > 1;
+        // With the details open the page scrolls by her choice: measured again as they close (132-PYD-8).
+        if (!foldKey || !body || body.querySelector('.today-how[open]')) return;
+        // Measured as if the route picture were not there: it takes only the room the plan leaves (132-PYD-9).
+        const room = glance.current && pictureRoom(glance.current);
+        const over = room ? room.left < -1 : body.scrollHeight - body.clientHeight > 1;
         if (fold?.key !== foldKey) setFold({ key: foldKey, on: over });
         else if (fold.on && over) setFold({ key: foldKey, on: false });
     }, [foldKey, fold]);
     const folded = !!foldKey && fold?.key === foldKey && fold.on;
+    // The route picture's height (132-PYD-9), measured after every render, as the page's rows, the leave fold and
+    // the screen settle; kept while the details are open, as the fold is, and while Auto's chart hides the page.
+    // It settles: it sets only a height that differs, and the room it reads counts the picture's own back in.
+    const [pic, setPic] = useState(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useLayoutEffect(() => {
+        const plan = glance.current;
+        if (!plan || hidden || plan.querySelector('.today-how[open]')) return;
+        const height = pictureHeight(plan);
+        if (Math.abs(height - pic) > 1) setPic(height);
+    });
     // Blocked (other than a draft to confirm), she can still plot by hand: the row says what routing needs.
     const toRoute = !!route && (busy || (!state && (!route.blocked || route.blocked.action === 'confirm-draft')));
-    const items = detail.rows
-        .filter((text) => text !== estimate)
-        .map((text, i) => (
-            <li
-                key={text}
-                data-parks={notes.has(text) || undefined}
-                data-why={text === row.why || undefined}
-                data-level={i === 0 && /^[✕≈?] /.test(text) ? level : undefined}
-            >
-                {text}
-            </li>
-        ));
+    // The route block (132-PYD-8): the distance (unless the route row says it), the route row, when to leave for the
+    // tide or his timing, and the marina line.
+    const items: React.ReactElement[] = routed || estimate ? [] : [<li key="far">{far}</li>];
     if (route) {
         const blocked = state ? null : route.blocked;
         const words = !state
@@ -265,10 +350,7 @@ export function TodayStopDetail({
               : state.words;
         const secs = state && 'since' in state ? Math.floor((Date.now() - state.since) / 1000) : 0;
         const time = route.owner && state && 'wallMs' in state ? routeTimingLine(state) : null;
-        // Where the distance row is (or was): before the marina line, else last.
-        items.splice(
-            marina ? items.length - 1 : items.length,
-            0,
+        items.push(
             <li key="route" data-route={state?.kind ?? (blocked ? 'blocked' : 'ready')}>
                 {blocked?.action ? (
                     <button
@@ -334,6 +416,7 @@ export function TodayStopDetail({
                 : []),
         );
     }
+    if (marina) items.push(<li key="marina">{LEAVING_MARINA}</li>);
 
     return (
         <TodayModal
@@ -379,29 +462,118 @@ export function TodayStopDetail({
                 </div>
             }
         >
-            <ul aria-label="How the day goes" className="today-rows">
-                {items}
-            </ul>
-            {detail.chips.length > 0 && (
-                <div role="group" aria-label="Leave at" className="today-days today-leave">
-                    {detail.chips.map((chip) => (
-                        <button
-                            key={chip.ms}
-                            type="button"
-                            className="today-chip"
-                            aria-pressed={chip.ms === chosen?.departureMs}
-                            onClick={() => setChosenMs(chip.ms)}
-                        >
-                            {chip.label}
-                            {chip.best ? ' best' : ''}
-                        </button>
+            {/* The plan (132-PYD-8): its level, the way, the times big and when to leave; beside it in phone
+                landscape, its facts, its notes and the rest. */}
+            <div className="today-plan">
+                {verdict && (
+                    <p className="today-level" data-level={level}>
+                        {verdict}
+                    </p>
+                )}
+                {items.length > 0 && (
+                    <ul aria-label="The way" className="today-rows">
+                        {items}
+                    </ul>
+                )}
+                {detail.times.length > 0 ? (
+                    <ol aria-label="Times" className="today-times">
+                        {detail.times.map((time) => (
+                            <li key={time.label}>
+                                <span className="today-times-label">{time.label}</span>{' '}
+                                <span className="today-times-at">{time.at}</span>{' '}
+                                <span className="today-times-note">{time.note}</span>
+                            </li>
+                        ))}
+                    </ol>
+                ) : (
+                    // No times: why, where they would be.
+                    !plan?.weatherLoaded && (
+                        <p className="today-untimed">
+                            {row.pending
+                                ? 'Checking the weather along the way…'
+                                : plan
+                                  ? "Weather not checked: the forecast along the way didn't load."
+                                  : 'Weather not checked: no forecast loaded.'}
+                        </p>
+                    )
+                )}
+                {row.along && <p className="today-untimed">{row.along}</p>}
+                {detail.chips.length > 0 && (
+                    <div role="group" aria-label="Leave at" className="today-days today-leave">
+                        {detail.chips.map((chip) => (
+                            <button
+                                key={chip.ms}
+                                type="button"
+                                className="today-chip"
+                                aria-pressed={chip.ms === chosen?.departureMs}
+                                onClick={() => setChosenMs(chip.ms)}
+                            >
+                                {chip.label}
+                                {chip.best ? ' best' : ''}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <div className="today-plan" ref={glance}>
+                <ul aria-label="At a glance" className="today-glance">
+                    {detail.facts.map((fact, i) => (
+                        <li key={fact}>
+                            {/* The first fact is the shelter word: beside it, which way the land shelters her. */}
+                            {i === 0 && candidate.fetchLandNM && (
+                                <span className="today-rose">
+                                    <Suspense fallback={null}>
+                                        <ShelterRose table={candidate.fetchLandNM} />
+                                    </Suspense>
+                                </span>
+                            )}
+                            {fact}
+                        </li>
                     ))}
-                </div>
-            )}
-            <p className="today-footnote">
-                {detail.footnote}
-                {said?.footnote ? ` ${said.footnote}` : ''}
-            </p>
+                    {notes.length > 0 && <li data-notes="">Local notes</li>}
+                </ul>
+                {/* Cautions, often (sharks, reef markers): whole, never folded away. */}
+                {(notes.length > 0 || landingRow) && (
+                    <ul aria-label="Local notes" className="today-rows">
+                        {notes.map((note) => (
+                            <li key={note} data-parks="">
+                                {note}
+                            </li>
+                        ))}
+                        {landingRow && <li>{landingRow}</li>}
+                    </ul>
+                )}
+                {/* The way in a picture, under the facts it draws (132-PYD-9): the routed line only once routed. */}
+                {pic > 0 && (
+                    <div className="today-pic" style={{ width: 2 * pic, height: pic }}>
+                        <Suspense fallback={null}>
+                            <StopMap
+                                start={start}
+                                stop={candidate}
+                                route={state?.kind === 'routed' ? state.leg.route.points : null}
+                                coastline={coastline}
+                                wind={plan?.weatherLoaded ? (chosen?.out ?? null) : null}
+                            />
+                        </Suspense>
+                    </div>
+                )}
+                {rest.length > 0 && (
+                    <details className="today-how" onToggle={resized}>
+                        <summary>How each time was worked out</summary>
+                        <ul aria-label="How the day goes" className="today-rows">
+                            {rest.map((text) => (
+                                <li key={text} data-why={text === row.why || undefined}>
+                                    {text}
+                                </li>
+                            ))}
+                        </ul>
+                    </details>
+                )}
+                <p className="today-footnote">
+                    {detail.footnote}
+                    {said?.footnote ? ` ${said.footnote}` : ''}
+                </p>
+            </div>
         </TodayModal>
     );
 }

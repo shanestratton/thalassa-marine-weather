@@ -10,6 +10,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VesselProfile } from '../types';
+const pi = vi.hoisted(() => ({ polar: null as import('../types').PolarData | null }));
+vi.mock('../services/piPolarLearner', () => ({ getPiLearnedPolar: async () => pi.polar }));
 
 const storage = vi.hoisted(() => ({
     loadLargeData: vi.fn(async (): Promise<unknown> => null),
@@ -58,6 +60,7 @@ function teach(n = 10) {
 }
 
 beforeEach(async () => {
+    pi.polar = null;
     vi.useRealTimers();
     storage.loadLargeData.mockReset();
     storage.loadLargeData.mockResolvedValue(null);
@@ -72,6 +75,22 @@ afterEach(() => {
 });
 
 describe('useRoutingPolar', () => {
+    it('uses a paired Pi learned grid in the HUD when there are no phone samples, and follows live scaling', async () => {
+        pi.polar = {
+            windSpeeds: [6, 8, 10, 12, 15, 20, 25],
+            angles: [30, 35, 40, 45, 60, 90, 120, 150, 180],
+            matrix: Array.from({ length: 9 }, () => Array(7).fill(5)),
+        };
+        setSettings({ polarSource: 'smart', smartPolarsEnabled: true });
+        const { result } = renderHook(() => useRoutingPolar(SLOOP));
+        await waitFor(() => expect(result.current.source).toBe('learned'));
+        expect(result.current.label).toBe('Learned (63 of 63 cells)');
+        const signature = result.current.signature;
+        setSettings({ polarSource: 'smart', smartPolarsEnabled: true, routingPolarScale: 0.8 });
+        expect(result.current.label).toContain('routing 80%');
+        expect(result.current.signature).not.toBe(signature);
+        expect(SmartPolarStore.getStats().totalSamples).toBe(0);
+    });
     it('a factory choice resolves at once and never touches the learned store', () => {
         const ensureLoaded = vi.spyOn(SmartPolarStore, 'ensureLoaded');
         const exportSpy = vi.spyOn(SmartPolarStore, 'exportToPolarData');
@@ -96,14 +115,14 @@ describe('useRoutingPolar', () => {
         // Nothing read during the first render: it sails on the factory polar meanwhile.
         expect(firstRenderExports).toBe(0);
         await waitFor(() => expect(result.current.source).toBe('learned'));
-        expect(result.current.label).toMatch(/^Learned \(\d+ of 42 cells\), the rest from Generic cruising polar$/);
+        expect(result.current.label).toMatch(/^Learned \(\d+ of 63 cells\), the rest from Generic cruising polar$/);
     });
 
     it('Smart: when the learned grid changes (a save after new samples), the snapshot is taken again', async () => {
         setSettings({ polarSource: 'smart', smartPolarsEnabled: true });
         const { result } = renderHook(() => useRoutingPolar(SLOOP));
         await waitFor(() =>
-            expect(result.current.label).toBe('Learning (0 of 42 cells), sailing on Generic cruising polar'),
+            expect(result.current.label).toBe('Learning (0 of 63 cells), sailing on Generic cruising polar'),
         );
         vi.useFakeTimers();
         teach();
@@ -120,13 +139,13 @@ describe('useRoutingPolar', () => {
         const { result } = renderHook(() => useRoutingPolar(SLOOP));
         await waitFor(() =>
             expect(result.current.label).toBe(
-                'Smart polar (0 of 42 cells, learning off), sailing on Generic cruising polar',
+                'Smart polar (0 of 63 cells, learning off), sailing on Generic cruising polar',
             ),
         );
         expect(result.current.learning).toBe(false);
         setSettings({ polarSource: 'smart', smartPolarsEnabled: true });
         await waitFor(() =>
-            expect(result.current.label).toBe('Learning (0 of 42 cells), sailing on Generic cruising polar'),
+            expect(result.current.label).toBe('Learning (0 of 63 cells), sailing on Generic cruising polar'),
         );
         expect(result.current.learning).toBe(true);
     });

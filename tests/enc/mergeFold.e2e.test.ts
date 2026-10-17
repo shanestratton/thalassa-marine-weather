@@ -94,6 +94,8 @@ const coarseBlob: EncConversionResult = {
         SEAARE: fc([feat(square(2.5, 2.5, 3, 3), { OBJNAM: 'Test Bay' })]),
         // Caution area → CAUTION_AREAS tagged _caution.
         RESARE: fc([feat(square(3.2, 0.2, 3.7, 0.7), { RESTRN: '7' })]),
+        SBDARE: fc([feat({ type: 'Point', coordinates: [3, 1] }, { NATSUR: '4,17', LNAM: 'US-synthetic-bottom' })]),
+        WEDKLP: fc([feat({ type: 'Point', coordinates: [3, 1.1] }, { CATWED: 1, LNAM: 'US-synthetic-weed' })]),
     },
 };
 
@@ -130,6 +132,7 @@ const blobs: Record<string, EncConversionResult> = { COARSE: coarseBlob, FINE: f
 vi.mock('../../services/enc/EncCellMetadata', () => ({
     listCells: () => [COARSE, FINE],
     getCell: (id: string) => (id === 'COARSE' ? COARSE : id === 'FINE' ? FINE : undefined),
+    getDisplayCell: (id: string) => [COARSE, FINE].find((cell) => cell.id === id),
     cellsForBBox: () => [COARSE, FINE],
     getVersion: () => 1,
     putCell: () => undefined,
@@ -196,12 +199,30 @@ describe('buildMergedVectorData e2e (real fold over a coarse+fine library)', () 
     });
 
     it('CAUTION AREAS: RESARE folds in tagged with its class + provenance', () => {
-        expect(merged.CAUTION_AREAS.features).toHaveLength(1);
+        expect(merged.CAUTION_AREAS.features).toHaveLength(3);
         expect(merged.CAUTION_AREAS.features[0].properties).toMatchObject({
             _caution: 'RESARE',
             RESTRN: '7',
             _cellId: 'COARSE',
         });
+    });
+
+    it('keeps SBDARE point samples through the real wide-zoom cull without changing their source properties', async () => {
+        const wide = (await getMergedVectorData([0, 0, 4, 4], 10))!;
+        const bottom = wide.CAUTION_AREAS.features.find((f) => f.properties?._caution === 'SBDARE');
+        expect(bottom).toMatchObject({
+            geometry: { type: 'Point', coordinates: [3, 1] },
+            properties: { NATSUR: '4,17', LNAM: 'US-synthetic-bottom', _seabedAbbr: 'S Sh', _cellId: 'COARSE' },
+        });
+        expect(coarseBlob.layers.SBDARE!.features[0].properties).toEqual({
+            NATSUR: '4,17',
+            LNAM: 'US-synthetic-bottom',
+        });
+        expect(wide.CAUTION_AREAS.features.find((f) => f.properties?._caution === 'WEDKLP')).toMatchObject({
+            geometry: { type: 'Point', coordinates: [3, 1.1] },
+            properties: { CATWED: 1, LNAM: 'US-synthetic-weed', _seabedAbbr: 'Kelp', _cellId: 'COARSE' },
+        });
+        expect(coarseBlob.layers.WEDKLP!.features[0].properties).toEqual({ CATWED: 1, LNAM: 'US-synthetic-weed' });
     });
 
     it('SEAARE: named water reduces to ONE label point', () => {

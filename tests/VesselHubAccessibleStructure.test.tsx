@@ -50,7 +50,12 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
 vi.mock('../services/CrewService', () => ({ getMyCrew: async () => [] }));
 vi.mock('../hooks/useRealtimeSync', () => ({ useRealtimeSync: vi.fn() }));
 vi.mock('../hooks/useVesselReadinessCounts', () => ({
-    useVesselReadinessCounts: () => ({ overdueCount: 0, expiringDocsCount: 0, expiringEquipCount: 0 }),
+    useVesselReadinessCounts: () => ({
+        overdueCount: 0,
+        expiredDocsCount: 0,
+        expiringDocsCount: 0,
+        expiringEquipCount: 0,
+    }),
 }));
 vi.mock('../hooks/useCloudTelemetry', () => ({ useCloudTelemetry: () => ({ latest: null, piPrimary: false }) }));
 vi.mock('../hooks/useTripRoute', () => ({ useTripRoute: () => null }));
@@ -59,7 +64,7 @@ vi.mock('../components/nmea/useNmeaStore', () => ({
 }));
 vi.mock('../services/NmeaGpsProvider', () => ({ NmeaGpsProvider: { getFeedStatus: () => 'unavailable' } }));
 vi.mock('../services/PiCacheService', () => ({ piCache: { isAvailable: () => false } }));
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 vi.mock('../services/savedRoutesSync', () => ({ syncSavedRoutes: async () => [] }));
 vi.mock('../stores/PassageStore', () => ({
     PassageStore: {

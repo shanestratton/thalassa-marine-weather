@@ -9,6 +9,7 @@
  */
 import { createLogger } from '../utils/createLogger';
 import type { NmeaSample } from '../types';
+import type { InstrumentReading, InstrumentEvidence } from './instruments/measurements';
 import { Capacitor } from '@capacitor/core';
 import { isOwnShipAisSentence, processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
@@ -26,6 +27,19 @@ import {
 } from './nmea/nmeaSentence';
 import { NMEA_SAMPLE_INTERVAL_MS } from './nmea/nmeaCadence';
 import { validGnssValue } from './nmea/gnssDiagnostics';
+import {
+    measuredGnssMode,
+    parseGll,
+    parseMdaPressure,
+    parsePcdin,
+    parseVlw,
+    parseVtg,
+    parseXdrPressure,
+    type NmeaDistanceLog,
+} from './nmea/additionalSentences';
+import { clearGatewayPressure, recordGatewayPressure } from './nmea/gatewayPressure';
+import { RadarStore, type RadarInputSession } from './radar/radarStore';
+import { PGN } from './nmea2000/types';
 // Bearings cannot be averaged arithmetically: the mean of 359 and 001 is 180,
 // which points a north-facing boat due south. That trap sits exactly where
 // Serene Summer was moored when the compass was reported wrong (2026-08-08).
@@ -175,7 +189,8 @@ export interface NmeaConnectionInfo {
     port: number;
     deviceId: string | null;
     deviceLabel: string;
-    transport: 'tcp' | 'websocket';
+    transport: 'tcp' | 'udp' | 'websocket';
+    localAddress?: string;
 }
 
 /**
@@ -214,6 +229,10 @@ const isPlausibleBearing = (v: number) => v >= 0 && v <= 360;
 
 // ── Raw accumulator between emissions ──
 interface RawAccumulator {
+    engineTelemetry?: NmeaSample['engineTelemetry'];
+    distanceLog?: NmeaDistanceLog & { at: number };
+    instrumentReadings: InstrumentEvidence['readings'];
+    positionAt?: number;
     tws: number[];
     twa: number[];
     /** Signed true wind angle, negative to port. Drawable; `twa` is not. */
@@ -240,6 +259,7 @@ interface RawAccumulator {
     depthDbt: ParsedNmeaDepth | null;
     /** DPT wins when both forms are broadcast because it declares an offset. */
     depthDpt: ParsedNmeaDepth | null;
+    depthPcdin: ParsedNmeaDepth | null;
     sog: number[];
     cog: number[];
     waterTemp: number[];
@@ -306,6 +326,12 @@ export function diagnoseConnectFailure(raw: string, host: string, port: number):
 class NmeaListenerServiceClass {
     // ── Transport state ──
     private ws: WebSocket | null = null; // WebSocket (browser dev)
+    private transport: 'tcp' | 'udp' = 'tcp';
+    private udp: import('./nmea/udpTransport').UdpTransport | null = null;
+    private udpGeneration = 0;
+    private udpLocalAddress: string | null = null;
+    private udpWatchdog: ReturnType<typeof setInterval> | null = null;
+    private sentenceAt: number | null = null;
     private tcpClientId: number | null = null; // Native TCP client ID
     private tcpReadLoop = false; // Whether TCP read loop is active
 
@@ -341,9 +367,11 @@ class NmeaListenerServiceClass {
     private firstAttemptTime: number | null = null; // For 5-minute give-up
     private sampleTimer: ReturnType<typeof setInterval> | null = null;
     private accumulator: RawAccumulator = this.freshAccumulator();
+    private instrumentEngines = new Map<string, InstrumentReading>();
     private listeners: Set<NmeaSampleCallback> = new Set();
     private statusListeners: Set<(s: NmeaConnectionStatus) => void> = new Set();
     private enabled = false;
+    private radarSession: RadarInputSession | null = null;
     /** Track if RPM data has ever been received */
     private hasRpmData = false;
     /** Partial NMEA line buffer for TCP (data may arrive mid-sentence) */
@@ -407,6 +435,13 @@ class NmeaListenerServiceClass {
         // app is exactly when the boat Wi-Fi is likely reachable again.
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', () => {
+                if (this.transport === 'udp' && this.enabled) {
+                    if (document.hidden) {
+                        this.closeUdp();
+                        this.setStatus('disconnected');
+                    } else if (this.mayResume('retry')) this.connect();
+                    return;
+                }
                 if (document.hidden) return;
 
                 if (this.parkedAfterGiveUp && !this.enabled) {
@@ -476,9 +511,18 @@ class NmeaListenerServiceClass {
         }
     }
 
-    configure(host: string, port: number) {
+    configure(host: string, port: number, transport?: 'tcp' | 'udp') {
         this.host = host || DEFAULT_HOST;
         this.port = port || DEFAULT_PORT;
+        this.transport = transport ?? this.savedTransport();
+    }
+
+    private savedTransport(): 'tcp' | 'udp' {
+        try {
+            return localStorage.getItem('nmea_transport') === 'udp' ? 'udp' : 'tcp';
+        } catch {
+            return 'tcp';
+        }
     }
 
     /**
@@ -528,6 +572,7 @@ class NmeaListenerServiceClass {
 
     stop() {
         this.enabled = false;
+        this.closeUdp();
         this.tcpReadLoop = false;
         // stop() is the public off-switch (NmeaPage Disconnect, Smart Polars
         // toggle) — it must also disarm the parked-retry tripwire, or an
@@ -580,7 +625,8 @@ class NmeaListenerServiceClass {
             port: this.port,
             deviceId,
             deviceLabel: getNmeaDeviceLabel(deviceId),
-            transport: Capacitor.isNativePlatform() ? 'tcp' : 'websocket',
+            transport: this.transport === 'udp' ? 'udp' : Capacitor.isNativePlatform() ? 'tcp' : 'websocket',
+            ...(this.udpLocalAddress ? { localAddress: this.udpLocalAddress } : {}),
         };
     }
     getHasRpmData(): boolean {
@@ -621,6 +667,11 @@ class NmeaListenerServiceClass {
 
     private connect() {
         if (!this.enabled) return;
+        if (this.transport === 'udp') {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            void this.connectUdp();
+            return;
+        }
 
         if (Capacitor.isNativePlatform()) {
             // TcpSocket.connect can sit unresolved for seconds against an
@@ -648,6 +699,84 @@ class NmeaListenerServiceClass {
     // ═══════════════════════════════════════════════════════════════
     //  NATIVE TCP TRANSPORT (capacitor-tcp-socket)
     // ═══════════════════════════════════════════════════════════════
+
+    private closeUdp(): void {
+        this.udpGeneration++;
+        this.udp?.stop();
+        this.udp = null;
+        this.udpLocalAddress = null;
+        if (this.udpWatchdog) clearInterval(this.udpWatchdog);
+        this.udpWatchdog = null;
+    }
+
+    private async connectUdp(): Promise<void> {
+        if (this.udp) return;
+        const generation = ++this.udpGeneration;
+        const current = () => this.enabled && this.transport === 'udp' && generation === this.udpGeneration;
+        this.setStatus('connecting');
+        this.lastDataAt = Date.now();
+        this.connectionFedData = false;
+        try {
+            const { openUdpTransport } = await import('./nmea/udpTransport');
+            if (!current()) return;
+            const session = openUdpTransport({
+                host: this.host,
+                port: this.port,
+                onListening: (localAddress) => {
+                    if (current()) this.udpLocalAddress = localAddress;
+                },
+                onSentence: (sentence, at) => {
+                    if (!current() || !validateNmeaSentence(sentence)) return;
+                    this.lastSentenceAt = at;
+                    this.lastDataAt = at;
+                    if (!this.connectionFedData) {
+                        this.connectionFedData = true;
+                        this.reconnectAttempts = 0;
+                        this.firstAttemptTime = null;
+                        this.setStatus('connected');
+                    }
+                    this.parseNmeaSentence(sentence, at);
+                },
+                onDropped: (count) => {
+                    if (current())
+                        this.lastError = `UDP input exceeded its receive budget (${count} datagrams dropped)`;
+                },
+                onClosed: (reason) => {
+                    if (!current()) return;
+                    this.closeUdp();
+                    this.setStatus('disconnected');
+                    if (reason !== 'background') this.scheduleReconnect();
+                },
+            });
+            this.udp = session;
+            await session.ready;
+            if (!current()) {
+                session.stop();
+                return;
+            }
+            this.udpWatchdog = setInterval(() => {
+                if (!current() || Date.now() - this.lastDataAt <= DATA_SILENCE_TIMEOUT_MS) return;
+                this.lastError = this.connectionFedData
+                    ? 'Unicast UDP gateway has gone quiet'
+                    : 'No unicast UDP sentences received. Set the gateway destination to this phone’s Wi-Fi address and selected port.';
+                this.closeUdp();
+                this.setStatus('disconnected');
+                this.scheduleReconnect();
+            }, 1000);
+        } catch (error) {
+            if (!current()) return;
+            this.closeUdp();
+            this.lastError = error instanceof Error ? error.message : 'Unicast UDP unavailable';
+            this.setStatus('error');
+            if (Capacitor.getPlatform() !== 'ios') {
+                this.enabled = false;
+                this.firstAttemptTime = null;
+                this.stopSampleTimer();
+                return;
+            }
+            this.scheduleReconnect();
+        }
+    }
 
     private async connectTcp() {
         try {
@@ -1270,6 +1399,15 @@ class NmeaListenerServiceClass {
     }
 
     private setStatus(s: NmeaConnectionStatus) {
+        if (s === 'connected' && this.status !== 'connected' && this.enabled) {
+            this.radarSession = RadarStore.openGateway();
+        }
+        if (s !== 'connected') {
+            if (this.radarSession) RadarStore.retire(this.radarSession);
+            this.radarSession = null;
+            this.instrumentEngines.clear();
+            clearGatewayPressure();
+        }
         this.status = s;
         for (const cb of this.statusListeners) cb(s);
         // Tell the crowd-feed what the gateway is doing. The dependency points
@@ -1306,7 +1444,20 @@ class NmeaListenerServiceClass {
 
     // ── NMEA Parsing ──
 
-    private parseNmeaSentence(sentence: string) {
+    private parseNmeaSentence(sentence: string, receivedAt = Date.now()) {
+        this.sentenceAt = receivedAt;
+        try {
+            this.parseSentenceBody(sentence);
+        } finally {
+            this.sentenceAt = null;
+        }
+    }
+
+    private measurementAt(): number {
+        return this.sentenceAt ?? Date.now();
+    }
+
+    private parseSentenceBody(sentence: string) {
         // Validate once at the ingress boundary. A present checksum must be
         // exactly two terminal hex digits and verify; malformed `*...` is not
         // silently downgraded to a checksum-less sentence. See the pure helper
@@ -1337,6 +1488,18 @@ class NmeaListenerServiceClass {
             return;
         }
 
+        // Only the live selected physical input qualifies radar. The radar feed
+        // independently requires checksums for every captured navigation dependency.
+        if (
+            this.enabled &&
+            this.status === 'connected' &&
+            this.radarSession &&
+            /^\$[A-Z0-9]{2}(?:TTM|TLL|RMC|GGA|GLL|VTG|HDT|THS),/.test(sentence)
+        ) {
+            RadarStore.ingest(this.radarSession, sentence, this.measurementAt());
+        }
+        if (validated.kind === 'radar') return;
+
         // ── AIS sentences: valid-checksum !AIVDM or !AIVDO only ──
         if (validated.kind === 'ais') {
             const result = processAisSentence(sentence);
@@ -1365,9 +1528,41 @@ class NmeaListenerServiceClass {
         // Seabed mapping (opt-in): one null check per sentence unless this
         // phone is the boat's sounding logger (services/seabed/seabedSink).
         const seabed = getSeabedSink();
-        if (seabed && type) seabed(type, parts, Date.now());
+        if (seabed && type) seabed(type, parts, this.measurementAt());
 
         switch (type) {
+            case 'PCDIN':
+                this.parseSeaSmart(sentence);
+                break;
+            case 'GLL': {
+                const fix = parseGll(parts);
+                if (fix) {
+                    this.accumulator.latitude = fix.lat;
+                    this.accumulator.longitude = fix.lon;
+                    this.accumulator.positionAt = this.measurementAt();
+                }
+                break;
+            }
+            case 'VTG': {
+                const fix = parseVtg(parts);
+                if (fix) {
+                    if (fix.sogKts !== null) this.accumulator.sog.push(fix.sogKts);
+                    if (fix.cogTrue !== null) this.accumulator.cog.push(fix.cogTrue);
+                    this.instrument('sog', fix.sogKts, 'knots', 'ground', 'NMEA VTG');
+                    this.instrument('cogTrue', fix.cogTrue, 'degrees', 'true', 'NMEA VTG true');
+                }
+                break;
+            }
+            case 'VLW': {
+                const log = parseVlw(parts);
+                if (log) this.accumulator.distanceLog = { ...log, at: this.measurementAt() };
+                break;
+            }
+            case 'MDA': {
+                const pressure = parseMdaPressure(parts);
+                if (pressure) recordGatewayPressure(pressure, this.measurementAt(), `${this.host}:${this.port}`);
+                break;
+            }
             case 'MWV':
                 this.parseMWV(parts);
                 break; // Wind (apparent + true)
@@ -1471,6 +1666,14 @@ class NmeaListenerServiceClass {
         this.accumulator.twa.push(angle > 180 ? 360 - angle : angle);
         this.accumulator.twaSigned.push(signed);
         this.accumulator.tws.push(knots);
+        this.instrument('tws', knots, 'knots', undefined, 'NMEA MWV true');
+        this.instrument(
+            'twaSigned',
+            angle >= 0 && angle <= 360 ? signed : null,
+            'degrees',
+            'relative',
+            'NMEA MWV true',
+        );
     }
 
     /**
@@ -1485,6 +1688,13 @@ class NmeaListenerServiceClass {
         const trueDir = parts[2] === 'T' ? parseNmeaNumber(parts[1]) : null;
         const magDir = parts[4] === 'M' ? parseNmeaNumber(parts[3]) : null;
         const direction = trueDir ?? magDir;
+        this.instrument(
+            'twdTrue',
+            trueDir !== null && isPlausibleBearing(trueDir) ? trueDir % 360 : null,
+            'degrees',
+            'true',
+            'NMEA MWD true',
+        );
         if (direction !== null && Number.isFinite(direction) && isPlausibleBearing(direction)) {
             this.accumulator.twd.push(direction % 360);
         }
@@ -1496,6 +1706,7 @@ class NmeaListenerServiceClass {
             const ms = parts[8] === 'M' ? parseNmeaNumber(parts[7]) : null;
             if (knots !== null) this.accumulator.tws.push(knots);
             else if (ms !== null) this.accumulator.tws.push(ms * 1.94384);
+            this.instrument('tws', knots ?? (ms === null ? null : ms * 1.94384), 'knots', undefined, 'NMEA MWD');
         }
     }
 
@@ -1575,7 +1786,31 @@ class NmeaListenerServiceClass {
         // for anything that has to draw the wind. Same split parseMWV makes.
         this.accumulator.twa.push(magnitude);
         this.accumulator.twaSigned.push(side === 'L' ? -magnitude : magnitude);
-        if (this.accumulator.tws.length === 0) this.accumulator.tws.push(knots);
+        this.instrument('twaSigned', side === 'L' ? -magnitude : magnitude, 'degrees', 'relative', 'NMEA VWT');
+        if (this.accumulator.tws.length === 0) {
+            this.accumulator.tws.push(knots);
+            this.instrument('tws', knots, 'knots', undefined, 'NMEA VWT');
+        }
+    }
+
+    /** Qualified single-sentence values never borrow the aggregate/GPS clock. */
+    private instrument(
+        key: keyof InstrumentEvidence['readings'],
+        value: number | null,
+        unit: InstrumentReading['unit'],
+        reference: InstrumentReading['reference'],
+        source: string,
+    ): void {
+        if (value !== null && Number.isFinite(value))
+            this.accumulator.instrumentReadings[key] = { value, at: this.measurementAt(), unit, reference, source };
+        else
+            this.accumulator.instrumentReadings[key] = {
+                value: null,
+                at: this.measurementAt(),
+                unit,
+                reference,
+                source,
+            };
     }
 
     /** $xxVHW — Water Speed and Heading */
@@ -1583,6 +1818,7 @@ class NmeaListenerServiceClass {
         // $xxVHW,headTrue,T,headMag,M,stwKts,N,stwKmh,K
         const stw = parseNmeaNumber(parts[5]); // Knots
         if (stw !== null) this.accumulator.stw.push(stw);
+        this.instrument('stw', parts[6] === 'N' ? stw : null, 'knots', 'water', 'NMEA VHW knots');
 
         const heading = parseNmeaNumber(parts[1]);
         if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
@@ -1600,7 +1836,14 @@ class NmeaListenerServiceClass {
         // Keep the sentence's own clock even if newer GPS/depth sentences
         // arrive before the 5-second aggregate is published. An invalid true
         // heading explicitly clears an earlier value from this window.
-        this.accumulator.headingTrueAt = Date.now();
+        this.accumulator.headingTrueAt = this.measurementAt();
+        this.instrument(
+            'headingTrue',
+            reference === 'T' && heading !== null && isPlausibleBearing(heading) ? heading % 360 : null,
+            'degrees',
+            'true',
+            'NMEA true heading',
+        );
         if (reference === 'T' && heading !== null && isPlausibleBearing(heading)) {
             this.accumulator.headingTrue.push(heading === 360 ? 0 : heading);
         } else {
@@ -1629,10 +1872,41 @@ class NmeaListenerServiceClass {
     private parseRPM(parts: string[]) {
         // $xxRPM,source,engineNo,rpm,pitch,status
         const rpm = parseNmeaNumber(parts[3]);
+        if (parts[1] === 'E' && /^[0-9]{1,4}$/.test(parts[2] ?? '')) {
+            const engineId = `NMEA-E-${parts[2]}`;
+            this.instrumentEngines.set(engineId, {
+                value: parts[5] === 'A' && rpm !== null && rpm >= 0 && rpm <= 30000 ? rpm : null,
+                at: this.measurementAt(),
+                unit: 'rpm',
+                source: 'NMEA RPM engine E',
+                engineId,
+            });
+            this.refreshInstrumentRpm();
+        }
         if (rpm !== null) {
             this.accumulator.rpm.push(rpm);
             this.hasRpmData = true;
         }
+    }
+
+    private refreshInstrumentRpm(): void {
+        const now = this.measurementAt();
+        for (const [key, row] of this.instrumentEngines)
+            if (now - row.at > 13000 || row.at > now + 1000) this.instrumentEngines.delete(key);
+        const rows = [...this.instrumentEngines.values()];
+        if (!rows.length) return;
+        const selected =
+            rows.find((row) => row.value !== null && row.value > 0) ??
+            (rows.every((row) => row.value === 0) ? rows.reduce((a, b) => (a.at < b.at ? a : b)) : null);
+        this.accumulator.instrumentReadings.rpm = selected
+            ? { ...selected, engineCount: rows.some((row) => row.engineCount === 0) ? undefined : rows.length }
+            : {
+                  value: null,
+                  at: Math.min(...rows.map((row) => row.at)),
+                  unit: 'rpm',
+                  source: 'NMEA engine RPM unavailable',
+                  engineCount: rows.length,
+              };
     }
 
     /**
@@ -1655,6 +1929,8 @@ class NmeaListenerServiceClass {
      * there is more than one of them.
      */
     private parseXDR(parts: string[]) {
+        const pressure = parseXdrPressure(parts);
+        if (pressure) recordGatewayPressure(pressure, this.measurementAt(), `${this.host}:${this.port}`);
         // $xxXDR,type,value,unit,name,...
         //
         // First pass: is this sentence a whole-attitude fault? A real sensor
@@ -1715,6 +1991,13 @@ class NmeaListenerServiceClass {
                 if (dropSentinelAxes && value === XDR_ATTITUDE_UNAVAILABLE_DEG) continue;
                 if (name === 'roll') {
                     this.accumulator.heel.push(HEEL_STARBOARD_POSITIVE ? value : -value);
+                    this.instrument(
+                        'heel',
+                        HEEL_STARBOARD_POSITIVE ? value : -value,
+                        'degrees',
+                        'relative',
+                        'NMEA XDR roll',
+                    );
                 } else if (name === 'pitch') {
                     this.accumulator.pitch.push(value);
                 }
@@ -1737,18 +2020,138 @@ class NmeaListenerServiceClass {
     /** $xxRMC — Recommended Minimum (GPS SOG/COG + position) */
     private parseRMC(parts: string[]) {
         // $xxRMC,time,status,lat,N/S,lon,E/W,sog,cog,...
-        if (parts[2] !== 'A') return; // A = valid fix
+        if (parts[2] !== 'A' || !measuredGnssMode(parts[12])) return; // Exclude simulated/dead-reckoned fixes.
         const sog = parseNmeaNumber(parts[7]);
         const cog = parseNmeaNumber(parts[8]);
         if (sog !== null) this.accumulator.sog.push(sog);
+        this.instrument('sog', sog, 'knots', 'ground', 'NMEA RMC');
+        this.instrument(
+            'cogTrue',
+            cog !== null && isPlausibleBearing(cog) ? cog % 360 : null,
+            'degrees',
+            'true',
+            'NMEA RMC true',
+        );
         if (cog !== null && isPlausibleBearing(cog)) this.accumulator.cog.push(cog);
 
         // Extract lat/lon (DDMM.MMMM format → decimal degrees)
         const lat = nmeaLatLon(parts[3], parts[4], 90);
         const lon = nmeaLatLon(parts[5], parts[6], 180);
         if (lat !== null && lon !== null) {
+            this.accumulator.positionAt = this.measurementAt();
             this.accumulator.latitude = lat;
             this.accumulator.longitude = lon;
+        }
+    }
+
+    private parseSeaSmart(sentence: string): void {
+        const frame = parsePcdin(sentence);
+        if (!frame) return;
+        const m = frame.message;
+        const source = `SeaSmart ${frame.sourceAddress} PGN ${m.pgn}`;
+        const valid = (v: number | null, low: number, high: number) =>
+            v !== null && Number.isFinite(v) && v >= low && v <= high;
+        const bearing = (v: number | null) => (valid(v, 0, 360) ? v! % 360 : null);
+        switch (m.pgn) {
+            case PGN.VESSEL_HEADING:
+                if (bearing(m.headingDeg) !== null) this.accumulator.heading.push(bearing(m.headingDeg)!);
+                this.accumulateTrueHeading(m.headingDeg, m.reference === 'true' ? 'T' : undefined);
+                break;
+            case PGN.COG_SOG:
+                if (valid(m.sogKts, 0, 200)) this.accumulator.sog.push(m.sogKts!);
+                this.instrument('sog', valid(m.sogKts, 0, 200) ? m.sogKts : null, 'knots', 'ground', source);
+                this.instrument(
+                    'cogTrue',
+                    m.cogReference === 'true' ? bearing(m.cogDeg) : null,
+                    'degrees',
+                    'true',
+                    source,
+                );
+                if (m.cogReference === 'true' && bearing(m.cogDeg) !== null)
+                    this.accumulator.cog.push(bearing(m.cogDeg)!);
+                break;
+            case PGN.POSITION_RAPID:
+                if (valid(m.latitude, -90, 90) && valid(m.longitude, -180, 180)) {
+                    this.accumulator.latitude = m.latitude;
+                    this.accumulator.longitude = m.longitude;
+                    this.accumulator.positionAt = this.measurementAt();
+                }
+                break;
+            case PGN.SPEED_THROUGH_WATER:
+                if (valid(m.stwKts, 0, 200)) this.accumulator.stw.push(m.stwKts!);
+                this.instrument('stw', valid(m.stwKts, 0, 200) ? m.stwKts : null, 'knots', 'water', source);
+                break;
+            case PGN.WIND_DATA: {
+                if (!valid(m.speedKts, 0, 200) || bearing(m.angleDeg) === null) break;
+                const angle = bearing(m.angleDeg)!;
+                const signed = angle > 180 ? angle - 360 : angle;
+                if (m.reference === 'apparent') {
+                    this.accumulator.aws.push(m.speedKts!);
+                    this.accumulator.awa.push(signed);
+                } else if (m.reference === 'true_boat') {
+                    this.accumulator.tws.push(m.speedKts!);
+                    this.accumulator.twa.push(Math.abs(signed));
+                    this.accumulator.twaSigned.push(signed);
+                    this.instrument('tws', m.speedKts, 'knots', undefined, source);
+                    this.instrument('twaSigned', signed, 'degrees', 'relative', source);
+                } else if (m.reference === 'true_north') {
+                    this.accumulator.twd.push(angle);
+                    this.instrument('twdTrue', angle, 'degrees', 'true', source);
+                    this.instrument('tws', m.speedKts, 'knots', undefined, source);
+                    this.accumulator.tws.push(m.speedKts!);
+                }
+                break;
+            }
+            case PGN.ATTITUDE:
+                if (valid(m.rollDeg, -90, 90)) {
+                    this.accumulator.heel.push(m.rollDeg!);
+                    this.instrument('heel', m.rollDeg, 'degrees', 'relative', source);
+                }
+                if (valid(m.pitchDeg, -90, 90)) this.accumulator.pitch.push(m.pitchDeg!);
+                // Yaw is not a qualified true-north heading.
+                break;
+            case PGN.ENGINE_PARAMETERS_RAPID: {
+                const engineId = `N2K-${frame.sourceAddress}-${m.instance}`;
+                this.instrumentEngines.set(engineId, {
+                    value: valid(m.rpm, 0, 30000) ? m.rpm : null,
+                    at: this.measurementAt(),
+                    unit: 'rpm',
+                    source,
+                    engineId,
+                    engineCount: 0,
+                });
+                // Observing instance zero does not prove a boat has one engine.
+                this.refreshInstrumentRpm();
+                if (valid(m.rpm, 0, 30000)) {
+                    this.accumulator.rpm.push(m.rpm!);
+                    this.hasRpmData = true;
+                }
+                break;
+            }
+            case PGN.WATER_DEPTH:
+                if (valid(m.depthBelowTransducerM, 0, 12000))
+                    this.accumulator.depthPcdin = {
+                        depthM: m.depthBelowTransducerM!,
+                        rawDepthM: m.depthBelowTransducerM!,
+                        source: 'PCDIN',
+                        reference: 'below-transducer',
+                        offsetM: null,
+                    };
+                // Raw transducer depth stays explicitly referenced. An offset
+                // is not silently relabelled as keel depth.
+                break;
+            case PGN.ENGINE_PARAMETERS_DYNAMIC: {
+                const at = this.measurementAt();
+                this.accumulator.engineTelemetry = {
+                    engineId: `N2K-${frame.sourceAddress}-${m.instance}`,
+                    ...(valid(m.engineHoursS, 0, 3_153_600_000) ? { runTime: { value: m.engineHoursS!, at } } : {}),
+                    ...(valid(m.engineTempC, -60, 200) ? { coolant: { value: m.engineTempC!, at } } : {}),
+                    ...(valid(m.oilPressureHpa, 0, 50000)
+                        ? { oilPressure: { value: m.oilPressureHpa! / 10, at } }
+                        : {}),
+                };
+                break;
+            }
         }
     }
 
@@ -1766,7 +2169,7 @@ class NmeaListenerServiceClass {
         this.accumulator.satellites = validGnssValue('satellites', numSats) ? numSats : null;
         const hdop = parseNmeaNumber(parts[8]);
         this.accumulator.hdop = validGnssValue('hdop', hdop) ? hdop : null;
-        this.accumulator.gpsDiagnosticsAt = Date.now();
+        this.accumulator.gpsDiagnosticsAt = this.measurementAt();
 
         // Invalid GGA coordinates must never replace the last valid GGA/RMC
         // position, even when a no-fix sentence still carries numeric lat/lon.
@@ -1776,6 +2179,7 @@ class NmeaListenerServiceClass {
         const lat = nmeaLatLon(parts[2], parts[3], 90);
         const lon = nmeaLatLon(parts[4], parts[5], 180);
         if (lat !== null && lon !== null) {
+            this.accumulator.positionAt = this.measurementAt();
             this.accumulator.latitude = lat;
             this.accumulator.longitude = lon;
         }
@@ -1802,15 +2206,18 @@ class NmeaListenerServiceClass {
     }
 
     private emitSample() {
+        this.refreshInstrumentRpm();
         if (this.status !== 'connected') return;
 
         // DPT is explicit about its signed datum offset, so prefer its most
         // recent value when a sounder broadcasts both DBT and DPT. Averaging
         // the two can blend below-transducer, waterline and keel references
         // into a number that has no truthful meaning.
-        const depthReading = this.accumulator.depthDpt ?? this.accumulator.depthDbt;
+        const depthReading = this.accumulator.depthDpt ?? this.accumulator.depthPcdin ?? this.accumulator.depthDbt;
 
         const sample: NmeaSample = {
+            ...(this.accumulator.engineTelemetry ? { engineTelemetry: this.accumulator.engineTelemetry } : {}),
+            ...(this.accumulator.distanceLog ? { distanceLog: this.accumulator.distanceLog } : {}),
             /*
              * WHEN THE DATA ARRIVED, not when we got round to publishing it.
              *
@@ -1837,6 +2244,13 @@ class NmeaListenerServiceClass {
              * then dead while GPS keeps streaming.
              */
             timestamp: this.lastSentenceAt || Date.now(),
+            instrumentReadings: { ...this.accumulator.instrumentReadings },
+            measurementTimes: {
+                ...Object.fromEntries(
+                    Object.entries(this.accumulator.instrumentReadings).map(([key, reading]) => [key, reading!.at]),
+                ),
+                ...(this.accumulator.positionAt ? { position: this.accumulator.positionAt } : {}),
+            },
             tws: avg(this.accumulator.tws),
             twa: avg(this.accumulator.twa),
             twaSigned: avgSigned(this.accumulator.twaSigned),
@@ -1913,13 +2327,21 @@ class NmeaListenerServiceClass {
         // A receiver losing its fix may now send only GGA quality=0. Publish
         // that evidence even without coordinates or another live instrument.
         const hasGpsDiagnostics = sample.gpsFixQuality !== null;
-        if (hasInstruments || hasGps || hasGpsDiagnostics || sample.headingTrueAt !== undefined) {
+        if (
+            hasInstruments ||
+            hasGps ||
+            hasGpsDiagnostics ||
+            sample.headingTrueAt !== undefined ||
+            sample.distanceLog ||
+            sample.engineTelemetry
+        ) {
             for (const cb of this.listeners) cb(sample);
         }
     }
 
     private freshAccumulator(): RawAccumulator {
         return {
+            instrumentReadings: {},
             tws: [],
             twa: [],
             twaSigned: [],
@@ -1937,6 +2359,7 @@ class NmeaListenerServiceClass {
             voltage: [],
             depthDbt: null,
             depthDpt: null,
+            depthPcdin: null,
             sog: [],
             cog: [],
             waterTemp: [],

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -86,7 +86,7 @@ function shippedFiles(): string[] {
 
 describe('MapTiler is gone from everything the client loads', () => {
     it('reads a real set of shipped files', () => {
-        const files = shippedFiles().map((path) => relative(ROOT, path));
+        const files = shippedFiles().map((path) => relative(ROOT, path).split(sep).join('/'));
         expect(files).toContain('components/map/useMapInit.ts');
         expect(files).toContain('src/components/MapContainer.tsx');
         expect(files).toContain('public/sw.js');

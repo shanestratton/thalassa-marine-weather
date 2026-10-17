@@ -7,6 +7,7 @@ import { setCloseInWindReadout } from '../components/map/closeInWind';
 import { useSettingsStore } from '../stores/settingsStore';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { WindStore } from '../stores/WindStore';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -52,6 +53,33 @@ function weather(overrides: Record<string, unknown> = {}): WeatherControlsWeathe
 
 describe('MapWeatherControls', () => {
     const controls = { visible: true, embedded: false, controlsHidden: false, onControlsHiddenChange: vi.fn() };
+    it('labels imported coverage honestly and requires an explicit choice before returning to providers', () => {
+        const grid = { ...windGrid(), refTime: '2026-01-01T00:00:00Z', importedGrib: true };
+        WindStore.setState({ isGlobalMode: false, grid });
+        render(
+            <MapWeatherControls
+                {...controls}
+                weather={weather({
+                    windState: {
+                        isGlobalMode: false,
+                        localGribPath: 'grib-import/fictional/file.grb',
+                        grid,
+                        loading: false,
+                        error: null,
+                    },
+                })}
+                desk={{ palette: 'dark', point: { lat: 0, lon: 0 }, startMs: null }}
+            />,
+        );
+        expect(screen.getByText(/Imported GRIB · Run 2026-01-01 00:00 UTC/)).toBeVisible();
+        expect(screen.queryByRole('group', { name: 'Wind forecast model' })).not.toBeInTheDocument();
+        expect(screen.queryByText('Her wind vs the models')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Remove imported file' })).toBeVisible();
+        expect(WindStore.getState().isGlobalMode).toBe(false);
+        fireEvent.click(screen.getByRole('button', { name: 'Use online forecasts' }));
+        expect(WindStore.getState()).toMatchObject({ isGlobalMode: true, grid: null });
+        WindStore.reset();
+    });
 
     it('offers the same compact hide/reopen surface for non-weather layers alone', () => {
         const onControlsHiddenChange = vi.fn();

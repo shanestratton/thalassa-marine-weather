@@ -1,0 +1,180 @@
+{
+    "crs": { "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" }, "type": "name" },
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "code": "FR913",
+                "country": "FR",
+                "name": "Bouches-du-Zzrhône (fictional box)",
+                "type": "EMMA_ID"
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [4.2, 43.25],
+                        [5.0, 43.25],
+                        [5.25, 43.21],
+                        [5.36, 43.21],
+                        [5.36, 43.28],
+                        [5.42, 43.28],
+                        [5.5, 43.2],
+                        [5.85, 43.2],
+                        [5.85, 43.95],
+                        [4.2, 43.95],
+                        [4.2, 43.25]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": { "code": "FR914", "country": "FR", "name": "Zzvar (fictional box)", "type": "EMMA_ID" },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [5.85, 43.0],
+                        [6.9, 43.0],
+                        [6.9, 43.8],
+                        [5.85, 43.8],
+                        [5.85, 43.0]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "code": "DE901",
+                "country": "DE",
+                "name": "Kreis Zzküste - Küste (fictional box)",
+                "type": "EMMA_ID"
+            },
+            "geometry": {
+                "type": "MultiPolygon",
+                "coordinates": [
+                    [
+                        [
+                            [9.6, 53.35],
+                            [10.4, 53.35],
+                            [10.4, 53.75],
+                            [9.6, 53.75],
+                            [9.6, 53.35]
+                        ]
+                    ],
+                    [
+                        [
+                            [8.3, 54.4],
+                            [8.6, 54.4],
+                            [8.6, 54.6],
+                            [8.3, 54.6],
+                            [8.3, 54.4]
+                        ]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": { "code": "GR911", "country": "GR", "name": "ZZATTIKI (fictional box)", "type": "EMMA_ID" },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [23.3, 37.9],
+                        [23.6, 37.9],
+                        [23.6, 37.85],
+                        [23.75, 37.85],
+                        [23.75, 37.65],
+                        [24.1, 37.65],
+                        [24.1, 38.3],
+                        [23.3, 38.3],
+                        [23.3, 37.9]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "code": "GR914",
+                "country": "GR",
+                "name": "NORTH EAST ZZAEGEAN ISLANDS (fictional box)",
+                "type": "EMMA_ID"
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [25.8, 38.9],
+                        [26.7, 38.9],
+                        [26.7, 39.5],
+                        [25.8, 39.5],
+                        [25.8, 38.9]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "code": "EI901",
+                "country": "IE",
+                "name": "Zzirish Sea (fictional box, an Irish code under EI)",
+                "type": "EMMA_ID"
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-6.0, 53.0],
+                        [-5.0, 53.0],
+                        [-5.0, 54.0],
+                        [-6.0, 54.0],
+                        [-6.0, 53.0]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": { "code": "ZZ1", "country": "FR", "name": "Not an EMMA_ID code: skipped", "type": "EMMA_ID" },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [0, 0],
+                        [1, 0],
+                        [1, 1],
+                        [0, 1],
+                        [0, 0]
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": { "code": "FR915", "country": "FR", "name": "No geometry: skipped", "type": "EMMA_ID" },
+            "geometry": null
+        },
+        {
+            "type": "Feature",
+            "properties": { "code": "NUTS9", "country": "HR", "name": "Another scheme: skipped", "type": "NUTS3" },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [15, 45],
+                        [16, 45],
+                        [16, 46],
+                        [15, 46],
+                        [15, 45]
+                    ]
+                ]
+            }
+        }
+    ]
+}

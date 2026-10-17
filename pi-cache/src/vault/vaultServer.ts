@@ -9,6 +9,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import { VaultRefusal } from './chartVault.js';
 import { VAULT_SHA_HEADER } from './protocol.js';
 import type { VaultService } from './vaultService.js';
+import { validLookaheadRequest } from './lookahead.js';
 
 const MAX_BODY = 4096;
 
@@ -58,6 +59,11 @@ export function createVaultHttpServer(service: VaultService): http.Server {
             try {
                 if (route === 'GET /v1/status') return send(res, 200, service.status());
                 if (route === 'GET /v1/index') return send(res, 200, { cells: service.index() });
+                if (route === 'POST /v1/lookahead') {
+                    const body = await readJson(req);
+                    if (!validLookaheadRequest(body)) return send(res, 400, { code: 'bad-request' });
+                    return send(res, 200, await service.lookahead(body));
+                }
                 const cell = /^GET \/v1\/cells\/([A-Za-z0-9_-]{1,128})$/.exec(route);
                 if (cell) {
                     const { bytes, sha256 } = await service.cell(cell[1]);

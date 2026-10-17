@@ -1,0 +1,125 @@
+{
+    "latitude": -20.291668,
+    "longitude": 149.12502,
+    "utc_offset_seconds": 0,
+    "timezone": "GMT",
+    "elevation": 0,
+    "hourly_units": {
+        "time": "unixtime",
+        "wave_height_meteofrance_wave": "m",
+        "wave_period_meteofrance_wave": "s",
+        "wave_direction_meteofrance_wave": "°",
+        "wind_wave_height_meteofrance_wave": "m",
+        "wind_wave_period_meteofrance_wave": "s",
+        "wind_wave_direction_meteofrance_wave": "°",
+        "swell_wave_height_meteofrance_wave": "m",
+        "swell_wave_period_meteofrance_wave": "s",
+        "swell_wave_direction_meteofrance_wave": "°",
+        "secondary_swell_wave_height_meteofrance_wave": "m",
+        "secondary_swell_wave_period_meteofrance_wave": "s",
+        "secondary_swell_wave_direction_meteofrance_wave": "°",
+        "wave_height_ncep_gfswave025": "m",
+        "wave_period_ncep_gfswave025": "s",
+        "wave_direction_ncep_gfswave025": "°",
+        "wind_wave_height_ncep_gfswave025": "m",
+        "wind_wave_period_ncep_gfswave025": "s",
+        "wind_wave_direction_ncep_gfswave025": "°",
+        "swell_wave_height_ncep_gfswave025": "m",
+        "swell_wave_period_ncep_gfswave025": "s",
+        "swell_wave_direction_ncep_gfswave025": "°",
+        "secondary_swell_wave_height_ncep_gfswave025": "m",
+        "secondary_swell_wave_period_ncep_gfswave025": "s",
+        "secondary_swell_wave_direction_ncep_gfswave025": "°"
+    },
+    "hourly": {
+        "time": [
+            1791936000, 1791939600, 1791943200, 1791946800, 1791950400, 1791954000, 1791957600, 1791961200, 1791964800,
+            1791968400, 1791972000, 1791975600, 1791979200, 1791982800, 1791986400, 1791990000, 1791993600, 1791997200,
+            1792000800, 1792004400, 1792008000, 1792011600, 1792015200, 1792018800
+        ],
+        "wave_height_meteofrance_wave": [
+            0.2, 0.2, 0.18, 0.18, 0.18, 0.18, 0.18, 0.18, 0.16, 0.16, 0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.12,
+            0.12, 0.12, 0.14, 0.14, 0.18, 0.22
+        ],
+        "wave_period_meteofrance_wave": [
+            3.2, 3.2, 3.25, 3.25, 3.25, 3.25, 3.25, 3.25, 3.2, 3.2, 3.2, 3.2, 3.2, 3.2, 3.2, 3.25, 3.3, 3.4, 3.4, 3.2,
+            2.95, 2.75, 2.65, 2.65
+        ],
+        "wave_direction_meteofrance_wave": [
+            50, 50, 49, 49, 49, 50, 50, 50, 50, 50, 50, 49, 49, 49, 49, 49, 49, 48, 48, 53, 57, 62, 71, 80
+        ],
+        "wind_wave_height_meteofrance_wave": [
+            0.04, 0.06, 0.06, 0.08, 0.08, 0.08, 0.08, 0.08, 0.1, 0.1, 0.1, 0.08, 0.08, 0.06, 0.02, 0, 0, 0.02, 0.02,
+            0.06, 0.08, 0.12, 0.14, 0.16
+        ],
+        "wind_wave_period_meteofrance_wave": [
+            1.45, 1.5, 1.55, 1.6, 1.6, 1.65, 1.65, 1.7, 1.7, 1.7, 1.7, 1.65, 1.5, 1.05, 0.4, 0, 0, 0.1, 0.35, 0.75, 1.2,
+            1.6, 1.8, 1.95
+        ],
+        "wind_wave_direction_meteofrance_wave": [
+            15, 12, 10, 7, 13, 18, 24, 26, 29, 31, 35, 40, 44, 49, 53, 58, 65, 73, 80, 86, 91, 97, 102, 106
+        ],
+        "swell_wave_height_meteofrance_wave": [
+            0.16, 0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.12, 0.12, 0.1, 0.1, 0.12, 0.12, 0.12, 0.1, 0.1, 0.1, 0.1, 0.1,
+            0.1, 0.08, 0.08, 0.12, 0.14
+        ],
+        "swell_wave_period_meteofrance_wave": [
+            2.25, 2.45, 2.8, 2.95, 2.8, 2.5, 2.35, 2.55, 2.85, 3.05, 2.9, 2.65, 2.45, 2.45, 2.5, 2.55, 2.5, 2.45, 2.4,
+            2.5, 2.65, 2.7, 2.6, 2.4
+        ],
+        "swell_wave_direction_meteofrance_wave": [
+            44, 47, 49, 52, 51, 51, 50, 51, 51, 52, 51, 49, 48, 55, 62, 69, 60, 50, 41, 40, 38, 37, 47, 56
+        ],
+        "secondary_swell_wave_height_meteofrance_wave": [
+            0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06,
+            0.06, 0.06, 0.06, 0.06, 0.06, 0.04
+        ],
+        "secondary_swell_wave_period_meteofrance_wave": [
+            4.6, 5, 5.75, 6.3, 6.35, 6.2, 6, 5.85, 5.7, 5.65, 5.7, 5.85, 5.9, 5.75, 5.55, 5.4, 5.45, 5.65, 5.7, 5.65,
+            5.55, 5.25, 4.65, 3.85
+        ],
+        "secondary_swell_wave_direction_meteofrance_wave": [
+            78, 72, 66, 60, 59, 58, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 56, 56, 83, 109
+        ],
+        "wave_height_ncep_gfswave025": [
+            0.5, 0.5, 0.5, 0.5, 0.5, 0.52, 0.52, 0.54, 0.52, 0.52, 0.5, 0.5, 0.48, 0.48, 0.46, 0.46, 0.46, 0.44, 0.46,
+            0.46, 0.48, 0.52, 0.52, 0.52
+        ],
+        "wave_period_ncep_gfswave025": [
+            8.05, 8.05, 8.05, 8.05, 8.1, 8.1, 8.15, 8.15, 8.2, 8.2, 8.2, 8.2, 8.2, 8.2, 8.2, 8.15, 8.1, 8.05, 8.05, 8,
+            8, 8, 7.95, 7.95
+        ],
+        "wave_direction_ncep_gfswave025": [
+            61, 61, 61, 61, 61, 61, 61, 61, 60, 61, 61, 61, 61, 61, 61, 62, 62, 62, 63, 63, 63, 63, 63, 63
+        ],
+        "wind_wave_height_ncep_gfswave025": [
+            0, 0, 0, 0, 0, 0.52, 0.22, 0.28, 0.28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.46, 0.46, 0.24, 0.52, 0.36, 0.38
+        ],
+        "wind_wave_period_ncep_gfswave025": [
+            0, 0, 0, 0, 0, 8.1, 2.1, 2.3, 2.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8.05, 8, 2.3, 8, 2.65, 2.8
+        ],
+        "wind_wave_direction_ncep_gfswave025": [
+            0, 0, 0, 0, 0, 59, 28, 26, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 64, 82, 71, 91, 93
+        ],
+        "swell_wave_height_ncep_gfswave025": [
+            0.5, 0.5, 0.5, 0.5, 0.5, 0, 0.48, 0.46, 0.46, 0.52, 0.5, 0.5, 0.48, 0.48, 0.46, 0.46, 0.46, 0.44, 0, 0,
+            0.42, 0, 0.4, 0.38
+        ],
+        "swell_wave_period_ncep_gfswave025": [
+            8.05, 8.05, 8.05, 8.05, 8.1, 0, 8.15, 8.15, 8.2, 8.2, 8.2, 8.2, 8.2, 8.2, 8.2, 8.15, 8.1, 8.05, 0, 0, 8, 0,
+            7.95, 7.95
+        ],
+        "swell_wave_direction_ncep_gfswave025": [
+            61, 61, 61, 61, 60, 0, 62, 62, 62, 56, 57, 58, 59, 60, 60, 61, 61, 61, 0, 0, 62, 0, 62, 62
+        ],
+        "secondary_swell_wave_height_ncep_gfswave025": [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ],
+        "secondary_swell_wave_period_ncep_gfswave025": [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ],
+        "secondary_swell_wave_direction_ncep_gfswave025": [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ]
+    }
+}

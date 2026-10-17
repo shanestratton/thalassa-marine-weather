@@ -15,6 +15,8 @@ import {
 import { contrast } from './helpers/colourScience';
 
 const ownedOutputs: string[] = [];
+// Windows has no POSIX owner or permission bits (process.getuid is undefined); only those checks are skipped there.
+const POSIX_OWNERSHIP = process.platform !== 'win32';
 function outputDirectories() {
     const root = mkdtempSync(join(tmpdir(), 'thalassa-wind-pixel-unit-'));
     const output = join(root, 'output');
@@ -81,11 +83,14 @@ afterEach(() => {
     document.querySelectorAll('[data-wind-pixel-test]').forEach((element) => element.remove());
     for (const root of ownedOutputs.splice(0)) {
         const ownerUid = process.getuid?.();
-        if (ownerUid === undefined) throw new Error('POSIX ownership is required for private unit artifacts');
+        if (POSIX_OWNERSHIP && ownerUid === undefined) {
+            throw new Error('POSIX ownership is required for private unit artifacts');
+        }
+        const owned = (stat: { uid: number }) => !POSIX_OWNERSHIP || stat.uid === ownerUid;
         for (const leaf of ['output', 'extra']) {
             const directory = join(root, leaf);
             const stat = lstatSync(directory);
-            if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== ownerUid) {
+            if (!stat.isDirectory() || stat.isSymbolicLink() || !owned(stat)) {
                 throw new Error('Owned unit-output directory changed');
             }
             for (const file of readdirSync(directory)) {
@@ -94,7 +99,7 @@ afterEach(() => {
                 }
                 const path = join(directory, file);
                 const fileStat = lstatSync(path);
-                if (!fileStat.isFile() || fileStat.isSymbolicLink() || fileStat.uid !== ownerUid) {
+                if (!fileStat.isFile() || fileStat.isSymbolicLink() || !owned(fileStat)) {
                     throw new Error('Owned unit-output file changed');
                 }
                 unlinkSync(path);
@@ -472,7 +477,7 @@ function mockCapture(
 
 function overlay(visibility = '', priority = '') {
     const element = document.createElement('div');
-    element.className = 'leaflet-container';
+    element.dataset.windField = 'true';
     element.dataset.windPixelTest = 'true';
     element.style.setProperty('visibility', visibility, priority);
     element.style.opacity = '0.75';
@@ -659,7 +664,7 @@ describe('capture orchestration — mock page/DOM callbacks, not native browser 
         for (const directory of [directories.output, directories.extra]) {
             const path = join(directory, 'measured-wind-webkit.png');
             expect(readFileSync(path)).toEqual(wireOn);
-            expect(lstatSync(path).mode & 0o777).toBe(0o600);
+            if (POSIX_OWNERSHIP) expect(lstatSync(path).mode & 0o777).toBe(0o600);
         }
         expect(() => saveCapturedOn(captured, info as unknown as TestInfo, 'measured-wind')).toThrow(/EEXIST/);
         expect(readFileSync(join(directories.output, 'measured-wind-webkit.png'))).toEqual(wireOn);

@@ -160,7 +160,23 @@ function loadMarinePlaces(): Promise<readonly MarineLocality[]> {
 export async function marineEndpointName(lat: number, lon: number): Promise<string | null> {
     // Current maintained reference covers Queensland. Elsewhere retain the
     // global locality geocoder; do not pretend this is worldwide coverage.
-    if (lat < -29.3 || lat > -9 || lon < 138 || lon > 154) return null;
+    if (lat < -29.3 || lat > -9 || lon < 138 || lon > 154) {
+        // Only already-saved global names: endpoint labelling must never become
+        // a boot-time worldwide catalogue fetch or disclose a private fix.
+        try {
+            const { loadMarineArea } = await import('./marineCatalogue/service');
+            const saved = await loadMarineArea(lat, lon, ['places'], undefined, true);
+            return selectMarineEndpointName(
+                lat,
+                lon,
+                saved.records.filter((p): p is typeof p & MarineLocality =>
+                    ['island', 'bay', 'cove', 'harbour', 'anchorage'].includes(p.kind),
+                ),
+            );
+        } catch {
+            return null;
+        }
+    }
     let places: readonly MarineLocality[];
     try {
         places = await loadMarinePlaces();

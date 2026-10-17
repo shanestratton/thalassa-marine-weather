@@ -302,15 +302,20 @@ export class SharedSignalkReader {
     constructor(
         private readonly deps: BroadcastDeps,
         private readonly ttlMs: number = SIGNALK_SHARED_CACHE_MS,
+        /** Optional cache-only authenticated stream session; legacy callers retain REST behavior. */
+        private readonly documents?: () => Promise<SignalkDocuments>,
     ) {}
 
     read(): Promise<SignalkDocuments> {
         const now = (this.deps.now ?? Date.now)();
         const cached = this.cached;
         // A clock stepped backwards (GPS time arriving) never serves an answer from the future.
-        if (cached && now >= cached.readAt && now - cached.readAt < this.ttlMs) return Promise.resolve(cached);
+        // Stream reads are already cache-only. Do not hold a retired socket's
+        // document for the REST TTL after its owner has cleared the session.
+        if (!this.documents && cached && now >= cached.readAt && now - cached.readAt < this.ttlMs)
+            return Promise.resolve(cached);
         if (this.inFlight) return this.inFlight;
-        const reading = readSignalkDocuments(this.deps)
+        const reading = (this.documents ? this.documents() : readSignalkDocuments(this.deps))
             .then((documents) => {
                 this.cached = documents;
                 return documents;

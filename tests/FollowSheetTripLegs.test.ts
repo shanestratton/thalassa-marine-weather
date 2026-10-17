@@ -19,7 +19,7 @@ import {
 } from '../pages/log/logPageDerive';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import type { VoyageSummary } from '../services/shiplog/VoyageSummary';
-import type { SavedTrace } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 
 const NEWPORT = { lat: -27.2, lon: 153.1 };
 const GLADSTONE = { lat: -23.85, lon: 151.25 };

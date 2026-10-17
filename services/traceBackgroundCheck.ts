@@ -28,7 +28,8 @@
  * a boot-time idle pass exists but is DARK (BOOT_IDLE_RECHECK_ENABLED).
  */
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentityScope } from './authIdentityScope';
-import { bankTraceVerification, loadSavedTraces, type TracePoint } from './routeTracer';
+import type { TracePoint } from './routeTracer';
+import { bankTraceVerification, loadSavedTraces } from './savedTraceStore';
 import { traceFollowStatus, traceGeometryKey, traceRegistryScope } from './traceVerification';
 import { getTraceCheckOutcome, recordTraceCheckOutcome, type TraceCheckOutcomeRecord } from './traceCheckOutcomes';
 import type { RecheckReport } from './traceRecheck';

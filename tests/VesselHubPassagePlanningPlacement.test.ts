@@ -65,7 +65,8 @@ describe('VesselHub passage-planning placement', () => {
         expect(hubScroll).toBeGreaterThan(binderStart);
 
         expect(passageRow).toContain("onNavigate('crew')");
-        expect(passageRow).toContain('passageCrewCount');
+        // The crew register's count, the float plan's way (129-14, tests/VesselHubCrewCount.test.tsx).
+        expect(passageRow).toContain('crewCountShown');
         expect(passageRow).toContain('pendingCrewInvites');
         expect(source).not.toContain('requestSavedRoutesLibraryOpen(scope)');
         expect(source).not.toContain('label="Saved Routes"');
@@ -74,7 +75,9 @@ describe('VesselHub passage-planning placement', () => {
     });
 
     it('counts the canonical saved-route library and fences cloud refreshes to the active identity', () => {
-        expect(source).toContain("import('../services/routeTracer')");
+        // The library, not the tracer: the tracer brings the routing engine (131-04).
+        expect(source).toContain("import('../services/savedTraceStore')");
+        expect(source).not.toContain('services/routeTracer');
         expect(source).toContain('loadSavedTraces(scope).length');
         expect(source).toContain("import('../services/savedRoutesSync')");
         expect(source).toContain('const merged = await syncSavedRoutes()');

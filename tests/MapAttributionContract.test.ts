@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -20,7 +20,7 @@ describe('map provider attribution contract', () => {
         // and the not-for-navigation line (their licence conditions).
         expect(source).toContain('addReliefBase(map)');
         const relief = read('components/map/reliefBase.ts');
-        expect(relief).toMatch(/attribution: RELIEF_ATTRIBUTION/);
+        expect(relief).toMatch(/attribution:\s*region\.attribution\s*\?\?\s*RELIEF_ATTRIBUTION/);
         expect(relief).toMatch(
             /export const RELIEF_ATTRIBUTION =[\s\S]*?GEBCO[\s\S]*?Geoscience Australia[\s\S]*?Not for navigation/,
         );
@@ -50,40 +50,8 @@ describe('map provider attribution contract', () => {
             expect(css).not.toContain(selector);
         }
 
-        // Leaflet attribution MAY be restyled — the stock white pill on the
-        // dark Log maps was the ugliest thing aboard (Shane 2026-08-12) —
-        // but the contract this test guards is VISIBILITY, not virginity:
-        // every rule that mentions it must keep it shown and legible. The
-        // blunt "selector must not appear" form couldn't tell a dark-glass
-        // restyle from a hide, and refusing all styling is how the white
-        // pill survived this long.
-        const hidingVocabulary = [
-            /display:\s*none/,
-            /visibility:\s*hidden/,
-            /opacity:\s*0(?![.\d])/,
-            /font-size:\s*0(?![.\d])/,
-            /color:\s*transparent/,
-            /width:\s*0(?![.\d])/,
-            /height:\s*0(?![.\d])/,
-        ];
-        // ONE exception: the compact-attribution pattern (Shane 2026-08-13:
-        // "it was going to be hidden behind an 'i'"). Collapsing credits to
-        // an ⓘ toggle is the licence-accepted Mapbox-compact pattern — but
-        // ONLY as a toggle. Hiding vocabulary is blessed solely inside the
-        // `:not(.is-open)` collapsed rule, and the blessing is conditional
-        // on the expanded state actually existing and being reachable.
-        const isCollapsedCompactRule = (block: string) => block.includes('.thalassa-attribution-compact:not(.is-open)');
-        const attributionBlocks = css.split('}').filter((block) => block.includes('.leaflet-control-attribution'));
-        for (const block of attributionBlocks) {
-            if (isCollapsedCompactRule(block)) continue;
-            for (const pattern of hidingVocabulary) {
-                expect(block).not.toMatch(pattern);
-            }
-        }
-
-        // The collapsed rule is only legal if its restore exists: an
-        // `.is-open` rule that brings the credit text back.
-        expect(css).toMatch(/\.thalassa-attribution-compact\.is-open[\s\S]{0,200}?font-size:\s*(?!0[^.\d])[\d.]+/);
+        // Sightings and wind now share Mapbox; obsolete Leaflet credits/CSS cannot return.
+        expect(css).not.toContain('.leaflet-control-attribution');
     });
 
     it('lifts the chart map credits clear of the bottom tab bar', () => {
@@ -208,26 +176,15 @@ describe('map provider attribution contract', () => {
         expect(credit).toContain('data-map-credit');
         expect(credit).toContain('CREDITS_STRIP_POSITION_CLASS');
         const hub = read('components/map/MapHub.tsx');
-        const at = hub.indexOf('<SatelliteIrCredit');
-        expect(at).toBeGreaterThan(-1);
-        expect(hub.slice(at, at + 600)).toContain('creditsStripTop(');
+        const rollup = read('components/map/ObsCreditsRollup.tsx');
+        expect(hub).toContain('satellite={satellite}');
+        expect(hub).toContain('<ObsCreditsRollup');
+        expect(rollup).toContain('<SatelliteIrCredit');
+        expect(rollup).toContain('data-map-credit');
+        expect(rollup).toContain("top: 'calc(env(safe-area-inset-top) + max(44px, 3rem) + 14px)'");
         // The legend says the colours are ours: altered NOAA imagery must not be
         // presented as the unaltered product (NODD terms).
         expect(read('components/map/ObsLayerKey.tsx')).toMatch(/colours added by Thalassa/i);
-    });
-
-    it('keeps the compact ⓘ toggle wired on every Log Leaflet map', () => {
-        // The CSS collapse above is licence-legal only while a tap can
-        // expand it. That tap lives in installCompactAttribution — so each
-        // Log map component must install it, and the helper must genuinely
-        // toggle the is-open class the CSS restore keys on.
-        const helper = read('components/map/leafletCompactAttribution.ts');
-        expect(helper).toMatch(/classList\.toggle\(\s*'is-open'\s*\)/);
-        expect(helper).toMatch(/addEventListener\(\s*'click'/);
-
-        // The Log page's own maps left Leaflet for Mapbox (125-13a/b); the
-        // Sightings map is the Leaflet map left on the Log page's tiles.
-        expect(read('components/sightings/SightingsMap.tsx')).toContain('installCompactAttribution(m)');
     });
 
     it('credits every source on the Mapbox Log maps behind a compact ⓘ (125-13a)', () => {
@@ -248,6 +205,9 @@ describe('map provider attribution contract', () => {
         // the same control and the same credited sources.
         expect(read('components/TrackMapViewerGL.tsx')).toContain('createLogMap(');
         expect(read('components/TrackMapViewerGL.tsx')).not.toMatch(/attributionControl|AttributionControl/);
+        // Exact private sightings use the same credited base and native compact control.
+        expect(read('components/sightings/SightingsMap.tsx')).toContain('createLogMap(');
+        expect(read('components/sightings/SightingsMap.tsx')).not.toMatch(/from 'leaflet'|installCompactAttribution/);
     });
 
     // OpenSeaMap's tiles are CC BY-SA 2.0 and its data ODbL (openseamap.org
@@ -298,7 +258,7 @@ describe('map provider attribution contract', () => {
             for (const name of readdirSync(resolve(process.cwd(), dir))) {
                 const path = join(dir, name);
                 if (statSync(resolve(process.cwd(), path)).isDirectory()) walk(path);
-                else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(path);
+                else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(path.split(sep).join('/'));
             }
         };
         for (const root of roots) {

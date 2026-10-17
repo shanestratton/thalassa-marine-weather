@@ -161,6 +161,22 @@ const h = vi.hoisted(() => {
         if (method === 'GET') {
             // An incremental pull: these tests are about the push.
             if (url.searchParams.has('updated_at')) return json(200, []);
+            // A read naming a column the table lacks is refused, as PostgREST
+            // does (42703): the one-store probe (132-B18) reads
+            // recipes.rating_avg, which live has only once the held migration
+            // is pushed.
+            const { galleyColumns } = await import('./helpers/galleyLiveSchema');
+            const columns = galleyColumns(name, state.schema);
+            const named = (url.searchParams.get('select') ?? '*').split(',').map((column) => column.trim());
+            const missing = columns ? named.find((column) => column !== '*' && !columns.includes(column)) : undefined;
+            if (missing) {
+                return json(400, {
+                    code: '42703',
+                    message: `column ${name}.${missing} does not exist`,
+                    details: null,
+                    hint: null,
+                });
+            }
             return json(
                 200,
                 [...rows.values()].filter((row) => matches(row, url.searchParams)),

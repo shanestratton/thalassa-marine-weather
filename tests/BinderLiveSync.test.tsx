@@ -74,12 +74,11 @@ vi.mock('../services/vessel/SyncService', () => ({
 }));
 vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
-        pullFromCloud: vi.fn().mockResolvedValue(0),
         getDownloadUrl: vi.fn(async (uri: string) => uri),
         openDownload: vi.fn().mockResolvedValue(undefined),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
+        uploadStates: () => ({}),
+        onUploadsChanged: () => () => undefined,
+        retryUploads: vi.fn().mockResolvedValue(undefined),
     },
 }));
 vi.mock('../components/ui/ShimmerBlock', () => ({
@@ -111,6 +110,7 @@ import {
     updateSyncMeta,
 } from '../services/vessel/LocalDatabase';
 import { reloadSharedBindersFromStorage, selectBinderSkipper } from '../services/vessel/sharedBinders';
+import { forceFullPull, requestFullReconciliation } from '../services/vessel/SyncService';
 import { InventoryList } from '../components/vessel/InventoryList';
 import { EquipmentList } from '../components/vessel/EquipmentList';
 import { MaintenanceHub } from '../components/vessel/MaintenanceHub';
@@ -487,6 +487,27 @@ describe('an open binder catches up after a background sync, even with no realti
         await waitFor(() => expect(screen.queryByText('Bilge pump')).not.toBeInTheDocument());
         expect(screen.getByText('Chart plotter')).toBeInTheDocument();
     });
+
+    it('Documents too, now that opening it no longer forces a full pull (131-B9)', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        await mergePulledRecords('ship_documents', [shipDocument('d-reg', me, 'Registration certificate')]);
+        render(<DocumentsHub onBack={vi.fn()} />);
+        await screen.findByText('Registration certificate');
+
+        // Filed on the iPad while the socket was down: the next pull brings it.
+        await mergePulledRecords('ship_documents', [shipDocument('d-radio', me, 'Ship radio licence')]);
+        act(() => sync.completeListeners.forEach((listener) => listener({ pushed: 0, pulled: 1, errors: [] })));
+        expect(await screen.findByText('Ship radio licence')).toBeInTheDocument();
+
+        // ...and the sweep finds the certificate was deleted there.
+        await prunePulledTable('ship_documents', new Set(['d-radio']));
+        act(() =>
+            sync.completeListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, pruned: 1, errors: [] })),
+        );
+        await waitFor(() => expect(screen.queryByText('Registration certificate')).not.toBeInTheDocument());
+        expect(screen.getByText('Ship radio licence')).toBeInTheDocument();
+    });
 });
 
 describe('opening a binder fetches what changed while it was closed', () => {
@@ -501,6 +522,21 @@ describe('opening a binder fetches what changed while it was closed', () => {
         // and everything before it comes in with the catch-up.
         act(() => rt.statusCallbacks.get(rt.channelNames[0])?.('SUBSCRIBED'));
         await waitFor(() => expect(sync.requestCatchUpSync).toHaveBeenCalledOnce());
+    });
+
+    it('Documents catches up the same way, and no longer forces a full pull of every binder (131-B9)', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        vi.mocked(forceFullPull).mockClear();
+        vi.mocked(requestFullReconciliation).mockClear();
+        render(<DocumentsHub onBack={vi.fn()} />);
+        await channelFor('ship_documents');
+        expect(sync.requestCatchUpSync).not.toHaveBeenCalled();
+
+        act(() => rt.statusCallbacks.get(rt.channelNames[0])?.('SUBSCRIBED'));
+        await waitFor(() => expect(sync.requestCatchUpSync).toHaveBeenCalledOnce());
+        expect(forceFullPull).not.toHaveBeenCalled();
+        expect(requestFullReconciliation).not.toHaveBeenCalled();
     });
 });
 

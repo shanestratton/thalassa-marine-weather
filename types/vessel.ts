@@ -6,6 +6,7 @@
 
 import type { LengthUnit, WeightUnit, VolumeUnit } from './units';
 import type { PolarData, NmeaSample, SmartPolarBucket, SmartPolarBucketGrid } from './navigation';
+import type { MarineRadarEquipment } from './marineRadar';
 
 export interface VesselDimensionUnits {
     length: LengthUnit;
@@ -18,6 +19,22 @@ export interface VesselDimensionUnits {
 /** A person aboard, as the vessel profile remembers them. */
 export interface VesselCrewPerson {
     name: string;
+    /**
+     * Their date of birth, yyyy-mm-dd: a calendar date with no time and no
+     * zone (129-14, Shane 2026-10-14: "can we change punters age for date of
+     * birth. Otherwise we will have to change the age every year"). The float
+     * plan prints the age it gives on the departure day, never the date. Like
+     * the rest of the roster it goes only to the float plan, and to the
+     * person's own skipper when it is their own row (crew_float_plan_details):
+     * never the public page, the crew's view of the boat or a log line.
+     */
+    dateOfBirth?: string;
+    /**
+     * The age as typed before 129. Kept while there is no date of birth, and
+     * set to the age a date of birth gives on the day it is entered, for
+     * builds before 129 that read only this. A date of birth wins whenever
+     * there is one; one is never guessed from this.
+     */
     age?: number;
     /** One of the Float Plan's roles — Skipper, First mate, Navigator, Engineer, Cook, Deckhand, Crew, Guest, Child. */
     rank?: string;
@@ -27,6 +44,8 @@ export interface VesselProfile {
     name: string;
     type: 'sail' | 'power' | 'observer';
     model?: string;
+    /** Owner-entered equipment only. Explicit null clears this field in fleet JSON merge patches. */
+    marineRadar?: MarineRadarEquipment | null;
     riggingType?: 'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other';
     length: number;
     beam: number;
@@ -53,11 +72,18 @@ export interface VesselProfile {
     maxWaveHeight: number;
     maxWindSpeed?: number;
     cruisingSpeed: number;
+    /** True wind below which passage routing uses the engine, in knots. 0 means no light-air threshold. */
+    minWindSpeed?: number;
+    /** Passage routing speed under engine, knots. Unset uses cruising speed. */
+    motoringSpeed?: number;
     /** Stored in US gallons; vesselUnits.volume controls display/input only. */
     fuelCapacity?: number;
     /** Stored in US gallons; vesselUnits.volume controls display/input only. */
     waterCapacity?: number;
+    /** Litres per hour under engine. A zero or missing value is unknown. */
     fuelBurn?: number;
+    /** Percentage of tank capacity held in reserve for route fuel estimates (default 20). */
+    fuelReservePct?: number;
     hullColor?: string;
     registration?: string;
     mmsi?: string;
@@ -70,7 +96,8 @@ export interface VesselProfile {
      * the skipper types them once (Shane 2026-09-09: "the same amount of area
      * to add a punters name and age and rank … those names should auto xfer
      * across to the float plan"). Rows beyond crewCount are ignored; empty
-     * names are skipped when the Float Plan seeds its persons roster.
+     * names are skipped when the Float Plan seeds its persons roster. A date
+     * of birth in place of the age since 129-14 (VesselCrewPerson).
      */
     crewRoster?: VesselCrewPerson[];
     customIconUrl?: string;
@@ -271,7 +298,13 @@ export interface MaintenanceTask {
 export interface MaintenanceHistory {
     id: string;
     user_id: string;
-    task_id: string;
+    /**
+     * Null once its task is deleted, when the server keeps the record (131-B7,
+     * the held migration 20261015120000): task_title then names the task.
+     */
+    task_id: string | null;
+    /** The task's name, written onto the record as the task was deleted (131-B7); absent before that. */
+    task_title?: string | null;
     completed_at: string;
     engine_hours_at_service: number | null;
     notes: string | null;

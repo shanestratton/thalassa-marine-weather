@@ -15,13 +15,14 @@
 import { supabase } from '../supabase';
 import { withTimeout } from '../../utils/deadline';
 import { createLogger } from '../../utils/createLogger';
+import { isSeaCellForecast } from './coastalProvenance';
+import { projectCoarseForecast, publishedRawModel, publishedStorageModel, quarterCellId } from './wxPublishedContract';
 
 const log = createLogger('wxPublished');
 
 /** SW-corner 0.25° cell, ×100 — '-2725_15300' for (-27.21, 153.06). */
 export function cellIdFor(lat: number, lon: number): string {
-    const snap = (v: number) => Math.round(Math.floor(v / 0.25) * 25); // ×100 of the 0.25° floor
-    return `${snap(lat)}_${snap(lon)}`;
+    return quarterCellId(lat, lon);
 }
 
 const ANNOUNCE_KEY = 'thalassa_wx_cell_announced_v1';
@@ -67,6 +68,7 @@ const READ_BUDGET_MS = 2_500;
 export interface PublishedForecast {
     payload: unknown; // Open-Meteo-response-shaped; parsed by the existing parser
     runAt: string;
+    sampling?: 'quarter-degree-cell';
 }
 
 /** The published forecast for this cell+model, or null (absent, stale, slow,
@@ -83,7 +85,7 @@ export async function fetchPublishedForecast(
                 .from('wx_point_forecasts')
                 .select('payload, run_at')
                 .eq('cell_id', cellIdFor(lat, lon))
-                .eq('model', model)
+                .eq('model', publishedStorageModel(model))
                 .maybeSingle()
                 .then((r) => r) as Promise<{
                 data: { payload: unknown; run_at: string } | null;
@@ -94,8 +96,14 @@ export async function fetchPublishedForecast(
         );
         if (!result || result.error || !result.data) return null;
         const age = Date.now() - Date.parse(result.data.run_at);
-        if (!Number.isFinite(age) || age > MAX_PUBLISHED_AGE_MS) return null;
-        return { payload: result.data.payload, runAt: result.data.run_at };
+        if (!Number.isFinite(age) || age < 0 || age > MAX_PUBLISHED_AGE_MS) return null;
+        if (publishedStorageModel(model) !== model) {
+            const payload = projectCoarseForecast(result.data.payload, model, lat, lon, result.data.run_at);
+            return payload ? { payload, runAt: result.data.run_at, sampling: 'quarter-degree-cell' } : null;
+        }
+        return isSeaCellForecast(result.data.payload, model, lat, lon)
+            ? { payload: result.data.payload, runAt: result.data.run_at }
+            : null;
     } catch (e) {
         log.warn('published forecast read failed:', (e as Error)?.message || e);
         return null;
@@ -128,10 +136,15 @@ export async function listPublishedModels(lat: number, lon: number): Promise<str
         );
         if (!result || result.error || !result.data) return hit?.models ?? [];
         const fresh = result.data
-            .filter((r) => Date.now() - Date.parse(r.run_at) <= MAX_PUBLISHED_AGE_MS)
-            .map((r) => r.model);
-        modelsCache.set(cell, { models: fresh, at: Date.now() });
-        return fresh;
+            .filter((r) => {
+                const age = Date.now() - Date.parse(r.run_at);
+                return Number.isFinite(age) && age >= 0 && age <= MAX_PUBLISHED_AGE_MS;
+            })
+            .map((r) => (typeof r.model === 'string' ? publishedRawModel(r.model) : null))
+            .filter((model): model is string => model !== null);
+        const models = [...new Set(fresh)];
+        modelsCache.set(cell, { models, at: Date.now() });
+        return models;
     } catch {
         return hit?.models ?? [];
     }

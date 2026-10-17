@@ -3,7 +3,7 @@
  *
  * Moved verbatim out of components/CrewManagement.tsx.
  */
-import { loadSavedTraces } from '../../services/routeTracer';
+import { loadSavedTraces } from '../../services/savedTraceStore';
 import { type Voyage } from '../../services/VoyageService';
 
 /**

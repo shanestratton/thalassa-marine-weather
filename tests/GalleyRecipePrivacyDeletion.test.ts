@@ -156,7 +156,8 @@ vi.mock('../services/ProfilePhotoService', () => ({
     compressImage: vi.fn(async (value: Blob) => value),
 }));
 
-vi.mock('../utils/createLogger', () => ({
+vi.mock('../utils/createLogger', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/createLogger')>()),
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 

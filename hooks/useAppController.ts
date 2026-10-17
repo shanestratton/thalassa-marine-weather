@@ -23,6 +23,7 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import { writeScopedNativeDiagnostic } from '../services/nativeDiagnostic';
+import { useAutoNight } from './useAutoNight';
 // Sample/dummy location data removed 2026-05-17 — painting Sydney
 // weather for a Brisbane user (or Newport for a Boston user) is
 // actively misleading on a marine app, where mistaking demo
@@ -96,6 +97,8 @@ async function resolveMapPick(
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+const mobileLandscapeNow = () =>
+    typeof window !== 'undefined' && window.innerHeight < 500 && window.innerWidth > window.innerHeight;
 
 function hasScopedFlag(key: string, scope: AuthIdentityScope): boolean {
     try {
@@ -175,7 +178,7 @@ export const useAppController = () => {
     const [sheetData, setSheetData] = useState<any>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
-    const [isMobileLandscape, setIsMobileLandscape] = useState(false);
+    const [isMobileLandscape, setIsMobileLandscape] = useState(mobileLandscapeNow);
 
     const gpsBootScopeRef = React.useRef<string | null>(null);
 
@@ -488,9 +491,9 @@ export const useAppController = () => {
     // 4. Mobile Landscape Detection
     useEffect(() => {
         const checkOrientation = () => {
-            const isLandscape = window.matchMedia('(orientation: landscape)').matches;
-            const isShort = window.innerHeight < 500; // Typical mobile landscape height
-            setIsMobileLandscape(isLandscape && isShort);
+            // Read one viewport snapshot: WebKit can deliver resize before the
+            // orientation media query changes, briefly retaining the tall header.
+            setIsMobileLandscape(mobileLandscapeNow());
         };
         checkOrientation();
         window.addEventListener('resize', checkOrientation);
@@ -836,8 +839,15 @@ export const useAppController = () => {
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
 
     // Calculate Display Mode
+    // 'Auto with night' (131-03) is Auto, plus Night from nautical dusk to
+    // dawn at the forecast location. Null in every other mode.
+    const autoNight = useAutoNight(
+        settings.displayMode === 'auto-night',
+        weatherData?.coordinates,
+        weatherData?.timeZone,
+    );
     let effectiveMode: DisplayMode = settings.displayMode;
-    if (settings.displayMode === 'auto') {
+    if (settings.displayMode === 'auto' || settings.displayMode === 'auto-night') {
         const now = new Date();
         let isNight = false;
         if (weatherData && weatherData.coordinates) {
@@ -854,6 +864,7 @@ export const useAppController = () => {
         }
         effectiveMode = isNight ? 'dark' : 'light';
     }
+    if (autoNight?.night) effectiveMode = 'night';
 
     return {
         query,

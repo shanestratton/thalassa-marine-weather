@@ -153,6 +153,10 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(PiTlsPlugin())
         bridge?.registerPluginInstance(BarometerPlugin())
         bridge?.registerPluginInstance(MemoryGaugePlugin())
+        bridge?.registerPluginInstance(GribDocumentPlugin())
+        bridge?.registerPluginInstance(ObservationHttpPlugin())
+        bridge?.registerPluginInstance(NmeaUdpPlugin())
+        bridge?.registerPluginInstance(SignalKReaderPlugin())
         bridge?.registerPluginInstance(NetworkInterfacesPlugin())
         bridge?.registerPluginInstance(NfcTagPlugin())
         // SshClientPlugin not added yet: its .swift/.m files exist on

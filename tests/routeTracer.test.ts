@@ -23,10 +23,7 @@ import {
     tracerResolutionM,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
-    loadSavedTraces,
     reverseRouteName,
-    saveTrace,
-    deleteTrace,
     snapTraceTapToLead,
     splitLegForDepthGrid,
     mergeSubLegVerdicts,
@@ -40,6 +37,7 @@ import {
     LEG_VERDICTS_KEY,
     type TracerContext,
 } from '../services/routeTracer';
+import { loadSavedTraces, saveTrace, deleteTrace } from '../services/savedTraceStore';
 import { authScopedStorageKey } from '../services/authIdentityScope';
 import { clearAllCellMetadata, putCell } from '../services/enc/EncCellMetadata';
 import { purgeChartFactsOnDisk, TRACE_LAND_CROSSING_MESSAGE } from '../services/chartFacts';

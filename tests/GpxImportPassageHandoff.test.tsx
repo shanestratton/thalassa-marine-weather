@@ -14,22 +14,35 @@ vi.mock('../context/UIContext', () => ({
 }));
 vi.mock('../services/gpxService', () => ({
     readGPXFile: vi.fn().mockResolvedValue('<gpx><rte /></gpx>'),
-    importGPXToEntries: vi.fn(() => [
-        {
-            entryType: 'waypoint',
-            latitude: -27.5,
-            longitude: 153.1,
-            timestamp: '2026-07-24T00:00:00.000Z',
-            cumulativeDistanceNM: 0,
-        },
-        {
-            entryType: 'waypoint',
-            latitude: -27.3,
-            longitude: 153.4,
-            timestamp: '2026-07-24T01:00:00.000Z',
-            cumulativeDistanceNM: 20,
-        },
-    ]),
+    // The page reads tracks through parseGPXTrack since 132-B21.
+    GPX_IMPORT_MAX_TRACK_POINTS: 5_000,
+    parseGPXTrack: vi.fn(() => ({
+        entries: [
+            {
+                entryType: 'waypoint',
+                latitude: -27.5,
+                longitude: 153.1,
+                timestamp: '2026-07-24T00:00:00.000Z',
+            },
+            {
+                entryType: 'waypoint',
+                latitude: -27.3,
+                longitude: 153.4,
+                timestamp: '2026-07-24T01:00:00.000Z',
+            },
+        ],
+        trackPoints: 0,
+        savedTrackPoints: 0,
+        segments: 0,
+        untimedTrackPoints: 0,
+        untimedWaypoints: 0,
+        skippedPoints: 0,
+        firstTimeMs: null,
+        lastTimeMs: null,
+        totalDistanceNM: 0,
+        bounds: { minLat: -27.5, maxLat: -27.3, minLon: 153.1, maxLon: 153.4 },
+        fallbackDate: null,
+    })),
     extractGPXRouteWaypoints: vi.fn(() => ({
         routeName: 'Moreton Bay Run',
         origin: { lat: -27.5, lon: 153.1, name: 'Manly' },
@@ -51,6 +64,8 @@ vi.mock('../services/passageHandoff', () => ({
 }));
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => mocks.scope,
+    isAuthIdentityScopeCurrent: () => true,
+    subscribeAuthIdentityScope: () => () => undefined,
 }));
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),

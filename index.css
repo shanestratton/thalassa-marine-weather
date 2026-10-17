@@ -1571,31 +1571,6 @@ body,
     animation: pageEnter 200ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* ── Leaflet MarkerCluster Overrides ── */
-.custom-cluster-icon {
-    background: transparent !important;
-    border: none !important;
-}
-
-.marker-cluster-small,
-.marker-cluster-medium,
-.marker-cluster-large {
-    background: transparent !important;
-}
-
-.marker-cluster-small div,
-.marker-cluster-medium div,
-.marker-cluster-large div {
-    background: transparent !important;
-}
-
-.leaflet-cluster-anim .leaflet-marker-icon,
-.leaflet-cluster-anim .leaflet-marker-shadow {
-    transition:
-        transform 0.25s ease-out,
-        opacity 0.25s ease-out !important;
-}
-
 /* ── Reduced Motion — WCAG 2.1 SC 2.3.3 ──
    Disables ALL motion for users who request it via OS settings.
    Covers Tailwind's animate-* utilities + custom keyframes. */
@@ -3206,10 +3181,8 @@ body,
    surface is white, so the content must own an explicit dark surface. */
 /* Popups always ride ABOVE the overlay canvases — Shane 2026-08-25: wind
    streaks were painting straight over the anchorage verdict card. The
-   velocity overlay div sits at z-index 400 inside the map container (its
-   internal Leaflet panes are scoped by its own stacking context), the
-   Leaflet wind canvas at 5; a popup the punter opened is the top of the
-   map's information order, full stop. */
+   wind canvas sits at z-index 400 inside the map container. An opened popup
+   stays above the field. */
 .mapboxgl-popup {
     z-index: 500;
 }
@@ -3672,117 +3645,6 @@ body,
     }
 }
 
-/* Leaflet's upstream `plus-lighter` / `-webkit-optimize-contrast` tile
-   workarounds can turn a fractional iOS WebKit tile join into a bright,
-   ruler-straight horizontal seam across satellite imagery. Keep ordinary
-   interpolation and source compositing inside Ship's Log maps so both the
-   opaque satellite base and transparent seamark grid meet cleanly. */
-.thalassa-log-leaflet-map.leaflet-container img.leaflet-tile {
-    image-rendering: auto;
-    mix-blend-mode: normal;
-}
-
-/* ── Ship's Log Leaflet chrome ─────────────────────────────────────
-   Leaflet ships 2011 web-map furniture: a solid white attribution pill,
-   blue underlined links, white popups, and a pale-grey container that
-   flashes before tiles land — all floating over a dark marine app
-   (Shane 2026-08-12: "the leaflet layout is ugly"). Everything below is
-   scoped to the Log maps. The OSM / OpenSeaMap / Mapbox attribution
-   REMAINS legible — it is a licence condition — restyled, never removed. */
-.thalassa-log-leaflet-map.leaflet-container {
-    background: #0b1220; /* pre-tile void matches the app, not leaflet's #ddd */
-    font-family: inherit;
-}
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution {
-    background: rgba(2, 6, 23, 0.55);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    color: rgba(148, 163, 184, 0.85);
-    font-size: 12px; /* the app's 12 px text floor: 9 px was unreadable (UX scorecard run 6) */
-    font-weight: 600;
-    line-height: 1.6;
-    letter-spacing: 0.02em;
-    padding: 2px 8px;
-    border: none;
-    border-radius: 8px 0 0 0;
-    box-shadow: none;
-}
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution a {
-    color: rgba(125, 211, 252, 0.8);
-    text-decoration: none;
-}
-/* ── Compact attribution — the ⓘ button ──────────────────────────
-   Mapbox GL's compact-attribution pattern applied to Leaflet: collapsed
-   to a small ⓘ circle, the full OSM / OpenSeaMap / Mapbox credit line one
-   tap away (toggle wired in components/map/leafletCompactAttribution.ts).
-   This satisfies the tile licences — credits are collapsed, never removed;
-   MapAttributionContract.test.ts blesses hiding vocabulary ONLY inside this
-   `:not(.is-open)` rule and requires the `.is-open` restore to exist. */
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact:not(.is-open) {
-    position: relative;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    margin: 0 6px 6px 0;
-    border-radius: 9999px;
-    overflow: hidden;
-    cursor: pointer;
-    font-size: 0; /* collapses the credit text; .is-open below restores it */
-}
-.thalassa-log-leaflet-map.leaflet-container
-    .leaflet-control-attribution.thalassa-attribution-compact:not(.is-open)::after {
-    content: 'i';
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: Georgia, 'Times New Roman', serif;
-    font-style: italic;
-    font-weight: 700;
-    font-size: 13px;
-    line-height: 1;
-    color: rgba(148, 163, 184, 0.9);
-}
-.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact.is-open {
-    font-size: 12px; /* the restore: full credit line, tap again to collapse */
-    cursor: pointer;
-}
-.thalassa-log-leaflet-map .leaflet-popup-content-wrapper {
-    background: rgba(15, 23, 42, 0.92);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    color: #e2e8f0;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-}
-.thalassa-log-leaflet-map .leaflet-popup-content {
-    margin: 10px 12px;
-    font-size: 12px;
-    line-height: 1.5;
-}
-.thalassa-log-leaflet-map .leaflet-popup-tip {
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: none;
-}
-.thalassa-log-leaflet-map a.leaflet-popup-close-button {
-    color: rgba(148, 163, 184, 0.8);
-}
-/* Soft inner vignette so the imagery reads as sitting IN its card rather
-   than pasted on top. Above tiles/overlays (z ~200-600), below the popup
-   pane (700) and controls (1000); inherits the card's rounding. */
-.thalassa-log-leaflet-map::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: 650;
-    pointer-events: none;
-    border-radius: inherit;
-    box-shadow: inset 0 0 28px rgba(2, 6, 23, 0.55);
-}
-
 /* ── The Log page's Mapbox maps (125-13a, logMap.ts) ───────────────
    The little map left Leaflet for Mapbox GL on Relief + Sat. The same soft
    inner vignette as the Leaflet maps above, so the imagery sits IN its card:
@@ -3899,7 +3761,83 @@ body,
    above, and deliberately next to it: these two must move together, and a
    constant in the TS file could not track the safe-area inset at all. */
 .storm-hud-badges {
-    top: calc(97px + env(safe-area-inset-top) / 2);
+    /* Under a threat chip that is showing (ThreatBanner sets the variable on
+       the chart's box): one measured stack, never overlapping (129-13). */
+    top: max(calc(97px + env(safe-area-inset-top) / 2), calc(var(--thalassa-threat-chip-bottom, 0px) + 8px));
+    /* Clear of the helm rail: its right edge, the wider of MOB (52px) and
+       the layers button (3rem, which grows with large text), 8px between.
+       The card runs no further (Shane 2026-10-14: it ran under MOB). */
+    right: calc(max(16px, env(safe-area-inset-right)) + max(52px, 3rem) + 8px);
+}
+
+/* ── Clear view on Obs (129-13) ────────────────────────────────────
+   Shane 2026-10-14: "We need a way to clear everything off the screen so we
+   can actually see the screen." useObsClearView sets data-obs-clear-view on
+   the chart's frame (MapHub) and, outside split view, a class on <html> for
+   the tab bar.
+
+   Hidden: every control over the chart, i.e. the frame's children but the
+   chart itself, inside the chart the storm card and the scale bar, and the
+   chart page's own corner controls App.tsx draws beside the frame (the
+   status and Calypso buttons, the offline chip: [data-obs-chrome]).
+   Stays: the chart and all that is drawn on it (the wind, storms, AIS, her
+   own boat, the place pin, the cyclone feed's "unavailable" line), anything
+   marked data-clear-view-keep (MOB, the scrubber and its pill, an urgent
+   threat chip, the clear view's own line), and every licence credit:
+   [data-map-credit], and Mapbox's own corner containers, which are inside
+   the chart and never named here.
+
+   visibility, not display: nothing moves, so the map never resizes, and a
+   kept control inside a hidden one (MOB in the helm menu, the storm's
+   credits in its card) still shows and still takes its taps. A hidden
+   element takes none. */
+[data-obs-clear-view='on'] > :not(.thalassa-chart-map, [data-clear-view-keep], [data-map-credit]),
+[data-obs-clear-view='on'] > .thalassa-chart-map > .storm-hud-badges,
+[data-obs-clear-view='on'] > .thalassa-chart-map .mapboxgl-ctrl-scale,
+main:has([data-obs-clear-view='on']) [data-obs-chrome],
+html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
+    visibility: hidden;
+}
+[data-obs-clear-view='on'] :is([data-clear-view-keep], [data-map-credit]) {
+    visibility: visible;
+}
+/* The storm's credits without their card behind them: a backing of their own. */
+[data-obs-clear-view='on'] .storm-hud-badges [data-map-credit] {
+    width: fit-content;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgb(2 6 23 / 0.75);
+}
+/* A 150 ms fade out (a box holding a kept control just goes); none under
+   reduced motion. Coming back, the chips replay their own entrance. */
+@keyframes obs-clear-out {
+    from {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    to {
+        opacity: 0;
+        visibility: hidden;
+    }
+}
+[data-obs-clear-view='on']
+    > :not(.thalassa-chart-map, [data-clear-view-keep], [data-map-credit]):not(
+        :has([data-clear-view-keep], [data-map-credit])
+    ),
+main:has([data-obs-clear-view='on']) [data-obs-chrome],
+html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
+    animation: obs-clear-out 150ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+    [data-obs-clear-view='on']
+        > :not(.thalassa-chart-map, [data-clear-view-keep], [data-map-credit]):not(
+            :has([data-clear-view-keep], [data-map-credit])
+        ),
+    main:has([data-obs-clear-view='on']) [data-obs-chrome],
+    html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
+        animation: none;
+    }
 }
 
 /* ── Chart map credits must clear the bottom tab bar ───────────────
@@ -4152,6 +4090,13 @@ body,
    chart's Back chevron went in Release 118, and the one-handed zoom buttons
    now sit on the right at this height (UX scorecard run 7). */
 @media (orientation: portrait) and (max-width: 360px) {
+    .thalassa-offline-area-download {
+        /* The compact right rail contains MOB at this height. This left
+           slot clears the tide controls above and the coverage notice below. */
+        top: 200px;
+        left: max(12px, env(safe-area-inset-left));
+        right: auto;
+    }
     .thalassa-enc-tide-badge {
         left: 12px;
         max-width: calc(100% - 100px);
@@ -4625,16 +4570,27 @@ main:has(.thalassa-chart-controls-panel)
    pressed. Bounded instead, like every panel over the chart: it ends 8px above
    the bar and scrolls, rows and text unchanged. Above it: the trigger's 8px
    top offset, its h-12 (3rem) and the menu's mt-2 (0.5rem), all fluid with the
-   root font. */
+   root font. The selector's flex column also pays its actual map-frame height:
+   a split pane starts below the app header, so 100dvh alone lets a longer menu
+   run under the tab bar. Keep the trigger whole and shrink only the scroller. */
+.thalassa-map-base-selector {
+    max-height: calc(100% - env(safe-area-inset-top) - 16px - 4rem - 1px - env(safe-area-inset-bottom));
+}
 .thalassa-map-base-menu {
     max-height: calc(100dvh - env(safe-area-inset-top) - 16px - 3.5rem - 4rem - 1px - env(safe-area-inset-bottom));
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+    /* Native keyboard focus must clear the border and rounded clipping edge. */
+    scroll-padding-block: 0.5rem;
 }
 @media (orientation: landscape) and (max-height: 500px) {
     /* The bar folded away: keep the credits band clear instead. */
     :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-base-menu {
         max-height: calc(100dvh - env(safe-area-inset-top) - 16px - 3.5rem - var(--thalassa-chart-credits-bottom));
+    }
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-base-selector {
+        max-height: calc(100% - env(safe-area-inset-top) - 16px - var(--thalassa-chart-credits-bottom));
     }
 }
 
@@ -5124,6 +5080,13 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
        (its toggle's nav is then labelled 'Navigation toggle'), and these
        lowered positions put Locate under it and the scale into the ENC
        notice's band (UX scorecard run 7). The defaults already clear it. */
+    .thalassa-offline-area-download {
+        /* The right rail contains attribution here. The top row has a free
+           slot after the zoom readout, clear of the central base picker. */
+        top: 8px;
+        left: calc(max(16px, env(safe-area-inset-left)) + 112px);
+        right: auto;
+    }
     :root:not(:has(nav[aria-label='Navigation toggle'])) {
         --thalassa-chart-credits-bottom: calc(env(safe-area-inset-bottom) + 60px);
     }
@@ -5407,9 +5370,15 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
         right: 80px !important;
     }
 
-    /* MOB's landscape anchor is the menu's own top, so match it literally. */
+    /* MOB's landscape anchor is the menu's own top, so match it literally;
+       MOB stands 80px in from the menu's edge here, so the card stops 8px
+       short of its 52px. */
     .storm-hud-badges {
-        top: max(64px, calc(env(safe-area-inset-top) + 52px)) !important;
+        top: max(
+            max(64px, calc(env(safe-area-inset-top) + 52px)),
+            calc(var(--thalassa-threat-chip-bottom, 0px) + 8px)
+        ) !important;
+        right: calc(max(16px, env(safe-area-inset-right)) + 140px) !important;
     }
 
     .radial-helm-layer-grid {
@@ -5699,6 +5668,9 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-emerald-300\/80 {
     color: rgb(4 120 87 / 0.9);
 }
+.display-light .text-emerald-300\/90 {
+    color: #065f46;
+}
 .display-light .text-emerald-50 {
     color: rgb(4 120 87);
 }
@@ -5783,6 +5755,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-red-50 {
     color: rgb(185 28 28);
 }
+.display-light .text-rose-100,
 .display-light .text-rose-300 {
     color: rgb(190 18 60);
 }

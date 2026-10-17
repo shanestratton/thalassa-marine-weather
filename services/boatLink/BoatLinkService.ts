@@ -23,6 +23,7 @@
  * GPS. The phone's fix is whatever a screen's passive watch last delivered,
  * or the one kept across a relaunch.
  */
+import { readSignalKDeviceConfig } from '../signalk/config';
 import { NmeaStore, type NmeaStoreState } from '../NmeaStore';
 import { NmeaListenerService, type NmeaConnectionInfo } from '../NmeaListenerService';
 import { NMEA_USABLE_MAX_AGE_MS } from '../nmea/nmeaCadence';
@@ -322,6 +323,7 @@ class BoatLinkServiceClass {
                 piPaired,
                 gatewaySaved,
                 gatewayLabel: gatewayShortName(info.deviceId, info.deviceLabel),
+                signalkConfigured: readSignalKDeviceConfig()?.selected === true,
             },
             socket: { status: socketStatus, owner: socketOwner },
             last,
@@ -390,6 +392,27 @@ class BoatLinkServiceClass {
      */
     phoneStandsInForBoat(now = Date.now()): boolean {
         return this.evaluate(now).phoneStandsInForBoat;
+    }
+
+    /**
+     * What the aboard instruments-silent alarm reads (129-08): where this
+     * phone is, whether the boat's data is live, and the last live reading
+     * with the lane it came down.
+     */
+    boatFeedFacts(now = Date.now()): {
+        where: Where;
+        live: boolean;
+        lastLive: { at: number; lane: Exclude<Lane, 'signalk'> } | null;
+    } {
+        const snapshot = this.evaluate(now);
+        return {
+            where: snapshot.where,
+            live: snapshot.lane !== 'signalk' && snapshot.data.state === 'live',
+            lastLive:
+                this.lastReading && this.lastReading.lane !== 'signalk'
+                    ? { at: this.lastReading.at, lane: this.lastReading.lane }
+                    : null,
+        };
     }
 
     /** Tests only. */
@@ -554,7 +577,7 @@ class BoatLinkServiceClass {
         if (state.connectionStatus === 'connected') return 'own';
         const remote = state.connectionStatus === 'remote' ? state.remote : null;
         if (!remote) return null;
-        return remote.via === 'lan' ? this.piBoatKey() : this.cloudBoatKey();
+        return remote.via === 'signalk' ? 'own' : remote.via === 'lan' ? this.piBoatKey() : this.cloudBoatKey();
     }
 
     private ownerKey(ownerId: string | null | undefined): BoatKey {

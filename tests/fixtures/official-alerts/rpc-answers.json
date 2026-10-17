@@ -1,0 +1,1056 @@
+{
+    "about": "Fictional official_alerts_at(lat, lon) answers (129-05's RPC shape) for 129-06's Warnings page, Glass count and layout fixture (nearby: a marine warning matched within 3 NM of a berth; offzone: a warning outside every listed issuer's coverage, with a column-aligned table). Times are anchored at 2026-10-14T12:00:00Z; the e2e fixture shifts them to now. No real warning: every name with Zz, 架空, fictional, fictif, test or وهمي/בדיוני/φανταστικό in it is invented.",
+    "anchor": "2026-10-14T12:00:00Z",
+    "answers": {
+        "inforce": {
+            "lat": 39.1,
+            "lon": -76.4,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:57:00Z",
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "identifier": "urn:oid:2.49.0.1.840.0.zz0102.001.1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T11:05:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T11:05:00Z",
+                    "onset": "2026-10-14T11:05:00Z",
+                    "expires": "2026-10-14T12:45:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "en-US",
+                            "category": ["Met"],
+                            "event": "Special Marine Warning",
+                            "urgency": "Immediate",
+                            "severity": "Moderate",
+                            "certainty": "Observed",
+                            "effective": "2026-10-14T11:05:00Z",
+                            "onset": "2026-10-14T11:05:00Z",
+                            "expires": "2026-10-14T12:45:00Z",
+                            "ends": null,
+                            "senderName": "NWS Zzbaytown MD",
+                            "headline": "Special Marine Warning issued October 14 at 7:05AM EDT until October 14 at 8:45AM EDT by NWS Zzbaytown MD",
+                            "description": "The National Weather Service in Zzbaytown has issued a\n\n* Special Marine Warning for...\n  Fictional Bay from Zz Point to Zz Island...\n\n* Until 845 AM EDT.\n\n* At 704 AM EDT, a fictional thunderstorm was over Fictional Bay, moving east at 25 knots.\n\nHAZARD...Wind gusts 34 knots or greater.\n\nSOURCE...Radar indicated (test text).",
+                            "instruction": "Boaters should seek safe harbor immediately until this storm passes (fictional).",
+                            "web": "https://www.weather.gov/",
+                            "contact": null,
+                            "responseType": ["Shelter"],
+                            "areaDesc": ["Fictional Bay from Zz Point to Zz Island"],
+                            "parameters": [
+                                {
+                                    "valueName": "VTEC",
+                                    "value": "/O.NEW.KZZZ.MA.W.0042.261014T1105Z-261014T1245Z/"
+                                },
+                                {
+                                    "valueName": "maxWindGust",
+                                    "value": "40 knots"
+                                }
+                            ],
+                            "eventCodes": [
+                                {
+                                    "valueName": "SAME",
+                                    "value": "SMW"
+                                },
+                                {
+                                    "valueName": "NationalWeatherService",
+                                    "value": "SMW"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/"
+                },
+                {
+                    "provider": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "identifier": "urn:oid:2.49.0.1.840.0.zz0101.001.1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T06:32:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T06:32:00Z",
+                    "onset": "2026-10-14T10:00:00Z",
+                    "expires": "2026-10-14T22:00:00Z",
+                    "matched_by": "zone",
+                    "infos": [
+                        {
+                            "language": "en-US",
+                            "category": ["Met"],
+                            "event": "Small Craft Advisory",
+                            "urgency": "Expected",
+                            "severity": "Minor",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T06:32:00Z",
+                            "onset": "2026-10-14T10:00:00Z",
+                            "expires": "2026-10-14T22:00:00Z",
+                            "ends": null,
+                            "senderName": "NWS Zzbaytown MD",
+                            "headline": "Small Craft Advisory issued October 14 at 2:32AM EDT until October 14 at 6:00PM EDT by NWS Zzbaytown MD",
+                            "description": "* WHAT...South winds 15 to 20 kt with gusts up to 25 kt and waves 3 to 4 ft (fictional).\n\n* WHERE...Fictional Bay from Zz Point to Zz Island and the Zz River.\n\n* WHEN...Until 6 PM EDT this evening.\n\n* IMPACTS...Conditions will be hazardous to small craft. This sentence is test text, and the next one is too, so that the description runs past the fold: a skipper reads every word of an official warning, and none of it is cut short without a control that says there is more. THE LAST WORDS OF THE FICTIONAL ADVISORY.",
+                            "instruction": "Inexperienced mariners, especially those operating smaller vessels,\nshould avoid navigating in these conditions (fictional).",
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": ["Fictional Bay from Zz Point to Zz Island"],
+                            "parameters": [
+                                {
+                                    "valueName": "VTEC",
+                                    "value": "/O.NEW.KZZZ.SC.Y.0101.261014T1000Z-261014T2200Z/"
+                                }
+                            ],
+                            "eventCodes": [
+                                {
+                                    "valueName": "SAME",
+                                    "value": "NWS"
+                                },
+                                {
+                                    "valueName": "NationalWeatherService",
+                                    "value": "SCY"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/"
+                }
+            ]
+        },
+        "expired": {
+            "lat": 39.1,
+            "lon": -76.4,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:57:00Z",
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "identifier": "urn:oid:2.49.0.1.840.0.zz0103.001.1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T06:32:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T06:32:00Z",
+                    "onset": "2026-10-14T10:00:00Z",
+                    "expires": "2026-10-14T11:00:00Z",
+                    "matched_by": "zone",
+                    "infos": [
+                        {
+                            "language": "en-US",
+                            "category": ["Met"],
+                            "event": "Small Craft Advisory",
+                            "urgency": "Expected",
+                            "severity": "Minor",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T06:32:00Z",
+                            "onset": "2026-10-14T10:00:00Z",
+                            "expires": "2026-10-14T11:00:00Z",
+                            "ends": null,
+                            "senderName": "NWS Zzbaytown MD",
+                            "headline": "Small Craft Advisory issued October 14 at 2:32AM EDT until October 14 at 6:00PM EDT by NWS Zzbaytown MD",
+                            "description": "* WHAT...South winds 15 to 20 kt with gusts up to 25 kt and waves 3 to 4 ft (fictional).\n\n* WHERE...Fictional Bay from Zz Point to Zz Island and the Zz River.\n\n* WHEN...Until 6 PM EDT this evening.\n\n* IMPACTS...Conditions will be hazardous to small craft. This sentence is test text, and the next one is too, so that the description runs past the fold: a skipper reads every word of an official warning, and none of it is cut short without a control that says there is more. THE LAST WORDS OF THE FICTIONAL ADVISORY.",
+                            "instruction": "Inexperienced mariners, especially those operating smaller vessels,\nshould avoid navigating in these conditions (fictional).",
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": ["Fictional Bay from Zz Point to Zz Island"],
+                            "parameters": [
+                                {
+                                    "valueName": "VTEC",
+                                    "value": "/O.NEW.KZZZ.SC.Y.0101.261014T1000Z-261014T2200Z/"
+                                }
+                            ],
+                            "eventCodes": [
+                                {
+                                    "valueName": "SAME",
+                                    "value": "NWS"
+                                },
+                                {
+                                    "valueName": "NationalWeatherService",
+                                    "value": "SCY"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/"
+                }
+            ]
+        },
+        "clear": {
+            "lat": 39.1,
+            "lon": -76.4,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:57:00Z",
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": []
+        },
+        "partial": {
+            "lat": 39.1,
+            "lon": -76.4,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "partial",
+            "unplaced": 2,
+            "providers": [
+                {
+                    "id": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:57:00Z",
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/",
+                    "unplaced": 2,
+                    "unplaced_newest": {
+                        "identifier": "urn:oid:2.49.0.1.840.0.zz0104.001.1",
+                        "event": "Gale Warning",
+                        "areas": ["Fictional Sound out 20 NM"]
+                    }
+                }
+            ],
+            "alerts": []
+        },
+        "unavailable": {
+            "lat": 44.6,
+            "lon": -63.5,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "unavailable",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "eccc",
+                    "issuer": "Environment and Climate Change Canada",
+                    "state": "unavailable",
+                    "since": "2026-10-14T09:10:00Z",
+                    "last_success_at": "2026-10-14T09:05:00Z",
+                    "attribution": "Contains information licenced under the Data Server End-use Licence of Environment and Climate Change Canada",
+                    "attribution_url": "https://eccc-msc.github.io/open-data/licence/readme_en/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": []
+        },
+        "mixed": {
+            "lat": 45.0,
+            "lon": -67.0,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "unavailable",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "eccc",
+                    "issuer": "Environment and Climate Change Canada",
+                    "state": "unavailable",
+                    "since": "2026-10-14T09:10:00Z",
+                    "last_success_at": "2026-10-14T09:05:00Z",
+                    "attribution": "Contains information licenced under the Data Server End-use Licence of Environment and Climate Change Canada",
+                    "attribution_url": "https://eccc-msc.github.io/open-data/licence/readme_en/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                },
+                {
+                    "id": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:57:00Z",
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "identifier": "urn:oid:2.49.0.1.840.0.zz0101.001.1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T06:32:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T06:32:00Z",
+                    "onset": "2026-10-14T10:00:00Z",
+                    "expires": "2026-10-14T22:00:00Z",
+                    "matched_by": "zone",
+                    "infos": [
+                        {
+                            "language": "en-US",
+                            "category": ["Met"],
+                            "event": "Small Craft Advisory",
+                            "urgency": "Expected",
+                            "severity": "Minor",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T06:32:00Z",
+                            "onset": "2026-10-14T10:00:00Z",
+                            "expires": "2026-10-14T22:00:00Z",
+                            "ends": null,
+                            "senderName": "NWS Zzbaytown MD",
+                            "headline": "Small Craft Advisory issued October 14 at 2:32AM EDT until October 14 at 6:00PM EDT by NWS Zzbaytown MD",
+                            "description": "* WHAT...South winds 15 to 20 kt with gusts up to 25 kt and waves 3 to 4 ft (fictional).\n\n* WHERE...Fictional Bay from Zz Point to Zz Island and the Zz River.\n\n* WHEN...Until 6 PM EDT this evening.\n\n* IMPACTS...Conditions will be hazardous to small craft. This sentence is test text, and the next one is too, so that the description runs past the fold: a skipper reads every word of an official warning, and none of it is cut short without a control that says there is more. THE LAST WORDS OF THE FICTIONAL ADVISORY.",
+                            "instruction": "Inexperienced mariners, especially those operating smaller vessels,\nshould avoid navigating in these conditions (fictional).",
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": ["Fictional Bay from Zz Point to Zz Island"],
+                            "parameters": [
+                                {
+                                    "valueName": "VTEC",
+                                    "value": "/O.NEW.KZZZ.SC.Y.0101.261014T1000Z-261014T2200Z/"
+                                }
+                            ],
+                            "eventCodes": [
+                                {
+                                    "valueName": "SAME",
+                                    "value": "NWS"
+                                },
+                                {
+                                    "valueName": "NationalWeatherService",
+                                    "value": "SCY"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/"
+                }
+            ]
+        },
+        "off": {
+            "lat": 43.3,
+            "lon": 5.37,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "off",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "state": "off",
+                    "since": null,
+                    "last_success_at": null,
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": []
+        },
+        "australia": {
+            "lat": -23.85,
+            "lon": 151.25,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "off",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "bom",
+                    "issuer": "Bureau of Meteorology",
+                    "state": "off",
+                    "since": null,
+                    "last_success_at": null,
+                    "attribution": "Warnings: Bureau of Meteorology",
+                    "attribution_url": "https://www.bom.gov.au/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": []
+        },
+        "none": {
+            "lat": -36.84,
+            "lon": 174.76,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "none",
+            "unplaced": 0,
+            "providers": [],
+            "alerts": []
+        },
+        "multilang": {
+            "lat": 44.6,
+            "lon": -63.5,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "eccc",
+                    "issuer": "Environment and Climate Change Canada",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:55:00Z",
+                    "attribution": "Contains information licenced under the Data Server End-use Licence of Environment and Climate Change Canada",
+                    "attribution_url": "https://eccc-msc.github.io/open-data/licence/readme_en/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "eccc",
+                    "issuer": "Environment and Climate Change Canada",
+                    "identifier": "urn:oid:2.49.0.1.124.zz0201.2026",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T10:40:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T10:40:00Z",
+                    "onset": null,
+                    "expires": "2026-10-15T04:00:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "fr-CA",
+                            "category": ["Met"],
+                            "event": "coup de vent",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": "2026-10-15T04:00:00Z",
+                            "ends": null,
+                            "senderName": "Environnement Canada (fictif)",
+                            "headline": "avertissement de coup de vent en vigueur",
+                            "description": "Vents du sud-ouest de 35 noeuds sur la baie Zz (texte fictif).",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": ["Baie Zz"],
+                            "parameters": [],
+                            "eventCodes": [
+                                {
+                                    "valueName": "profile:CAP-CP:Event:0.4",
+                                    "value": "gale"
+                                }
+                            ]
+                        },
+                        {
+                            "language": "en-CA",
+                            "category": ["Met"],
+                            "event": "gale",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": "2026-10-15T04:00:00Z",
+                            "ends": null,
+                            "senderName": "Environment Canada (fictional)",
+                            "headline": "gale warning in effect",
+                            "description": "Southwest winds of 35 knots over Zz Bay (fictional text).",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": ["Zz Bay"],
+                            "parameters": [],
+                            "eventCodes": [
+                                {
+                                    "valueName": "profile:CAP-CP:Event:0.4",
+                                    "value": "gale"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Contains information licenced under the Data Server End-use Licence of Environment and Climate Change Canada",
+                    "attribution_url": "https://eccc-msc.github.io/open-data/licence/readme_en/"
+                }
+            ]
+        },
+        "rtl": {
+            "lat": 20.0,
+            "lon": 40.0,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "fictional-cap",
+                    "issuer": "Fictional Met Service (مصلحة الأرصاد الوهمية)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Fictional Met Service, test data",
+                    "attribution_url": "https://example.org/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "fictional-cap",
+                    "issuer": "Fictional Met Service (مصلحة الأرصاد الوهمية)",
+                    "identifier": "zz-ar-1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T09:00:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:00:00Z",
+                    "onset": null,
+                    "expires": "2026-10-14T21:00:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "ar",
+                            "category": ["Met"],
+                            "event": "تحذير بحري",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": null,
+                            "ends": null,
+                            "senderName": null,
+                            "headline": "تحذير من رياح قوية في خليج زز (نص وهمي)",
+                            "description": "رياح شمالية غربية ٣٥ عقدة.\nأمواج ٣ أمتار (نص وهمي).",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": [],
+                            "parameters": [],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Fictional Met Service, test data",
+                    "attribution_url": "https://example.org/"
+                },
+                {
+                    "provider": "fictional-cap",
+                    "issuer": "Fictional Met Service (مصلحة الأرصاد الوهمية)",
+                    "identifier": "zz-he-1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T09:00:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:00:00Z",
+                    "onset": null,
+                    "expires": "2026-10-14T21:00:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "he",
+                            "category": ["Met"],
+                            "event": "אזהרה ימית",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": null,
+                            "ends": null,
+                            "senderName": null,
+                            "headline": "אזהרת רוח במפרץ זז (טקסט בדיוני)",
+                            "description": "רוח מערבית 30 קשר (טקסט בדיוני).",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": [],
+                            "parameters": [],
+                            "eventCodes": []
+                        },
+                        {
+                            "language": "en",
+                            "category": ["Met"],
+                            "event": "Marine warning",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": null,
+                            "ends": null,
+                            "senderName": null,
+                            "headline": "Wind warning for Zz Bay (fictional)",
+                            "description": "West wind 30 kt (fictional text).",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": [],
+                            "parameters": [],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Fictional Met Service, test data",
+                    "attribution_url": "https://example.org/"
+                },
+                {
+                    "provider": "fictional-cap",
+                    "issuer": "Fictional Met Service (مصلحة الأرصاد الوهمية)",
+                    "identifier": "zz-ja-1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T09:00:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:00:00Z",
+                    "onset": null,
+                    "expires": "2026-10-14T21:00:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "ja",
+                            "category": ["Met"],
+                            "event": "海上強風警報",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": null,
+                            "ends": null,
+                            "senderName": null,
+                            "headline": "架空湾に海上強風警報（架空）",
+                            "description": "西の風　最大風速３０ノット（架空の文）。",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": [],
+                            "parameters": [],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Fictional Met Service, test data",
+                    "attribution_url": "https://example.org/"
+                },
+                {
+                    "provider": "fictional-cap",
+                    "issuer": "Fictional Met Service (مصلحة الأرصاد الوهمية)",
+                    "identifier": "zz-el-1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T09:00:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:00:00Z",
+                    "onset": null,
+                    "expires": "2026-10-14T21:00:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "el",
+                            "category": ["Met"],
+                            "event": "Θυελλώδεις άνεμοι",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": null,
+                            "onset": null,
+                            "expires": null,
+                            "ends": null,
+                            "senderName": null,
+                            "headline": "Έκτακτο δελτίο για τον κόλπο Ζζ (φανταστικό)",
+                            "description": "Βορειοδυτικοί άνεμοι 8 μποφόρ (φανταστικό κείμενο).",
+                            "instruction": null,
+                            "web": null,
+                            "contact": null,
+                            "responseType": [],
+                            "areaDesc": [],
+                            "parameters": [],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Fictional Met Service, test data",
+                    "attribution_url": "https://example.org/"
+                }
+            ]
+        },
+        "nearby": {
+            "lat": 39.1,
+            "lon": -76.45,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:57:00Z",
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "identifier": "urn:oid:2.49.0.1.840.0.zz0105.001.1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T09:40:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:40:00Z",
+                    "onset": "2026-10-14T10:00:00Z",
+                    "expires": "2026-10-15T04:00:00Z",
+                    "matched_by": "nearby",
+                    "infos": [
+                        {
+                            "language": "en-US",
+                            "category": ["Met"],
+                            "event": "Gale Warning",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T09:40:00Z",
+                            "onset": "2026-10-14T10:00:00Z",
+                            "expires": "2026-10-15T04:00:00Z",
+                            "ends": null,
+                            "senderName": "NWS Zzbaytown MD",
+                            "headline": "Gale Warning issued October 14 at 5:40AM EDT until October 15 at 12:00AM EDT by NWS Zzbaytown MD",
+                            "description": "* WHAT...Northwest winds 25 to 30 kt with gusts up to 40 kt and waves 4 to 6 ft (fictional).\n\n* WHERE...Fictional Bay from Zz Point to\n  Zz Island, and the mouth of the Zz River.\n\n* WHEN...Until midnight EDT tonight.",
+                            "instruction": "Mariners should alter plans to avoid these hazardous conditions (test text).",
+                            "web": "https://www.weather.gov/",
+                            "contact": null,
+                            "responseType": ["Prepare"],
+                            "areaDesc": ["Fictional Bay from Zz Point to Zz Island"],
+                            "parameters": [
+                                {
+                                    "valueName": "VTEC",
+                                    "value": "/O.NEW.KZZZ.GL.W.0012.261014T1000Z-261015T0400Z/"
+                                }
+                            ],
+                            "eventCodes": [
+                                {
+                                    "valueName": "SAME",
+                                    "value": "NWS"
+                                },
+                                {
+                                    "valueName": "NationalWeatherService",
+                                    "value": "GLW"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/"
+                }
+            ]
+        },
+        "offzone": {
+            "lat": 33.0,
+            "lon": -70.5,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "none",
+            "unplaced": 0,
+            "providers": [],
+            "alerts": [
+                {
+                    "provider": "nws",
+                    "issuer": "National Weather Service (NOAA)",
+                    "identifier": "urn:oid:2.49.0.1.840.0.zz0106.001.1",
+                    "sender": "fixture",
+                    "sent": "2026-10-14T08:10:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T08:10:00Z",
+                    "onset": "2026-10-14T08:30:00Z",
+                    "expires": "2026-10-14T14:10:00Z",
+                    "matched_by": "polygon",
+                    "infos": [
+                        {
+                            "language": "en-US",
+                            "category": ["Geo"],
+                            "event": "Tsunami Advisory",
+                            "urgency": "Expected",
+                            "severity": "Moderate",
+                            "certainty": "Possible",
+                            "effective": "2026-10-14T08:10:00Z",
+                            "onset": "2026-10-14T08:30:00Z",
+                            "expires": "2026-10-14T14:10:00Z",
+                            "ends": null,
+                            "senderName": "NWS Fictional Tsunami Warning Center",
+                            "headline": "Tsunami Advisory issued October 14 at 4:10AM EDT by NWS Fictional Tsunami Warning Center (test)",
+                            "description": "Strong currents are possible near the fictional shore (test text).\n\nLOCATION              FORECAST START\n--------------------  --------------\nZz Point              0430 AM EDT\nFictional Harbor      0445 AM EDT",
+                            "instruction": "Move out of the water and away from harbors (fictional).",
+                            "web": "https://www.weather.gov/",
+                            "contact": null,
+                            "responseType": ["Avoid"],
+                            "areaDesc": ["Fictional offshore waters 60 NM off Zz Point"],
+                            "parameters": [
+                                {
+                                    "valueName": "VTEC",
+                                    "value": "/O.NEW.PAAQ.TS.Y.0003.261014T0810Z-000000T0000Z/"
+                                }
+                            ],
+                            "eventCodes": [
+                                {
+                                    "valueName": "SAME",
+                                    "value": "TSY"
+                                },
+                                {
+                                    "valueName": "NationalWeatherService",
+                                    "value": "TSY"
+                                }
+                            ]
+                        }
+                    ],
+                    "attribution": "Warnings: National Weather Service (NOAA)",
+                    "attribution_url": "https://www.weather.gov/"
+                }
+            ]
+        },
+        "meteoalarm": {
+            "lat": 43.2965,
+            "lon": 5.3698,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "identifier": "2.49.0.0.250.0.FR.ZZ0042",
+                    "sender": "vigilance@meteo.fr",
+                    "sent": "2026-10-14T10:30:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T10:30:00Z",
+                    "onset": "2026-10-14T14:00:00Z",
+                    "expires": "2026-10-15T06:00:00Z",
+                    "matched_by": "zone",
+                    "infos": [
+                        {
+                            "language": "fr-FR",
+                            "category": ["Met"],
+                            "event": "Vigilance orange vagues-submersion",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T14:00:00Z",
+                            "expires": "2026-10-15T06:00:00Z",
+                            "ends": null,
+                            "senderName": "Météo-France",
+                            "headline": "Vigilance orange vagues-submersion sur le littoral de Zzprovence (texte fictif)",
+                            "description": "Fortes vagues de sud-est, 4 à 5 m au large.\nSurcote de 40 à 50 cm sur le littoral. Texte inventé pour les tests.",
+                            "instruction": "Éloignez-vous des bords de mer. Ne prenez pas la mer.",
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Bouches-du-Zzrhône"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "7; coastalevent"
+                                },
+                                {
+                                    "valueName": "impacts",
+                                    "value": "Submersion possible des quais et des digues (texte fictif)."
+                                }
+                            ],
+                            "eventCodes": []
+                        },
+                        {
+                            "language": "en-GB",
+                            "category": ["Met"],
+                            "event": "Orange waves-submersion warning",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T14:00:00Z",
+                            "expires": "2026-10-15T06:00:00Z",
+                            "ends": null,
+                            "senderName": "Météo-France",
+                            "headline": "Orange warning for waves and coastal flooding on the Zzprovence coast (test text)",
+                            "description": "Strong south-easterly waves, 4 to 5 m offshore.\nSurge of 40 to 50 cm on the coast. Invented test text.",
+                            "instruction": "Keep away from the sea front. Do not go to sea.",
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Bouches-du-Zzrhône"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "7; coastalevent"
+                                },
+                                {
+                                    "valueName": "impacts",
+                                    "value": "Quays and breakwaters may flood (test text)."
+                                }
+                            ],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/"
+                }
+            ]
+        },
+        "meteoalarm-border": {
+            "lat": 43.775,
+            "lon": 7.505,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                },
+                {
+                    "id": "meteoalarm-it",
+                    "issuer": "Servizio Meteorologico dell’Aeronautica Militare (MeteoAM) (MeteoAlarm)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "meteoalarm-it",
+                    "issuer": "Servizio Meteorologico dell’Aeronautica Militare (MeteoAM) (MeteoAlarm)",
+                    "identifier": "2.49.0.0.380.0.IT.ZZ0007",
+                    "sender": "zz@aeronautica.example",
+                    "sent": "2026-10-14T09:00:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:00:00Z",
+                    "onset": "2026-10-14T12:00:00Z",
+                    "expires": "2026-10-14T23:00:00Z",
+                    "matched_by": "nearby",
+                    "infos": [
+                        {
+                            "language": "it-IT",
+                            "category": ["Met"],
+                            "event": "Arancione Vento Allerta",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T12:00:00Z",
+                            "expires": "2026-10-14T23:00:00Z",
+                            "ends": null,
+                            "senderName": "Servizio Meteorologico dell’Aeronautica Militare",
+                            "headline": "Allerta arancione per vento forte in Zzliguria (testo fittizio)",
+                            "description": "Venti forti da sud-ovest con raffiche fino a 90 km/h sulla costa. Testo inventato per le prove.",
+                            "instruction": null,
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Zzliguria"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "1; Wind"
+                                }
+                            ],
+                            "eventCodes": []
+                        },
+                        {
+                            "language": "en-GB",
+                            "category": ["Met"],
+                            "event": "Orange Wind Warning",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T12:00:00Z",
+                            "expires": "2026-10-14T23:00:00Z",
+                            "ends": null,
+                            "senderName": "Italian Air Force National Meteorological Service",
+                            "headline": "Orange warning for strong wind in Zzliguria (test text)",
+                            "description": "Strong south-westerly winds with gusts up to 90 km/h on the coast. Invented test text.",
+                            "instruction": null,
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Zzliguria"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "1; Wind"
+                                }
+                            ],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)",
+                    "attribution_url": "https://meteoalarm.org/en/live/"
+                }
+            ]
+        }
+    }
+}

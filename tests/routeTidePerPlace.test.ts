@@ -157,7 +157,8 @@ describe('annotateTideWindows — each place by its own tide, over 14 days', () 
         });
         // One fetch per bucket, each asking for the app's 14 days.
         expect(h.calls).toHaveLength(3);
-        for (const c of h.calls) expect(c[4]).toEqual({ days: TIDE_CURVE_MAX_DAYS });
+        for (const c of h.calls)
+            expect(c[4]).toEqual({ days: TIDE_CURVE_MAX_DAYS, chartBounds: [153, -27.3, 153.75, -27.3] });
         expect(TIDE_CURVE_MAX_DAYS).toBe(14);
         // The line was drawn from each place's own top.
         expect(drawnWith).not.toBeNull();

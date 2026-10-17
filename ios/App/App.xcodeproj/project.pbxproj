@@ -51,6 +51,11 @@
 		AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */; };
 		AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
+		AA000035AAAA003500000001 /* GribDocumentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000035AAAA003500000002 /* GribDocumentPlugin.swift */; };
+		AA000036AAAA003600000001 /* ObservationHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */; };
+		AA000037AAAA003700000001 /* NmeaUdpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */; };
+		AA000038AAAA003800000001 /* SignalKReaderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */; };
+		AA000039AAAA003900000001 /* NmeaUdpRebindGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -103,6 +108,11 @@
 		AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NfcTagPlugin.swift; sourceTree = "<group>"; };
 		AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NfcTagPlugin.m; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA000035AAAA003500000002 /* GribDocumentPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GribDocumentPlugin.swift; sourceTree = "<group>"; };
+		AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObservationHttpPlugin.swift; sourceTree = "<group>"; };
+		AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NmeaUdpPlugin.swift; sourceTree = "<group>"; };
+		AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalKReaderPlugin.swift; sourceTree = "<group>"; };
+		AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NmeaUdpRebindGate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -183,6 +193,11 @@
 				AA000023AAAA002300000002 /* BarometerPlugin.swift */,
 				AA000024AAAA002400000002 /* BarometerPlugin.m */,
 				AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */,
+				AA000035AAAA003500000002 /* GribDocumentPlugin.swift */,
+				AA000036AAAA003600000002 /* ObservationHttpPlugin.swift */,
+				AA000037AAAA003700000002 /* NmeaUdpPlugin.swift */,
+				AA000038AAAA003800000002 /* SignalKReaderPlugin.swift */,
+				AA000039AAAA003900000002 /* NmeaUdpRebindGate.swift */,
 				AA000028AAAA002800000002 /* MemoryGaugePlugin.m */,
 				AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */,
 				AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */,
@@ -423,6 +438,11 @@
 				AA000023AAAA002300000001 /* BarometerPlugin.swift in Sources */,
 				AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */,
 				AA000027AAAA002700000001 /* MemoryGaugePlugin.swift in Sources */,
+				AA000035AAAA003500000001 /* GribDocumentPlugin.swift in Sources */,
+				AA000036AAAA003600000001 /* ObservationHttpPlugin.swift in Sources */,
+				AA000037AAAA003700000001 /* NmeaUdpPlugin.swift in Sources */,
+				AA000038AAAA003800000001 /* SignalKReaderPlugin.swift in Sources */,
+				AA000039AAAA003900000001 /* NmeaUdpRebindGate.swift in Sources */,
 				AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */,
 				AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */,
 				AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */,
@@ -597,7 +617,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 128;
+				CURRENT_PROJECT_VERSION = 137;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -628,7 +648,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 128;
+				CURRENT_PROJECT_VERSION = 137;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -663,7 +683,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_ENTITLEMENTS = "ThalassaWatch Watch App/ThalassaWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 128;
+				CURRENT_PROJECT_VERSION = 137;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				FRAMEWORK_SEARCH_PATHS = "";
@@ -718,7 +738,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_ENTITLEMENTS = "ThalassaWatch Watch App/ThalassaWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 128;
+				CURRENT_PROJECT_VERSION = 137;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				FRAMEWORK_SEARCH_PATHS = "";

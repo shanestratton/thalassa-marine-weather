@@ -137,7 +137,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     // Display preferences
     const [prefAlwaysOn, setPrefAlwaysOn] = useState(false);
     const [prefOrientation, setPrefOrientation] = useState<'auto' | 'portrait' | 'landscape'>('portrait');
-    const [prefDisplayMode, setPrefDisplayMode] = useState<DisplayMode>('dark');
+    // A new install starts on 'Auto with night' (131-03).
+    const [prefDisplayMode, setPrefDisplayMode] = useState<DisplayMode>('auto-night');
 
     // Dimension Data - Initialize as Strings to detect empty vs 0
     const [length, setLength] = useState<string>('');

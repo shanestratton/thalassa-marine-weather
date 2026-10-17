@@ -21,6 +21,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { dependencyNames, mapInitNodes, mapInitSource, mapInitVariable, ts } from './helpers/mapInitSourceAst';
 
 const app = readFileSync(resolve(process.cwd(), 'App.tsx'), 'utf8');
 const mapInit = readFileSync(resolve(process.cwd(), 'components/map/useMapInit.ts'), 'utf8');
@@ -63,8 +64,22 @@ describe('chart keep-alive', () => {
         // Presence in the deps keeps the first-token boot path working;
         // value must stay out or hydration rebuilds the chart in place.
         expect(mapInit).toMatch(/const hasMapboxToken = !!mapboxToken;/);
-        expect(mapInit).toMatch(/\}, \[hasMapboxToken, mapStyle, initialZoom, minimalLabels\]\);/);
-        expect(mapInit).not.toMatch(/\}, \[mapboxToken, mapStyle/);
+        const create = mapInitVariable('createMap');
+        if (!ts.isCallExpression(create)) throw Error('Expected memoized map creation');
+        expect(create.expression.getText(mapInitSource)).toBe('useCallback');
+        expect(dependencyNames(create.arguments[1])).toEqual([
+            'hasMapboxToken',
+            'mapStyle',
+            'initialZoom',
+            'minimalLabels',
+        ]);
+        const startup = mapInitNodes(ts.isCallExpression).filter(
+            (node) =>
+                node.expression.getText(mapInitSource) === 'useEffect' &&
+                node.arguments[0]?.getText(mapInitSource).includes('const startup = new AbortController()'),
+        );
+        expect(startup).toHaveLength(1);
+        expect(dependencyNames(startup[0].arguments[1])).toEqual(['createMap']);
     });
 
     it('keeps the lifecycle crumbs that would expose a regression', () => {

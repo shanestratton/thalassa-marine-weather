@@ -147,7 +147,7 @@ describe('OBS base wiring', () => {
     });
 
     it('keeps every base but Light on the ENC imagery treatment (the glaze); Light draws the paper chart', () => {
-        expect(hub).toMatch(/const imageryOn(?::\s*boolean)?\s*=\s*shownBase !== 'light';/);
+        expect(hub).toMatch(/const imageryOn(?::\s*boolean)?\s*=\s*shownBase !== 'light' && shownBase !== 'enc';/);
         // The synchronous mirror EncVectorLayer reads follows it.
         expect(hub).toMatch(/localStorage\.setItem\(SATELLITE_KEY, imageryOn \? 'true' : 'false'\)/);
     });
@@ -173,7 +173,9 @@ describe('OBS base wiring', () => {
     // 127-DESKMAP A3: a NOAA cell on Light reads as a paper chart (its land,
     // coastline, contours and marks) while tracing on the desk, and only there.
     it('draws the whole open chart on the desk tracer on Light; the switch decides everywhere else', () => {
-        expect(hub).toMatch(/const encMaster = encVisible \|\| \(deskPlanner && coordCaptureMode && !imageryOn\);/);
+        expect(hub).toMatch(
+            /const encMaster = encVisible \|\| shownBase === 'enc' \|\| \(deskPlanner && coordCaptureMode && !imageryOn\);/,
+        );
         expect(hub).toMatch(/useEncVectorLayer\(mapRef, mapReady, encMaster,/);
         expect(hub).toMatch(/useTracerChartFloors\(mapRef, mapReady, coordCaptureMode, encMaster,/);
         expect(hub).toMatch(/encApplyLayerVisibility\(map, encMaster\)/);

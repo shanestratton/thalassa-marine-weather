@@ -45,6 +45,7 @@ describe('forecastModels', () => {
             'ecmwf_aifs025_single',
             'ukmo_global_deterministic_10km',
             'jma_gsm',
+            'gfs_seamless',
         ]);
     });
 
@@ -54,6 +55,8 @@ describe('forecastModels', () => {
         // with no wind at all. Re-list it only via gfs_seamless, once
         // ncep_gfs013 is synced AND wind_speed_10m verifies non-null.
         expect(SELECTABLE_MODELS.some((m) => m.id === 'ncep_gfs025')).toBe(false);
+        expect(isConcreteModel('gfs_seamless')).toBe(true);
+        expect(resolveForecastModel('gfs_seamless')).toBe('gfs_seamless');
     });
 
     it('declares the models that publish no gust field', () => {
@@ -97,7 +100,7 @@ describe('forecastModels', () => {
         });
     });
 
-    it('compares seven models: the picker five plus GFS and GEM', () => {
+    it('compares seven unique models: the repaired picker six plus GEM', () => {
         expect(COMPARE_MODELS.map((m) => m.id)).toEqual([
             'dwd_icon',
             'ecmwf_ifs025',
@@ -108,12 +111,11 @@ describe('forecastModels', () => {
             'gem_seamless',
         ]);
         expect(SPREAD_EXTRA_MODELS.map((m) => [m.label, m.provider])).toEqual([
-            ['GFS', 'NOAA'],
             ['GEM', 'Environment and Climate Change Canada'],
         ]);
         // Every member draws in its own colour.
         expect(new Set(COMPARE_MODELS.map((m) => m.hex.toLowerCase())).size).toBe(7);
-        // Comparison-only: the Glass picker and the model-check card keep their five.
+        // The remaining extra is comparison-only; GFS is a real picker model.
         for (const m of SPREAD_EXTRA_MODELS) {
             expect(isConcreteModel(m.id as never)).toBe(false);
             expect(getForecastModelInfo(m.id as never)).toBeNull();
@@ -170,7 +172,9 @@ describe('forecastModels', () => {
         });
 
         it('every Glass model resolves a licence', () => {
-            for (const m of SELECTABLE_MODELS) expect(providerLicence(m.provider)).toMatch(/^CC BY(-SA)? 4\.0$/);
+            for (const m of SELECTABLE_MODELS)
+                expect(providerLicence(m.provider)).toMatch(/^(CC BY(-SA)? 4\.0|public domain)$/);
+            expect(providerLicence(getForecastModelInfo('gfs_seamless')!.provider)).toBe('public domain');
         });
 
         it('groups providers by licence, each once, in the order given', () => {

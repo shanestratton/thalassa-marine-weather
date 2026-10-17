@@ -30,14 +30,21 @@ function resolveSpecifier(repo, fromRel, spec) {
     else if (spec.startsWith('./') || spec.startsWith('../')) base = path.resolve(repo, path.dirname(fromRel), spec);
     else return null;
     const stem = base.replace(/\.js$/, '');
-    for (const candidate of [base, `${stem}.ts`, `${stem}.tsx`, path.join(base, 'index.ts')]) {
+    for (const candidate of [
+        base,
+        `${stem}.ts`,
+        `${stem}.tsx`,
+        path.join(base, 'index.ts'),
+        path.join(base, 'index.tsx'),
+    ]) {
         if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return posix(path.relative(repo, candidate));
     }
     throw new Error(`${fromRel} imports '${spec}', which does not resolve to a file`);
 }
 
 function importsOf(ts, rel, source) {
-    const file = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const kind = rel.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+    const file = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, kind);
     const values = [];
     const dynamic = [];
     const onlyTypes = (elements) => elements.length > 0 && elements.every((e) => e.isTypeOnly);
@@ -104,6 +111,40 @@ export function routeJobClosure(repo) {
     return modules;
 }
 
+/**
+ * The app modules `entries` reach through value imports (never `import()`),
+ * read the same way as the job's closure: a Map from the repo-relative path to
+ * the app modules it imports for their values (131-04). Packages, styles and
+ * data files are not followed, and nor is anything past `stopAt`, whose own
+ * imports are not walked. tests/RouterEngineLazy131.test.ts walks the app's
+ * start-up with it.
+ *
+ * @param {string} repo
+ * @param {readonly string[]} entries repo-relative modules to start from
+ * @param {(rel: string) => boolean} [stopAt]
+ * @returns {Map<string, string[]>}
+ */
+export function staticAppGraph(repo, entries, stopAt = () => false) {
+    const ts = createRequire(path.join(repo, 'package.json'))('typescript');
+    const graph = new Map();
+    const queue = [...entries];
+    while (queue.length > 0) {
+        const rel = queue.shift();
+        if (graph.has(rel)) continue;
+        if (stopAt(rel)) {
+            graph.set(rel, []);
+            continue;
+        }
+        const { values } = importsOf(ts, rel, fs.readFileSync(path.join(repo, rel), 'utf8'));
+        const imports = values
+            .map((spec) => resolveSpecifier(repo, rel, spec))
+            .filter((target) => target !== null && /\.(tsx?|m?js)$/.test(target));
+        graph.set(rel, imports);
+        queue.push(...imports);
+    }
+    return graph;
+}
+
 // ── The build's side (vite.config.ts) ───────────────────────────────
 
 /** The query that names the route job's own copy of the app logger. */
@@ -121,6 +162,20 @@ export function routeEngineLoggerSource(source, sentryImport) {
     return source.replace(lazySentry, 'Promise.resolve({ captureException() {}, addBreadcrumb() {} })');
 }
 
+/**
+ * The app shell: index.tsx lazy-loads it at every launch once the legal
+ * disclaimer is accepted, so its static graph is the app's start-up (131-04).
+ */
+export const APP_SHELL_ENTRY = 'ApplicationShell.tsx';
+
+/** Also used by lazy passage screens. Each must have no runtime imports so
+ * opening Today or Crew never loads the routing engine for these calculations. */
+export const ROUTE_ENGINE_SHARED_LEAVES = [
+    'services/isochrone/polar.ts',
+    'services/isochrone/geodesy.ts',
+    'services/isochrone/routeSailingStats.ts',
+];
+
 const clean = (id) => id.replaceAll('\\', '/');
 const chunkMemo = new WeakMap();
 
@@ -132,6 +187,14 @@ const chunkMemo = new WeakMap();
  * entry statically: the legal boot shell) is `engine-leaf`, so those pages
  * never load the router. Throws if the closure reaches the app's logger, a
  * package or a virtual module, none of which the route worker can load.
+ *
+ * The app's start-up is the index entry and APP_SHELL_ENTRY, statically
+ * (131-04). A module of the closure the start-up also imports (the chart
+ * types and the engine's result types: plain constants and helpers) is
+ * `engine-leaf` too, so the shell never imports `router-engine` for them and
+ * the router loads when a route is planned or checked, not at launch. Throws
+ * if the start-up reaches the route job itself: the router is then back in
+ * every launch, and the place that needs it must reach it by import().
  *
  * @param {string} id
  * @param {{ getModuleIds: () => Iterable<string>, getModuleInfo: (id: string) => ({ importedIds: readonly string[], dynamicallyImportedIds: readonly string[], isEntry: boolean } | null) }} meta
@@ -161,13 +224,26 @@ export function routeEngineChunkOf(id, meta) {
             const entries = ids.filter((m) => meta.getModuleInfo(m)?.isEntry);
             const indexEntry = entries.filter((m) => clean(m).endsWith('/index.html'));
             const otherEntries = entries.filter((m) => !indexEntry.includes(m));
-            const shared = new Set([...reach(otherEntries, true), ...reach(indexEntry, false)]);
+            const appShell = ids.filter((m) => clean(m).endsWith(`/${APP_SHELL_ENTRY}`));
+            const startUp = reach([...indexEntry, ...appShell], false);
+            const shared = new Set([...reach(otherEntries, true), ...startUp]);
             for (const m of reach([root], false)) {
                 const c = clean(m);
                 if (c.endsWith(`/${ROUTE_JOB_LOGGER}`) || c.includes('/node_modules/') || c.startsWith('\0'))
                     throw new Error(`the route job's closure reaches ${c}, which the route worker cannot load`);
-                chunks.set(m, shared.has(m) ? 'engine-leaf' : 'router-engine');
+                const pureLeaf = ROUTE_ENGINE_SHARED_LEAVES.some((leaf) => c.endsWith(`/${leaf}`));
+                if (pureLeaf) {
+                    const info = meta.getModuleInfo(m);
+                    if (!info || info.importedIds.length || info.dynamicallyImportedIds.length)
+                        throw new Error(`the shared routing leaf ${c} must have no runtime imports`);
+                }
+                chunks.set(m, pureLeaf || shared.has(m) ? 'engine-leaf' : 'router-engine');
             }
+            if (startUp.has(root))
+                throw new Error(
+                    `the app's start-up (${APP_SHELL_ENTRY}) imports ${ROUTE_JOB_ENTRY} statically, so every launch ` +
+                        'would load the router: reach it by import() where a route is planned or checked (131-04)',
+                );
         }
     }
     return chunks.get(id);

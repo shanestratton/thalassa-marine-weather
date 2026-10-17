@@ -10,6 +10,7 @@
 
 import cron, { type ScheduledTask } from 'node-cron';
 import { Cache } from './cache.js';
+import { refreshOfflineWeather } from './offlineWeather.js';
 import {
     ProxyConfig,
     cachedJsonFetch,
@@ -30,10 +31,17 @@ export const TTL = {
     SYNOPTIC: 6 * 60 * 60 * 1000, // 6 hours — synoptic charts update 4x/day
     GRIB: 6 * 60 * 60 * 1000, // 6 hours — GFS model runs
     CYCLONE: 60 * 60 * 1000, // 1 hour — active storm tracking
+    // 10 min, as the cyclone-feed function keeps it: the app calls a feed made over an
+    // hour ago "unavailable since", and this, the 30 min stale window and the
+    // function's own 10 min stay inside that hour (129-09b).
+    CYCLONE_FEED: 10 * 60 * 1000,
     BUOY: 30 * 60 * 1000, // 30 min — observation frequency
     SEALEVEL: 60 * 60 * 1000, // 1 hour
     SEAMARK: 24 * 60 * 60 * 1000, // 24 hours — rarely change
 };
+
+/** The cache key of the cyclone-feed answer (129-09b), shared by the route and the pre-fetch. */
+export const CYCLONE_FEED_KEY = 'cyclones:feed';
 
 let scheduledTask: ScheduledTask | null = null;
 
@@ -60,11 +68,18 @@ function getPrefetchConfig(): PrefetchConfig | null {
 /**
  * Run all pre-fetch jobs. Called on startup and then by the cron scheduler.
  */
-async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchConfig): Promise<void> {
+async function runPrefetch(
+    cache: Cache,
+    proxyConfig: ProxyConfig,
+    pf: PrefetchConfig,
+    internetAllowed: () => boolean,
+): Promise<void> {
+    if (!internetAllowed()) return;
     const start = Date.now();
     const results: Array<{ name: string; ok: boolean; ms: number }> = [];
 
     async function track(name: string, fn: () => Promise<void>) {
+        if (!internetAllowed()) return;
         const t0 = Date.now();
         try {
             await fn();
@@ -90,19 +105,14 @@ async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchC
 
     // Batch 2: Satellite + GRIB (wind + waves + pressure) + synoptic
     await Promise.allSettled([
-        track('satellite-ir', () => prefetchSatelliteTiles(cache, pf, 'ir')),
-        track('satellite-vis', () => prefetchSatelliteTiles(cache, pf, 'visible')),
+        track('offline-weather', () => refreshOfflineWeather(cache, pf, { internetAllowed })),
         track('grib-wind', () => prefetchGrib(cache, proxyConfig, pf, 'wind')),
         track('grib-waves', () => prefetchGrib(cache, proxyConfig, pf, 'waves')),
         track('grib-pressure', () => prefetchGrib(cache, proxyConfig, pf, 'pressure')),
-        track('synoptic', () => prefetchSynoptic(cache, proxyConfig, pf)),
     ]);
 
-    // Batch 3: Buoys + cyclones + misc
-    await Promise.allSettled([
-        track('buoys', () => prefetchBuoys(cache, proxyConfig, pf)),
-        track('cyclones', () => prefetchCyclones(cache, proxyConfig)),
-    ]);
+    // Batch 3: Cyclones
+    await Promise.allSettled([track('cyclones', () => prefetchCyclones(cache, proxyConfig))]);
 
     const elapsed = Date.now() - start;
     const ok = results.filter((r) => r.ok).length;
@@ -221,36 +231,6 @@ async function prefetchTides(cache: Cache, config: ProxyConfig, pf: PrefetchConf
         source: 'worldtides',
         headers: supabaseHeaders(config),
     });
-}
-
-async function prefetchSatelliteTiles(cache: Cache, pf: PrefetchConfig, band: 'ir' | 'visible'): Promise<void> {
-    // NASA GIBS tiles for the area around the boat
-    // Calculate tile coordinates for zoom level 5 (good overview)
-    const z = 5;
-    const { minTileX, maxTileX, minTileY, maxTileY } = latLonToTileRange(pf.lat, pf.lon, pf.radius, z);
-
-    const today = new Date().toISOString().split('T')[0];
-    const layer =
-        band === 'ir' ? 'MODIS_Terra_CorrectedReflectance_TrueColor' : 'VIIRS_SNPP_CorrectedReflectance_TrueColor';
-
-    for (let x = minTileX; x <= maxTileX; x++) {
-        for (let y = minTileY; y <= maxTileY; y++) {
-            const key = `tile:gibs:${band}:${z}/${x}/${y}`;
-            if (cache.hasFreshTile(key)) continue;
-
-            const url = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${today}/GoogleMapsCompatible_Level9/${z}/${y}/${x}.jpg`;
-            try {
-                await cachedTileFetch(cache, {
-                    cacheKey: key,
-                    url,
-                    contentType: 'image/jpeg',
-                    ttlMs: TTL.SATELLITE,
-                });
-            } catch {
-                // Individual tile failures are fine — just skip
-            }
-        }
-    }
 }
 
 async function prefetchGrib(
@@ -402,58 +382,16 @@ export function synopticChartsFor(lat: number, lon: number): SynopticChart[] {
     ];
 }
 
-async function prefetchSynoptic(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
-    // Synoptic charts are IMAGES — use tile cache, not JSON cache.
-    for (const chart of synopticChartsFor(pf.lat, pf.lon)) {
-        if (cache.hasFreshTile(chart.key)) continue;
-        try {
-            await cachedTileFetch(cache, {
-                cacheKey: chart.key,
-                url: chart.url,
-                contentType: chart.contentType,
-                ttlMs: TTL.SYNOPTIC,
-                headers: chart.headers,
-            });
-        } catch {
-            // Individual chart failures are non-critical
-        }
-    }
-}
+async function prefetchCyclones(cache: Cache, config: ProxyConfig): Promise<void> {
+    if (cache.hasFresh(CYCLONE_FEED_KEY)) return;
 
-async function prefetchBuoys(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
-    const key = `buoys:${pf.lat}:${pf.lon}:${pf.radius}`;
-    if (cache.hasFresh(key)) return;
-
-    // NOAA NDBC Active Stations — free JSON API (no key needed)
-    // Returns stations within a bounding box around the boat's location
-    const degRadius = pf.radius || 5;
-    // Fallback: use the NDBC RSS observation search which returns nearby buoy data
-    const rssUrl = `https://www.ndbc.noaa.gov/rss/ndbc_obs_search.php?lat=${pf.lat}N&lon=${Math.abs(pf.lon)}${pf.lon >= 0 ? 'E' : 'W'}&radius=${Math.round(degRadius * 60)}`;
-
-    try {
-        await cachedJsonFetch(cache, {
-            cacheKey: key,
-            url: rssUrl,
-            ttlMs: TTL.BUOY,
-            source: 'ndbc-rss',
-        });
-    } catch {
-        // RSS might fail to parse as JSON — that's OK, client fetches buoys on-demand
-        console.warn('   ⚠️ Buoy pre-fetch skipped (RSS not JSON-parseable)');
-    }
-}
-
-async function prefetchCyclones(cache: Cache, _config: ProxyConfig): Promise<void> {
-    const key = 'cyclones:active';
-    if (cache.hasFresh(key)) return;
-
-    // KnackWx ATCF API — free, CORS-enabled, no API key needed
-    const url = 'https://api.knackwx.com/atcf/v2';
+    // Thalassa's cyclone-feed (129-09b): the warning centres direct, as the app reads it.
     await cachedJsonFetch(cache, {
-        cacheKey: key,
-        url,
-        ttlMs: TTL.CYCLONE,
-        source: 'knackwx-atcf',
+        cacheKey: CYCLONE_FEED_KEY,
+        url: supabaseEdgeUrl(config, 'cyclone-feed'),
+        ttlMs: TTL.CYCLONE_FEED,
+        source: 'thalassa-cyclone-feed',
+        headers: supabaseHeaders(config),
     });
 }
 
@@ -477,7 +415,11 @@ function latLonToTileRange(lat: number, lon: number, radiusDeg: number, z: numbe
 
 // ── Public API ──
 
-export function startScheduler(cache: Cache, proxyConfig: ProxyConfig): void {
+export function startScheduler(
+    cache: Cache,
+    proxyConfig: ProxyConfig,
+    options: { internetAllowed: () => boolean } = { internetAllowed: () => false },
+): void {
     const pf = getPrefetchConfig();
     if (!pf) {
         console.log('📡 Pre-fetch disabled (no PREFETCH_LAT/LON configured)');
@@ -487,11 +429,15 @@ export function startScheduler(cache: Cache, proxyConfig: ProxyConfig): void {
     console.log(`📡 Pre-fetch enabled: ${pf.lat}, ${pf.lon} every ${pf.interval}min`);
 
     // Run immediately on startup
-    runPrefetch(cache, proxyConfig, pf).catch((err) => console.error('Pre-fetch startup error:', err));
+    runPrefetch(cache, proxyConfig, pf, options.internetAllowed).catch((err) =>
+        console.error('Pre-fetch startup error:', err),
+    );
 
     // Then on schedule
     scheduledTask = cron.schedule(`*/${pf.interval} * * * *`, () => {
-        runPrefetch(cache, proxyConfig, pf).catch((err) => console.error('Pre-fetch cron error:', err));
+        runPrefetch(cache, proxyConfig, pf, options.internetAllowed).catch((err) =>
+            console.error('Pre-fetch cron error:', err),
+        );
     });
 }
 

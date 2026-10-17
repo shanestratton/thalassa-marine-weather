@@ -23,7 +23,8 @@ import {
     isRowInBinder,
 } from './sharedBinders';
 import type { InventoryItem, InventoryCategory } from '../../types';
-import { inventoryStats, type InventoryStats } from './inventoryStats';
+import { inventoryStats, isLowStock, type InventoryStats } from './inventoryStats';
+import { groceryProvenance } from './storesProvenance';
 
 const TABLE = 'inventory_items';
 // Whose stores these are: the skipper's while the sailor is crew on a boat
@@ -36,12 +37,21 @@ function writableRow(id: string): InventoryItem | null {
     assertBinderWritable(REGISTER, row);
     return row;
 }
-const GROCERY_RECEIPT_PREFIX = 'Added from Grocery List purchase ';
 
 function requireNonNegativeAmount(amount: number, label: string): void {
     if (!Number.isFinite(amount) || amount < 0) {
         throw new RangeError(`${label} must be a finite number greater than or equal to zero.`);
     }
+}
+
+/**
+ * A minimum is a whole number, as the server's min_quantity column is: a
+ * decimal one would fail its push and hold up every later change to the row
+ * (131-B14). The forms round a typed minimum up before it gets here.
+ */
+function requireMinimum(amount: number): void {
+    requireNonNegativeAmount(amount, 'Minimum quantity');
+    if (!Number.isInteger(amount)) throw new RangeError('Minimum quantity must be a whole number.');
 }
 
 function normalizedText(value: string | null | undefined): string {
@@ -103,16 +113,21 @@ export class LocalInventoryService {
         return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.category === category);
     }
 
-    /** Get items below minimum quantity (alerts) */
+    /** Get items at or under a minimum that is set: the one low-stock rule (131-B14) */
     static getLowStock(): InventoryItem[] {
         const inBinder = binderRowFilter(REGISTER);
-        return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.quantity <= item.min_quantity);
+        return query<InventoryItem>(TABLE, (item) => inBinder(item) && isLowStock(item));
     }
 
-    /** Create a new inventory item */
+    /**
+     * Create a new inventory item. A count or minimum below nothing is refused
+     * (131-B13), and a minimum that isn't whole (131-B14).
+     */
     static async create(
         item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<InventoryItem> {
+        requireNonNegativeAmount(item.quantity, 'Quantity');
+        requireMinimum(item.min_quantity);
         // The skipper's id in a shared binder (refused when it is view only),
         // the sailor's own otherwise; '' only while signed out.
         const owner = binderInsertOwner(REGISTER);
@@ -128,8 +143,13 @@ export class LocalInventoryService {
         return await insertLocal<InventoryItem>(TABLE, record);
     }
 
-    /** Update an existing item */
+    /**
+     * Update an existing item. A count or minimum below nothing is refused
+     * (131-B13), and a minimum that isn't whole (131-B14).
+     */
     static async update(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | null> {
+        if (updates.quantity !== undefined) requireNonNegativeAmount(updates.quantity, 'Quantity');
+        if (updates.min_quantity !== undefined) requireMinimum(updates.min_quantity);
         writableRow(id);
         return await updateLocal<InventoryItem>(TABLE, id, updates);
     }
@@ -193,11 +213,7 @@ export class LocalInventoryService {
         let merged = 0;
 
         for (const item of items) {
-            if (
-                item.description?.startsWith(GROCERY_RECEIPT_PREFIX) ||
-                !Number.isFinite(item.quantity) ||
-                item.quantity < 0
-            ) {
+            if (groceryProvenance(item) === 'bought' || !Number.isFinite(item.quantity) || item.quantity < 0) {
                 continue;
             }
 

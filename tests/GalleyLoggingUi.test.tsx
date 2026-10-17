@@ -49,7 +49,7 @@ vi.mock('../services/ShoppingListService', () => ({
     markPurchased: mocks.markPurchased,
     unmarkPurchased: mocks.unmarkPurchased,
     addManualItem: mocks.addManualItem,
-    getVoyageBudget: vi.fn(() => ({ totalSpent: 0, byZone: [] })),
+    recentRetailers: vi.fn(() => []),
 }));
 
 vi.mock('../services/MealPlanService', () => ({
@@ -242,7 +242,8 @@ describe('Grocery List', () => {
         });
         render(<GroceryListPage onBack={vi.fn()} />);
 
-        expect(await screen.findByText('The shopping list could not be loaded. Please try again.')).toBeInTheDocument();
+        // The house load-error state since 132-B17, never the empty list's words.
+        expect(await screen.findByRole('heading', { name: "Couldn't load the grocery list" })).toBeInTheDocument();
         expect(warnings('galley: load-list')).toEqual([expect.stringContaining('Not initialized')]);
     });
 
@@ -291,7 +292,7 @@ describe('Grocery List', () => {
     it('galley: add-item — adding an item by hand fails', async () => {
         mocks.addManualItem.mockRejectedValue(new Error('No space left on device'));
         render(<GroceryListPage onBack={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: 'Add item to shopping list' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Add item' }));
         fireEvent.change(screen.getByLabelText('Item name'), { target: { value: 'Shackle pins' } });
         fireEvent.click(screen.getByRole('button', { name: 'Add item to grocery list' }));
 

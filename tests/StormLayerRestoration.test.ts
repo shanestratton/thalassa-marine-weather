@@ -113,8 +113,13 @@ describe('the cyclone details card exists and is mounted', () => {
         // The July sweep deleted the builders precisely BECAUSE nothing
         // called them. A definition with no call site is how this feature
         // died the first time.
-        expect(cyclone).toContain('hud.appendChild(createStormBadgeStatic(selectedStorm))');
-        expect(cyclone).toContain('hud.id = HUD_ID');
+        // Built with its stepper by createStormHud since 129-13, and mounted by the card effect.
+        expect(cyclone).toMatch(/const hud = createStormHud\(\s*selectedStorm,/);
+        expect(cyclone).toContain('map.getContainer().appendChild(hud)');
+        const builder = cyclone.slice(cyclone.indexOf('export function createStormHud('));
+        expect(builder).toContain('const badge = createStormBadgeStatic(selected, opts);');
+        expect(builder).toContain('hud.appendChild(badge);');
+        expect(builder).toContain("hud.id = 'cyclone-hud-badges';");
     });
 
     it('carries the fields a skipper reads off a storm card', () => {

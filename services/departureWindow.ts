@@ -1,182 +1,89 @@
-/**
- * departureWindow.ts — Multi-departure-time planning across a window.
- *
- * PredictWind's flagship feature: instead of routing for ONE departure
- * time, run the optimiser across N departure times in a window and let
- * the user pick the best one based on ETA / max wind / max wave / gale
- * exposure. For a Newport→Bermuda passage with a front coming through
- * Wednesday, this surfaces "depart Tuesday 06:00 UTC, arrive 4 days
- * later in 12-15 kt winds" vs "depart Wednesday 06:00 UTC, arrive 5
- * days later in 30+ kt winds with 12 gale hours."
- *
- * Architecture:
- *   - Caller specifies a window start, duration, and interval (e.g. next
- *     7 days, every 12 hours = 14 candidate departures)
- *   - For each candidate, run computeIsochrones with the route's wind /
- *     current / cyclone-exclusion fields (cached across runs — same
- *     route, different departure)
- *   - Score each scenario: ETA (low = better), max wind, gale hours
- *   - Return ranked array
- *
- * Streaming is caller-owned: an optional progress callback receives
- * each partial ranking. Keeping it off the global window prevents a
- * stale planner from publishing one account's route into another.
- */
-
-import { createLogger } from '../utils/createLogger';
-import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
+/** Bounded exploratory weather comparison. Selecting a time reruns the full chart verifier. */
+import { vesselDraftMetres } from './units';
+import { withTimeout } from '../utils/deadline';
 import type { VesselProfile } from '../types';
-import type {
-    WindField,
-    CurrentField,
-    ExclusionField,
-    WaveField,
-    IsochroneNode,
-    IsochroneResult,
-} from './IsochroneRouter';
+import type { WindField, CurrentField, ExclusionField, WaveField, IsochroneResult } from './IsochroneRouter';
+import { haversineNm } from './isochrone/geodesy';
+import { routingComfortConfig, vesselIsochroneConfig } from './routing/isochronePolicy';
+import { departureMetrics } from './routing/departureMetrics';
+import type { DepartureWeatherField } from './routing/departureWeather';
+import {
+    departureScore,
+    departureScoreTerms,
+    type DepartureScoreTerms,
+    type ScoredDeparture,
+} from './passageDepartureSuggestion';
 
-const log = createLogger('DeparturePlan');
-
-/** Wind speed (kts) at or above which we count an hour as "gale exposure". */
-const GALE_THRESHOLD_KTS = 34;
-
-/** Wind speed at or above which we count "storm exposure" (Beaufort 10+). */
-const STORM_THRESHOLD_KTS = 48;
-
-/**
- * Per-departure-time scenario produced by planDepartureWindow.
- */
 export interface DepartureScenario {
-    /** ISO 8601 departure time. */
     departureTime: string;
-    /** ISO 8601 arrival time (departureTime + durationHours). */
     arrivalTime: string;
-    /** Total passage duration in hours. */
     durationHours: number;
-    /** Total passage distance in nautical miles. */
     distanceNM: number;
-    /** Maximum true wind speed encountered along the route (kts). */
     maxWindKts: number;
-    /** Average true wind speed weighted by time at each node (kts). */
     avgWindKts: number;
-    /** Hours spent in winds ≥ 34 kts (gale force). */
     galeHours: number;
-    /** Hours spent in winds ≥ 48 kts (storm force). */
     stormHours: number;
-    /**
-     * Composite score (lower is better). Weights ETA by 1, gale-hours
-     * by 6, storm-hours by 20. So a 5-day passage with 0 gale beats
-     * a 4-day passage with 6 gale-hours; a route with ANY storm hours
-     * is heavily penalised.
-     */
+    /** Lower is calmer on the same fully covered terms. No safety-clearance claim. */
     score: number;
-    /**
-     * Human-readable verdict — "go", "maybe", "avoid", "no-go".
-     * Used for the UI traffic-light chip.
-     */
     verdict: 'go' | 'maybe' | 'avoid' | 'no-go';
-    /** True if the engine returned a viable route, false if it failed. */
     routeFound: boolean;
+    maxWaveM?: number | null;
+    maxRainMmPerHour?: number | null;
+    upwindPct?: number | null;
+    avgCurrentKts?: number | null;
+    comfortLevel?: number | null;
+    windComplete?: boolean;
+    coverage?: string[];
+    rankedTerms?: string[];
+    tideStatus?: 'clear' | 'blocked' | 'unknown' | 'not-gated';
+    weatherModel?: string;
+    /** Internal score inputs shared with PYD and the passage departure suggestion. */
+    comparison?: ScoredDeparture;
 }
-
 export interface DepartureWindowOptions {
-    /** Departure-time interval in hours. Default: 12. */
+    /** 3 or 6 hours; default 6. */
     intervalHours?: number;
-    /** Total window duration in hours. Default: 168 (7 days). */
     windowHours?: number;
-    /** Maximum scenarios to run (caps interval × window). Default: 14. */
+    /** At most 24 runs, default 14. */
     maxScenarios?: number;
-    /** Stop before starting or publishing more scenarios. */
+    /** Whole operation budget, bounded to 180 seconds, default 90 seconds. */
+    maxComputeMs?: number;
     shouldContinue?: () => boolean;
-    /** Operation-owned incremental progress sink. */
     onProgress?: (progress: { completed: number; total: number; scenarios: readonly DepartureScenario[] }) => void;
+    weatherField?: DepartureWeatherField | null;
+    /** Short hops compare this locked, independently verified inshore line. */
+    fixedRoute?: IsochroneResult;
+    /** Shared 128 leave-window result for this exact verified route, supplied by its owner. */
+    tideForRoute?: (
+        result: IsochroneResult,
+        departureMs: number,
+    ) => Promise<NonNullable<DepartureScenario['tideStatus']>>;
 }
 
-/**
- * Compute summary stats from an isochrone result's route nodes.
- */
-function summariseRoute(route: IsochroneNode[]): {
-    maxWindKts: number;
-    avgWindKts: number;
-    galeHours: number;
-    stormHours: number;
-} {
-    if (route.length === 0) {
-        return { maxWindKts: 0, avgWindKts: 0, galeHours: 0, stormHours: 0 };
+function rank(scenarios: DepartureScenario[]): DepartureScenario[] {
+    const eligible = scenarios.filter((s) => s.routeFound && s.windComplete && s.verdict !== 'no-go');
+    const terms = departureScoreTerms(eligible.flatMap((s) => (s.comparison ? [s.comparison] : [])));
+    const named: [keyof DepartureScoreTerms, string][] = [
+        ['gusts', 'gusts'],
+        ['waves', 'waves'],
+        ['rain', 'rain'],
+        ['upwind', 'upwind'],
+        ['current', 'ocean current'],
+        ['comfort', 'beta comfort'],
+    ];
+    for (const scenario of scenarios) {
+        scenario.rankedTerms = ['wind', 'headwind', ...named.filter(([key]) => terms[key]).map(([, name]) => name)];
+        scenario.score =
+            scenario.routeFound && scenario.windComplete && scenario.verdict !== 'no-go' && scenario.comparison
+                ? departureScore(scenario.comparison, terms)
+                : Infinity;
     }
-
-    let maxWind = 0;
-    let weightedSum = 0;
-    let totalWeight = 0;
-    let galeH = 0;
-    let stormH = 0;
-
-    for (let i = 1; i < route.length; i++) {
-        const node = route[i];
-        const prev = route[i - 1];
-        const segHours = node.timeHours - prev.timeHours;
-        const segWind = node.tws ?? 0;
-
-        if (segWind > maxWind) maxWind = segWind;
-        weightedSum += segWind * segHours;
-        totalWeight += segHours;
-
-        if (segWind >= GALE_THRESHOLD_KTS) galeH += segHours;
-        if (segWind >= STORM_THRESHOLD_KTS) stormH += segHours;
-    }
-
-    return {
-        maxWindKts: Math.round(maxWind),
-        avgWindKts: totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0,
-        galeHours: Math.round(galeH * 10) / 10,
-        stormHours: Math.round(stormH * 10) / 10,
-    };
+    return [...scenarios].sort(
+        (a, b) =>
+            a.score - b.score || a.durationHours - b.durationHours || a.departureTime.localeCompare(b.departureTime),
+    );
 }
 
-/**
- * Composite scorer — lower is better. Weights:
- *   1.0  per hour of duration
- *   6.0  per hour of gale exposure
- *  20.0  per hour of storm exposure
- *
- * So a 96-hour passage with 6 gale-hours scores 96 + 36 = 132,
- * versus a 110-hour passage with 0 gale = 110. The longer-but-calmer
- * route wins, as it should for a cruising sailor.
- */
-function score(durationHours: number, galeHours: number, stormHours: number): number {
-    return durationHours + 6 * galeHours + 20 * stormHours;
-}
-
-/**
- * Verdict chip — synthesised from the metrics, not just the score.
- */
-function verdictForMetrics(
-    routeFound: boolean,
-    galeHours: number,
-    stormHours: number,
-    maxWindKts: number,
-): DepartureScenario['verdict'] {
-    if (!routeFound) return 'no-go';
-    if (stormHours > 0 || maxWindKts >= 50) return 'no-go';
-    if (galeHours >= 6 || maxWindKts >= 40) return 'avoid';
-    if (galeHours >= 1 || maxWindKts >= 30) return 'maybe';
-    return 'go';
-}
-
-/**
- * Plan a departure window — run the isochrone optimiser across N
- * candidate departure times and return ranked scenarios.
- *
- * The route's wind / current / cyclone-exclusion fields are passed in
- * once and reused across all runs (they don't depend on departure
- * time, only on absolute clock time which the engine handles via
- * `timeOffsetHours` lookups).
- *
- * Each scenario takes ~10-30 seconds at default isochrone resolution.
- * Caller should expect a multi-minute total compute on a 14-scenario
- * window. The optional progress callback receives partial results so
- * the UI can populate without a process-global event.
- */
 export async function planDepartureWindow(
     origin: { lat: number; lon: number },
     destination: { lat: number; lon: number },
@@ -187,145 +94,165 @@ export async function planDepartureWindow(
     currentField: CurrentField | null,
     exclusionField: ExclusionField | null,
     waveField: WaveField | null,
-    /**
-     * Comfort caps + preferredAngles passed straight through to each
-     * scenario's computeIsochrones config. Same shape as
-     * IsochroneConfig['comfortParams']. Pass null/undefined to route
-     * without comfort filtering.
-     */
-    comfortParams:
-        | {
-              maxWindKts?: number;
-              maxWaveM?: number;
-              maxGustKts?: number;
-              preferredAngles?: import('../types').PreferredAngle[];
-          }
-        | null
-        | undefined,
+    comfortParams: import('../types/settings').ComfortParams | null | undefined,
     windowStartIso: string,
     options: DepartureWindowOptions = {},
 ): Promise<DepartureScenario[]> {
-    const intervalHours = options.intervalHours ?? 12;
-    const windowHours = options.windowHours ?? 168;
-    const maxScenarios = options.maxScenarios ?? 14;
+    const start = performance.now();
+    const budgetMs = Math.max(1, Math.min(180_000, options.maxComputeMs ?? 90_000));
+    const intervalHours = options.intervalHours !== undefined && options.intervalHours <= 3 ? 3 : 6;
+    const windowHours = Math.max(0, Math.min(168, options.windowHours ?? 168));
+    const count = Math.max(0, Math.min(24, options.maxScenarios ?? 14, Math.floor(windowHours / intervalHours) + 1));
+    const windowStartMs = Date.parse(windowStartIso);
     const canContinue = () => {
         try {
-            return options.shouldContinue?.() ?? true;
+            return performance.now() - start < budgetMs && (options.shouldContinue?.() ?? true);
         } catch {
             return false;
         }
     };
-
-    const windowStartMs = new Date(windowStartIso).getTime();
-    const stepCount = Math.min(maxScenarios, Math.floor(windowHours / intervalHours) + 1);
-
-    log.info(
-        `planning ${stepCount} departures every ${intervalHours}h starting ${windowStartIso} (window: ${windowHours}h)`,
-    );
-
-    if (!canContinue()) return [];
+    if (!Number.isFinite(windowStartMs) || !canContinue()) return [];
     const { computeIsochrones } = await import('./IsochroneRouter');
-    if (!canContinue()) return [];
     const scenarios: DepartureScenario[] = [];
-
-    for (let i = 0; i < stepCount; i++) {
-        if (!canContinue()) return scenarios;
-        const depMs = windowStartMs + i * intervalHours * 3600_000;
+    const vesselConfig = vesselIsochroneConfig(
+        vessel,
+        haversineNm(origin.lat, origin.lon, destination.lat, destination.lon),
+    );
+    const comfortConfig = routingComfortConfig(vessel, comfortParams ?? undefined);
+    for (let i = 0; i < count && canContinue(); i++) {
+        const offset = i * intervalHours,
+            depMs = windowStartMs + offset * 3_600_000;
         const depIso = new Date(depMs).toISOString();
-
+        // All supplied fields share windowStartIso. Never reset their forecast clock per scenario.
+        const wind: WindField = options.weatherField
+            ? {
+                  getWind: (lat, lon, hours) => {
+                      const w = options.weatherField!.getWeather(lat, lon, depMs + hours * 3_600_000);
+                      return w?.windSpeedKts != null && w.windDirection != null
+                          ? { speed: w.windSpeedKts, direction: w.windDirection }
+                          : null;
+                  },
+              }
+            : { getWind: (lat, lon, hours) => windField.getWind?.(lat, lon, hours + offset) ?? null };
+        const currents = currentField && {
+            getCurrent: (lat: number, lon: number, hours: number) => currentField.getCurrent(lat, lon, hours + offset),
+        };
+        const waves = waveField && {
+            getWave: (lat: number, lon: number, hours: number) => waveField.getWave(lat, lon, hours + offset),
+        };
+        const exclusions = exclusionField && {
+            isExcluded: (lat: number, lon: number, hours: number) =>
+                exclusionField.isExcluded(lat, lon, hours + offset),
+        };
         let result: IsochroneResult | null = null;
         try {
-            result = await computeIsochrones(
-                origin,
-                destination,
-                depIso,
-                polar,
-                windField,
-                {
-                    // Isochrone options take METRES; vessel.draft is FEET
-                    // (see services/units.ts).
-                    vesselDraft: vesselDraftMetres(vessel),
-                    motoringSpeed: vessel.cruisingSpeed || 6,
-                    minDepthM: null,
-                    // Coarser config to keep total compute time reasonable —
-                    // departure-window is exploratory; once the user picks
-                    // one we re-run at full resolution via the main pipeline.
-                    timeStepHours: 12,
-                    bearingCount: 24,
-                    // Caller-provided comfort params (already blended
-                    // vessel mechanical caps with user comfort prefs +
-                    // preferredAngles). Falls back to vessel-only caps
-                    // if caller passed null/undefined.
-                    comfortParams:
-                        comfortParams ??
-                        (vessel.maxWindSpeed || vessel.maxWaveHeight
-                            ? {
-                                  maxWindKts: vessel.maxWindSpeed,
-                                  maxWaveM: vesselMaxWaveHeightMetres(vessel),
-                              }
-                            : undefined),
-                },
-                bathyGrid,
-                currentField,
-                exclusionField,
-                waveField,
-            );
-            if (!canContinue()) return scenarios;
-        } catch (e) {
-            if (!canContinue()) return scenarios;
-            log.warn(`scenario ${i + 1}/${stepCount} (${depIso}) threw:`, e);
+            result = options.fixedRoute
+                ? {
+                      ...options.fixedRoute,
+                      arrivalTime: new Date(depMs + options.fixedRoute.totalDurationHours * 3_600_000).toISOString(),
+                  }
+                : await computeIsochrones(
+                      origin,
+                      destination,
+                      depIso,
+                      polar,
+                      wind,
+                      {
+                          ...vesselConfig,
+                          ...comfortConfig,
+                          vesselDraft: vesselDraftMetres(vessel),
+                          minDepthM: null,
+                          timeStepHours: Math.max(3, vesselConfig.timeStepHours),
+                          bearingCount: 24,
+                          shouldContinue: canContinue,
+                      },
+                      bathyGrid,
+                      currents,
+                      exclusions,
+                      waves,
+                  );
+        } catch {
+            /* One failed scenario does not erase earlier completed comparisons. */
         }
-
-        if (!result) {
-            const scenario: DepartureScenario = {
-                departureTime: depIso,
-                arrivalTime: depIso,
-                durationHours: 0,
-                distanceNM: 0,
-                maxWindKts: 0,
-                avgWindKts: 0,
-                galeHours: 0,
-                stormHours: 0,
-                score: Infinity,
-                verdict: 'no-go',
-                routeFound: false,
-            };
-            scenarios.push(scenario);
-        } else {
-            const stats = summariseRoute(result.route);
-            const sc = score(result.totalDurationHours, stats.galeHours, stats.stormHours);
-            const verdict = verdictForMetrics(true, stats.galeHours, stats.stormHours, stats.maxWindKts);
-            scenarios.push({
-                departureTime: depIso,
-                arrivalTime: result.arrivalTime,
-                durationHours: result.totalDurationHours,
-                distanceNM: result.totalDistanceNM,
-                ...stats,
-                score: sc,
-                verdict,
-                routeFound: true,
+        if (!canContinue()) break;
+        const scenario: DepartureScenario = {
+            departureTime: depIso,
+            arrivalTime: result?.arrivalTime ?? depIso,
+            durationHours: result?.totalDurationHours ?? 0,
+            distanceNM: result?.totalDistanceNM ?? 0,
+            maxWindKts: 0,
+            avgWindKts: 0,
+            galeHours: 0,
+            stormHours: 0,
+            routeFound: !!result,
+            verdict: 'no-go',
+            score: Infinity,
+            tideStatus: 'unknown',
+        };
+        if (result) {
+            const metrics = departureMetrics(
+                result.route,
+                depMs,
+                wind,
+                currents,
+                waves,
+                exclusions,
+                options.weatherField,
+                vessel,
+                comfortConfig.comfortParams?.maxWaveM,
+            );
+            // A caller that explicitly tried and could not load an absolute-clock
+            // field must not rank the legacy grid's clamped final hour as a forecast.
+            if (options.weatherField === null) metrics.windComplete = false;
+            const coverage = [
+                !metrics.windComplete && 'wind',
+                !metrics.gustComplete && 'gusts',
+                !metrics.waveComplete && 'waves',
+                !metrics.rainComplete && 'rain',
+                !metrics.currentComplete && 'ocean current',
+            ].filter((s): s is string => !!s);
+            let tideStatus: NonNullable<DepartureScenario['tideStatus']> = 'unknown';
+            try {
+                if (options.tideForRoute)
+                    tideStatus = await withTimeout(options.tideForRoute(result, depMs), 'unknown' as const, 5_000);
+            } catch {
+                /* A missing tide answer stays unknown. */
+            }
+            if (!canContinue()) break;
+            Object.assign(scenario, {
+                ...metrics,
+                coverage,
+                tideStatus,
+                weatherModel: options.weatherField?.model ?? 'Loaded wind forecast',
+                verdict:
+                    metrics.rejected ||
+                    (comfortConfig.comfortParams?.maxWindKts !== undefined &&
+                        metrics.maxWindKts > comfortConfig.comfortParams.maxWindKts) ||
+                    (comfortConfig.comfortParams?.maxGustKts !== undefined &&
+                        metrics.maxGustKts > comfortConfig.comfortParams.maxGustKts) ||
+                    tideStatus === 'blocked' ||
+                    metrics.stormHours > 0 ||
+                    metrics.maxWindKts >= 50
+                        ? 'no-go'
+                        : metrics.galeHours >= 6 || metrics.maxWindKts >= 40
+                          ? 'avoid'
+                          : metrics.galeHours > 0 ||
+                              metrics.maxWindKts >= 30 ||
+                              coverage.length ||
+                              tideStatus === 'unknown'
+                            ? 'maybe'
+                            : 'go',
+                comparison: { departureMs: depMs, ...metrics, maxWaveM: metrics.maxWaveM ?? 0 },
             });
         }
-
-        // Report progress only to this invocation's owner.
-        if (!canContinue()) return scenarios;
+        scenarios.push(scenario);
+        if (!canContinue()) break;
         try {
-            options.onProgress?.({ completed: i + 1, total: stepCount, scenarios: [...scenarios] });
-        } catch (_) {
-            /* UI progress must never fail route computation */
+            options.onProgress?.({ completed: i + 1, total: count, scenarios: rank(scenarios) });
+        } catch {
+            /* Caller-owned progress cannot break computation. */
         }
-
-        // Yield to UI — back-to-back isochrone runs will starve the main thread
-        await new Promise((r) => setTimeout(r, 0));
-        if (!canContinue()) return scenarios;
+        await new Promise((resolve) => setTimeout(resolve, 0));
     }
-
-    // Sort: best (lowest score) first. no-go scenarios drop to the bottom.
-    scenarios.sort((a, b) => a.score - b.score);
-
-    log.info(
-        `complete: best = ${scenarios[0]?.departureTime} (${scenarios[0]?.durationHours}h, ${scenarios[0]?.galeHours} gale-h, score ${scenarios[0]?.score.toFixed(1)})`,
-    );
-
-    return scenarios;
+    return rank(scenarios);
 }

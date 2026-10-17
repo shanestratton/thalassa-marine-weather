@@ -16,6 +16,8 @@ import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 import { subscribeAuthIdentityScope } from './authIdentityScope';
+import type { InstrumentEvidence, InstrumentMeasurementTimes } from './instruments/measurements';
+import { evidenceTimes, remoteInstrumentEvidence } from './instruments/evidence';
 import { validGnssValue, type GnssDiagnostics } from './nmea/gnssDiagnostics';
 import {
     freshWindHistorySummary,
@@ -71,6 +73,11 @@ export function reconcileNmeaMetricFreshness(metric: TimestampedMetric, now: num
 
 // ── Full store state ──
 export interface NmeaStoreState {
+    distanceLog?: NmeaSample['distanceLog'];
+    systemsReadings?: import('./systemsTelemetry').SystemsReading[];
+    /** Derived instruments use this source-clock evidence, never legacy metric receipt time. */
+    instrumentEvidence?: InstrumentEvidence;
+    measurementTimes?: InstrumentMeasurementTimes;
     // Navigation
     tws: TimestampedMetric; // True Wind Speed (kts)
     twa: TimestampedMetric; // True Wind Angle off the bow, 0-180 magnitude (°)
@@ -116,11 +123,32 @@ export interface NmeaStoreState {
 }
 
 /** How a remote feed reached this phone: the Pi over the boat LAN, or the Pi's cloud row. */
-export type RemoteVia = 'lan' | 'cloud';
+export type RemoteVia = 'lan' | 'cloud' | 'signalk';
+export const DIRECT_GAUGE_KEYS = [
+    'tws',
+    'twa',
+    'twaSigned',
+    'twd',
+    'heel',
+    'pitch',
+    'aws',
+    'awa',
+    'stw',
+    'heading',
+    'depth',
+    'sog',
+    'cog',
+    'waterTemp',
+    'rudder',
+    'rpm',
+    'voltage',
+    'latitude',
+    'longitude',
+] as const;
 
 /** A remote wind leaf is hers now for this long after the Pi sampled it, by lane. */
 function remoteWindMaxAgeMs(via: RemoteVia): number {
-    return via === 'lan' ? 20_000 : 60_000;
+    return via === 'lan' ? 20_000 : via === 'signalk' ? 13_000 : 60_000;
 }
 
 /**
@@ -144,6 +172,18 @@ export interface RemoteFeed {
 
 /** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
 export interface RemoteInstrumentSnapshot {
+    meterIdentity?: string | null;
+    rpmVesselKey?: string;
+    systemsReadings?: import('./systemsTelemetry').SystemsReading[];
+    /** Direct read lane only: original clocks for legacy gauges as well as derived evidence. */
+    gaugeTimes?: Partial<Record<(typeof DIRECT_GAUGE_KEYS)[number], number>>;
+    engineTelemetry?: import('./instruments/engineTelemetry').EngineTelemetry;
+    measurementTimes?: InstrumentMeasurementTimes;
+    rpmAtMs?: number;
+    rpmEngineId?: string;
+    rpmEngineCount?: number;
+    leewayDeg?: number | null;
+    leewaySource?: string;
     source: 'pi' | 'device';
     /** Which lane it came down; absent means the cloud row. */
     via?: RemoteVia;
@@ -231,9 +271,11 @@ class NmeaStoreClass {
     constructor() {
         // A singleton survives account changes. Previous crews' history must not.
         subscribeAuthIdentityScope(() => {
+            if (this.state.remote?.via === 'signalk') this.clearRemote('signalk');
             this.clearWindHistory();
             this.clearGpsDiagnostics();
             this.clearTrueHeading();
+            this.clearInstrumentEvidence();
             this.notify();
         });
     }
@@ -260,6 +302,7 @@ class NmeaStoreClass {
                     this.remoteFeedEndedAt = this.state.remote.receivedAt;
                     this.clearGpsDiagnostics();
                     this.clearTrueHeading();
+                    this.clearInstrumentEvidence();
                 }
                 this.state.remote = null; // the boat itself wins
             }
@@ -388,17 +431,41 @@ class NmeaStoreClass {
             return false;
         const now = Date.now();
         const via: RemoteVia = snapshot.via ?? 'cloud';
+        if (via === 'signalk' && snapshot.source !== 'device') return false;
         // The Pi over the boat LAN outranks its own cloud row (Shane
         // 2026-09-07: phones read the Pi; the socket only when there is no Pi).
         if (
-            via === 'cloud' &&
-            this.state.remote?.via === 'lan' &&
+            ((via !== 'lan' && this.state.remote?.via === 'lan') ||
+                (via === 'cloud' && this.state.remote?.via === 'signalk')) &&
             now - this.state.remote.receivedAt <= LAN_REMOTE_HOLD_MS
         )
             return false;
+        this.state.systemsReadings = snapshot.systemsReadings ?? [];
+        this.state.instrumentEvidence = remoteInstrumentEvidence(snapshot);
+        this.state.distanceLog = undefined;
+        this.state.measurementTimes = evidenceTimes(this.state.instrumentEvidence);
         this.ingestRemoteWind(snapshot, now);
         this.ingestRemoteGnss(snapshot.gnss, now);
         const put = (metric: TimestampedMetric, value: number | null) => {
+            if (via === 'signalk') {
+                const key = DIRECT_GAUGE_KEYS.find((key) => this.state[key] === metric);
+                const at = key ? snapshot.gaugeTimes?.[key] : undefined;
+                if (
+                    value !== null &&
+                    Number.isFinite(value) &&
+                    typeof at === 'number' &&
+                    at > 0 &&
+                    at <= now + 1000 &&
+                    now - at <= 13_000
+                )
+                    this.updateMetric(metric, value, at);
+                else {
+                    metric.value = null;
+                    metric.lastUpdated = 0;
+                    metric.freshness = 'dead';
+                }
+                return;
+            }
             if (value !== null && Number.isFinite(value)) this.updateMetric(metric, value, now);
         };
         put(this.state.tws, snapshot.twsKts);
@@ -445,7 +512,7 @@ class NmeaStoreClass {
             Number.isFinite(snapshot.lon) &&
             Math.abs(snapshot.lat) <= 90 &&
             Math.abs(snapshot.lon) <= 180 &&
-            !(snapshot.lat === 0 && snapshot.lon === 0)
+            (!(snapshot.lat === 0 && snapshot.lon === 0) || via === 'signalk')
                 ? { positionSampleAt }
                 : {}),
             receivedAt: now,
@@ -506,6 +573,7 @@ class NmeaStoreClass {
     /** Ingest an NmeaSample from the listener */
     private ingestSample(sample: NmeaSample): void {
         const now = sample.timestamp;
+        if (sample.distanceLog) this.state.distanceLog = { ...sample.distanceLog };
         if (this.state.gpsSource !== 'NMEA gateway') this.clearGpsDiagnostics();
         this.state.gpsSource = 'NMEA gateway';
         const config = NmeaListenerService.getSavedConfig?.();
@@ -513,6 +581,27 @@ class NmeaStoreClass {
             `gateway:${config?.host ?? 'default'}:${config?.port ?? ''}`,
             'Gateway wind samples',
         );
+        const identity = `gateway:${config?.host ?? 'default'}:${config?.port ?? ''}`;
+        const previous =
+            this.state.instrumentEvidence?.identity === identity && this.state.instrumentEvidence.via === 'gateway'
+                ? this.state.instrumentEvidence
+                : undefined;
+        this.state.instrumentEvidence = {
+            identity,
+            via: 'gateway',
+            ...(sample.engineTelemetry
+                ? { engine: sample.engineTelemetry }
+                : previous?.engine
+                  ? { engine: previous.engine }
+                  : {}),
+            readings: { ...previous?.readings, ...sample.instrumentReadings },
+            ...(sample.measurementTimes?.position && sample.latitude !== null && sample.longitude !== null
+                ? { position: { lat: sample.latitude, lon: sample.longitude, at: sample.measurementTimes.position } }
+                : previous?.position
+                  ? { position: previous.position }
+                  : {}),
+        };
+        this.state.measurementTimes = evidenceTimes(this.state.instrumentEvidence);
         this.windHistory.add(sample.tws, sample.timestamp);
         this.state.lastAnyUpdate = now;
 
@@ -572,6 +661,13 @@ class NmeaStoreClass {
         this.remoteWindSensor = null;
         this.remoteWindSensorAt = 0;
         this.remoteWindSample = null;
+    }
+
+    private clearInstrumentEvidence(): void {
+        this.state.distanceLog = undefined;
+        this.state.systemsReadings = undefined;
+        this.state.instrumentEvidence = undefined;
+        this.state.measurementTimes = undefined;
     }
 
     private clearTrueHeading(): void {
@@ -653,6 +749,23 @@ class NmeaStoreClass {
      * dates no TWD, and its TWD is stamped on receipt, as before.
      */
     private ingestRemoteTwd(value: number | null, at: number | undefined, via: RemoteVia, now: number): void {
+        if (via === 'signalk') {
+            if (
+                value !== null &&
+                Number.isFinite(value) &&
+                typeof at === 'number' &&
+                at > 0 &&
+                at <= now + 1000 &&
+                now - at <= 13_000
+            )
+                this.updateMetric(this.state.twd, value, at);
+            else {
+                this.state.twd.value = null;
+                this.state.twd.lastUpdated = 0;
+                this.state.twd.freshness = 'dead';
+            }
+            return;
+        }
         if (value === null || !Number.isFinite(value)) return;
         if (typeof at === 'number' && Number.isFinite(at)) {
             const age = now - at;
@@ -810,6 +923,7 @@ class NmeaStoreClass {
     }
 
     private retireAllMetrics(): void {
+        this.clearInstrumentEvidence();
         const metrics: TimestampedMetric[] = [
             this.state.tws,
             this.state.twa,
@@ -826,6 +940,7 @@ class NmeaStoreClass {
             this.state.sog,
             this.state.cog,
             this.state.waterTemp,
+            this.state.rudder,
             this.state.rpm,
             this.state.voltage,
             this.state.latitude,

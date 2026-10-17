@@ -154,13 +154,15 @@ describe('CrewFloatPlanCard', () => {
             expect(screen.getByText('People aboard: 4')).toBeInTheDocument();
         });
 
+        // 129-14: the Skipper row asks a date of birth, not an age, and the
+        // date itself goes to every skipper you crew for; their plan prints the age.
         it('says where your details go and who sees them', () => {
             render(<CrewFloatPlanCard boatName="Wandering Albatross" view={WITH_ROSTER} passage={null} self={SELF} />);
             // Not "only your skipper": the plan goes to whoever they send it to, and
             // the one shared row is read by every skipper you crew for.
             expect(
                 screen.getByText(
-                    "Your name, mobile and age from Settings → Vessel Profile go on Wandering Albatross's float plan. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.",
+                    "Your name, mobile and date of birth from Settings → Vessel Profile go to Wandering Albatross's skipper for the float plan, which prints your age, never the date. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.",
                 ),
             ).toBeInTheDocument();
         });
@@ -177,7 +179,7 @@ describe('CrewFloatPlanCard', () => {
             // Names the fields as Settings labels them: on your own profile you are the Skipper.
             expect(
                 screen.getByText(
-                    /Add your name, mobile and age there: on your own profile you're the Skipper, so your name and age go in the Skipper row under Crew, and your mobile in Skipper mobile\./,
+                    /Add your name, mobile and date of birth there: on your own profile you're the Skipper, so your name and date of birth go in the Skipper row under Crew, and your mobile in Skipper mobile\./,
                 ),
             ).toBeInTheDocument();
             // No name of your own: the app's name for you stands.
@@ -194,7 +196,8 @@ describe('CrewFloatPlanCard', () => {
                     sharing
                 />,
             );
-            expect(screen.getByText(/Add your age there:/)).toBeInTheDocument();
+            expect(screen.getByText(/Add your date of birth there:/)).toBeInTheDocument();
+            expect(screen.queryByText(/Add your age/)).toBeNull();
         });
 
         it('says nothing about sharing while the server cannot take them yet', () => {

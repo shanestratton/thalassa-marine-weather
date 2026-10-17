@@ -172,11 +172,12 @@ describe('useAnchorSwingLayer', () => {
         const h = makeMap();
         mount(h, snap({ state: 'idle', anchorPosition: null }));
 
-        // Layers exist from mount, but an idle watch writes an EMPTY FC.
-        expect(h.layers.has(FILL_ID)).toBe(true);
-        expect(h.layers.has(LINE_ID)).toBe(true);
-        expect(h.layers.has(POINT_ID)).toBe(true);
-        expect(writtenFC(h).features).toEqual([]);
+        // Idle means no resources or style mutations, including a late first idle.
+        expect(h.sources.size).toBe(0);
+        expect(h.layers.size).toBe(0);
+        expect(h.map.addSource).not.toHaveBeenCalled();
+        expect(h.map.addLayer).not.toHaveBeenCalled();
+        expect(h.map.moveLayer).not.toHaveBeenCalled();
 
         emitSnapshot(snap());
         const fc = writtenFC(h);
@@ -193,6 +194,44 @@ describe('useAnchorSwingLayer', () => {
         expect(anchorFeature.geometry.type).toBe('Point');
         expect((anchorFeature.geometry as GeoJSON.Point).coordinates).toEqual([153, -27]);
         expect(anchorFeature.properties).toEqual({ alarm: false, isAnchor: true });
+    });
+
+    it('stays quiet through boot idle and a basemap swap while no watch is set', () => {
+        vi.useFakeTimers();
+        const h = makeMap();
+        h.map.isStyleLoaded.mockReturnValue(false);
+        mount(h, snap({ state: 'idle', anchorPosition: null }));
+        expect(h.onceListeners.get('idle')?.size ?? 0).toBe(0);
+
+        h.map.isStyleLoaded.mockReturnValue(true);
+        h.emitMapEvent('idle');
+        h.emitMapEvent('style.load');
+        act(() => {
+            vi.advanceTimersByTime(0);
+        });
+
+        expect(h.map.addSource).not.toHaveBeenCalled();
+        expect(h.map.addLayer).not.toHaveBeenCalled();
+        expect(h.map.moveLayer).not.toHaveBeenCalled();
+    });
+
+    it('does not resurrect an armed ring when the watch ends before its deferred heal', () => {
+        vi.useFakeTimers();
+        const h = makeMap();
+        h.map.isStyleLoaded.mockReturnValue(false);
+        mount(h, snap());
+        expect(h.onceListeners.get('idle')?.size).toBe(1);
+
+        emitSnapshot(snap({ state: 'idle', anchorPosition: null }));
+        h.map.isStyleLoaded.mockReturnValue(true);
+        h.emitMapEvent('idle');
+        act(() => {
+            vi.advanceTimersByTime(0);
+        });
+
+        expect(h.map.addSource).not.toHaveBeenCalled();
+        expect(h.map.addLayer).not.toHaveBeenCalled();
+        expect(h.map.moveLayer).not.toHaveBeenCalled();
     });
 
     it('builds a geodesic ring: every vertex within 1% of the 30m swing radius at lat -27', () => {
@@ -233,6 +272,7 @@ describe('useAnchorSwingLayer', () => {
         mount(h, snap());
         expect(writtenFC(h).features).toHaveLength(2);
 
+        h.moveCalls.length = 0;
         emitSnapshot(snap({ swingRadius: 0 }));
         expect(writtenFC(h).features).toEqual([]);
 
@@ -241,6 +281,7 @@ describe('useAnchorSwingLayer', () => {
 
         emitSnapshot(snap({ state: 'idle' }));
         expect(writtenFC(h).features).toEqual([]);
+        expect(h.moveCalls).toEqual([]);
     });
 
     it('heals after a basemap swap from the retained snapshot, deferred one macrotask and deduped', () => {

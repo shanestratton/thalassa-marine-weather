@@ -31,7 +31,7 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({ fetchVoyageAsTrack: mocks.fetchVoyageAsTrack }));
-vi.mock('../services/routeTracer', () => ({
+vi.mock('../services/savedTraceStore', () => ({
     loadSavedTraces: mocks.loadSavedTraces,
     displayRouteLabel: (t: { name: string }) => t.name,
 }));

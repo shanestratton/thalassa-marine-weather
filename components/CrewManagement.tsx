@@ -55,7 +55,7 @@ import {
     ordinalLegLabel,
     saveTrace,
     stripLegBadge,
-} from '../services/routeTracer';
+} from '../services/savedTraceStore';
 import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
 import { buildTraceStubRows, traceVerificationNote } from '../services/savedRouteRows';
 import { isSameCountry } from '../data/customsPortIndex';

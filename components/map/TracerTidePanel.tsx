@@ -50,6 +50,8 @@ interface TideState {
     /** Height an hour later, to say whether it is making or taking off. */
     trend: 'rising' | 'falling' | null;
     approximate: boolean;
+    tableSource?: string;
+    departureSource?: string;
 }
 
 function formatClock(ms: number): string {
@@ -136,6 +138,18 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
                     trend,
                     // Anything not built from dense station heights is interpolated.
                     approximate: curve ? curve.provenance !== 'STATION_HEIGHTS' : true,
+                    tableSource: real.guiDetails
+                        ? [
+                              real.guiDetails.provider ?? 'WorldTides',
+                              real.guiDetails.datumLabel,
+                              real.guiDetails.stationName,
+                          ]
+                              .filter(Boolean)
+                              .join(' · ')
+                        : undefined,
+                    departureSource: curve
+                        ? `Departure estimate · WorldTides · ${curve.datum ?? 'unconfirmed datum'} · ${curve.stationName ?? 'unknown station'}`
+                        : undefined,
                 });
             } catch (error) {
                 if (!stale) {
@@ -215,8 +229,13 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
 
             {state && state.extremes.length > 0 && (
                 <p className="text-xs leading-snug text-gray-400">
-                    {state.approximate ? 'Approx — interpolated between high and low' : 'Station heights'}
-                    {state.stationName ? ` · ${state.stationName}` : ''}
+                    {state.tableSource ? `High/low table · ${state.tableSource}` : state.stationName}
+                    {state.departureSource && (
+                        <span className="block">
+                            {state.departureSource}
+                            {state.approximate ? ' · Approx — interpolated between high and low' : ''}
+                        </span>
+                    )}
                 </p>
             )}
         </div>

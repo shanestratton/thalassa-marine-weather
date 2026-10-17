@@ -2,16 +2,18 @@
  * floatPlan — composes the document a skipper leaves with someone ashore.
  *
  * A float plan is not an itinerary. Its whole purpose is the overdue time:
- * "if you have not heard from me by X, ring-3 Y". Everything else is detail a
+ * "if you have not heard from me by X, ring Y". Everything else is detail a
  * rescue coordinator would otherwise have to extract from a frightened
  * relative at midnight.
  *
  * PURE ON PURPOSE. No fetches, no storage, no share call — this returns a
  * string and nothing else, so the whole document is testable and the caller
- * decides where it goes. It is never persisted server-side and never reaches
+ * decides where it goes. The full document is never persisted server-side and never reaches
  * the public tracking page: that page answers "where is this boat and where
  * has it been", while this answers "what is aboard and who to call", which is
  * an inventory plus a set of credentials. It goes to one chosen person.
+ * The separate optional overdue watch saves only a deliberately reviewed
+ * compact plan; it never serializes this full input, roster or raw route.
  *
  * Plain text rather than PDF, deliberately. This gets read on a phone, in the
  * dark, by someone worried — text lands in SMS, WhatsApp or email and is
@@ -66,6 +68,10 @@ export interface FloatPlanInput {
      * Defaults to the device zone, but callers may pin it for a passage. */
     timeZone?: string;
 }
+
+/** The overdue guide's heading in the text and email briefs. The PDF keeps
+ *  the section under it on one page when it fits (services/floatPlanPdf.ts). */
+export const FLOAT_PLAN_GUIDE_HEADING = 'IF WE ARE OVERDUE — WHAT TO DO';
 
 export type FloatPlanChannel = 'sms' | 'whatsapp' | 'email' | 'generic';
 
@@ -465,7 +471,7 @@ export function composeFloatPlan(input: FloatPlanInput): string {
         section('SAFETY & SURVIVAL', safetyLines(document)),
         section('PERSONS ONBOARD', personsLines(document)),
         intendedTrack.length > 0 ? section('INTENDED TRACK', intendedTrack) : null,
-        section('IF WE ARE OVERDUE — WHAT TO DO', emergencyGuideLines(document)),
+        section(FLOAT_PLAN_GUIDE_HEADING, emergencyGuideLines(document)),
         `Please reply RECEIVED. Keep this plan until we send a safe-arrival message.\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipients and audience in the destination app before sending. All times ${document.timeZoneLabel}.`,
     ];
 
@@ -544,7 +550,7 @@ function formatEmail(document: FloatPlanDocument): string {
             .filter(Boolean)
             .join('\n'),
         document.trackPoints.length > 0 ? ['INTENDED TRACK', ...trackLines(document)].join('\n') : '',
-        ['IF WE ARE OVERDUE — WHAT TO DO', ...emergencyGuideLines(document)].join('\n'),
+        [FLOAT_PLAN_GUIDE_HEADING, ...emergencyGuideLines(document)].join('\n'),
         `Please reply RECEIVED so we know you have this plan.\nKeep it until we send a safe-arrival message.\n\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipient before sending. All times ${document.timeZoneLabel}.`,
     ];
     return blocks.filter(Boolean).join('\n\n────────────────────\n\n');
@@ -615,7 +621,7 @@ function emergencyGuideLines(document: FloatPlanDocument): string[] {
         '   it can send a search to the wrong stretch of coast.',
         '',
         '5. Stay reachable.',
-        '   Keep your phone free. They will ring-3 back for more, and you are now the person',
+        '   Keep your phone free. They will ring back for more, and you are now the person',
         '   who knows most about where we are.',
     );
 
@@ -705,11 +711,31 @@ function formatSms(document: FloatPlanDocument): string {
     );
 }
 
+const RTL_LETTER = /[\u0590-\u05FF\u0600-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+// An optional +, then digits with spaces, dots, dashes or brackets, ending in a digit.
+const PHONE_NUMBER = /\+?\(?\d[\d ().-]{4,}\d/g;
+const LRM = '\u200E';
+
+/**
+ * On a line with Hebrew or Arabic in it, a phone number after a name shows its
+ * digit groups right to left: "+972 50 000 0000" reads "0000 000 50 972+",
+ * because the bidi algorithm lets the digits take the name's direction. A
+ * left-to-right mark either side of the number (rule W7) keeps it in dialling
+ * order in every app and in the PDF. Lines without right-to-left letters are
+ * left alone, so a Latin-only SMS stays in the GSM alphabet.
+ */
+export function holdNumbersLeftToRight(text: string): string {
+    return text
+        .split('\n')
+        .map((line) => (RTL_LETTER.test(line) ? line.replace(PHONE_NUMBER, (number) => `${LRM}${number}${LRM}`) : line))
+        .join('\n');
+}
+
 export function createFloatPlanSharePayload(input: FloatPlanInput, channel: FloatPlanChannel): FloatPlanSharePayload {
     const document = prepareFloatPlan(input);
     const routeLabel = [oneLine(input.route.from), oneLine(input.route.to)].filter(Boolean).join(' to ');
     const subject = emailHeaderSafe(`Float plan | ${document.vesselName}${routeLabel ? ` | ${routeLabel}` : ''}`);
-    const text =
+    const composed =
         channel === 'email'
             ? formatEmail(document)
             : channel === 'whatsapp'
@@ -717,6 +743,7 @@ export function createFloatPlanSharePayload(input: FloatPlanInput, channel: Floa
               : channel === 'sms'
                 ? formatSms(document)
                 : composeFloatPlan(input);
+    const text = holdNumbersLeftToRight(composed);
     return {
         channel,
         title: subject,

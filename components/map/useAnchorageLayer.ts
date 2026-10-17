@@ -20,12 +20,14 @@
  */
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { AnchorageService, type AnchorageData, type AnchorageProps } from '../../services/anchorages/AnchorageService';
 import { cachedPlaceConditions, loadPlaceConditions } from '../../services/anchorages/PlaceConditionsService';
 import { CONDITION_COLOURS, type ConditionsPlace } from '../../services/anchorages/placeConditions';
 import { placeConditionsHtml } from './placeConditionsPresentation';
 import { watchPlaceConditions } from './watchPlaceConditions';
 import { createLogger } from '../../utils/createLogger';
+import { currentHoldingGroundAt } from '../../services/enc/holdingGround';
 
 const log = createLogger('AnchorageLayer');
 
@@ -82,7 +84,7 @@ function pointPopupHtml(p: AnchorageProps): string {
         ${warn}
         ${notes}
         <div style="margin-top:6px;font-size:9.5px;color:#6b7880;line-height:1.35">
-          Source: ${esc(p.source)}. Open-data reference — verify depth, holding &amp; zoning against official charts before anchoring.
+          Source: ${esc(p.source)}. ${p.source === 'OpenStreetMap' ? '© OpenStreetMap contributors · ODbL. ' : p.source === 'NOAA' ? 'Derived reference, not official NOAA ENC. <a href="https://charts.noaa.gov/ENCs/" target="_blank" rel="noopener noreferrer">NOAA origin</a>. ' : ''}Open-data reference — verify depth, holding &amp; zoning against official charts before anchoring.
         </div>`);
 }
 
@@ -135,6 +137,27 @@ export function useAnchorageLayer(
      *  arrays in queryRenderedFeatures properties. */
     const dataRef = useRef<AnchorageData | null>(null);
     const regionalRef = useRef<AnchorageData | null>(null);
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                // Acceptance is account scoped. Existing NOAA-derived points must not
+                // remain visible while another account has not accepted its agreement.
+                for (const ref of [dataRef, regionalRef]) {
+                    if (ref.current)
+                        ref.current = {
+                            ...ref.current,
+                            points: {
+                                ...ref.current.points,
+                                features: ref.current.points.features.filter((f) => f.properties.source !== 'NOAA'),
+                            },
+                        };
+                }
+                const source = mapRef.current?.getSource(SRC_PTS) as mapboxgl.GeoJSONSource | undefined;
+                if (dataRef.current && source) source.setData(dataRef.current.points);
+                popupRef.current?.remove();
+            }),
+        [mapRef],
+    );
     const supplementRef = useRef(supplement);
     supplementRef.current = supplement;
     const weatherRefresh = useRef<(() => void) | null>(null);
@@ -330,7 +353,11 @@ export function useAnchorageLayer(
                 if (dataRef.current) applyData(map, dataRef.current);
                 const f = dataRef.current?.points.features.find((p) => p.properties.id === popupId.current);
                 const el = popupRef.current?.getElement()?.querySelector('.anch-verdict');
-                if (f && el) el.innerHTML = placeConditionsHtml(cachedPlaceConditions(conditionsPlaceForAnchorage(f)));
+                if (f && el) {
+                    const place = conditionsPlaceForAnchorage(f);
+                    el.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
+                    fillHoldingNote(popupRef.current, place);
+                }
             },
         );
         weatherRefresh.current = weather.changed;
@@ -433,7 +460,17 @@ export function conditionsPlaceForAnchorage(f: GeoJSON.Feature<GeoJSON.Point, An
 }
 
 function verdictShellHtml(): string {
-    return `<div class="anch-verdict">Checking the next 12 hours…</div>`;
+    return `<div class="anch-verdict">Checking the next 12 hours…</div><p class="anch-holding" hidden style="font-size:11px;line-height:1.4;margin:6px 0 0"></p>`;
+}
+
+/** A sibling of the weather verdict: refreshes cannot erase it, and bottom
+ * type never changes the place's score, ranking, availability or colour. */
+function fillHoldingNote(popup: mapboxgl.Popup | null, place: ConditionsPlace) {
+    const node = popup?.getElement()?.querySelector<HTMLElement>('.anch-holding');
+    if (!node) return;
+    const advice = currentHoldingGroundAt(place.lat, place.lon);
+    node.hidden = advice.kind === 'unknown';
+    node.textContent = node.hidden ? '' : advice.text;
 }
 
 /** Fill the verdict block of the OPEN popup once forecast + tables agree.
@@ -451,6 +488,7 @@ async function fillVerdict(
     const feature = data?.points.features.find((f) => f.properties?.id === id);
     if (!feature) return;
     const place = conditionsPlaceForAnchorage(feature);
+    fillHoldingNote(popup, place);
     const initial = el();
     if (initial) initial.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
     await loadPlaceConditions([place]);
@@ -458,4 +496,5 @@ async function fillVerdict(
     const node = el();
     if (!node) return; // popup gone — nobody is reading
     node.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
+    fillHoldingNote(popup, place);
 }

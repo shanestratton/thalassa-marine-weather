@@ -4,12 +4,13 @@
  * Shows connection status, configuration controls, and AIS Hub settings.
  * The "Instrument Panel" CTA navigates to the full multimeter dashboard.
  */
-import React, { useState, useCallback, useEffect, useId } from 'react';
+import React, { useState, useCallback, useEffect, useId, lazy, Suspense } from 'react';
 import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import { getPairing } from '../../services/PiPairingService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
+const SignalKReaderCard = lazy(() => import('./SignalKReaderCard'));
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -20,11 +21,13 @@ import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services
 import { PageHeader } from '../ui/PageHeader';
 import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';
 import { useBoatLink } from '../../hooks/useBoatLink';
+import { BOAT_LINK_CHECKING } from '../../services/boatLink/boatLinkGate';
 import type { Tone } from '../../services/boatLink/boatLinkModel';
 import { BoatLinkPill } from './BoatLinkPill';
 import { Button } from '../ui/Button';
 import { BoatIcon, GaugeIcon } from '../Icons';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { validUnicastGateway } from '../../services/nmea/udpTransport';
 
 /** A field label on this page: sentence case at label size, so it reads under
  *  the card's capital eyebrow (GATEWAY) rather than as its peer (UX scorecard
@@ -192,6 +195,7 @@ const CARD_TONE: Record<Tone, string> = {
 };
 
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
+    const [signalKSetup, setSignalKSetup] = useState(false);
     // Idempotent and flag-guarded, so the render-phase call is safe under
     // StrictMode's double-invoke — it does its work once per install.
     clearLegacyGatewayDefaultsOnce();
@@ -202,6 +206,9 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
     const [host, setHost] = useState(localStorage.getItem('nmea_host') || DEFAULT_GATEWAY_HOST);
     const [port, setPort] = useState(localStorage.getItem('nmea_port') || '1456');
+    const [transport, setTransport] = useState<'tcp' | 'udp'>(
+        localStorage.getItem('nmea_transport') === 'udp' ? 'udp' : 'tcp',
+    );
     const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');
 
     // Direct subscription to NmeaListenerService for connection status —
@@ -212,8 +219,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // answer for every screen (services/boatLink). Shane 2026-10-07, at home
     // with the boat 900 km away over Tailscale: this page said "Aboard",
     // "Away" and "Connected" in turn while nobody moved, because it read the
-    // place off whichever transport had answered last.
-    const link = useBoatLink();
+    // place off whichever transport had answered last. 'Checking…' while the
+    // boat link loads (131-01), never 'No gateway' on a boat that has one.
+    const snapshot = useBoatLink();
+    const link = snapshot ?? BOAT_LINK_CHECKING;
     // Shane 2026-09-07: "no more signal k or ydwg-02 on the actual phone unless
     // there is no pi available." With a Pi paired the policy keeps this socket
     // shut and the phone reads her through the Pi; Connect here is the
@@ -221,6 +230,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const piPaired = getPairing() !== null;
     const [reconnectAttempts, setReconnectAttempts] = useState(0);
     const [lastError, setLastError] = useState<string | null>(null);
+    const [udpLocalAddress, setUdpLocalAddress] = useState<string | null>(null);
     const [aisCount, setAisCount] = useState(0);
 
     useEffect(() => {
@@ -240,6 +250,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
             setReconnectAttempts(NmeaListenerService.getReconnectAttempts());
             setLastError(NmeaListenerService.getLastError());
             setConnStatus(NmeaListenerService.getStatus());
+            setUdpLocalAddress(NmeaListenerService.getConnectionInfo?.()?.localAddress ?? null);
         }, 1000);
 
         // Subscribe to AIS target count updates
@@ -280,7 +291,8 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // and Cancel whenever the policy's fallback socket was mid-attempt, and
     // back again when it failed — "gateway settings, sometime take over"
     // (Shane 2026-10-07). A fallback socket is one line on the Pi card now.
-    const skipperSocket = link.socketOwner === 'skipper';
+    // The policy knows who opened it while the boat link loads.
+    const skipperSocket = (snapshot?.socketOwner ?? InstrumentSourcePolicy.socketOwner()) === 'skipper';
     const piMode = piPaired && !skipperSocket;
     const rolledUp = piMode && !showDirect;
     // The socket's own controls belong to a socket this page answers for: the
@@ -305,6 +317,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // h2 beside a second dot, under a pill that said it a third time (UX
     // scorecard run 6).
     const deviceSelectId = useId();
+    const transportSelectId = useId();
 
     // ── Position source ────────────────────────────────────────────────
     // Shane, 2026-08-02, with a Bad Elf GPS Pro+ paired: "there is no mention
@@ -361,7 +374,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
             setLastError('Enter the gateway host or IP address.');
             return;
         }
-        if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+        if (transport === 'udp' && !validUnicastGateway(host.trim())) {
+            setLastError('Enter the unicast IPv4 address of the gateway on this phone’s Wi-Fi.');
+            return;
+        }
+        if (!/^\d{1,5}$/.test(port) || !Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
             setLastError('Enter a port between 1 and 65535.');
             return;
         }
@@ -371,17 +388,18 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
             NmeaListenerService.stop();
             NmeaStore.stop();
             // Save config
-            localStorage.setItem('nmea_host', host);
+            localStorage.setItem('nmea_host', host.trim());
             localStorage.setItem('nmea_port', port);
+            localStorage.setItem('nmea_transport', transport);
             // Configure fresh
-            NmeaListenerService.configure(host, parseInt(port, 10));
+            NmeaListenerService.configure(host.trim(), portNum, transport);
             // Start store FIRST so it catches the initial 'connecting' status
             NmeaStore.start();
             NmeaListenerService.start();
         } catch (e) {
             log.error('NMEA connect failed:', e);
         }
-    }, [host, port]);
+    }, [host, port, transport]);
 
     const handleDisconnect = useCallback(() => {
         triggerHaptic('medium');
@@ -407,7 +425,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     // Said as WHERE and DATA chips (BoatLinkPill), so the
                     // pair wraps at 320 pt rather than clipping; one reading
                     // for a screen reader: link.pill.text.
-                    status={<BoatLinkPill pill={link.pill} pulse={link.data.state === 'connecting'} />}
+                    status={<BoatLinkPill pill={link.pill} pulse={snapshot?.data.state === 'connecting'} />}
                 />
 
                 {/* Content — fills viewport */}
@@ -610,6 +628,36 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                         ))}
                                     </select>
                                 </div>
+                                <div>
+                                    <label htmlFor={transportSelectId} className={FIELD_LABEL}>
+                                        Transport
+                                    </label>
+                                    <select
+                                        id={transportSelectId}
+                                        value={transport}
+                                        onChange={(e) => setTransport(e.target.value === 'udp' ? 'udp' : 'tcp')}
+                                        className="thalassa-select w-full min-h-11 mt-1 pl-3 pr-9 py-2.5 rounded-xl bg-white/6 border border-white/10 text-sm text-white font-medium outline-hidden appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
+                                    >
+                                        <option value="tcp">TCP stream</option>
+                                        <option value="udp">UDP unicast · iPhone / iPad</option>
+                                    </select>
+                                </div>
+                                {transport === 'udp' && (
+                                    <p className="text-xs leading-relaxed text-gray-400">
+                                        {udpLocalAddress && (
+                                            <>
+                                                Listening on{' '}
+                                                <strong className="text-white">
+                                                    {udpLocalAddress}:{port}
+                                                </strong>
+                                                .{' '}
+                                            </>
+                                        )}
+                                        Set the gateway destination to this phone’s Wi-Fi IPv4 address and the port
+                                        below. Receive only while Thalassa is open. Broadcast and multicast are
+                                        unavailable.
+                                    </p>
+                                )}
                                 {/* Host + Port. The scroll-margin keeps these
                                     clear of the sticky header when the keyboard
                                     shoves them up — they are the two fields on
@@ -696,6 +744,21 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         </div>
                     </div>
 
+                    <div className="mb-3">
+                        <Button
+                            variant="secondary"
+                            className="w-full"
+                            onClick={() => setSignalKSetup((value) => !value)}
+                            aria-expanded={signalKSetup}
+                        >
+                            Signal K device setup
+                        </Button>
+                    </div>
+                    {signalKSetup && (
+                        <Suspense fallback={<p className="p-3 text-sm text-gray-300">Loading Signal K setup…</p>}>
+                            <SignalKReaderCard />
+                        </Suspense>
+                    )}
                     {/* Short screens only: the CTA flows here, after Connect,
                         instead of pinned over the Host IP, Port and Connect
                         (UX scorecard run 7). The pinned copy below hides. */}

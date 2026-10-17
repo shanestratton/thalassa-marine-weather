@@ -15,14 +15,17 @@
  * foreground JavaScript, not a native/background safety authority: iOS can
  * suspend or terminate it. The visibility guard below is a second fail-closed
  * boundary in addition to the unavailable settings UI.
+ *
+ * Build 129 (129-08): the NMEA backbone-silence rule left Calypso. It is the
+ * aboard GPS/instruments-silent alarm in the under-way watch now
+ * (services/underway/instrumentsSilentRule.ts), which needs neither Calypso
+ * nor the internet, so this monitor keeps no clock of its own for it.
  */
 import { NmeaStore, type NmeaStoreState } from './NmeaStore';
 import type { AlertEvent, AlertRule, AlertThresholds } from '../types/alerts';
 import { DEFAULT_ALERT_THRESHOLDS } from '../types/alerts';
 import { dispatchAlert } from './AlertNotifier';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
-
-const SILENCE_WATCHDOG_INTERVAL_MS = 1000;
 
 /** Tests exercise the dormant rules engine without opening the production
  * beta boundary. Shipping builds can only start it after the visibility flag
@@ -37,7 +40,6 @@ class AlertMonitorClass {
     private firstViolatingAt = new Map<string, number>();
     private lastFiredAt = new Map<string, number>();
     private unsubNmea: (() => void) | null = null;
-    private silenceWatchdogTimer: ReturnType<typeof setInterval> | null = null;
     private running = false;
     private currentThresholds: Required<AlertThresholds> = { ...DEFAULT_ALERT_THRESHOLDS };
 
@@ -70,16 +72,6 @@ class AlertMonitorClass {
         this.unsubNmea = NmeaStore.subscribe((state) => this.evaluate(state));
         // Run an initial evaluation in case NmeaStore already had data.
         this.evaluate(NmeaStore.getState());
-
-        // NmeaStore only notifies on a sample or freshness transition. After
-        // all metrics become dead (~10 s), there may be no further callback,
-        // so a >60 s backbone-silence rule cannot depend on subscriptions
-        // alone. Evaluate that one clock-based rule independently while the
-        // foreground monitor is alive.
-        this.silenceWatchdogTimer = setInterval(
-            () => this.evaluate(NmeaStore.getState(), 'nmea-backbone-dead'),
-            SILENCE_WATCHDOG_INTERVAL_MS,
-        );
     }
 
     /** Stop monitoring. Doesn't stop NmeaStore — other pages may need it. */
@@ -89,10 +81,6 @@ class AlertMonitorClass {
         if (this.unsubNmea) {
             this.unsubNmea();
             this.unsubNmea = null;
-        }
-        if (this.silenceWatchdogTimer) {
-            clearInterval(this.silenceWatchdogTimer);
-            this.silenceWatchdogTimer = null;
         }
         this.violationCounts.clear();
         this.firstViolatingAt.clear();
@@ -131,10 +119,9 @@ class AlertMonitorClass {
         this.rules = buildRules(this.currentThresholds);
     }
 
-    private evaluate(state: NmeaStoreState, onlyRuleId?: string): void {
+    private evaluate(state: NmeaStoreState): void {
         const now = Date.now();
         for (const rule of this.rules) {
-            if (onlyRuleId && rule.id !== onlyRuleId) continue;
             const violating = safeEvaluate(rule, state);
 
             if (violating) {
@@ -295,22 +282,6 @@ function buildRules(t: Required<AlertThresholds>): AlertRule[] {
             },
             debounceN: 10, // GPS flickers under bridges; need real persistence
             cooldownSec: 300,
-        },
-        {
-            id: 'nmea-backbone-dead',
-            description: 'NMEA backbone has stopped sending data',
-            severity: 'warn',
-            title: 'NMEA offline',
-            evaluate: (s) => {
-                // Only fire if we previously had data. lastAnyUpdate of
-                // 0 means we never connected — that's a configuration
-                // issue, not a runtime fault.
-                if (s.lastAnyUpdate === 0) return false;
-                return Date.now() - s.lastAnyUpdate > 60_000;
-            },
-            phrase: () => `Skipper, lost the NMEA backbone. Last data over a minute ago.`,
-            debounceN: 3,
-            cooldownSec: 600,
         },
     ];
 }

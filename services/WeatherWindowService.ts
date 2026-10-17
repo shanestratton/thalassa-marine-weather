@@ -15,6 +15,7 @@ import { fetchOpenMeteoProxy } from './weather/openMeteoProxy';
 import { createLogger } from '../utils/createLogger';
 import { vesselMaxWaveHeightMetres } from './units';
 import { circularMean } from '../utils/circularStats';
+import { scoreDepartureWindow } from '../supabase/functions/_shared/forecast-alerts/windowScore';
 import { passageDataFingerprint } from './passageEnvironmentReadiness';
 import {
     canUsePlaintextWeatherCache,
@@ -184,7 +185,12 @@ export function meanWindDirection(degrees: number[]): number {
     return degrees.find(Number.isFinite) ?? 0;
 }
 
-/** Score a single 6h window against comfort thresholds */
+/**
+ * Score a single 6h window against comfort thresholds, with the one scorer
+ * check-weather-alerts' "Good window opens" alert also uses (129-07,
+ * supabase/functions/_shared/forecast-alerts/windowScore.ts). Night
+ * departures are handled at the caller level.
+ */
 function scoreWindow(
     hourlyWind: number[],
     hourlyWave: number[],
@@ -192,54 +198,12 @@ function scoreWindow(
     comfort: WeatherWindowScoringComfort,
     courseBearing?: number,
 ): { score: number; rating: 'go' | 'marginal' | 'wait' } {
-    let score = 100;
-
-    const maxWind = Math.max(...hourlyWind);
-    const avgWind = hourlyWind.reduce((a, b) => a + b, 0) / hourlyWind.length;
-    const maxWave = Math.max(...hourlyWave);
-
-    // Wind penalty
-    if (maxWind > comfort.maxWindKts) {
-        score -= 50; // Hard fail
-    } else if (maxWind > comfort.maxWindKts * 0.8) {
-        score -= 20; // Marginal
-    } else if (avgWind > 5 && avgWind < comfort.maxWindKts * 0.6) {
-        score += 5; // Bonus for ideal range
-    }
-
-    // Light wind penalty (too little wind for sailing)
-    if (avgWind < 5) score -= 10;
-
-    // Wave penalty
-    if (maxWave > comfort.maxWaveM) {
-        score -= 40;
-    } else if (maxWave > comfort.maxWaveM * 0.7) {
-        score -= 15;
-    }
-
-    // Wind angle scoring — multi-select bands.
-    // Each selected band contributes to the score: if the wind's
-    // relative angle is in NONE of the selected bands, penalty applied.
-    // If preferredAngles is empty / has all 5 → no filter (every relAngle
-    // hits at least one band).
-    if (courseBearing !== undefined && comfort.preferredAngles.length > 0 && comfort.preferredAngles.length < 5) {
-        const avgWindDir = meanWindDirection(hourlyWindDir);
-        const relAngle = Math.abs(((avgWindDir - courseBearing + 180) % 360) - 180);
-        const inBand =
-            (comfort.preferredAngles.includes('beating') && relAngle < 50) ||
-            (comfort.preferredAngles.includes('close_reach') && relAngle >= 50 && relAngle < 80) ||
-            (comfort.preferredAngles.includes('beam_reach') && relAngle >= 80 && relAngle < 110) ||
-            (comfort.preferredAngles.includes('broad_reach') && relAngle >= 110 && relAngle < 150) ||
-            (comfort.preferredAngles.includes('running') && relAngle >= 150);
-        if (!inBand) score -= 20;
-    }
-
-    // Night departure penalty (if comfort says no night sailing)
-    // This is handled at the caller level
-
-    const clamped = Math.max(0, Math.min(100, score));
-    const rating = clamped >= 70 ? 'go' : clamped >= 40 ? 'marginal' : 'wait';
-    return { score: clamped, rating };
+    const angled =
+        courseBearing !== undefined && comfort.preferredAngles.length > 0 && comfort.preferredAngles.length < 5;
+    const relAngle = angled
+        ? Math.abs(((meanWindDirection(hourlyWindDir) - courseBearing + 180) % 360) - 180)
+        : undefined;
+    return scoreDepartureWindow(hourlyWind, hourlyWave, comfort, relAngle);
 }
 
 /**

@@ -13,13 +13,15 @@
  * Night dim rides along because it is the same shape of thing — a persisted
  * chart treatment applied to the live map — and because its cleanup has the
  * same failure mode: it renders to document.body, so it leaks app-wide if it
- * is not torn down with the map.
+ * is not torn down with the map. The map is no longer torn down when the
+ * skipper leaves the chart (App's chart keep-alive), so the dim also follows
+ * the chart on screen (131-03 review).
  *
  * The comments below travelled with the code. Each one records an audit or a
  * review finding, and none of them should be re-derived:
  *
- *   - the curve is KEPT when a refresh fails for the same waters, because a
- *     network blip mid-scrub silently dropped the chart to datum;
+ *   - every viewport/chart change clears the old curve until all visible
+ *     cells are proven on the prediction datum;
  *   - the scrub is RELATIVE (quarter-hours ahead), because an absolute
  *     instant drifted into the past and the thumb crept as time passed;
  *   - scrub application is throttled to ~150 ms trailing-edge, because
@@ -35,6 +37,8 @@ import { usePersistedState } from '../../hooks/usePersistedState';
 import { triggerHaptic } from '../../utils/system';
 import { ENC_NIGHT_DIM_KEY, setEncNightDim, setEncTideOffset } from './EncVectorLayer';
 import { TIDE_DEPTH_ACK_KEY } from './ChartDepthControls';
+import type { MapBaseToggle } from './MapBaseSelector';
+import { subscribe as subscribeCharts } from '../../services/enc/EncCellMetadata';
 import {
     readTideCurveWindow,
     tideReadAt,
@@ -50,6 +54,8 @@ export interface TideDepthMode {
     setTideDepthMode: (v: boolean) => void;
     nightDim: boolean;
     setNightDim: (v: boolean) => void;
+    /** The chart's Night dim row for the map-base menu; null when there is no dim to switch. */
+    nightDimRow: MapBaseToggle | null;
     tideOffsetInfo: TideOffsetRead | null;
     showTideAck: boolean;
     setShowTideAck: (v: boolean) => void;
@@ -62,6 +68,10 @@ export function useTideDepthMode(
     mapRef: React.RefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     planningSurface: boolean,
+    /** 'Auto with night' says it is night now (131-03). */
+    autoNight = false,
+    /** The chart is on screen, not kept alive hidden behind another page (131-03 review). */
+    onScreen = true,
 ): TideDepthMode {
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -72,15 +82,54 @@ export function useTideDepthMode(
     const [tideDepthMode, setTideDepthMode] = usePersistedState('thalassa_tide_depth_mode', false);
     // Night dim — chartplotter-style red-tinted uniform dim (burn-down:
     // the white DEPARE ramp killed night vision at the helm).
-    const [nightDim, setNightDim] = usePersistedState(ENC_NIGHT_DIM_KEY, false);
+    const [savedNightDim, setSavedNightDim] = usePersistedState(ENC_NIGHT_DIM_KEY, false);
+    // 'Auto with night' (131-03) turns the dim on by itself from nautical
+    // dusk to dawn, whatever the saved switch says. The Night dim row in the
+    // chart's map-base menu still turns it off, for the rest of that night
+    // only: the next dusk brings it back, and by day the saved switch rules
+    // as before.
+    const [autoDimOff, setAutoDimOff] = useState(false);
+    const [autoDimNight, setAutoDimNight] = useState(autoNight);
+    if (autoDimNight !== autoNight) {
+        setAutoDimNight(autoNight);
+        setAutoDimOff(false);
+    }
+    const nightDim = autoNight ? !autoDimOff : savedNightDim;
+    const setNightDim = useCallback(
+        (v: boolean) => (autoNight ? setAutoDimOff(!v) : setSavedNightDim(v)),
+        [autoNight, setSavedNightDim],
+    );
+    // The chart's own way to the dim (131-03 review). The moon in
+    // ChartDepthControls asks for plotting and the browsing chart at once,
+    // which never happens (plotting makes a planning surface), so the dim had
+    // no switch a skipper could reach. The row is offered while Auto + night
+    // has the dim in hand (on, or off for tonight) and while the saved switch
+    // has it on: any dim on the chart can be turned off from the chart.
+    const nightDimRow: MapBaseToggle | null =
+        autoNight || nightDim
+            ? {
+                  id: 'night-dim',
+                  label: 'Night dim',
+                  detail: !autoNight
+                      ? 'On till you turn it off'
+                      : nightDim
+                        ? 'Auto + night, till nautical dawn'
+                        : 'Off for now, on again at the next dusk',
+                  on: nightDim,
+                  onToggle: () => setNightDim(!nightDim),
+              }
+            : null;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
         try {
             // Night dim is implemented as a document.body overlay rather than
             // a Mapbox layer. Keep the saved Chart preference, but never let
-            // that full-screen tint bleed into a clean planning surface.
-            setEncNightDim(map, planningSurface ? false : nightDim);
+            // that full-screen tint bleed into a clean planning surface, or
+            // onto the Glass, Settings or the Log while the chart is kept
+            // alive behind them (131-03 review): a page's brightness at night
+            // must not hang on whether the chart was opened this session.
+            setEncNightDim(map, onScreen && !planningSurface && nightDim);
         } catch {
             /* style mid-swap — the next mapReady pass reapplies */
         }
@@ -94,7 +143,7 @@ export function useTideDepthMode(
                 /* map/style torn down */
             }
         };
-    }, [mapRef, nightDim, mapReady, planningSurface]);
+    }, [mapRef, nightDim, mapReady, planningSurface, onScreen]);
     const [tideOffsetInfo, setTideOffsetInfo] = useState<TideOffsetRead | null>(null);
     const [showTideAck, setShowTideAck] = useState(false);
     /** Scrubber position in QUARTER-HOURS AHEAD of now, 0 = live now
@@ -132,7 +181,7 @@ export function useTideDepthMode(
             return;
         }
         let cancelled = false;
-        let lastFix: { lat: number; lon: number } | null = null;
+        let request = 0;
         const applyAtScrub = (): void => {
             const curve = tideCurveRef.current;
             const atMs = tideScrubRef.current > 0 ? Date.now() + tideScrubRef.current * 900_000 : null;
@@ -144,25 +193,20 @@ export function useTideDepthMode(
             setEncTideOffset(map, read ? read.offsetM : null, atMs);
         };
         const refresh = async (): Promise<void> => {
+            const id = ++request;
+            tideCurveRef.current = null;
+            applyAtScrub();
             const c = map.getCenter();
-            lastFix = { lat: c.lat, lon: c.lng };
-            const curve = await readTideCurveWindow(c.lat, c.lng);
-            if (cancelled) return;
-            if (curve) {
-                tideCurveRef.current = curve;
-            } else {
-                // Fetch failed — KEEP a still-valid curve for the same
-                // waters (review major: a blip mid-scrub silently dropped
-                // the chart to datum); drop it only when it's for
-                // somewhere else or has expired.
-                const old = tideCurveRef.current;
-                const stillGood =
-                    old &&
-                    Math.abs(c.lat - old.fix.lat) <= 0.2 &&
-                    Math.abs(c.lng - old.fix.lon) <= 0.2 &&
-                    Date.now() < old.rangeMs[1];
-                if (!stillGood) tideCurveRef.current = null;
-            }
+            const b = map.getBounds();
+            if (!b) return;
+            const curve = await readTideCurveWindow(c.lat, c.lng, [
+                b.getWest(),
+                b.getSouth(),
+                b.getEast(),
+                b.getNorth(),
+            ]);
+            if (cancelled || id !== request) return;
+            tideCurveRef.current = curve;
             applyAtScrub();
         };
         void refresh();
@@ -170,19 +214,23 @@ export function useTideDepthMode(
         // within a freeboard of truth without hammering the API (and
         // re-samples the curve at the scrub position either way).
         const iv = window.setInterval(() => void refresh(), 5 * 60_000);
-        const onMoveEnd = (): void => {
-            const c = map.getCenter();
-            if (!lastFix) return;
-            // ~0.2° ≈ 12–20 NM — far enough that a different station
-            // governs; small pans keep the current read.
-            if (Math.abs(c.lat - lastFix.lat) > 0.2 || Math.abs(c.lng - lastFix.lon) > 0.2) {
-                void refresh();
-            }
+        const onMoveStart = (): void => {
+            ++request;
+            tideCurveRef.current = null;
+            applyAtScrub();
         };
+        const onMoveEnd = (): void => {
+            void refresh();
+        };
+        map.on('movestart', onMoveStart);
         map.on('moveend', onMoveEnd);
+        const unsubscribe = subscribeCharts(() => void refresh());
         return () => {
             cancelled = true;
+            ++request;
+            unsubscribe();
             window.clearInterval(iv);
+            map.off('movestart', onMoveStart);
             map.off('moveend', onMoveEnd);
             setEncTideOffset(map, null);
         };
@@ -223,6 +271,7 @@ export function useTideDepthMode(
         setTideDepthMode,
         nightDim,
         setNightDim,
+        nightDimRow,
         tideOffsetInfo,
         showTideAck,
         setShowTideAck,

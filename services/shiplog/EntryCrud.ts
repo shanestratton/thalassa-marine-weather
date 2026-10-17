@@ -39,7 +39,18 @@ export interface ImportGPXOptions {
     source?: 'gpx_import' | 'community_download';
     /** Optional stable import id, used to make community imports idempotent. */
     voyageId?: string;
+    /**
+     * Stops the import between chunks and aborts the one in flight (132-B21).
+     * The import then fails with 'Import cancelled', and the voyage fence
+     * removes whatever was already saved, as it does for any failed import.
+     */
+    signal?: AbortSignal;
+    /** Called after each saved chunk with the entries saved so far, for a progress bar. */
+    onProgress?: (savedCount: number, total: number) => void;
 }
+
+/** The message an import fails with when its signal was aborted (132-B21). */
+export const IMPORT_CANCELLED_MESSAGE = 'Import cancelled';
 
 function isAuthenticatedScopeCurrent(scope: AuthIdentityScope): scope is AuthenticatedScope {
     return Boolean(scope.userId) && isAuthIdentityScopeCurrent(scope);
@@ -842,6 +853,11 @@ export async function importGPXVoyage(
     if (entries.length === 0) {
         throw new Error('No entries to import');
     }
+    const { signal, onProgress } = options;
+    const throwIfCancelled = () => {
+        if (signal?.aborted) throw new Error(IMPORT_CANCELLED_MESSAGE);
+    };
+    throwIfCancelled();
 
     if (!supabase) {
         throw new Error('Database not available — connect to import tracks');
@@ -897,11 +913,14 @@ export async function importGPXVoyage(
         let savedCount = 0;
 
         for (let i = 0; i < dbEntries.length; i += CHUNK_SIZE) {
+            throwIfCancelled();
             if (!isAuthenticatedScopeCurrent(authenticated)) {
                 throw new Error('Account changed during import');
             }
             const chunk = dbEntries.slice(i, i + CHUNK_SIZE);
             const controller = new AbortController();
+            const abortChunk = () => controller.abort();
+            signal?.addEventListener('abort', abortChunk);
             const response = await settleWithin(
                 database
                     .from(SHIP_LOGS_TABLE)
@@ -911,9 +930,16 @@ export async function importGPXVoyage(
                     })
                     .abortSignal(controller.signal),
                 15_000,
-                () => controller.abort(),
-            );
+                abortChunk,
+            )
+                .catch((error: unknown) => {
+                    throwIfCancelled();
+                    throw error;
+                })
+                .finally(() => signal?.removeEventListener('abort', abortChunk));
 
+            // A cancelled chunk fails as cancelled, not as a database error.
+            throwIfCancelled();
             if (!isAuthenticatedScopeCurrent(authenticated)) {
                 throw new Error('Account changed during import');
             }
@@ -924,6 +950,7 @@ export async function importGPXVoyage(
                 throw new Error(`Import failed at entry ${i}: ${response.error.message}`);
             }
             savedCount += chunk.length;
+            onProgress?.(savedCount, dbEntries.length);
         }
 
         if (!isAuthenticatedScopeCurrent(authenticated)) throw new Error('Account changed during import');

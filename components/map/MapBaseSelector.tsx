@@ -36,6 +36,7 @@ export const MAP_BASE_OPTIONS: ReadonlyArray<{
     { id: 'reliefSat', label: 'Relief + Sat', description: 'Seafloor, with satellite land' },
     { id: 'ocean', label: 'Ocean', description: 'Plain sea, depth offshore' },
     { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
+    { id: 'enc', label: 'ENC only', description: 'Installed charts, no imagery' },
 ];
 
 /* The web desk planner's bases (127-DESKMAP A2): Light first, and none of the
@@ -44,6 +45,7 @@ export const DESK_MAP_BASE_OPTIONS: typeof MAP_BASE_OPTIONS = [
     { id: 'light', label: 'Light', description: 'Easiest to read · seabed is a guide, mean sea level' },
     MAP_BASE_OPTIONS[1],
     MAP_BASE_OPTIONS[3],
+    MAP_BASE_OPTIONS[4],
 ];
 
 /** An on/off row drawn on top of the base, after it (the desk's Seamarks). */
@@ -69,8 +71,20 @@ export interface MapBaseSelectorProps {
     encRow?: boolean;
     /** On/off rows after a separator, in the ENC row's style. */
     toggles?: readonly MapBaseToggle[];
+    /** Obs's clear view, offered only while its chart can hide the controls. */
+    onClearView?: () => void;
+    /** Explicit paper overlay/category/catalogue sheet; no source queried by opening the menu. */
+    onCharts?: () => void;
     /** Extra classes on the root (the desk's narrow-window placement, index.css). */
     className?: string;
+}
+
+function focusMenuItem(item: HTMLButtonElement | null | undefined) {
+    if (!item) return;
+    item.focus({ preventScroll: true });
+    // Native focus can leave the last pixel behind the scroller's border.
+    // Explicit nearest scrolling honours its padding and keeps the whole row.
+    item.scrollIntoView?.({ block: 'nearest' });
 }
 
 /**
@@ -88,6 +102,8 @@ export function MapBaseSelector({
     options = MAP_BASE_OPTIONS,
     encRow = true,
     toggles = [],
+    onClearView,
+    onCharts,
     className = '',
 }: MapBaseSelectorProps) {
     const [open, setOpen] = useState(false);
@@ -99,7 +115,7 @@ export function MapBaseSelector({
     /* The ENC row and the switches are menu items too, so the arrow keys have
        to know about them or the one control a skipper reaches for under memory
        pressure would be the one item they cannot reach without a mouse. */
-    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length;
+    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length + (onClearView ? 1 : 0) + (onCharts ? 1 : 0);
     const noCharts = encCellCount === 0;
     /* With nothing installed and the layer off, 'OFF' was a state for charts
        that don't exist, with no hint that the tap leads to getting some: it
@@ -148,7 +164,7 @@ export function MapBaseSelector({
 
     useEffect(() => {
         if (!open) return;
-        optionRefs.current[options.findIndex((option) => option.id === value)]?.focus({ preventScroll: true });
+        focusMenuItem(optionRefs.current[options.findIndex((option) => option.id === value)]);
 
         const closeOnOutsidePointer = (event: PointerEvent) => {
             if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
@@ -171,7 +187,7 @@ export function MapBaseSelector({
             // The closed trigger shares the zoom readout's z-700, so the layer
             // menu (z-700, later in the tree) dims it with the rest of the
             // chart's controls instead of leaving it lit (UX scorecard run 7).
-            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'} ${className}`}
+            className={`thalassa-map-base-selector absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'} ${className}`}
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {
@@ -185,7 +201,7 @@ export function MapBaseSelector({
                 const focusedIndex = optionRefs.current.findIndex((option) => option === document.activeElement);
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
                 const nextIndex = (focusedIndex + direction + itemCount) % itemCount;
-                optionRefs.current[nextIndex]?.focus({ preventScroll: true });
+                focusMenuItem(optionRefs.current[nextIndex]);
             }}
         >
             <button
@@ -195,7 +211,7 @@ export function MapBaseSelector({
                     triggerHaptic('light');
                     setOpen((current) => !current);
                 }}
-                className="flex h-12 min-h-[44px] items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
+                className="flex h-12 min-h-[44px] shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
                 aria-label={`Map base: ${selected.label}`}
                 aria-haspopup="menu"
                 aria-expanded={open}
@@ -328,6 +344,48 @@ export function MapBaseSelector({
                             </span>
                         </button>
                     ))}
+                    {onCharts && (
+                        <button
+                            ref={(element) => {
+                                optionRefs.current[options.length + checks.length] = element;
+                            }}
+                            type="button"
+                            role="menuitem"
+                            className="min-h-[52px] w-full rounded-xl px-3 text-left text-xs font-black text-sky-200 hover:bg-white/6"
+                            onClick={() => {
+                                setOpen(false);
+                                triggerRef.current?.focus({ preventScroll: true });
+                                onCharts();
+                            }}
+                        >
+                            Charts &amp; detail
+                        </button>
+                    )}
+                    {onClearView && (
+                        <>
+                            <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
+                            <button
+                                ref={(element) => {
+                                    optionRefs.current[options.length + checks.length + (onCharts ? 1 : 0)] = element;
+                                }}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setOpen(false);
+                                    onClearView();
+                                }}
+                                className="flex min-h-[52px] w-full items-center justify-between rounded-xl border border-transparent px-3 text-left text-slate-200 transition-colors hover:bg-white/6 active:scale-[0.98]"
+                            >
+                                <span>
+                                    <span className="block text-xs font-black">Clear the screen</span>
+                                    <span className="block text-[10px] font-medium text-slate-400">
+                                        Tap the chart to bring controls back
+                                    </span>
+                                </span>
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </div>

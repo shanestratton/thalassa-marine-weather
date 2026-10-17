@@ -34,6 +34,7 @@ import {
     readPersistedShallowRuns,
     shallowRunsToDepartureSpots,
     tideAnchorForShallowRuns,
+    shallowRunBounds,
 } from '../../services/routing/inshoreTideSpots';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
@@ -211,6 +212,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 // never a charted shallow spot off the device (127-C-b).
                 const curve = await fetchTideCurve(tidePoint.lat, tidePoint.lon, startMs, horizonMs + 24 * 3_600_000, {
                     days: TIDE_CURVE_MAX_DAYS,
+                    chartBounds: shallowRunBounds(persistedShallowRuns, polyline) ?? undefined,
                 });
                 if (curve) tide = tideFieldFromCurve(curve);
             } catch (e) {
@@ -262,7 +264,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             cancelled = true;
             currentSequenceAbort.abort(new Error('departure sweep closed or superseded'));
         };
-    }, [open, polyline, shallowSpots, tideAnchor, vessel, draftConfirmed, gatesAboard]);
+    }, [open, polyline, shallowSpots, tideAnchor, persistedShallowRuns, vessel, draftConfirmed, gatesAboard]);
 
     if (!open) return null;
 

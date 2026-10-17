@@ -4,31 +4,39 @@
  *
  * WORLDWIDE FIRST. Every start gets OpenStreetMap anchorages from at most four
  * coarse one-degree reference cells (only the cells leave the phone, never the
- * boat's position). Queensland adds the offline anchorage atlas with its baked
- * land fetch and GBRMPA no-anchoring areas; it wins the dedupe (both use the
- * same osm-node ids). Inside a reviewed region the Whitsundays stops are
- * joined on top by anchorage id: display name, the "Parks" tag, activities,
- * closures and the landing note. The skipper's own saved routes give a real
- * distance where one joins the start to a stop.
+ * boat's position). Outside the atlas the same cells bring the map's names
+ * (131-PYD-10): a named bay with nothing charted within a mile is a place, an
+ * unnamed anchorage takes the nearest bay's name ("Anchorage off Baie du
+ * Dervin"), an anchorage area counts at its centre ("area: pick your spot"),
+ * and a marina, bay or town names the start. Queensland adds the offline
+ * anchorage atlas with its baked land fetch and GBRMPA no-anchoring areas; it
+ * wins the dedupe (both use the same osm-node ids), and its bays are the
+ * atlas's own (no names are asked for). Inside a reviewed region the
+ * Whitsundays stops are joined on top by anchorage id: display name, the
+ * "Parks" tag, activities, closures and the landing note. The skipper's own
+ * saved routes give a real distance where one joins the start to a stop.
  *
  * ONE PLACE, ONE ROW, AND THE REVIEWED STOPS ALWAYS RANKED. The same name
  * within 2.5 NM is one place mapped twice (the atlas has Cid Harbour as an OSM
  * node and as GBRMPA's designated anchorage). Every place with a baked land
  * table is ranked (127-PYD-4: the 40-nearest cap left Butterfly, Blue Pearl,
  * Nelly and Cateran unranked at Airlie); only OpenStreetMap points that need
- * a coastline ray-cast are held to the 40 nearest. Reviewed stops always are.
+ * a coastline ray-cast are held to the 40 nearest, and named bays to their own
+ * 40 nearest. Reviewed stops always are.
  *
  * WHAT IS NEVER A DESTINATION: a marina (it only names the start and feeds the
  * "leaving a marina" line), a passage, channel, sound or flats the atlas marks
  * as no anchorage (likelyAnchorage false; not listed at all, unless reviewed),
  * a no-anchoring area or an OpenStreetMap point that
- * reports a restriction (both go to Not today with "no anchoring here"), an
- * approximate way/relation centre, a mooring, and anything under a mile from
- * the start. Closures depend on the planned date, so they are applied by
+ * reports a restriction (both go to Not today with "no anchoring here"), a
+ * way/relation centre that is not an anchorage area, a bay named as a passage,
+ * sound or fjord, a mooring, and anything under a mile from the start.
+ * Closures depend on the planned date, so they are applied by
  * splitClosed() before anything is scored, never baked in here.
  *
  * SHELTER IS LAND ONLY. Atlas points carry their baked land table; OpenStreetMap
- * points get one ray-cast against the OSM coastline (km → NM, capped at 15).
+ * points get one ray-cast against the OSM coastline (km → NM, capped at 15),
+ * once ranked, against the coastline indexed once for them all (131-PYD-10).
  * No coastline, no table: the stop reads "Shelter not known". Reefs are never
  * counted as shelter.
  *
@@ -41,11 +49,19 @@ import type { AnchorageProps } from '../anchorages/AnchorageService';
 import {
     referenceTiles,
     validCachedReference,
+    validNamedPlace,
     type CruisingPoint,
+    type NamedPlace,
+    type NamedPlaceKind,
     type ReferenceTile,
 } from '../anchorages/cruisingReference';
 import { routeLengthNm } from '../routeProgress';
-import { assessFetch, type Segment } from '../weather/shelter/shelterGeometry';
+import {
+    fetchByBearingIndexed,
+    indexCoastline,
+    type CoastlineIndex,
+    type Segment,
+} from '../weather/shelter/shelterGeometry';
 import { calculateDistance } from '../../utils/navigationCalculations';
 import {
     SHARED_DESTINATION_NOTES,
@@ -72,6 +88,14 @@ export const FETCH_CAP_NM = 15;
 const NM_KM = 1.852;
 /** The same name this close is the same place, mapped twice. */
 export const SAME_PLACE_NM = 2.5;
+/** An unnamed anchorage takes a bay's name this close, and a bay this close to a charted anchorage is its (131-PYD-10). */
+export const OFF_NM = 1;
+/** Named bays needing a ray-cast that are ranked, nearest first; the rest are named in All places (131-PYD-10). */
+export const BAY_LIMIT = 40;
+/** How far a settlement's name reaches for the start: a boat in the town's harbour is at the town (131-PYD-10). */
+export const SETTLEMENT_NM: Partial<Record<NamedPlaceKind, number>> = { city: 3, town: 2, village: 1 };
+/** The atlas's own rule for no place to stop (build-qld.mjs), and a fjord or sound by its Norwegian name. */
+const NOT_A_STOP = /passage|channel|sound|\bpass\b|flats|strait|fjord(?:en)?\b|sund(?:et)?\b/i;
 const sameNameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -87,6 +111,11 @@ export interface LatLon {
 export interface NamedPoint extends LatLon {
     id: string;
     name: string;
+    /** A settlement's name reaches further than half a mile for the start (131-PYD-10). */
+    withinNm?: number;
+    /** "Anchorage off Baie du Dervin": a name borrowed from the bay or town beside it, which names the start
+     *  only when nothing else does, never before the town itself (131-PYD-10). */
+    borrowed?: boolean;
 }
 
 export interface SavedRouteLike {
@@ -152,6 +181,8 @@ export interface PlaceCandidate extends LatLon {
     reviewed?: ReviewedStop;
     /** An OpenStreetMap place retrieved over 24 h ago: when it was mapped. */
     mappedAtMs?: number;
+    /** A named bay, or an anchorage area at its centre (131-PYD-10); absent for a charted anchorage point. */
+    kind?: 'bay' | 'area';
 }
 
 export interface PlaceExclusion {
@@ -169,6 +200,8 @@ export interface GatherPlacesInput {
     atlas: readonly AtlasFeature[];
     /** loadReferenceTile answers, stale ones included. */
     osm: readonly { points: readonly CruisingPoint[]; stale?: boolean }[];
+    /** loadNamedPlaces answers (131-PYD-10): bays, marinas and settlements; none where the atlas is. */
+    names?: readonly { points: readonly NamedPlace[] }[];
     /** OSM coastline round the start; null when it could not be loaded. */
     coastline: readonly Segment[] | null;
     savedRoutes?: readonly SavedRouteLike[];
@@ -253,20 +286,26 @@ export function dayPlanTiles(start: LatLon, radiusNm: number): { tiles: Referenc
 
 // ── Shelter and distance ───────────────────────────────────────
 
-/** Land-only fetch, 36 sectors, NM to the first coastline (15 = open). Null without a coastline. */
-export function landFetchTableNm(lat: number, lon: number, coastline: readonly Segment[] | null): number[] | null {
+/** Land-only fetch, 36 sectors, NM to the first coastline (15 = open). Null without a coastline. The
+ *  coastline indexed once (131-PYD-10) when many places are cast against it: the same table, far sooner. */
+export function landFetchTableNm(
+    lat: number,
+    lon: number,
+    coastline: readonly Segment[] | CoastlineIndex | null,
+): number[] | null {
     if (!coastline) return null;
-    const { fetchByBearingKm } = assessFetch(lat, lon, coastline as Segment[], {
-        maxKm: FETCH_CAP_NM * NM_KM,
-    });
-    return fetchByBearingKm.map((km) => Math.min(FETCH_CAP_NM, Math.round((km / NM_KM) * 10) / 10));
+    const index = Array.isArray(coastline) ? indexCoastline(coastline, lat) : (coastline as CoastlineIndex);
+    return fetchByBearingIndexed(lat, lon, index, FETCH_CAP_NM * NM_KM).map((km) =>
+        Math.min(FETCH_CAP_NM, Math.round((km / NM_KM) * 10) / 10),
+    );
 }
 
-/** Does the straight line a → b cross any coastline segment? Planar, about a. */
+/** Does the straight line a → b cross any coastline segment? Planar, about a. A segment wholly north or south
+ *  of the line is passed over before anything else is worked out (131-PYD-10: a fjord coast is 100,000 of them). */
 export function crossesCoastline(a: LatLon, b: LatLon, coastline: readonly Segment[]): boolean {
     const cos = Math.cos((a.lat * Math.PI) / 180) || 1e-6;
-    const local = (lon: number, lat: number): [number, number] => [longitude(lon - a.lon) * cos, lat - a.lat];
-    const [bx, by] = local(b.lon, b.lat);
+    const bx = longitude(b.lon - a.lon) * cos;
+    const by = b.lat - a.lat;
     const minX = Math.min(0, bx);
     const maxX = Math.max(0, bx);
     const minY = Math.min(0, by);
@@ -275,10 +314,12 @@ export function crossesCoastline(a: LatLon, b: LatLon, coastline: readonly Segme
         (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
     for (const seg of coastline) {
         if (!seg || seg.length !== 2) continue;
-        const [cx, cy] = local(seg[0][0], seg[0][1]);
-        const [dx, dy] = local(seg[1][0], seg[1][1]);
-        if (Math.max(cx, dx) < minX || Math.min(cx, dx) > maxX || Math.max(cy, dy) < minY || Math.min(cy, dy) > maxY)
-            continue;
+        const cy = seg[0][1] - a.lat;
+        const dy = seg[1][1] - a.lat;
+        if (Math.max(cy, dy) < minY || Math.min(cy, dy) > maxY) continue;
+        const cx = longitude(seg[0][0] - a.lon) * cos;
+        const dx = longitude(seg[1][0] - a.lon) * cos;
+        if (Math.max(cx, dx) < minX || Math.min(cx, dx) > maxX) continue;
         const d1 = cross(cx, cy, dx, dy, 0, 0);
         const d2 = cross(cx, cy, dx, dy, bx, by);
         const d3 = cross(0, 0, bx, by, cx, cy);
@@ -393,25 +434,40 @@ function nearestWithin<P extends LatLon>(start: LatLon, points: readonly P[], wi
     return best;
 }
 
-/** The nearest named atlas or OSM point (marinas included) within half a
- *  mile; else a saved place within half a mile; else the position. */
+/** The nearest named atlas or OSM point (marinas, bays and settlements
+ *  included) within half a mile; else a saved place within half a mile; else
+ *  a town or village within its reach (131-PYD-10); else an anchorage's
+ *  borrowed name within half a mile ("Anchorage off …"); else the position. */
 export function nameStart(
     start: LatLon,
-    named: readonly (LatLon & { name: string })[],
+    named: readonly (LatLon & { name: string; withinNm?: number; borrowed?: boolean })[],
     savedPlaces: readonly (LatLon & { name: string })[],
 ): string {
+    const own = named.filter((p) => !!p.name?.trim() && !p.borrowed);
     const place =
-        nearestWithin(
-            start,
-            named.filter((p) => !!p.name?.trim()),
-            JOIN_NM,
-        ) ??
+        nearestWithin(start, own, JOIN_NM) ??
         nearestWithin(
             start,
             savedPlaces.filter((p) => !!p.name?.trim()),
             JOIN_NM,
+        ) ??
+        nearestWithin(
+            start,
+            own.filter((p) => !!p.withinNm && distanceNm(start, p) <= p.withinNm),
+            Infinity,
+        ) ??
+        nearestWithin(
+            start,
+            named.filter((p) => !!p.name?.trim() && p.borrowed),
+            JOIN_NM,
         );
     return place ? place.name.trim() : formatLatLon(start.lat, start.lon);
+}
+
+/** "Anchorage off Baie du Dervin": the nearest bay within a mile, else a marina or settlement (131-PYD-10). */
+function offName(at: LatLon, bays: readonly NamedPlace[], landmarks: readonly NamedPlace[]): string {
+    const near = nearestWithin(at, bays, OFF_NM) ?? nearestWithin(at, landmarks, OFF_NM);
+    return near ? `Anchorage off ${near.name}` : 'Mapped anchorage';
 }
 
 /** The marina the start is in or beside, for the "leaving a marina" line. */
@@ -444,6 +500,9 @@ interface RawPlace extends LatLon {
     mappedAtMs?: number;
     /** Its land table came with it (the atlas's, or a cached one): no ray-cast, so never capped. */
     baked: boolean;
+    /** An OpenStreetMap place with no table: ray-cast against the coastline only once it is ranked (131-PYD-10). */
+    cast?: boolean;
+    kind?: 'bay' | 'area';
 }
 
 function reviewedOf(destination: DayPlannerDestination): ReviewedStop {
@@ -521,37 +580,92 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
         });
     }
 
+    // The map's names (131-PYD-10), only those that can matter here: in reach, or near enough to name one that is.
+    const bays: NamedPlace[] = [];
+    const landmarks: NamedPlace[] = [];
+    for (const result of input.names ?? []) {
+        for (const place of result?.points ?? []) {
+            if (!validNamedPlace(place)) continue;
+            const nm = distanceNm(start, place);
+            if (nm > radiusNm + OFF_NM) continue;
+            const reach = SETTLEMENT_NM[place.kind];
+            named.push({
+                id: place.id,
+                name: place.name,
+                lat: place.lat,
+                lon: place.lon,
+                ...(reach ? { withinNm: reach } : {}),
+            });
+            if (place.kind === 'marina' && nm <= radiusNm)
+                marinas.push({ id: place.id, name: place.name, lat: place.lat, lon: place.lon });
+            (place.kind === 'bay' ? bays : landmarks).push(place);
+        }
+    }
+
     for (const result of input.osm) {
         for (const point of result?.points ?? []) {
             if (!validCachedReference(point) || !Array.isArray(point.restrictionNotes)) continue;
-            const node = /^osm-node([1-9]\d*)$/.exec(point.id)?.[1];
+            // A node, or an anchorage area at its centre (131-PYD-10): she picks her spot in it.
+            const [, type, ref] = /^osm-(node|way|relation)([1-9]\d*)$/.exec(point.id) ?? [];
             if (
-                !node ||
-                point.approximate ||
+                !type ||
+                point.approximate !== (type !== 'node') ||
                 point.kind !== 'anchorage' ||
-                point.sourceUrl !== `https://www.openstreetmap.org/node/${node}`
+                point.sourceUrl !== `https://www.openstreetmap.org/${type}/${ref}`
             )
                 continue;
-            if (point.name.trim())
-                named.push({ id: point.id, name: point.name.trim(), lat: point.lat, lon: point.lon });
+            const own = point.name.trim();
+            const name = own && own !== 'Mapped anchorage' ? own : offName(point, bays, landmarks);
+            // A placeholder never names the start, and a borrowed name only when nothing else does (131-PYD-10).
+            if (name !== 'Mapped anchorage')
+                named.push({
+                    id: point.id,
+                    name,
+                    lat: point.lat,
+                    lon: point.lon,
+                    ...(name !== own ? { borrowed: true } : {}),
+                });
             // The atlas wins: same id, baked tables, GBRMPA areas (and its no-place-to-stop names).
             if (byId.has(point.id) || notPlaces.has(point.id)) continue;
             const retrievedAt = Date.parse(point.retrievedAt);
             const cached = table36(point.fetchLandNM);
             byId.set(point.id, {
                 id: point.id,
-                name: point.name.trim() || 'Mapped anchorage',
+                name,
                 lat: point.lat,
                 lon: point.lon,
                 source: 'osm',
-                fetchLandNM: cached ?? landFetchTableNm(point.lat, point.lon, coastline),
+                fetchLandNM: cached,
                 noAnchoring: restricted(point),
                 baked: !!cached,
+                cast: !cached,
+                ...(type !== 'node' ? { kind: 'area' as const } : {}),
                 ...(Number.isFinite(retrievedAt) && nowMs - retrievedAt >= MAPPED_DATED_AFTER_MS
                     ? { mappedAtMs: retrievedAt }
                     : {}),
             });
         }
+    }
+
+    // A named bay is a place only where nothing charted is (131-PYD-10): with an anchorage (or a no-anchoring
+    // point) within a mile it is that one's, and a passage, sound or fjord by its name is no place to stop.
+    // Bays and towns barely change, so they are not dated as the anchorages are.
+    const charted = [...byId.values()].filter((p) => distanceNm(start, p) <= radiusNm + OFF_NM);
+    for (const bay of bays) {
+        if (byId.has(bay.id) || notPlaces.has(bay.id) || NOT_A_STOP.test(bay.name)) continue;
+        if (charted.some((p) => distanceNm(p, bay) <= OFF_NM)) continue;
+        byId.set(bay.id, {
+            id: bay.id,
+            name: bay.name,
+            lat: bay.lat,
+            lon: bay.lon,
+            source: 'osm',
+            fetchLandNM: null,
+            noAnchoring: false,
+            baked: false,
+            cast: true,
+            kind: 'bay',
+        });
     }
 
     const excluded: PlaceExclusion[] = [];
@@ -569,8 +683,9 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
     }
     // One place, one row: the atlas holds Cid Harbour twice (the OSM node and
     // GBRMPA's designated anchorage, 1.1 NM apart). The reviewed record wins,
-    // then an OpenStreetMap node, then the nearer.
-    const preference = (p: (typeof anchorable)[number]) => (p.reviewed ? 0 : p.id.startsWith('osm-node') ? 1 : 2);
+    // then an OpenStreetMap node, then the nearer; a named bay last (131-PYD-10).
+    const preference = (p: (typeof anchorable)[number]) =>
+        p.reviewed ? 0 : p.kind === 'bay' ? 3 : p.id.startsWith('osm-node') ? 1 : 2;
     anchorable.sort((a, b) => preference(a) - preference(b) || a.straightNm - b.straightNm || a.id.localeCompare(b.id));
     const kept: typeof anchorable = [];
     for (const place of anchorable) {
@@ -583,21 +698,27 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
     // nearest OpenStreetMap points needing a ray-cast fill up to the 40 (in the
     // Whitsundays the 40 nearest mapped bays all lie inside 16 NM, and left
     // Butterfly, Blue Pearl, Nelly and Cateran "not ranked").
+    // Named bays fill their own 40 (131-PYD-10), so a fjord's many bays never crowd out its charted anchorages.
     kept.sort((a, b) => a.straightNm - b.straightNm || a.id.localeCompare(b.id));
     const always = kept.filter((p) => p.reviewed || p.baked);
-    const others = kept.filter((p) => !p.reviewed && !p.baked);
+    const others = kept.filter((p) => !p.reviewed && !p.baked && p.kind !== 'bay');
+    const bayPool = kept.filter((p) => !p.reviewed && !p.baked && p.kind === 'bay');
     const room = Math.max(0, PLACE_LIMIT - always.filter((p) => !p.baked).length);
-    for (const place of others.slice(room)) {
-        excluded.push({
-            id: place.id,
-            name: place.name,
-            reason: `not ranked — ${PLACE_LIMIT} closer places checked first`,
-            straightNm: place.straightNm,
-        });
-    }
-    const ranked = [...always, ...others.slice(0, room)].sort(
+    const notRanked = (place: (typeof kept)[number], reason: string) =>
+        excluded.push({ id: place.id, name: place.name, reason, straightNm: place.straightNm });
+    for (const place of others.slice(room)) notRanked(place, `not ranked — ${PLACE_LIMIT} closer places checked first`);
+    for (const place of bayPool.slice(BAY_LIMIT))
+        notRanked(place, `not ranked — ${BAY_LIMIT} closer bays checked first`);
+    const ranked = [...always, ...others.slice(0, room), ...bayPool.slice(0, BAY_LIMIT)].sort(
         (a, b) => a.straightNm - b.straightNm || a.id.localeCompare(b.id),
     );
+    // Shelter speed (131-PYD-10): only the ranked places are ray-cast, never every point in the four cells,
+    // against the coastline indexed once for them all.
+    let index: CoastlineIndex | null = null;
+    const shelter = (place: RawPlace) =>
+        place.cast && coastline
+            ? landFetchTableNm(place.lat, place.lon, (index ??= indexCoastline(coastline, start.lat)))
+            : place.fetchLandNM;
     const candidates: PlaceCandidate[] = ranked.map((place) => {
         const destination = reviewedByAnchorage.get(place.id);
         const saved = matchSavedRoute(start, place, input.savedRoutes);
@@ -607,11 +728,12 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
             lat: place.lat,
             lon: place.lon,
             source: place.source,
-            fetchLandNM: place.fetchLandNM,
+            fetchLandNM: shelter(place),
             straightNm: place.straightNm,
             distance: distanceEstimate(start, place, coastline, saved),
             ...(destination ? { reviewed: reviewedOf(destination) } : {}),
             ...(place.mappedAtMs !== undefined ? { mappedAtMs: place.mappedAtMs } : {}),
+            ...(place.kind ? { kind: place.kind } : {}),
         };
     });
     excluded.sort((a, b) => a.straightNm - b.straightNm || a.id.localeCompare(b.id));

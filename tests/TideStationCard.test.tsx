@@ -131,7 +131,10 @@ describe('tide station card', () => {
         expect(
             screen.getByText(/Prediction location: <script>other station<\/script> · -27.500, 153.200/),
         ).toBeInTheDocument();
-        expect(container.querySelector('script, img, a')).toBeNull();
+        expect(container.querySelector('script, img')).toBeNull();
+        expect([...container.querySelectorAll('a')].map((a) => a.href)).toEqual([
+            'https://www.worldtides.info/copyright',
+        ]);
     });
 
     it('renders the same compact segmented gauge with a blue directional arrow for map markers', () => {

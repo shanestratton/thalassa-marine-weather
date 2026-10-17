@@ -9,7 +9,7 @@ import { useUI } from '../context/UIContext';
 import { pushForegroundToast } from '../components/PushToast';
 import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { startAnimationBudgetGuard } from '../utils/animationBudget';
-import { useAuthStore } from '../stores/authStore';
+import { currentAppleCredentialAccount, useAuthStore } from '../stores/authStore';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -26,6 +26,9 @@ import { PiNightWatchStatus } from '../services/piNightWatchStatus';
 import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
 import { sightingsOutboxFlagged } from '../services/sightings/outboxFlag';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { pinOfficialPush } from '../services/officialPushPin';
+import { pinWeatherBriefing } from '../services/briefing/briefingPin';
+import type { PushTapNotice } from '../services/PushNotificationService';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
@@ -165,6 +168,7 @@ export function useAppBootstrap() {
         let disposed = false;
         let stop: (() => void) | undefined;
         let stopWatchCheck: (() => void) | undefined;
+        let stopWakeRules: (() => void) | undefined;
         const load = () => {
             import('../services/underway/UnderwayAlarmWatch')
                 .then(({ startUnderwayAlarmWatch }) => {
@@ -176,6 +180,11 @@ export function useAppBootstrap() {
                     if (!disposed) stopWatchCheck = startWatchCheck();
                 })
                 .catch((err) => console.error('[Boot] watch check failed to start:', err?.message || err));
+            import('../services/alarms/wakeRuleRuntime')
+                .then(({ startWakeRuleRuntime }) => {
+                    if (!disposed) stopWakeRules = startWakeRuleRuntime();
+                })
+                .catch(() => console.error('[Boot] wake rules could not start'));
         };
         // WKWebView has no requestIdleCallback: a second after the first paint there.
         const idle = typeof window.requestIdleCallback === 'function';
@@ -186,6 +195,7 @@ export function useAppBootstrap() {
             else window.clearTimeout(handle);
             stop?.();
             stopWatchCheck?.();
+            stopWakeRules?.();
         };
     }, []);
 
@@ -202,6 +212,7 @@ export function useAppBootstrap() {
     }, []);
 
     // ── Sign in with Apple credential revocation ──────────────────
+    // The check is of the signed-in account's own Keychain binding (131-01).
     useEffect(() => {
         if (!authChecked) return;
         let active = true;
@@ -213,7 +224,7 @@ export function useAppBootstrap() {
                     if (!active) return;
                     const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
                     if (active) await handleNativeAppleCredentialRevocation(event.userId);
-                }),
+                }, currentAppleCredentialAccount()),
             )
             .then((started) => {
                 if (active) stop = started;
@@ -631,6 +642,20 @@ export function useAppBootstrap() {
             const type = data?.notification_type;
             const privateMessage = type === 'dm' || type === 'hail';
             if (privateMessage && (!active || !isLegacyPrivateMessagePermitCurrent(privatePermit))) return;
+            if (type === 'wake_alarm')
+                void import('../services/alarms/wakeCloudAlarms')
+                    .then((m) => {
+                        if (active && isAuthIdentityScopeCurrent(actionScope)) void m.refreshWakeCloudAlarms();
+                    })
+                    .catch(() => undefined);
+            if (data && type === 'radar_alarm') {
+                void import('../services/radar/radarPush')
+                    .then(({ refreshRadarAlarmPush }) => {
+                        if (active && isAuthIdentityScopeCurrent(actionScope)) refreshRadarAlarmPush(data);
+                    })
+                    .catch(() => undefined);
+                return;
+            }
             if (data && type === 'anchor_alarm') {
                 ShoreWatchAlarmService.receivePush(data);
             }
@@ -639,16 +664,33 @@ export function useAppBootstrap() {
             if (privateMessage) pushForegroundToast(notification, actionScope);
             else pushForegroundToast(notification);
         };
-        const tapHandler = (data: Readonly<Record<string, unknown>>) => {
+        const tapHandler = (data: Readonly<Record<string, unknown>>, notice?: PushTapNotice) => {
             const type = data.notification_type as string;
             if ((type === 'dm' || type === 'hail') && (!active || !isLegacyPrivateMessagePermitCurrent(privatePermit)))
                 return;
             switch (type) {
+                case 'wake_alarm':
+                    void import('../services/alarms/wakeCloudAlarms')
+                        .then((m) => {
+                            if (active && isAuthIdentityScopeCurrent(actionScope)) void m.refreshWakeCloudAlarms();
+                        })
+                        .catch(() => undefined);
+                    setPage('map');
+                    break;
                 case 'dm':
                     setPage('chat');
                     break;
                 case 'weather_alert':
-                    setPage('dashboard');
+                    if (pinWeatherBriefing(data, actionScope)) setPage('briefing');
+                    else setPage('dashboard');
+                    break;
+                case 'overdue_notice':
+                    // Review navigation only; tapping never confirms arrival,
+                    // changes the selected boat or acknowledges a watch.
+                    setPage('vessel');
+                    break;
+                case 'buddy_notice':
+                    setPage('map');
                     break;
                 case 'anchor_alarm':
                     // 'compass' = the anchor-watch page — the surface with the
@@ -661,9 +703,28 @@ export function useAppBootstrap() {
                     receivePiAlarm(data);
                     setPage('map');
                     break;
+                case 'radar_alarm':
+                    void import('../services/radar/radarPush')
+                        .then(({ refreshRadarAlarmPush }) => {
+                            if (active && isAuthIdentityScopeCurrent(actionScope)) refreshRadarAlarmPush(data, true);
+                        })
+                        .catch(() => undefined);
+                    setPage('map');
+                    break;
                 case 'pi_watch_notice':
                     // The AIS key on the chart says what the Pi's watch is doing.
                     setPage('map');
+                    break;
+                case 'cyclone_notice':
+                case 'cyclone_urgent':
+                    // The chart, where Storms names the issuer and the official centre (129-09).
+                    setPage('map');
+                    break;
+                case 'official_warning':
+                    // The Warnings page, which leads with it in the issuer's words, and shows the
+                    // tapped one even where the page's place is not the boat's (129-06).
+                    pinOfficialPush(data, notice);
+                    setPage('warnings');
                     break;
                 case 'bolo_alert':
                 case 'suspicious_alert':

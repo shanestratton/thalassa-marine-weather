@@ -16,6 +16,7 @@ import { toast } from '../../Toast';
 import { BoxSheet } from './BoxSheet';
 import { PutItemsSheet } from './PutItemsSheet';
 import { ListRow, boxLine } from './BoxItemRow';
+import type { StoresUnitSystem } from '../../../services/vessel/storesUnits';
 
 /** Closed; the Boxes list (id null); or one box (`back` returns to the list). */
 export type BoxView = { id: string | null; back?: boolean } | null;
@@ -90,6 +91,8 @@ export const StoresBoxes: React.FC<{
     editable: boolean;
     /** May delete from it (its owner). */
     canDelete: boolean;
+    /** The skipper's unit system (131-B14). */
+    units: StoresUnitSystem;
     onAdjust?: (id: string, delta: number) => void;
     /** "New item here": the Stores Add form, born in this box. */
     onNewItem: (box: StoresBox) => void;
@@ -97,7 +100,7 @@ export const StoresBoxes: React.FC<{
     reload: () => Promise<void>;
     /** Scan box (126-11b): only on an iPhone with NFC; reading a tag is for crew too. */
     onScan?: () => void;
-}> = ({ view, setView, items, boxes, live, editable, canDelete, onAdjust, onNewItem, reload, onScan }) => {
+}> = ({ view, setView, items, boxes, live, editable, canDelete, units, onAdjust, onNewItem, reload, onScan }) => {
     const [sheet, setSheet] = useState<'put' | 'form' | null>(null);
     // One write at a time: a second tap while the first is still writing
     // would make a second box, or put the items twice.
@@ -207,6 +210,7 @@ export const StoresBoxes: React.FC<{
             box={box}
             items={box ? inBox(box.id) : []}
             editable={editable}
+            units={units}
             onAdjust={onAdjust}
             onClose={() => setView(view.back && box ? { id: null } : null)}
             onPut={() => setSheet('put')}

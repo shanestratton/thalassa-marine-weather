@@ -56,7 +56,7 @@ const log = createLogger('SyncService');
 
 // ── Types ──────────────────────────────────────────────────────
 
-interface SyncResult {
+export interface SyncResult {
     pushed: number;
     pulled: number;
     errors: string[];

@@ -19,7 +19,18 @@ import {
     RainIcon,
     CheckCircleIcon,
     AlertTriangleIcon,
+    ThunderstormIcon,
+    RadioTowerIcon,
 } from '../Icons';
+import { fetchCycloneWatchStatus, type CycloneWatchStatus } from '../../services/cycloneWatchStatus';
+import { fetchOfficialAlertsWatchStatus } from '../../services/officialAlertsWatchStatus';
+import { fetchWeatherAlertStatus, type WeatherAlertStatus } from '../../services/weatherAlertStatus';
+import {
+    FORECAST_ALERTS_VERSION,
+    LOOKAHEAD_CHOICES,
+    lookaheadHours,
+} from '../../supabase/functions/_shared/forecast-alerts/contract';
+import { extractCoords, extractDisplayName } from '../../utils/savedLocations';
 import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 import type { NotificationPreferences, UnitPreferences } from '../../types';
 import {
@@ -31,6 +42,8 @@ import {
     celsiusToFahrenheit,
     fahrenheitToCelsius,
 } from '../../utils/units';
+const WeatherWatchSection = React.lazy(() => import('./WeatherWatchSection'));
+const ShoreContactsSection = React.lazy(() => import('./ShoreContactsSection'));
 
 type ThresholdKey = Exclude<keyof NotificationPreferences, 'precipitation'>;
 
@@ -55,11 +68,13 @@ interface ThresholdSpec {
     note?: string;
 }
 
-// The server job (supabase/functions/check-weather-alerts) checks wind, gusts,
-// visibility, UV, temperature and rain. It has no wave or swell-period check,
-// so those two alarms fire only from the in-app check, while Thalassa is open;
+// The server job (supabase/functions/check-weather-alerts) checked wind, gusts,
+// visibility, UV, temperature and rain. It had no wave or swell-period check,
+// so those two alarms fired only from the in-app check, while Thalassa is open;
 // they used to sit under the intro's every-30-min promise as if covered
-// (build 123, W1-02). W2-03 adds the server check and drops this note.
+// (build 123, W1-02). The look-ahead check (129-07, was W2-03) reads the seas
+// too, so the note goes once the deployed function says it is that check
+// (weather_alert_status), and stays on a phone whose server is older.
 // Short enough for one line beside the value well at 375 pt (109 px at 12 px
 // system-ui, where 'Air temperature above' is 126).
 const OPEN_APP_ONLY = 'Only with app open';
@@ -351,6 +366,260 @@ const SignedOutNotice: React.FC<{ onOpenAccount?: () => void }> = ({ onOpenAccou
     </div>
 );
 
+/**
+ * "Cyclone warnings near the boat" (129-09): the server's cyclone-watch push.
+ * A safety alert, so on by default (unset = on) and never paywalled, here with
+ * the other pushed alerts. Hidden until the watcher has answered
+ * (services/cycloneWatchStatus.ts), so no switch is offered that nothing
+ * honours; once it has, a watcher gone quiet or a feed that is down is said,
+ * never shown as no cyclones.
+ */
+/** "14 Oct 03:10 UTC", as the storm view writes its times. */
+const utcLabel = (ms: number) => {
+    const d = new Date(ms).toUTCString();
+    return `${+d.slice(5, 7)} ${d.slice(8, 11)} ${d.slice(17, 22)} UTC`;
+};
+
+const isPosition = (p: { lat?: unknown; lon?: unknown } | null | undefined): boolean =>
+    typeof p?.lat === 'number' &&
+    typeof p?.lon === 'number' &&
+    Number.isFinite(p.lat + p.lon) &&
+    Math.abs(p.lat) <= 90 &&
+    Math.abs(p.lon) <= 180;
+
+/**
+ * Whether the account carries a position the watcher can always measure from
+ * (cyclone-watch resolveBoat): the home port as the app reads it, or the place
+ * the weather is set to. Without one, only a fix the Pi or Guardian has sent.
+ */
+function hasSavedPosition(settings: AlertsTabProps['settings']): boolean {
+    const home = settings.homePort?.trim();
+    const saved = settings.savedLocationCoords;
+    const homeAt = home && (saved?.[home] ?? saved?.[extractDisplayName(home)] ?? extractCoords(home));
+    return isPosition(homeAt || null) || isPosition(settings.defaultLocationCoords);
+}
+
+const CycloneWarningsSection: React.FC<{ on: boolean; positioned: boolean; onChange: (on: boolean) => void }> = ({
+    on,
+    positioned,
+    onChange,
+}) => {
+    const [status, setStatus] = useState<CycloneWatchStatus | null>(null);
+    useEffect(() => {
+        let live = true;
+        void fetchCycloneWatchStatus().then((answer) => {
+            if (live) setStatus(answer);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+    if (!status) return null;
+    const ran = Date.parse(status.ranAt);
+    const down = Date.parse(status.unavailableSince ?? '');
+    const notes = [
+        Number.isFinite(down) && `Cyclone data unavailable since ${utcLabel(down)}`,
+        Date.now() - ran > 2 * 3_600_000 && `Not checked since ${utcLabel(ran)}`,
+        !positioned &&
+            "No home port position is saved. Unless the Pi or Guardian has sent the boat's position, the watch has nothing to measure from: set your home port on the map.",
+    ].filter((note): note is string => typeof note === 'string');
+    return (
+        <Section title="Cyclones">
+            <Row>
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className={`${iconTileClass(on)} bg-rose-500/20 text-rose-300`}>
+                        {/* The cyclone push's own toast icon; the unused CycloneIcon would add ~400 B. */}
+                        <ThunderstormIcon className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`font-bold ${on ? 'text-white' : DISARMED_INK}`}>
+                            Cyclone warnings near the boat
+                        </p>
+                        <p className={`text-xs leading-snug ${on ? 'text-gray-400' : DISARMED_INK}`}>
+                            A notice within 600 NM. Urgent within 300 NM, or when the forecast track comes within 300 NM
+                            in the next 72 h. From the boat&apos;s last position, else your home port.
+                        </p>
+                        {notes.map((note) => (
+                            <p key={note} className="text-xs leading-snug text-amber-300">
+                                {note}
+                            </p>
+                        ))}
+                    </div>
+                </div>
+                <Toggle label="Cyclone warnings near the boat" checked={on} onChange={onChange} />
+            </Row>
+        </Section>
+    );
+};
+
+/**
+ * "Official marine warnings at the boat" and "Small craft advisories"
+ * (129-06): official-alerts-watch's push of the issuers' own marine and
+ * coastal warnings. Safety alerts, so both on by default (unset = on) and
+ * never paywalled, beside the cyclone switch. Hidden until the watcher has
+ * answered (services/officialAlertsWatchStatus.ts), so no switch is offered
+ * that nothing honours; a watcher gone quiet is said. The sub-switch is
+ * shown but cannot be operated while the main one is off.
+ */
+const OfficialWarningsSwitches: React.FC<{
+    marine: boolean;
+    advisories: boolean;
+    positioned: boolean;
+    onChange: (patch: Partial<AlertsTabProps['settings']>) => void;
+}> = ({ marine, advisories, positioned, onChange }) => {
+    const [ranAt, setRanAt] = useState<string | null>(null);
+    useEffect(() => {
+        let live = true;
+        void fetchOfficialAlertsWatchStatus().then((answer) => {
+            if (live) setRanAt(answer?.ranAt ?? null);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+    if (!ranAt) return null;
+    const ran = Date.parse(ranAt);
+    const notes = [
+        Date.now() - ran > 30 * 60_000 && `Not checked since ${utcLabel(ran)}`,
+        !positioned &&
+            "No home port position is saved. Unless the Pi or Guardian has sent the boat's position, there is nothing to match warnings to: set your home port on the map.",
+    ].filter((note): note is string => typeof note === 'string');
+    const smallCraftOn = marine && advisories;
+    return (
+        <Section title="Official warnings">
+            <Row>
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className={`${iconTileClass(marine)} bg-sky-500/20 text-sky-300`}>
+                        <RadioTowerIcon className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`font-bold ${marine ? 'text-white' : DISARMED_INK}`}>
+                            Official marine warnings at the boat
+                        </p>
+                        <p className={`text-xs leading-snug ${marine ? 'text-gray-400' : DISARMED_INK}`}>
+                            Gale, storm and tsunami warnings in the issuer&apos;s words, at once, day or night.
+                        </p>
+                    </div>
+                </div>
+                <Toggle
+                    label="Official marine warnings at the boat"
+                    checked={marine}
+                    onChange={(on) => onChange({ officialMarineWarnings: on })}
+                />
+            </Row>
+            <Row>
+                <div className="flex min-w-0 items-center gap-3 pl-12">
+                    <div className="min-w-0">
+                        <p className={`font-bold ${smallCraftOn ? 'text-white' : DISARMED_INK}`}>
+                            Small craft advisories
+                        </p>
+                        <p className={`text-xs leading-snug ${smallCraftOn ? 'text-gray-400' : DISARMED_INK}`}>
+                            And watches. Overnight they wait for 07:00 at the boat, unless they begin within 3 h.
+                        </p>
+                    </div>
+                </div>
+                <Toggle
+                    label="Small craft advisories"
+                    checked={smallCraftOn}
+                    disabled={!marine}
+                    onChange={(on) => onChange({ smallCraftAdvisories: on })}
+                />
+            </Row>
+            <div className="px-4 py-3 text-xs leading-snug text-gray-400">
+                <p>
+                    Land warnings show in the app only, on the Warnings page. From the boat&apos;s last position, else
+                    your home port.
+                </p>
+                {notes.map((note) => (
+                    <p key={note} className="mt-1 text-amber-300">
+                        {note}
+                    </p>
+                ))}
+            </div>
+        </Section>
+    );
+};
+
+/**
+ * "Looking ahead" (129-07): how far ahead the background check reads the wind
+ * and sea thresholds, "Good window opens", and what the check last saw at the
+ * position it reads, in its own words (already in the skipper's units, and
+ * never a UKMO value: CC BY-SA, so named and counted, never quoted). Shown
+ * only once the deployed function reports the look-ahead version.
+ */
+const LookingAhead: React.FC<{
+    status: WeatherAlertStatus;
+    hours: number;
+    goodWindow: boolean;
+    place?: string;
+    onSave: SettingsTabProps['onSave'];
+}> = ({ status, hours, goodWindow, place, onSave }) => {
+    const labelId = React.useId();
+    const ran = Date.parse(status.ranAt);
+    const stale = !(Date.now() - ran <= 2 * 3_600_000);
+    const at = status.basis === 'last-known' ? 'your last known position' : place?.trim() || 'your saved location';
+    // Where WAM has no water the seas lines quote Météo-France's model: credit it there too.
+    const mfwam = status.lines.some((line) => line.includes('MFWAM'));
+    return (
+        <Section title="Looking ahead">
+            <div className="border-b border-white/5 px-4 py-3">
+                <p id={labelId} className="font-bold text-white">
+                    Look ahead
+                </p>
+                <div role="group" aria-labelledby={labelId} className="mt-2 grid grid-cols-3 gap-2">
+                    {LOOKAHEAD_CHOICES.map((h) => (
+                        <button
+                            key={h}
+                            type="button"
+                            aria-pressed={h === hours}
+                            onClick={() => onSave({ alertLookaheadHours: h })}
+                            className={`min-h-11 rounded-lg border text-sm font-bold ${
+                                h === hours
+                                    ? 'border-sky-500/40 bg-sky-500/15 text-white'
+                                    : 'border-white/10 bg-white/2 text-gray-300'
+                            }`}
+                        >
+                            {h} h
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <Row>
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className={`${iconTileClass(goodWindow)} bg-emerald-500/20 text-emerald-300`}>
+                        <CheckCircleIcon className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`font-bold ${goodWindow ? 'text-white' : DISARMED_INK}`}>Good window opens</p>
+                        <p className={`text-xs leading-snug ${goodWindow ? 'text-gray-400' : DISARMED_INK}`}>
+                            When the models agree on 6 h inside your wind and sea limits.
+                        </p>
+                    </div>
+                </div>
+                <Toggle
+                    label="Good window opens"
+                    checked={goodWindow}
+                    onChange={(on) => onSave({ goodWindowAlerts: on })}
+                />
+            </Row>
+            <div className="space-y-1 px-4 py-3 text-xs leading-snug text-gray-300">
+                {stale && <p className="text-amber-300">Not checked since {utcLabel(ran)}</p>}
+                <p className="text-gray-400">
+                    {status.basis
+                        ? `${stale ? 'Last read' : `Checked ${utcLabel(ran)}`} at ${at}`
+                        : 'Not checked at your position yet.'}
+                </p>
+                {status.lines.map((line) => (
+                    <p key={line}>{line}</p>
+                ))}
+                <p className="text-gray-400">
+                    Forecast data: ECMWF, DWD ICON{mfwam ? ', Météo-France' : ''}. UKMO counted, never quoted.
+                </p>
+            </div>
+        </Section>
+    );
+};
+
 interface AlertsTabProps extends SettingsTabProps {
     /** Opens Settings → Account & Cloud, where the sign-in card is. */
     onOpenAccount?: () => void;
@@ -362,6 +631,19 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
     // sees the notice flash while it runs.
     const signedOut = useAuthStore((state) => state.authChecked && state.user === null);
     const [permission, setPermission] = useState<PermissionState>(null);
+    const [ahead, setAhead] = useState<WeatherAlertStatus | null>(null);
+    useEffect(() => {
+        let live = true;
+        void fetchWeatherAlertStatus().then((answer) => {
+            if (live) setAhead(answer);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+    // The deployed check reads the seas and looks ahead only from this version on.
+    const looksAhead = !!ahead && ahead.version >= FORECAST_ALERTS_VERSION;
+    const hours = lookaheadHours(settings.alertLookaheadHours);
     const refreshPermission = useCallback(() => {
         void readNotificationPermission().then(setPermission);
     }, []);
@@ -409,7 +691,11 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     home port or the last known position, sent by push to a
                     signed-in account) (UX scorecard run 9). */}
                 <p className="border-b border-white/5 px-4 py-3 text-xs leading-relaxed text-gray-300">
-                    Checked about every 30 min at your home port or last known position, and sent as a notification.
+                    {/* Once the server looks ahead (129-07), each check is said as it is:
+                        only wind and gusts are agreed across models. */}
+                    {looksAhead
+                        ? `Checked about every 30 min at your home port or last known position. Wind and gusts: up to ${hours} h ahead, sent when 2 of 3 models agree. Seas: up to ${hours} h ahead, from one named wave model. The rest: the hour under way.`
+                        : 'Checked about every 30 min at your home port or last known position, and sent as a notification.'}{' '}
                     Needs a data connection, and signing in for alerts while Thalassa is closed.
                 </p>
                 {signedOut && <SignedOutNotice onOpenAccount={onOpenAccount} />}
@@ -418,8 +704,9 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     number field and the switch are never nested inside another
                     control. Every value well has the same shape (no "<" prefix —
                     above/below lives in the trigger line) so the values align. */}
-                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel, note }) => {
+                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel, note: caveat }) => {
                     const armed = settings.notifications[key].enabled;
+                    const note = looksAhead ? undefined : caveat;
                     const triggerId = `${idBase}-${key}-trigger`;
                     const noteId = `${idBase}-${key}-note`;
                     return (
@@ -494,6 +781,30 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     </div>
                 </Row>
             </Section>
+            {looksAhead && (
+                <LookingAhead
+                    status={ahead}
+                    hours={hours}
+                    goodWindow={settings.goodWindowAlerts === true}
+                    place={settings.defaultLocation}
+                    onSave={onSave}
+                />
+            )}
+            <OfficialWarningsSwitches
+                marine={settings.officialMarineWarnings !== false}
+                advisories={settings.smallCraftAdvisories !== false}
+                positioned={hasSavedPosition(settings)}
+                onChange={onSave}
+            />
+            <CycloneWarningsSection
+                on={settings.cycloneWarnings !== false}
+                positioned={hasSavedPosition(settings)}
+                onChange={(on) => onSave({ cycloneWarnings: on })}
+            />
+            <React.Suspense fallback={null}>
+                <WeatherWatchSection />
+                <ShoreContactsSection />
+            </React.Suspense>
         </div>
     );
 };

@@ -116,7 +116,7 @@ export function ChartDepthControls({
                               }${tideOffsetInfo.stationName ? ` · ${tideOffsetInfo.stationName}` : ''}${
                                   tideOffsetInfo.approx ? ' · approx' : ''
                               }${tideScrubQ > 0 ? ' · tap for now' : ''}`
-                            : 'LIVE DEPTH — no tide data, showing chart datum'}
+                            : 'CHART DATUM — tidal clearance unverified'}
                     </button>
                     {tideOffsetInfo && (
                         <div
@@ -166,7 +166,7 @@ export function ChartDepthControls({
                 >
                     {tideDepthMode && tideOffsetInfo
                         ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
-                        : 'depths in metres at low tide (LAT)'}
+                        : 'depths in metres below chart datum'}
                     <span className="ml-1 text-gray-500">· key</span>
                 </button>
             )}
@@ -287,8 +287,8 @@ export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckMod
                 </p>
                 <p className="mb-4 text-[12px] leading-snug text-amber-300/90">
                     It's a prediction, not a measurement: wind and pressure can move real water by 0.3 m or more, tide
-                    differs across a bay, and sand moves. Your sounder is the truth. Route checks stay on chart datum
-                    (LAT).
+                    differs across a bay, and sand moves. Your sounder is the truth. Route checks use their own chart
+                    datum checks.
                 </p>
                 <div className="flex gap-2">
                     <button

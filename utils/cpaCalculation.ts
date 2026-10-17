@@ -25,6 +25,8 @@ import {
 } from './collisionRule';
 
 export interface CpaResult {
+    positionBasis?: 'report' | 'dead-reckoned';
+    uncertaintyNm?: number;
     /** Closest Point of Approach in nautical miles */
     cpa: number;
     /** Time to CPA in minutes (negative = diverging) */
@@ -82,6 +84,7 @@ export function computeCpa(
     );
     if (!a || a.rangeOnly || a.cpaNm === null || a.tcpaMin === null) return null;
     return {
+        ...(a.positionBasis ? { positionBasis: a.positionBasis, uncertaintyNm: a.uncertaintyNm } : {}),
         cpa: Math.round(a.cpaNm * 100) / 100,
         tcpa: Math.round(a.tcpaMin * 10) / 10,
         distance: Math.round(a.rangeNm * 100) / 100,

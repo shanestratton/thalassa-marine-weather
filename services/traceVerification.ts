@@ -8,10 +8,13 @@
  */
 
 import type { TraceGrade, TraceLegVerdict, TracePoint } from './routeTracer';
-import { TRACE_LAND_CROSSING_MESSAGE } from './routeTracer';
+// From its home, not the tracer's re-export: importing a value from
+// routeTracer put the routing engine in the app shell's start-up (131-04).
+import { TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
 import type { TraceCheckOutcomeRecord } from './traceCheckOutcomes';
 import { boatChartsLine } from './enc/boatChartsWords';
 import { isProtectedChart } from './enc/chartLicence';
+import { navigationTideSourceAvailable } from './tides/navigationUse';
 
 export type TraceCheckStatus = 'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart';
 
@@ -233,6 +236,12 @@ export function evaluateTraceRelease(
 
     const legGrades = verdicts.map((verdict) => verdict!.grade);
     const needsTide = verdicts.some((verdict) => verdict?.needsTide);
+    if (needsTide && !navigationTideSourceAvailable())
+        return {
+            allowed: false,
+            reason: 'Tidal clearance is unverified. Check local water levels before using this shallow leg.',
+            verification: null,
+        };
     if (needsTide && context.tideWindowLabel === null) {
         return { allowed: false, reason: 'Wait for the tide-window check to finish.', verification: null };
     }
@@ -377,6 +386,8 @@ export function traceCastOffBlockReason(
     // minutes — tide curves do not move materially inside that, and the ±6h
     // now-vs-departure rule below still boxes the actual cast off.
     if (verification.tideWindowLabel) {
+        if (!navigationTideSourceAvailable())
+            return 'This saved route relies on unverified tidal clearance. Recheck local water levels before Cast Off.';
         if (
             context.voyageDepartureMs === null ||
             Math.abs(verification.departureMs - context.voyageDepartureMs) > 30 * 60_000
@@ -490,6 +501,13 @@ export function traceFollowStatus(
         };
     }
     const checkedAt = verification ? { checkedAt: verification.checkedAt } : {};
+    if (verification?.tideWindowLabel && !navigationTideSourceAvailable())
+        return {
+            tone: 'unchecked',
+            code: 'tide',
+            reason: 'This saved tide window does not verify tidal clearance. Check local water levels before you go.',
+            ...checkedAt,
+        };
     if (
         verification &&
         !context.draftAssumed &&

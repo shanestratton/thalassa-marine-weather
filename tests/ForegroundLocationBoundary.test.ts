@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
@@ -12,7 +12,7 @@ function runtimeTypeScriptSources(): Array<{ path: string; source: string }> {
             const relative = join(relativeDirectory, entry.name);
             if (entry.isDirectory()) visit(relative);
             else if (entry.isFile() && /\.tsx?$/.test(entry.name))
-                files.push({ path: relative, source: read(relative) });
+                files.push({ path: relative.split(sep).join('/'), source: read(relative) });
         }
     };
     for (const root of ['components', 'context', 'hooks', 'pages', 'services', 'stores']) visit(root);

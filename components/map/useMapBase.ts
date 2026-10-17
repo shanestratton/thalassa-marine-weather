@@ -12,7 +12,7 @@ import { RELIEF_TILE_BASE } from './reliefBase';
  */
 export const defaultMapBase = (tileBase: string): MapBaseKind => (tileBase ? 'reliefSat' : 'hybrid');
 export const DEFAULT_MAP_BASE = defaultMapBase(RELIEF_TILE_BASE);
-const KINDS: readonly unknown[] = ['relief', 'reliefSat', 'ocean', 'hybrid'];
+const KINDS: readonly unknown[] = ['relief', 'reliefSat', 'ocean', 'hybrid', 'enc'];
 
 /**
  * The old Satellite base, removed from the picker (Shane 2026-10-09: "remove

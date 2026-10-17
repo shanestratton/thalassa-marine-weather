@@ -10,7 +10,7 @@
  * Fictional gear only, on no particular coast.
  */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Filesystem } from '@capacitor/filesystem';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import type { EquipmentItem, InventoryItem, MaintenanceTask, ShipDocument } from '../types';
@@ -46,12 +46,11 @@ vi.mock('../services/vessel/SyncService', () => ({
 }));
 vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
-        pullFromCloud: vi.fn().mockResolvedValue(0),
         getDownloadUrl: vi.fn(async (uri: string) => uri),
         openDownload: vi.fn().mockResolvedValue(undefined),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
+        uploadStates: () => ({}),
+        onUploadsChanged: () => () => undefined,
+        retryUploads: vi.fn().mockResolvedValue(undefined),
     },
 }));
 // The swipe is a native touch gesture: every card here is swiped open, so its
@@ -77,7 +76,6 @@ import { LocalInventoryService } from '../services/vessel/LocalInventoryService'
 import { LocalEquipmentService } from '../services/vessel/LocalEquipmentService';
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { LocalDocumentService } from '../services/vessel/LocalDocumentService';
-import { DocumentSyncService } from '../services/vessel/DocumentSyncService';
 import { toast } from '../components/Toast';
 import { InventoryList } from '../components/vessel/InventoryList';
 import { EquipmentList } from '../components/vessel/EquipmentList';
@@ -157,10 +155,8 @@ const CASES: BinderCase[] = [
         spy: () => vi.spyOn(LocalEquipmentService, 'delete'),
         stored: () => LocalEquipmentService.getAll().map((row) => row.equipment_name),
         restoredToast: 'Equipment restored',
-        remove: (name) => {
-            fireEvent.click(screen.getByRole('button', { name: `Options for ${name}` }));
-            fireEvent.click(screen.getByRole('button', { name: `Delete ${name}` }));
-        },
+        // A named button once swiped open, as the other three (126-B10b).
+        remove: swipeDelete,
     },
     {
         label: 'Maintenance',
@@ -308,7 +304,6 @@ beforeEach(() => {
     localStorage.setItem('thalassa_localdb_moved_to_library', '1');
     vi.mocked(Filesystem.readdir).mockResolvedValue({ files: [] });
     vi.mocked(Filesystem.writeFile).mockResolvedValue({ uri: 'mock://file' });
-    vi.mocked(DocumentSyncService.markDeleted).mockClear();
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.error).mockClear();
     rt.bindings.clear();
@@ -335,10 +330,13 @@ describe.each(CASES)('$label: a delete you can trust', (c) => {
         await settle();
         expect(deletedIds(spy)).toEqual([idOf(a)]);
         expect(c.stored()).not.toContain(a);
-        if (c.table === 'ship_documents') {
-            // The cloud copy is deleted too, though the page has gone.
-            expect(DocumentSyncService.markDeleted).toHaveBeenCalledWith(idOf(a));
-        }
+        // The cloud copy is deleted too, though the page has gone: its DELETE
+        // is in the outbox, which the engine pushes by itself (131-B9).
+        expect(
+            getFullQueue().some(
+                (item) => item.table_name === c.table && item.record_id === idOf(a) && item.mutation_type === 'DELETE',
+            ),
+        ).toBe(true);
     });
 
     it('a change saved on another device does not bring the deleted row back', async () => {
@@ -453,16 +451,18 @@ describe.each(CASES)('$label: after the delete is made', (c) => {
 });
 
 describe("Ship's Stores header", () => {
+    // Items, not 'units': litres of milk and kilos of rice don't add up (131-B14).
     it('counts what is on screen: "2 items" while UHT milk waits to be deleted', async () => {
         await open(CASES[0]);
-        expect(screen.getByText(/^3 items · 6 units/)).toBeInTheDocument();
+        expect(screen.getByText('3 items')).toBeInTheDocument();
+        expect(screen.queryByText(/\d units?\b/)).not.toBeInTheDocument();
 
         CASES[0].remove('UHT milk');
         await settle();
-        expect(screen.getByText(/^2 items · 4 units/)).toBeInTheDocument();
+        expect(screen.getByText('2 items')).toBeInTheDocument();
 
         await clickUndo();
-        expect(screen.getByText(/^3 items · 6 units/)).toBeInTheDocument();
+        expect(screen.getByText('3 items')).toBeInTheDocument();
     });
 });
 
@@ -481,6 +481,24 @@ describe("Ship's Stores scanner", () => {
         expect(CASES[0].stored()).not.toContain('UHT milk');
         await advance(10_000);
         expect(deletedIds(spy)).toEqual([idOf('UHT milk')]);
+    });
+});
+
+describe("Equipment's ⋮ sheet", () => {
+    it('its Delete takes the same undo slot as the swipe', async () => {
+        const { spy } = await open(CASES[1]);
+        fireEvent.click(screen.getByRole('button', { name: 'Options for Windlass' }));
+        const sheet = screen.getByRole('dialog', { name: /Windlass/ });
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Delete Windlass' }));
+        await settle();
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(onScreen(['Windlass'])).toEqual([]);
+        expect(screen.getByText('"Windlass" deleted')).toBeInTheDocument();
+        await clickUndo();
+        expect(onScreen(['Windlass'])).toEqual(['Windlass']);
+        await advance(10_000);
+        expect(spy).not.toHaveBeenCalled();
     });
 });
 

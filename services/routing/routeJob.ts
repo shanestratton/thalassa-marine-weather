@@ -21,11 +21,14 @@
  * (tests/routeJobPurity.test.ts). The chart cells it is handed live in its
  * memory only and are never written anywhere (o-charts, 2026-10-10). A
  * second instance of the same script builds the tracer's depth grids
- * (127-ROUTE-W2: the navGrid worker, a second copy of the grid code, is gone).
+ * (127-ROUTE-W2: the navGrid worker, a second copy of the grid code, is gone),
+ * and the route worker itself reads the satellite water check's pictures in
+ * the route's prep (131-05, satelliteWaterJob.ts).
  *
  * The job never imports InshoreRouter.ts, not even for a type: InshoreRouter
  * imports the job and re-exports what moved here.
  */
+import type { FeatureCollection } from 'geojson';
 import { routeInshore, type InshoreLayers } from '../inshoreRouterEngine';
 import type {
     CautionNearShallow,
@@ -72,7 +75,11 @@ import { compileSeawayGraph } from '../seaway/graphCompiler';
 import { splitMarkFeatures, type PointFeatureLike } from '../seaway/markSplit';
 import type { RegionalPair } from '../seaway/gateExtractor';
 import type { WaterPackUse } from '../waterPack/waterPackWords';
+import { canReadPictures, satelliteCropWater, type SatelliteCrop } from './satelliteWaterJob';
 import { createLogger } from '../../utils/createLogger';
+import { runOffshoreJob } from './offshoreJob';
+import type { OffshoreJob, OffshoreCandidate } from './offshoreProtocol';
+import type { OffshoreProgress } from '../isochrone/offshoreKernel';
 
 // The lines it logs are the router's, as they always were (the route worker
 // forwards them to the main thread's console with the same text).
@@ -937,7 +944,7 @@ function routeJobResult(job: RouteJob, timings: RouteJobTimings): InshoreRouteRe
                     );
                 }
             } else if (ROUTE_DEBUG) {
-                log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow-sm');
+                log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow');
             }
         } catch (err) {
             // Shadow failures must never touch the live route.
@@ -1049,10 +1056,11 @@ function routeJobResult(job: RouteJob, timings: RouteJobTimings): InshoreRouteRe
 export const ROUTE_ENGINE_URL = import.meta.url;
 /**
  * What the hosts start and run: the chunk's URL, a route job on this thread
- * (the route's fallback), and the tracer's grid build on this thread (its
- * fallback, services/engine/navGridWorkerHost).
+ * (the route's fallback), the tracer's grid build on this thread (its
+ * fallback, services/engine/navGridWorkerHost), and a satellite crop's
+ * pictures read on this thread (theirs, services/satelliteWater; 131-05).
  */
-export const ROUTE_ENGINE = { url: ROUTE_ENGINE_URL, run: runRouteJob, grid: buildNavGrid };
+export const ROUTE_ENGINE = { url: ROUTE_ENGINE_URL, run: runRouteJob, grid: buildNavGrid, water: satelliteCropWater };
 
 /**
  * One tracer grid (127-ROUTE-W2, the navGrid fold): buildNavGrid's arguments,
@@ -1073,14 +1081,19 @@ export interface NavGridJobArgs {
 }
 
 export type RouteWorkerRequest =
+    | { type: 'offshore'; id: number; job: OffshoreJob }
     | { type: 'job'; id: number; job: RouteJob }
     | { type: 'grid'; id: number; args: NavGridJobArgs }
+    | { type: 'water'; id: number; crop: SatelliteCrop }
     | { type: 'trim' };
 export type RouteWorkerReply =
+    | { type: 'offshore'; id: number; candidate: OffshoreCandidate | null }
+    | { type: 'offshore-progress'; id: number; progress: OffshoreProgress }
     | { type: 'ready' }
     | { type: 'init-error'; message: string }
     | { type: 'result'; id: number; output: RouteJobOutput }
     | { type: 'grid'; id: number; grid: NavGrid }
+    | { type: 'water'; id: number; water: FeatureCollection }
     | { type: 'error'; id: number; message: string }
     | { type: 'console'; level: 'warn' | 'error'; text: string };
 
@@ -1099,12 +1112,17 @@ const logText = (value: unknown): string =>
  * line is posted to the main thread (text only) and printed there unchanged.
  * Nothing new is logged. A 'trim' (an iOS memory warning) drops the worker's
  * route grids. A 'grid' is one tracer grid, built exactly as the navGrid
- * worker built it, its typed arrays transferred back (zero-copy). Exported
- * for the tests, which serve it in a fake scope; `out` is the console it
- * forwards (the worker's own).
+ * worker built it, its typed arrays transferred back (zero-copy). A 'water'
+ * is one satellite crop's pictures (131-05), read here by the same function
+ * the main thread falls back to; a worker with no picture decoder of its own
+ * says so, and the main thread reads that crop itself. Exported for the
+ * tests, which serve it in a fake scope; `out` is the console it forwards
+ * (the worker's own).
  */
 export function startRouteWorker(scope: RouteWorkerScope, out: Pick<Console, 'warn' | 'error'> = console): void {
     const post = (message: RouteWorkerReply): void => scope.postMessage(message);
+    const failed = (id: number, err: unknown): void =>
+        post({ type: 'error', id, message: err instanceof Error ? err.message : String(err) });
     try {
         for (const level of ['warn', 'error'] as const)
             out[level] = (...args: unknown[]) => post({ type: 'console', level, text: args.map(logText).join(' ') });
@@ -1112,6 +1130,25 @@ export function startRouteWorker(scope: RouteWorkerScope, out: Pick<Console, 'wa
             const message = ev.data;
             if (message.type === 'trim') {
                 trimNavGridCache(0);
+                return;
+            }
+            if (message.type === 'offshore') {
+                runOffshoreJob(message.job, (progress) =>
+                    post({ type: 'offshore-progress', id: message.id, progress }),
+                ).then(
+                    (candidate) => post({ type: 'offshore', id: message.id, candidate }),
+                    (error) => failed(message.id, error),
+                );
+                return;
+            }
+            if (message.type === 'water') {
+                const { id, crop } = message;
+                if (!canReadPictures()) failed(id, new Error('route worker has no picture decoder'));
+                else
+                    satelliteCropWater(crop).then(
+                        (water) => post({ type: 'water', id, water }),
+                        (err) => failed(id, err),
+                    );
                 return;
             }
             try {
@@ -1137,7 +1174,7 @@ export function startRouteWorker(scope: RouteWorkerScope, out: Pick<Console, 'wa
                     scope.postMessage({ type: 'grid', id: message.id, grid }, transfer);
                 } else post({ type: 'result', id: message.id, output: runRouteJob(message.job) });
             } catch (err) {
-                post({ type: 'error', id: message.id, message: err instanceof Error ? err.message : String(err) });
+                failed(message.id, err);
             }
         };
         post({ type: 'ready' });

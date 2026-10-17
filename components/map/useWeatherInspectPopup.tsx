@@ -41,6 +41,7 @@ import { chartBearing } from './chartOrientation';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import type { NearestBuoyResult } from '../../services/weather/buoys/types';
 import type { DisplayMode, UnitPreferences } from '../../types/units';
+import type { VesselProfile } from '../../types/vessel';
 import {
     buildRemoveLocationPatch,
     buildSaveLocationPatch,
@@ -69,6 +70,8 @@ interface InspectSettings {
     units?: Partial<UnitPreferences>;
     /** 'night' opens the Sounding sheet in the red night palette. */
     displayMode?: DisplayMode;
+    /** Her profile: the sea's comfort word reads her waterline (130-04). */
+    vessel?: VesselProfile;
 }
 
 export interface WeatherInspectPopup {
@@ -209,7 +212,9 @@ export function useWeatherInspectPopup(
                             onRetry={() => loadWeather()}
                             onClose={closePopup}
                             buoy={view.buoy}
+                            observationPoint={{ lat, lon: ((((lon + 180) % 360) + 360) % 360) - 180 }}
                             units={settingsRef.current.units}
+                            vessel={settingsRef.current.vessel}
                             onOpenSounding={openSounding}
                             save={{
                                 suggestedName: view.suggestedName,

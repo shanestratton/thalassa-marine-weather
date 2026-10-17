@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <link type="application/atom+xml" rel="self" href="https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-greece"/>
+  <rights>Fictional fixture in the layout of the MeteoAlarm legacy Atom feed.</rights>
+  <generator>Fixture</generator>
+  <id>tag:meteoalarm.org,2021-02-19:GR</id>
+  <title>MeteoAlarm - fixture</title>
+  <updated>2026-10-13T18:35:18.469017Z</updated>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>GR914</value>
+    </cap:geocode>
+    <link title="North East Zzaegean Islands" href="https://meteoalarm.org?geocode=EMMA_ID:GR914" hreflang="en"/>
+    <cap:areaDesc>North East Zzaegean Islands</cap:areaDesc>
+    <cap:event>Extreme Wind warning</cap:event>
+    <cap:sent>2026-10-13T15:28:00+00:00</cap:sent>
+    <cap:expires>2026-10-14T07:00:00+00:00</cap:expires>
+    <cap:onset>2026-10-14T02:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Extreme</cap:severity>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.300.0.GR.ZZ0001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-greece/00000000-0000-4000-8000-0000000e1001"/>
+    <link title="GR" rel="related" href="https://meteoalarm.org?region=GR" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-10-13T15:28:00Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-greece/00000000-0000-4000-8000-0000000e1001?index_info=0&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Red Wind Warning issued for Greece - North East Zzaegean Islands</title>
+    <updated>2026-10-13T15:28:00Z</updated>
+  </entry>
+</feed>

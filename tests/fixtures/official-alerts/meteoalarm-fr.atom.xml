@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <link type="application/atom+xml" rel="self" href="https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-france"/>
+  <rights>Fictional fixture in the layout of the MeteoAlarm legacy Atom feed.</rights>
+  <generator>Fixture</generator>
+  <id>tag:meteoalarm.org,2021-02-19:FR</id>
+  <title>MeteoAlarm - fixture</title>
+  <updated>2026-10-13T18:35:18.469017Z</updated>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>FR913</value>
+    </cap:geocode>
+    <link title="Bouches-du-Zzrhône" href="https://meteoalarm.org?geocode=EMMA_ID:FR913" hreflang="en"/>
+    <cap:areaDesc>Bouches-du-Zzrhône</cap:areaDesc>
+    <cap:event>wind</cap:event>
+    <cap:sent>2026-10-13T14:00:00+00:00</cap:sent>
+    <cap:expires>2026-10-14T22:00:00+00:00</cap:expires>
+    <cap:onset>2026-10-14T06:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.250.0.FR.ZZ0001</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-france/00000000-0000-4000-8000-0000000f0001"/>
+    <link title="FR" rel="related" href="https://meteoalarm.org?region=FR" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-10-13T14:00:00Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-france/00000000-0000-4000-8000-0000000f0001?index_info=0&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Orange Wind Warning issued for France - Bouches-du-Zzrhône</title>
+    <updated>2026-10-13T14:00:00Z</updated>
+  </entry>
+</feed>

@@ -16,7 +16,7 @@ import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
 import {
     AUTO_MODEL,
-    SELECTABLE_MODELS,
+    selectableForecastModels,
     MODEL_ATTRIBUTION_LINE,
     SPITFIRE_MODEL,
     OFFSHORE_MODELS,
@@ -54,12 +54,14 @@ interface ModelPickerSheetProps {
      * built-in list is offered and fetches fall through to the live proxy.
      */
     publishedModels?: string[];
+    samplingDescription?: string;
 }
 
 /** Names the credit line uses where 'provider label' would read oddly. */
 const CREDIT_NAMES: Readonly<Record<string, string>> = {
     dwd_icon: 'DWD ICON',
     ecmwf_ifs025: 'ECMWF IFS',
+    ecmwf_ifs: 'ECMWF IFS 9 km',
     ecmwf_aifs025_single: 'ECMWF AIFS',
     ukmo_global_deterministic_10km: 'UK Met Office',
     jma_gsm: 'JMA GSM',
@@ -132,9 +134,11 @@ export function offshoreModelHelper(id: OffshoreModel): string {
 const MODEL_RANGE_DAYS: Readonly<Record<string, number>> = {
     dwd_icon: 7,
     ecmwf_ifs025: 14,
+    ecmwf_ifs: 15,
     ecmwf_aifs025_single: 15,
     ukmo_global_deterministic_10km: 6,
     jma_gsm: 10,
+    gfs_seamless: 15,
 };
 
 /** The attribution line, with 'Météo-France' kept on one line. */
@@ -160,19 +164,15 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     offshore,
     spitfireAvailable = false,
     spitfireLocationName,
-    publishedModels,
+    samplingDescription,
 }) => {
     const portalTarget = usePanePortalTarget();
     const titleId = useId();
     // Intersect, but never present an EMPTY picker: a publisher outage must
     // degrade to the built-in list, not to a sheet with nothing to choose.
-    const grids =
-        publishedModels && publishedModels.length > 0
-            ? (() => {
-                  const filtered = SELECTABLE_MODELS.filter((m) => publishedModels.includes(m.id));
-                  return filtered.length > 0 ? filtered : SELECTABLE_MODELS;
-              })()
-            : SELECTABLE_MODELS;
+    // Publisher rows do not prove the proxy's model vocabulary or a sea-cell
+    // request. In particular an ifs025 row must not hide the live 9 km pick.
+    const grids = selectableForecastModels();
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, { initialFocusRef: closeButtonRef, onEscape: onClose });
 
@@ -308,6 +308,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
 
                 {/* Scrollable list */}
                 <div className="overflow-y-auto max-h-[60dvh] px-3 py-3 space-y-1.5">
+                    {samplingDescription && <p className="px-2 pb-2 text-xs text-slate-300">{samplingDescription}</p>}
                     {/* SPITFIRE first when it applies here — it is the only
                         entry scored against real observations. */}
                     {offshore ? (

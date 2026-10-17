@@ -17,6 +17,10 @@ export const ConsensusMatrix = lazyRetry(
     () => import('../ConsensusMatrix').then((m) => ({ default: m.ConsensusMatrix })),
     'ConsensusMatrix',
 );
+export const AisTargetsSheet = lazyRetry(
+    () => import('../AisTargetsSheet').then((module) => ({ default: module.AisTargetsSheet })),
+    'AisTargetsSheet',
+);
 export const VesselSearch = lazyRetry(
     () => import('../VesselSearch').then((m) => ({ default: m.VesselSearch })),
     'VesselSearch',

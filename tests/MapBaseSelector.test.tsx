@@ -21,10 +21,12 @@ function Harness({
     encCellCount = 9,
     onToggleEnc = vi.fn(),
     initial = 'relief',
+    onClearView,
 }: {
     encCellCount?: number;
     onToggleEnc?: () => void;
     initial?: MapBaseKind;
+    onClearView?: () => void;
 }) {
     const [base, setBase] = useState<MapBaseKind>(initial);
     const [enc, setEnc] = useState(true);
@@ -33,6 +35,7 @@ function Harness({
             visible
             value={base}
             onChange={setBase}
+            onClearView={onClearView}
             encCellCount={encCellCount}
             encVisible={enc}
             onToggleEnc={() => {
@@ -58,10 +61,11 @@ describe('MapBaseSelector', () => {
             'Relief + Sat',
             'Ocean',
             'Hybrid',
+            'ENC only',
             'ENC charts',
         ]);
         expect(items[0]).toHaveAttribute('aria-checked', 'true');
-        expect(items[4]).toHaveAttribute('role', 'menuitemcheckbox');
+        expect(items[5]).toHaveAttribute('role', 'menuitemcheckbox');
         expect(MAP_BASE_OPTIONS.map((option) => option.id)).not.toContain('satellite');
         expect(screen.queryByRole('menuitemradio', { name: /^Satellite / })).not.toBeInTheDocument();
     });
@@ -192,9 +196,10 @@ describe('MapBaseSelector on the desk', () => {
             'Light',
             'Relief + Sat',
             'Hybrid',
+            'ENC only',
             'Seamarks',
         ]);
-        expect(DESK_MAP_BASE_OPTIONS.map((o) => o.id)).toEqual(['light', 'reliefSat', 'hybrid']);
+        expect(DESK_MAP_BASE_OPTIONS.map((o) => o.id)).toEqual(['light', 'reliefSat', 'hybrid', 'enc']);
         expect(DESK_MAP_BASE_OPTIONS[0].description).toBe('Easiest to read · seabed is a guide, mean sea level');
         expect(screen.queryByText('ENC charts')).not.toBeInTheDocument();
         const seamarks = screen.getByRole('menuitemcheckbox', { name: /^Seamarks/ });
@@ -209,11 +214,11 @@ describe('MapBaseSelector on the desk', () => {
         const light = screen.getByRole('menuitemradio', { name: /^Light / });
         expect(light).toHaveFocus();
         const seen: string[] = [];
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 5; i++) {
             fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
             seen.push((document.activeElement as HTMLElement).querySelector('.font-black')?.textContent ?? '');
         }
-        expect(seen).toEqual(['Relief + Sat', 'Hybrid', 'Seamarks', 'Light']);
+        expect(seen).toEqual(['Relief + Sat', 'Hybrid', 'ENC only', 'Seamarks', 'Light']);
         fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
         expect(document.activeElement).toBe(screen.getByRole('menuitemcheckbox', { name: /^Seamarks/ }));
     });
@@ -243,13 +248,13 @@ describe('MapBaseSelector on the desk', () => {
 });
 
 describe('the Obs picker is unchanged (127-DESKMAP)', () => {
-    it('four bases, the ENC row, no switches', () => {
+    it('five bases including ENC only, the ENC row, no switches', () => {
         render(<Harness />);
         fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
         const menu = screen.getByRole('menu', { name: 'Map base' });
-        expect(menu.querySelectorAll('[role="menuitemradio"]')).toHaveLength(4);
+        expect(menu.querySelectorAll('[role="menuitemradio"]')).toHaveLength(5);
         expect(menu.querySelectorAll('[role="menuitemcheckbox"]')).toHaveLength(1);
-        expect(MAP_BASE_OPTIONS.map((o) => o.id)).toEqual(['relief', 'reliefSat', 'ocean', 'hybrid']);
+        expect(MAP_BASE_OPTIONS.map((o) => o.id)).toEqual(['relief', 'reliefSat', 'ocean', 'hybrid', 'enc']);
         expect(MAP_BASE_OPTIONS.map((o) => o.id)).not.toContain('light');
     });
 
@@ -267,5 +272,25 @@ describe('the Obs picker is unchanged (127-DESKMAP)', () => {
             satellite: false,
             hybrid: false,
         });
+    });
+});
+
+describe('the Obs clear-screen action', () => {
+    it('is reachable with the arrow keys and closes the dropdown when chosen', () => {
+        const onClearView = vi.fn();
+        render(<Harness onClearView={onClearView} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
+        const action = screen.getByRole('menuitem', { name: /Clear the screen/ });
+        expect(action).toHaveFocus();
+        fireEvent.click(action);
+        expect(onClearView).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('menu', { name: 'Map base' })).toBeNull();
+    });
+
+    it('is absent when the chart cannot clear', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        expect(screen.queryByRole('menuitem', { name: /Clear the screen/ })).toBeNull();
     });
 });

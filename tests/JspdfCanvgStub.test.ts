@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import canvgUnavailable, { CANVG_UNAVAILABLE_MESSAGE } from '../utils/vendorStubs/canvgUnavailable';
 
@@ -11,7 +11,8 @@ import canvgUnavailable, { CANVG_UNAVAILABLE_MESSAGE } from '../utils/vendorStub
  *
  * This guard fails if the cut stops being free: app source starts calling
  * addSvgAsImage or importing canvg, or a jsPDF upgrade starts needing canvg
- * somewhere else (doc.html() needs html2canvas and DOMPurify, which stay).
+ * somewhere else (doc.html()'s html2canvas and DOMPurify are stubbed too since
+ * 129-10, guarded by tests/JspdfHtmlStubs.test.ts).
  */
 const ROOT = process.cwd();
 const STUB = 'utils/vendorStubs/canvgUnavailable.ts';
@@ -58,7 +59,7 @@ function appSourceFiles(): string[] {
             /* optional entry point */
         }
     }
-    return out.map((path) => relative(ROOT, path));
+    return out.map((path) => relative(ROOT, path).split(sep).join('/'));
 }
 
 describe('jsPDF ships without canvg', () => {

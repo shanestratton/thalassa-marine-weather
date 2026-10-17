@@ -1,116 +1,61 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    guardVelocityLayerStartup,
-    MapboxVelocityOverlay,
-    zoomCompensatedVelocityScale,
-    zoomScaledParticleMultiplier,
-} from '../components/map/MapboxVelocityOverlay';
-import type { VelocityGribRecord } from '../components/map/windVelocityFrame';
+import { MapboxVelocityOverlay } from '../components/map/MapboxVelocityOverlay';
 import type { WindGrid } from '../services/weather/windGridEncoding';
 import { getCloseInWindReadout, subscribeCloseInWindReadout, viewportGridCells } from '../components/map/closeInWind';
 import { boatWindChipFor, getBoatWindReadout, subscribeBoatWindReadout } from '../components/map/boatWindReadout';
 import { CloseInWindLayer } from '../components/map/CloseInWindLayer';
+import type { WindFieldOptions } from '../components/map/MapboxWindField';
+import { windGridFrameToVelocityData } from '../components/map/windVelocityFrame';
 
 type MapHandler = () => void;
 
-interface MockVelocityLayer {
-    _windy: {
-        setData: ReturnType<typeof vi.fn>;
-    };
-    addTo: ReturnType<typeof vi.fn>;
+interface MockField {
+    element: HTMLDivElement;
+    setData: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn>;
+    options: WindFieldOptions;
 }
-
-interface MockLeafletMap {
-    __layers: Set<MockVelocityLayer>;
-    getPane: ReturnType<typeof vi.fn>;
-    hasLayer: ReturnType<typeof vi.fn>;
-    invalidateSize: ReturnType<typeof vi.fn>;
-    latLngToContainerPoint: ReturnType<typeof vi.fn>;
-    remove: ReturnType<typeof vi.fn>;
-    removeLayer: ReturnType<typeof vi.fn>;
-    setView: ReturnType<typeof vi.fn>;
-}
-
-const mocks = vi.hoisted(() => {
-    let releasePlugin!: () => void;
-    const pluginGate = new Promise<void>((resolve) => {
-        releasePlugin = resolve;
-    });
-    const leafletMaps: MockLeafletMap[] = [];
-    const velocityLayers: MockVelocityLayer[] = [];
-
-    const velocityLayer = vi.fn((_: { data: VelocityGribRecord[] }) => {
-        const layer: MockVelocityLayer = {
-            _windy: { setData: vi.fn() },
-            addTo: vi.fn(),
-        };
-        layer.addTo.mockImplementation((map: MockLeafletMap) => {
-            map.__layers.add(layer);
-            return layer;
-        });
-        velocityLayers.push(layer);
-        return layer;
-    });
-
-    const map = vi.fn(() => {
-        const panes = {
-            tilePane: { style: {} },
-            mapPane: { style: {} },
-        };
-        const leafletMap: MockLeafletMap = {
-            __layers: new Set(),
-            getPane: vi.fn((name: keyof typeof panes) => panes[name] ?? null),
-            hasLayer: vi.fn(),
-            invalidateSize: vi.fn(),
-            latLngToContainerPoint: vi.fn(() => ({ x: 100, y: 80 })),
-            remove: vi.fn(),
-            removeLayer: vi.fn(),
-            setView: vi.fn(),
-        };
-        leafletMap.hasLayer.mockImplementation((layer: MockVelocityLayer) => leafletMap.__layers.has(layer));
-        leafletMap.removeLayer.mockImplementation((layer: MockVelocityLayer) => {
-            leafletMap.__layers.delete(layer);
-            return leafletMap;
-        });
-        leafletMap.remove.mockImplementation(() => {
-            leafletMap.__layers.clear();
-        });
-        leafletMap.setView.mockReturnValue(leafletMap);
-        leafletMaps.push(leafletMap);
-        return leafletMap;
-    });
-
-    return {
-        leaflet: {
-            map,
-            velocityLayer,
-        },
-        leafletMaps,
-        logger: {
-            error: vi.fn(),
-            info: vi.fn(),
-            warn: vi.fn(),
-        },
-        pluginGate,
-        releasePlugin,
-        velocityLayers,
-    };
-});
-
-vi.mock('leaflet', () => ({
-    default: mocks.leaflet,
+const mocks = vi.hoisted(() => ({
+    fields: [] as MockField[],
+    importedLayers: [] as {
+        id: string;
+        setGrid: ReturnType<typeof vi.fn>;
+        setForecastHour: ReturnType<typeof vi.fn>;
+        setParticlesEnabled: ReturnType<typeof vi.fn>;
+    }[],
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    releasePlugin: () => {},
 }));
-
-vi.mock('leaflet-velocity-ts', async () => {
-    await mocks.pluginGate;
-    return {};
-});
-
-vi.mock('../utils/createLogger', () => ({
-    createLogger: () => mocks.logger,
+vi.mock('../components/map/MapboxWindField', () => ({
+    MapboxWindField: class {
+        element = document.createElement('div');
+        setData = vi.fn();
+        destroy = vi.fn(() => this.element.remove());
+        constructor(
+            map: { getContainer(): HTMLElement },
+            public options: WindFieldOptions,
+        ) {
+            this.element.dataset.windField = 'true';
+            this.element.style.opacity = '0';
+            this.element.style.filter = options.filter ?? '';
+            map.getContainer().appendChild(this.element);
+            mocks.fields.push(this);
+        }
+    },
 }));
+vi.mock('../components/map/WindParticleLayer', () => ({
+    WindParticleLayer: class {
+        setGrid = vi.fn();
+        setForecastHour = vi.fn();
+        setParticlesEnabled = vi.fn();
+        constructor(public id: string) {
+            mocks.importedLayers.push(this);
+        }
+    },
+}));
+vi.mock('../utils/createLogger', () => ({ createLogger: () => mocks.logger }));
 
 // The boat's instruments, as the overlay reads them: a controllable store.
 const nmea = vi.hoisted(() => {
@@ -200,6 +145,7 @@ interface MapboxHarness {
         getSource: ReturnType<typeof vi.fn>;
         getStyle: ReturnType<typeof vi.fn>;
         getZoom: ReturnType<typeof vi.fn>;
+        isStyleLoaded: ReturnType<typeof vi.fn>;
         off: ReturnType<typeof vi.fn>;
         on: ReturnType<typeof vi.fn>;
         project: ReturnType<typeof vi.fn>;
@@ -224,6 +170,7 @@ function createMapboxHarness(zoom = 5): MapboxHarness {
         getSource: vi.fn(),
         getStyle: vi.fn(() => ({ layers: [{ id: 'place-label', type: 'symbol' }] })),
         getZoom: vi.fn(() => zoom),
+        isStyleLoaded: vi.fn(() => true),
         off: vi.fn(),
         on: vi.fn(),
         project: vi.fn(() => ({ x: 100, y: 80 })),
@@ -320,12 +267,6 @@ function heatmapGrid(): WindGrid {
     };
 }
 
-function velocityDataFromCreateCall(index: number): VelocityGribRecord[] {
-    const options = mocks.leaflet.velocityLayer.mock.calls[index]?.[0] as { data: VelocityGribRecord[] } | undefined;
-    if (!options) throw new Error(`Missing velocityLayer create call ${index}`);
-    return options.data;
-}
-
 afterEach(() => {
     cleanup();
     vi.useRealTimers();
@@ -333,359 +274,113 @@ afterEach(() => {
 });
 
 describe('MapboxVelocityOverlay React lifecycle', () => {
-    it('keeps one pending RAF across repeated library starts, including frame ID zero', () => {
-        let id = 0;
-        const pending = new Map<number, FrameRequestCallback>();
-        const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-            pending.set(id, callback);
-            return id++;
+    it('applies a selected grid in either map/grid arrival order, fractional hours, clears, errors and remounts', () => {
+        const h = createMapboxHarness(),
+            before = mocks.fields.length;
+        const grid = heatmapGrid();
+        const view = render(<MapboxVelocityOverlay mapboxMap={null} visible windGrid={grid} />);
+        expect(mocks.fields).toHaveLength(before);
+        view.rerender(<MapboxVelocityOverlay mapboxMap={h.map as never} visible windGrid={grid} windHour={0.5} />);
+        const field = mocks.fields.at(-1)!;
+        expect(field.setData).toHaveBeenLastCalledWith(windGridFrameToVelocityData(grid, 0.5));
+        view.rerender(<MapboxVelocityOverlay mapboxMap={h.map as never} visible />);
+        expect(field.setData).toHaveBeenLastCalledWith(null);
+        expect(field.element.style.opacity).toBe('0');
+        field.setData.mockImplementationOnce(() => {
+            throw new Error('synthetic draw failure');
         });
-        const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frame) => {
-            pending.delete(frame);
-        });
-        const windy = {
-            animationBucket: { clear: vi.fn() },
-            animationLoop: null as number | null,
-            start: vi.fn(function (this: { animationLoop: number | null }, ...args: unknown[]) {
-                expect(this).toBe(windy);
-                windy.animationLoop = window.requestAnimationFrame(() => {});
-                return args;
-            }),
-            stop: () => {},
-        };
-        const originalStart = windy.start;
-        const layer = { _windy: windy, onDrawLayer: vi.fn() };
-        try {
-            guardVelocityLayerStartup(layer as never);
-            layer.onDrawLayer();
-            const startArgs = [[0, 1, 2, 3], 1440, 900, [[-1.4, 50.76]]];
-            expect(windy.start(...startArgs)).toEqual(startArgs);
-            expect([...pending.keys()]).toEqual([0]);
-            windy.start();
-            expect([...pending.keys()]).toEqual([1]);
-            expect(cancel).toHaveBeenCalledWith(0);
-            windy.stop();
-            expect(pending.size).toBe(0);
-            windy.start();
-            expect([...pending.keys()]).toEqual([2]);
-            windy.stop();
-            windy.stop();
-            expect(pending.size).toBe(0);
-            expect(cancel.mock.calls.map(([frame]) => frame)).toEqual([0, 1, 2]);
-            expect(originalStart).toHaveBeenNthCalledWith(1, ...startArgs);
-        } finally {
-            request.mockRestore();
-            cancel.mockRestore();
-        }
+        view.rerender(<MapboxVelocityOverlay mapboxMap={h.map as never} visible windGrid={grid} />);
+        expect(field.setData).toHaveBeenLastCalledWith(null);
+        expect(field.element.style.opacity).toBe('0');
+        view.rerender(<MapboxVelocityOverlay mapboxMap={h.map as never} visible windGrid={invalidGrid()} />);
+        expect(field.setData).toHaveBeenLastCalledWith(null);
+        view.unmount();
+        expect(field.destroy).toHaveBeenCalledOnce();
+        const remount = render(<MapboxVelocityOverlay mapboxMap={h.map as never} visible />);
+        expect(mocks.fields.at(-1)!.setData).toHaveBeenLastCalledWith(null);
+        remount.rerender(<MapboxVelocityOverlay mapboxMap={h.map as never} visible windGrid={grid} />);
+        expect(mocks.fields.at(-1)!.setData).toHaveBeenLastCalledWith(windGridFrameToVelocityData(grid, 0));
     });
 
-    it('cancels an owned RAF even when the delayed animation bucket is still absent', () => {
-        const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
-        const originalStop = vi.fn();
-        const windy = { animationLoop: 0 as number | null, stop: originalStop };
-        const layer = { _windy: windy, onDrawLayer: vi.fn() };
-        try {
-            guardVelocityLayerStartup(layer as never);
-            layer.onDrawLayer();
-            windy.stop();
-            expect(cancel).toHaveBeenCalledExactlyOnceWith(0);
-            expect(windy.animationLoop).toBeNull();
-            expect(originalStop).not.toHaveBeenCalled();
-        } finally {
-            cancel.mockRestore();
-        }
-    });
-
-    it('cancels the library RAF before stop, without clearing an unrelated timer with the same ID', () => {
-        const bucket = { clear: vi.fn() };
-        const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
-        const clearTimer = vi.spyOn(window, 'clearTimeout');
-        const windy = {
-            animationBucket: bucket,
-            animationLoop: 4242 as number | null,
-            stop: () => {},
-        };
-        const originalStop = vi.fn(() => {
-            // leaflet-velocity-ts 1.2.0 schedules RAF, but its stop calls
-            // clearTimeout with that handle. It neither cancels RAF nor owns
-            // a potentially equal timer ID belonging to another renderer.
-            bucket.clear();
-            if (windy.animationLoop !== null) window.clearTimeout(windy.animationLoop);
+    it('mounts only enabled visible particles at supported zoom, and retains thin Light ink when updating hours', () => {
+        const h = createMapboxHarness(),
+            grid = heatmapGrid(),
+            before = mocks.fields.length;
+        const props = { mapboxMap: h.map as never, visible: true, windGrid: grid };
+        const view = render(<MapboxVelocityOverlay {...props} particlesEnabled={false} />);
+        expect(mocks.fields).toHaveLength(before);
+        view.rerender(<MapboxVelocityOverlay {...props} palette="light" />);
+        const field = mocks.fields.at(-1)!;
+        expect(field.options).toMatchObject({ lineWidth: 1.5, palette: 'light', fade: 0.98 });
+        expect(field.element.style.filter).toContain('rgba(255, 255, 255');
+        view.rerender(<MapboxVelocityOverlay {...props} palette="light" windHour={1} />);
+        expect(mocks.fields).toHaveLength(before + 1);
+        expect(field.setData).toHaveBeenLastCalledWith(windGridFrameToVelocityData(grid, 1));
+        view.rerender(<MapboxVelocityOverlay {...props} palette="dark" />);
+        expect(field.destroy).toHaveBeenCalledOnce();
+        expect(mocks.fields.at(-1)!.options).toMatchObject({ lineWidth: 1, palette: 'dark' });
+        const dark = mocks.fields.at(-1)!;
+        view.rerender(<MapboxVelocityOverlay {...props} visible={false} />);
+        expect(dark.destroy).toHaveBeenCalledOnce();
+        view.rerender(<MapboxVelocityOverlay {...props} />);
+        const last = mocks.fields.at(-1)!;
+        act(() => {
+            h.map.getZoom.mockReturnValue(2);
+            h.emit('zoomend');
         });
-        windy.stop = originalStop;
-        const layer = { _windy: windy, onDrawLayer: vi.fn() };
-        try {
-            guardVelocityLayerStartup(layer as never);
-            layer.onDrawLayer();
-            windy.stop();
-            expect(cancel).toHaveBeenCalledExactlyOnceWith(4242);
-            expect(windy.animationLoop).toBeNull();
-            expect(clearTimer).not.toHaveBeenCalledWith(4242);
-            expect(originalStop).toHaveBeenCalledOnce();
-            expect(bucket.clear).toHaveBeenCalledOnce();
-        } finally {
-            cancel.mockRestore();
-            clearTimer.mockRestore();
-        }
+        expect(last.destroy).toHaveBeenCalledOnce();
     });
-
-    it('does not let the velocity plugin stop before its delayed animation bucket exists', () => {
-        const bucket = { clear: vi.fn() };
-        const originalStop = vi.fn(() => {
-            // This reproduces the third-party failure from the device:
-            // `this.animationBucket.clear()` before its delayed start.
-            windy.animationBucket!.clear();
-        });
-        const windy: {
-            animationBucket?: typeof bucket;
-            stop: () => void;
-        } = { stop: originalStop };
-        const layer = {
-            _windy: undefined as typeof windy | undefined,
-            onDrawLayer: vi.fn(() => {
-                layer._windy = windy;
-            }),
-        };
-
-        guardVelocityLayerStartup(layer as never);
-        layer.onDrawLayer();
-
-        expect(() => windy.stop()).not.toThrow();
-        expect(originalStop).not.toHaveBeenCalled();
-
-        windy.animationBucket = bucket;
-        windy.stop();
-        expect(originalStop).toHaveBeenCalledOnce();
-        expect(bucket.clear).toHaveBeenCalledOnce();
-    });
-
-    it('keeps the selected grid and Mapbox listeners correct across both arrival orders, clears, and remounts', async () => {
-        const mapbox = createMapboxHarness();
-        const firstModel = windGrid(11, 'ecmwf');
-        const selectedModel = windGrid(22, 'icon');
-        const recoveredModel = windGrid(33, 'gfs');
-        const afterPluginModel = windGrid(44, 'arpege');
-
+    it('keeps imported bitmap data out of Leaflet and boat substitution, scrubs and removes its owned layer', async () => {
+        const harness = createMapboxHarness(15),
+            grid = { ...heatmapGrid(), importedGrib: true };
+        const before = mocks.fields.length;
         const view = render(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={firstModel} windHour={0} />,
+            <MapboxVelocityOverlay
+                mapboxMap={harness.map as never}
+                visible
+                windGrid={grid}
+                windHour={0}
+                boatInstruments
+                boatLookUp
+            />,
         );
-
-        // Grid-before-plugin: the React grid effect has run, but no Leaflet
-        // map/layer can exist until the deliberately deferred plugin resolves.
-        expect(mocks.leaflet.map).not.toHaveBeenCalled();
-        expect(mocks.leaflet.velocityLayer).not.toHaveBeenCalled();
-        expect(mapbox.listenerCount('zoom')).toBe(0);
-        expect(mapbox.listenerCount('zoomend')).toBe(1);
-
+        await waitFor(() => expect(harness.layers.has('imported-grib-wind')).toBe(true));
+        const layer = mocks.importedLayers.at(-1)!;
+        expect(layer.setGrid).toHaveBeenCalledWith(grid, 0);
+        expect(mocks.fields).toHaveLength(before);
+        expect(getCloseInWindReadout()).toBeNull();
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={harness.map as never}
+                visible
+                windGrid={grid}
+                windHour={0.5}
+                particlesEnabled={false}
+            />,
+        );
+        expect(layer.setForecastHour).toHaveBeenLastCalledWith(0.5);
+        expect(layer.setParticlesEnabled).toHaveBeenLastCalledWith(false);
+        expect(layer.setGrid).toHaveBeenCalledTimes(1);
+        view.unmount();
+        expect(harness.layers.has('imported-grib-wind')).toBe(false);
+        expect(harness.listenerCount('style.load')).toBe(0);
+    });
+    it('does not add an imported layer after its asynchronous module arrives on a hidden chart', async () => {
+        const harness = createMapboxHarness();
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={harness.map as never}
+                visible
+                windGrid={{ ...heatmapGrid(), importedGrib: true }}
+            />,
+        );
+        view.unmount();
         await act(async () => {
-            mocks.releasePlugin();
-            await mocks.pluginGate;
             await Promise.resolve();
         });
-
-        await waitFor(() => expect(mocks.leaflet.map).toHaveBeenCalledTimes(1));
-        await waitFor(() => expect(mocks.leaflet.velocityLayer).toHaveBeenCalledTimes(1));
-        expect(velocityDataFromCreateCall(0)[0].data).toEqual([11]);
-        expect(velocityDataFromCreateCall(0)[1].data).toEqual([-11]);
-
-        const firstLeafletMap = mocks.leafletMaps[0];
-        const firstLayer = mocks.velocityLayers[0];
-        expect(firstLayer.addTo).toHaveBeenCalledWith(firstLeafletMap);
-
-        // A selected-model change updates the existing layer instead of
-        // leaving the previous model on screen or creating a duplicate layer.
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={selectedModel} windHour={0} />,
-        );
-        await waitFor(() => expect(firstLayer._windy.setData).toHaveBeenCalledOnce());
-        const selectedData = firstLayer._windy.setData.mock.calls[0]?.[0] as VelocityGribRecord[];
-        expect(selectedData[0].data).toEqual([22]);
-        expect(selectedData[1].data).toEqual([-22]);
-        expect(mocks.leaflet.velocityLayer).toHaveBeenCalledTimes(1);
-
-        // A plugin update failure must clear the previous model rather than
-        // leaving it painted under the newly-selected model label.
-        firstLayer._windy.setData.mockImplementationOnce(() => {
-            throw new Error('renderer update failed');
-        });
-        view.rerender(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={windGrid(23, 'failed-update')}
-                windHour={0}
-            />,
-        );
-        await waitFor(() => expect(firstLeafletMap.removeLayer).toHaveBeenCalledWith(firstLayer));
-        expect((mapbox.container.firstElementChild as HTMLElement | null)?.style.opacity).toBe('0');
-        expect(mocks.logger.error).toHaveBeenCalledOnce();
-
-        // WindStore null is passed through MapHub as undefined. It must remove
-        // the selected model immediately and hide the particle container.
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={undefined} windHour={0} />,
-        );
-        await waitFor(() => expect(firstLeafletMap.removeLayer).toHaveBeenCalledWith(firstLayer));
-        expect((mapbox.container.firstElementChild as HTMLElement | null)?.style.opacity).toBe('0');
-
-        // A valid grid can recover after the clear.
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={recoveredModel} windHour={0} />,
-        );
-        await waitFor(() => expect(mocks.leaflet.velocityLayer).toHaveBeenCalledTimes(2));
-        const recoveredLayer = mocks.velocityLayers[1];
-        expect(velocityDataFromCreateCall(1)[0].data).toEqual([33]);
-
-        // The overlay has no error prop; its error boundary is a grid that
-        // cannot be converted. Exercise that distinct non-null path as well
-        // as WindStore-null/undefined.
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={invalidGrid()} windHour={0} />,
-        );
-        await waitFor(() => expect(firstLeafletMap.removeLayer).toHaveBeenCalledWith(recoveredLayer));
-        expect((mapbox.container.firstElementChild as HTMLElement | null)?.style.opacity).toBe('0');
-
-        expect(mapbox.listenerCount('move')).toBe(1);
-        expect(mapbox.listenerCount('moveend')).toBe(2);
-        expect(mapbox.listenerCount('zoom')).toBe(1);
-        expect(mapbox.listenerCount('zoomend')).toBe(2);
-        // Leaflet's re-measure, and the close-in mode deciding again when the
-        // chart is shown after another page (125-18): its resize, never a zoomend.
-        expect(mapbox.listenerCount('resize')).toBe(2);
-        const firstMountHandlers = new Set([...mapbox.listeners.values()].flatMap((handlers) => [...handlers]));
-
-        // Schedule the old mount's deferred snap, then tear the effect down by
-        // toggling visibility. Advancing time must not call into its old map.
-        vi.useFakeTimers();
-        act(() => mapbox.emit('moveend'));
-        const firstSetViewCount = firstLeafletMap.setView.mock.calls.length;
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible={false} windGrid={undefined} windHour={0} />,
-        );
-        expect(mapbox.listeners.size).toBe(0);
-        expect(firstLeafletMap.remove).toHaveBeenCalledOnce();
-        expect(mapbox.container.children).toHaveLength(0);
-        act(() => vi.advanceTimersByTime(301));
-        expect(firstLeafletMap.setView).toHaveBeenCalledTimes(firstSetViewCount);
-        vi.useRealTimers();
-
-        // Plugin-before-grid: remount the overlay after the plugin is cached,
-        // establish Leaflet with no data, then deliver the grid reactively.
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={undefined} windHour={0} />,
-        );
-        await waitFor(() => expect(mocks.leaflet.map).toHaveBeenCalledTimes(2));
-        expect(mocks.leaflet.velocityLayer).toHaveBeenCalledTimes(2);
-        for (const handlers of mapbox.listeners.values()) {
-            for (const handler of handlers) expect(firstMountHandlers.has(handler)).toBe(false);
-        }
-
-        view.rerender(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={afterPluginModel} windHour={0} />,
-        );
-        await waitFor(() => expect(mocks.leaflet.velocityLayer).toHaveBeenCalledTimes(3));
-        expect(velocityDataFromCreateCall(2)[0].data).toEqual([44]);
-        expect(velocityDataFromCreateCall(2)[1].data).toEqual([-44]);
-
-        const secondLeafletMap = mocks.leafletMaps[1];
-        view.unmount();
-        expect(mapbox.listeners.size).toBe(0);
-        expect(secondLeafletMap.remove).toHaveBeenCalledOnce();
-        expect(mapbox.container.children).toHaveLength(0);
-        expect(mocks.logger.error).toHaveBeenCalledOnce();
-    });
-
-    it('keeps the particle engine fully unmounted until animation is enabled', async () => {
-        const mapbox = createMapboxHarness();
-        const mapCallsBefore = mocks.leaflet.map.mock.calls.length;
-        const view = render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                particlesEnabled={false}
-                windGrid={windGrid(18, 'icon')}
-                windHour={0}
-            />,
-        );
-
-        expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore);
-        // Nothing at all is attached while motion is disabled. This used to be
-        // two — a style-load listener and a coalesced ordering listener, both
-        // owned by the static heatmap underlay. That heatmap was removed on
-        // 2026-08-30 (Shane: colour the particles instead of washing the map
-        // beneath them), and with it went the only reason this overlay touched
-        // the map while the animation was off.
-        expect(mapbox.listenerCount('style.load')).toBe(0);
-        expect(mapbox.listenerCount('styledata')).toBe(0);
-        expect(mapbox.listeners.size).toBe(0);
-        expect(mapbox.container.children).toHaveLength(0);
-
-        view.rerender(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                particlesEnabled
-                windGrid={windGrid(18, 'icon')}
-                windHour={0}
-            />,
-        );
-
-        await waitFor(() => expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore + 1));
-        const leafletMap = mocks.leafletMaps[mapCallsBefore];
-        expect(mapbox.listeners.size).toBeGreaterThan(0);
-
-        view.rerender(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                particlesEnabled={false}
-                windGrid={windGrid(18, 'icon')}
-                windHour={0}
-            />,
-        );
-
-        await waitFor(() => expect(leafletMap.remove).toHaveBeenCalledOnce());
-        // Turning motion back off leaves nothing behind — see the note above:
-        // the two listeners this used to keep belonged to the removed heatmap.
-        expect(mapbox.listenerCount('style.load')).toBe(0);
-        expect(mapbox.listenerCount('styledata')).toBe(0);
-        expect(mapbox.listeners.size).toBe(0);
-        expect(mapbox.container.children).toHaveLength(0);
-
-        view.unmount();
-        expect(mapbox.listeners.size).toBe(0);
-    });
-
-    it('keeps wind mounted and reapplies sparse, slow particles at harbour zoom', async () => {
-        // This harness has an unmeasured (0x0) container and a 1x1 grid, so
-        // close-in mode cannot engage: this pins the leaflet path's own
-        // high-zoom maths. Close-in has its own suite at the end of the file.
-        const mapbox = createMapboxHarness(9);
-        const before = mocks.leafletMaps.length;
-        const beforeLayers = mocks.velocityLayers.length;
-        const view = render(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={windGrid(12, 'ecmwf')} />,
-        );
-        await waitFor(() => expect(mocks.leafletMaps.length).toBe(before + 1));
-        await waitFor(() => expect(mocks.velocityLayers.length).toBe(beforeLayers + 1));
-        const leaflet = mocks.leafletMaps[before];
-        act(() => {
-            mapbox.map.getZoom.mockReturnValue(19);
-            mapbox.emit('moveend');
-            mapbox.emit('zoomend');
-        });
-        expect(leaflet.remove).not.toHaveBeenCalled();
-        expect(leaflet.setView).toHaveBeenLastCalledWith([-27, 153], 20, { animate: false });
-        expect(mocks.velocityLayers[beforeLayers]._windy).toMatchObject({
-            velocityScale: zoomCompensatedVelocityScale(19),
-            particleMultiplier: zoomScaledParticleMultiplier(19),
-        });
-        view.unmount();
-        expect(mapbox.listeners.size).toBe(0);
+        expect(harness.layers.has('imported-grib-wind')).toBe(false);
     });
 });
-
-// ── Close-in mode (Shane 2026-10-06, z14 over Airlie: "i turned wind on, but nothing showed up") ──
 
 const AIRLIE = { lat: -20.27, lng: 148.72 };
 const KT = 1852 / 3600;
@@ -759,111 +454,23 @@ describe('MapboxVelocityOverlay close-in mode', () => {
         vi.restoreAllMocks();
     });
 
-    it('low zoom still uses leaflet-velocity, unchanged', async () => {
-        mocks.releasePlugin();
-        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-        const mapbox = phoneHarness(8);
-        const mapsBefore = mocks.leafletMaps.length;
-        const layersBefore = mocks.velocityLayers.length;
-        const view = render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={airlieGrid()}
-                windHour={0}
-                windNowIdx={0}
-            />,
-        );
-        await waitFor(() => expect(mocks.velocityLayers.length).toBe(layersBefore + 1));
-        expect(mocks.leafletMaps.length).toBe(mapsBefore + 1);
-        expect(closeInElement(mapbox)).toBeNull();
-        expect(getCloseInWindReadout()).toBeNull();
-        expect(mocks.velocityLayers[layersBefore]._windy).toBeDefined();
-        view.unmount();
-    });
-
-    it('past the close-in threshold it cross-fades to the screen-space field and parks leaflet', async () => {
-        mocks.releasePlugin();
-        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-        const mapbox = phoneHarness(8);
-        const mapsBefore = mocks.leafletMaps.length;
-        const view = render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={airlieGrid()}
-                windHour={0}
-                windNowIdx={0}
-            />,
-        );
-        await waitFor(() => expect(mocks.leafletMaps.length).toBe(mapsBefore + 1));
-        const leaflet = mocks.leafletMaps[mapsBefore];
-        const leafletOverlay = mapbox.container.firstElementChild as HTMLDivElement;
-        await waitFor(() => expect(leafletOverlay.style.opacity).toBe('1'));
-
-        // Just above the entry line: still the geo field.
-        settleAt(mapbox, zoomForCells(1.55));
-        expect(closeInElement(mapbox)).toBeNull();
-
-        settleAt(mapbox, 14);
-        const closeIn = closeInElement(mapbox)!;
-        expect(closeIn).not.toBeNull();
-        expect(closeIn.style.opacity).toBe('1');
-        expect(closeIn.style.zIndex).toBe('400');
-        expect(closeIn.style.filter).toBe(leafletOverlay.style.filter);
-        expect(leafletOverlay.style.opacity).toBe('0');
-        // The model at the screen centre, named as the model.
-        expect(getCloseInWindReadout()).toMatchObject({ source: 'model', stale: false });
-        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
-        expect(getCloseInWindReadout()!.fromDeg).toBeCloseTo(135, 3);
-        // Leaflet is torn down once its fade has run, not left animating underneath.
-        expect(leaflet.remove).not.toHaveBeenCalled();
-        await waitFor(() => expect(leaflet.remove).toHaveBeenCalledOnce());
-        expect(closeInElement(mapbox)).toBe(closeIn);
-
-        view.unmount();
-        expect(closeInElement(mapbox)).toBeNull();
-        expect(getCloseInWindReadout()).toBeNull();
-        expect(mapbox.listeners.size).toBe(0);
-    });
-
-    it('holds the mode inside the hysteresis band, then hands back to leaflet with a cross-fade', async () => {
-        mocks.releasePlugin();
-        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-        const mapbox = phoneHarness(14);
-        const mapsBefore = mocks.leafletMaps.length;
-        const view = render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={airlieGrid()}
-                windHour={0}
-                windNowIdx={0}
-            />,
-        );
-        // Opened already close in: leaflet is never started.
-        expect(closeInElement(mapbox)).not.toBeNull();
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        });
-        expect(mocks.leafletMaps.length).toBe(mapsBefore);
-
-        // Between the entry and exit lines: no flip.
-        settleAt(mapbox, zoomForCells(1.7));
-        expect(closeInElement(mapbox)).not.toBeNull();
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        });
-        expect(mocks.leafletMaps.length).toBe(mapsBefore);
-
-        // Past the exit line: leaflet comes back and the close-in field fades out after it.
-        settleAt(mapbox, zoomForCells(2));
-        expect(getCloseInWindReadout()).toBeNull();
-        await waitFor(() => expect(mocks.leafletMaps.length).toBe(mapsBefore + 1));
-        const fading = closeInElement(mapbox)!;
-        expect(fading).not.toBeNull();
-        expect(fading.style.opacity).toBe('1');
-        await waitFor(() => expect(closeInElement(mapbox)).toBeNull(), { timeout: 2000 });
+    it('cross-fades to close-in, parks the geographic engine, holds hysteresis then hands back', async () => {
+        const h = phoneHarness(8),
+            grid = airlieGrid(),
+            before = mocks.fields.length;
+        const view = render(<MapboxVelocityOverlay mapboxMap={h.map as never} visible windGrid={grid} />);
+        const field = mocks.fields.at(-1)!;
+        expect(field.element.style.opacity).toBe('1');
+        settleAt(h, zoomForCells(1.2));
+        expect(closeInElement(h)).not.toBeNull();
+        expect(field.element.style.opacity).toBe('0');
+        expect(field.destroy).not.toHaveBeenCalled();
+        await waitFor(() => expect(field.destroy).toHaveBeenCalledOnce());
+        settleAt(h, zoomForCells(1.8));
+        expect(mocks.fields).toHaveLength(before + 1);
+        settleAt(h, zoomForCells(3));
+        expect(mocks.fields).toHaveLength(before + 2);
+        await waitFor(() => expect(closeInElement(h)).toBeNull(), { timeout: 2000 });
         view.unmount();
     });
 
@@ -1210,26 +817,6 @@ describe('MapboxVelocityOverlay close-in: the camera decides, not the cached lat
         };
     }
 
-    it('a coarse grid on screen keeps the leaflet field at z9 instead of one value over 200 km', async () => {
-        mocks.releasePlugin();
-        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-        const mapbox = phoneHarness(9);
-        const layersBefore = mocks.velocityLayers.length;
-        const view = render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={lattice(2.083)}
-                windHour={0}
-                windNowIdx={0}
-            />,
-        );
-        expect(closeInElement(mapbox)).toBeNull();
-        expect(getCloseInWindReadout()).toBeNull();
-        await waitFor(() => expect(mocks.velocityLayers.length).toBe(layersBefore + 1));
-        view.unmount();
-    });
-
     it('a pinch out on the old viewport lattice holds close-in, and the refetch does not flip it back', async () => {
         // Review 2026-10-06: a z11+ viewport fetch is a 3x3 lattice ~1.25 screens
         // across. Measured against it, a pinch out of one level read 2.5 cells and
@@ -1237,7 +824,7 @@ describe('MapboxVelocityOverlay close-in: the camera decides, not the cached lat
         mocks.releasePlugin();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
         const mapbox = phoneHarness(12);
-        const mapsBefore = mocks.leafletMaps.length;
+        const mapsBefore = mocks.fields.length;
         const props = { mapboxMap: mapbox.map as never, visible: true, windHour: 0, windNowIdx: 0 };
         const view = render(<MapboxVelocityOverlay {...props} windGrid={lattice(0.08)} />);
         const closeIn = closeInElement(mapbox);
@@ -1256,7 +843,7 @@ describe('MapboxVelocityOverlay close-in: the camera decides, not the cached lat
         await act(async () => {
             await new Promise((resolve) => setTimeout(resolve, 50));
         });
-        expect(mocks.leafletMaps.length).toBe(mapsBefore);
+        expect(mocks.fields.length).toBe(mapsBefore);
         view.unmount();
     });
 
@@ -1847,250 +1434,3 @@ describe('MapboxVelocityOverlay: her wind rides on her icon wherever the field i
 });
 
 // ── The desk's Light base (127-DESKMAP-b) ────────────────────────────────
-describe('MapboxVelocityOverlay palette', () => {
-    const optionsOf = (index: number) =>
-        mocks.leaflet.velocityLayer.mock.calls[index]?.[0] as unknown as { colorScale: string[] };
-
-    it('draws Light in dark ink under a white halo; a palette change recreates the field once, a re-render never', async () => {
-        const { WIND_PARTICLE_COLORS, WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
-        mocks.releasePlugin();
-        const mapbox = createMapboxHarness();
-        const grid = windGrid(9, 'ecmwf-desk');
-        const before = mocks.leaflet.velocityLayer.mock.calls.length;
-        const view = render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={grid}
-                windHour={0}
-                palette="light"
-            />,
-        );
-        await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
-        expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS_LIGHT);
-        // b127's 1.5 px, not the 3 px an emulated iPhone's software GL asked for:
-        // Shane chose thin strokes so the land names read through (MVO's dial).
-        expect(optionsOf(before)).toMatchObject({ particlelineWidth: 1.5 });
-        const div = () => mapbox.container.firstElementChild as HTMLElement;
-        expect(div().style.filter).toContain('rgba(255, 255, 255');
-
-        // Same palette, a new hour: the field updates in place.
-        view.rerender(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={grid}
-                windHour={1}
-                palette="light"
-            />,
-        );
-        await act(async () => Promise.resolve());
-        expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1);
-
-        // Relief + Sat: the white streaks and the dark rim, by one recreation.
-        view.rerender(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={grid}
-                windHour={1}
-                palette="dark"
-            />,
-        );
-        await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 2));
-        expect(optionsOf(before + 1).colorScale).toEqual(WIND_PARTICLE_COLORS);
-        expect(optionsOf(before + 1)).toMatchObject({ particlelineWidth: 1 });
-        expect(div().style.filter).toContain('rgba(0, 0, 0');
-        view.rerender(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={grid}
-                windHour={1}
-                palette="dark"
-            />,
-        );
-        await act(async () => Promise.resolve());
-        expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 2);
-        // The old field is gone, only the new one is on the map.
-        const leafletMap = mocks.leafletMaps[mocks.leafletMaps.length - 1];
-        expect(leafletMap.__layers.size).toBe(1);
-        view.unmount();
-    });
-
-    it('Obs and every dark base are unchanged: no palette is today’s white streaks and dark rim', async () => {
-        const { WIND_PARTICLE_COLORS } = await import('../components/map/windRamp');
-        mocks.releasePlugin();
-        const mapbox = createMapboxHarness();
-        const before = mocks.leaflet.velocityLayer.mock.calls.length;
-        render(
-            <MapboxVelocityOverlay
-                mapboxMap={mapbox.map as never}
-                visible
-                windGrid={windGrid(7, 'obs')}
-                windHour={0}
-            />,
-        );
-        await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
-        expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS);
-        expect(optionsOf(before)).toMatchObject({ particlelineWidth: 1 });
-        expect((mapbox.container.firstElementChild as HTMLElement).style.filter).toBe(
-            'drop-shadow(0 0 0.75px rgba(0, 0, 0, 0.55))',
-        );
-    });
-});
-
-// ── The chart turned (127-11a, audit A1): the field turns with it ──
-describe('MapboxVelocityOverlay on a turned chart', () => {
-    afterEach(async () => {
-        const { setChartOrientation } = await import('../components/map/chartOrientation');
-        setChartOrientation({ turning: false, target: null });
-    });
-
-    /** A 390x844 phone chart that can be turned, over a fictional Brittany-like coast. */
-    function turnableHarness() {
-        const mapbox = createMapboxHarness(5);
-        const size = { w: 390, h: 844 };
-        Object.defineProperty(mapbox.container, 'clientWidth', { configurable: true, get: () => size.w });
-        Object.defineProperty(mapbox.container, 'clientHeight', { configurable: true, get: () => size.h });
-        mapbox.map.getCenter.mockReturnValue({ lat: 48.38, lng: -4.49 });
-        // The camera centre projects to the middle of the chart, as Mapbox's does.
-        mapbox.map.project.mockImplementation(() => ({ x: size.w / 2, y: size.h / 2 }));
-        const camera = { bearing: 0 };
-        (mapbox.map as unknown as { getBearing: () => number }).getBearing = () => camera.bearing;
-        return { mapbox, camera, size };
-    }
-
-    const fieldDiv = (mapbox: MapboxHarness) =>
-        [...mapbox.container.children].find(
-            (el) => (el as HTMLElement).style.zIndex === '400' && !(el as HTMLElement).dataset.closeInWind,
-        ) as HTMLDivElement;
-
-    async function mountField() {
-        mocks.releasePlugin();
-        const { mapbox, camera, size } = turnableHarness();
-        const before = mocks.leafletMaps.length;
-        const beforeLayers = mocks.velocityLayers.length;
-        const view = render(
-            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={windGrid(12, 'ecmwf')} />,
-        );
-        await waitFor(() => expect(mocks.leafletMaps.length).toBe(before + 1));
-        await waitFor(() => expect(mocks.velocityLayers.length).toBe(beforeLayers + 1));
-        const leaflet = mocks.leafletMaps[before];
-        // Leaflet draws the synced centre in the middle of its own div.
-        leaflet.latLngToContainerPoint.mockImplementation(() => {
-            const div = fieldDiv(mapbox);
-            const w = parseFloat(div.style.width) || 390;
-            const h = parseFloat(div.style.height) || 844;
-            return { x: w / 2, y: h / 2 };
-        });
-        return { mapbox, camera, size, view, leaflet, layer: mocks.velocityLayers[beforeLayers] };
-    }
-
-    it('north up: today’s div exactly, inset 0 and no rotation', async () => {
-        const { mapbox, view } = await mountField();
-        act(() => mapbox.emit('moveend'));
-        const div = fieldDiv(mapbox);
-        expect(div.style.inset).toBe('0');
-        expect(div.style.width).toBe('');
-        expect(div.style.transform).not.toContain('rotate');
-        view.unmount();
-    });
-
-    it('a turning mode makes the field a square of the view’s diagonal, centred, re-sized once', async () => {
-        const { setChartOrientation } = await import('../components/map/chartOrientation');
-        const { mapbox, view, leaflet } = await mountField();
-        act(() => mapbox.emit('moveend'));
-        leaflet.invalidateSize.mockClear();
-        act(() => setChartOrientation({ turning: true, target: 37 }));
-        const div = fieldDiv(mapbox);
-        const side = Math.ceil(Math.hypot(390, 844)); // 930
-        expect(div.style.width).toBe(`${side}px`);
-        expect(div.style.height).toBe(`${side}px`);
-        expect(div.style.left).toBe(`${(390 - side) / 2}px`);
-        expect(div.style.top).toBe(`${(844 - side) / 2}px`);
-        expect(leaflet.invalidateSize).toHaveBeenCalledTimes(1);
-        // Back to North up: today's div again.
-        act(() => setChartOrientation({ turning: false, target: null }));
-        expect(div.style.inset).toBe('0');
-        expect(div.style.width).toBe('');
-        view.unmount();
-    });
-
-    it('turned to 37°, the settled field is rotated by −37° about the chart’s centre', async () => {
-        const { setChartOrientation } = await import('../components/map/chartOrientation');
-        const { mapbox, camera, view } = await mountField();
-        act(() => setChartOrientation({ turning: true, target: 37 }));
-        camera.bearing = 37;
-        act(() => mapbox.emit('moveend'));
-        expect(fieldDiv(mapbox).style.transform).toContain('rotate(-37deg)');
-        // Every move frame turns it too, not only the settle.
-        camera.bearing = 52;
-        act(() => mapbox.emit('move'));
-        expect(fieldDiv(mapbox).style.transform).toContain('rotate(-52deg)');
-        view.unmount();
-    });
-
-    it('the bigger square keeps today’s density, capped at 1.6x today’s particle count', async () => {
-        const { setChartOrientation } = await import('../components/map/chartOrientation');
-        const { mapbox, view, layer } = await mountField();
-        act(() => setChartOrientation({ turning: true, target: 90 }));
-        act(() => mapbox.emit('moveend'));
-        const side = Math.ceil(Math.hypot(390, 844));
-        const cap = Math.min(1, (1.6 * 390 * 844) / (side * side));
-        expect(cap).toBeLessThan(1); // a portrait phone's square is ~1.64x its area
-        expect((layer._windy as { particleMultiplier?: number }).particleMultiplier).toBeCloseTo(
-            zoomScaledParticleMultiplier(5) * cap,
-            12,
-        );
-        act(() => setChartOrientation({ turning: false, target: null }));
-        act(() => mapbox.emit('moveend'));
-        expect((layer._windy as { particleMultiplier?: number }).particleMultiplier).toBe(
-            zoomScaledParticleMultiplier(5),
-        );
-        view.unmount();
-    });
-
-    it('a phone turned on its side re-centres the square, though the diagonal is the same', async () => {
-        const { setChartOrientation } = await import('../components/map/chartOrientation');
-        const { mapbox, size, view, leaflet } = await mountField();
-        act(() => setChartOrientation({ turning: true, target: 37 }));
-        const div = fieldDiv(mapbox);
-        expect(div.style.left).toBe('-270px');
-        expect(div.style.top).toBe('-43px');
-        // 390x844 to 844x390: ceil(hypot) is 930 both ways.
-        size.w = 844;
-        size.h = 390;
-        leaflet.invalidateSize.mockClear();
-        act(() => mapbox.emit('resize'));
-        expect(div.style.width).toBe('930px');
-        expect(div.style.left).toBe('-43px');
-        expect(div.style.top).toBe('-270px');
-        expect(leaflet.invalidateSize).toHaveBeenCalled();
-        view.unmount();
-    });
-
-    it('a field rebuilt north up after one torn down turned starts at today’s density', async () => {
-        const { setChartOrientation } = await import('../components/map/chartOrientation');
-        mocks.releasePlugin();
-        const { mapbox } = turnableHarness();
-        const grid = windGrid(12, 'ecmwf');
-        const before = mocks.leafletMaps.length;
-        const view = render(<MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={grid} />);
-        await waitFor(() => expect(mocks.leafletMaps.length).toBe(before + 1));
-        act(() => setChartOrientation({ turning: true, target: 90 }));
-        act(() => mapbox.emit('moveend'));
-        // Hidden while turned (the wind layer off), then back on North up.
-        view.rerender(<MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible={false} windGrid={grid} />);
-        act(() => setChartOrientation({ turning: false, target: null }));
-        const beforeLayers = mocks.velocityLayers.length;
-        view.rerender(<MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={grid} />);
-        await waitFor(() => expect(mocks.velocityLayers.length).toBeGreaterThan(beforeLayers));
-        const layer = mocks.velocityLayers[mocks.velocityLayers.length - 1];
-        act(() => mapbox.emit('moveend'));
-        expect((layer._windy as { particleMultiplier?: number }).particleMultiplier).toBe(
-            zoomScaledParticleMultiplier(5),
-        );
-        view.unmount();
-    });
-});

@@ -35,3 +35,6 @@ experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json
 experiments/scuttlebutt-e2ee/review/fresh-native-https-checks-2026-10-11.json
 experiments/scuttlebutt-e2ee/review/fresh-native-https-local-verification-2026-10-11.json
 experiments/scuttlebutt-e2ee/review/upstream-reconciliation-2026-10-11.json
+# Exact shared-GDAL public NOAA conversion evidence. Its SHA256 is asserted
+# against the publisher receipt, so formatting it would change captured bytes.
+browser-tests/fixtures/noaa/US5CA1LK.json

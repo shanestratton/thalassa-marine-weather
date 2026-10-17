@@ -462,7 +462,8 @@ describe('151400 pushes go out the moment they are queued', () => {
 
     it('relies on send-push claiming by id, so the minute drain can never double-send', () => {
         const sendPush = readFileSync('supabase/functions/send-push/index.ts', 'utf8');
-        expect(sendPush).toContain('const { record: webhookRecord } = await req.json();');
+        expect(sendPush).toContain('const requestBody = await req.json();');
+        expect(sendPush).toContain('const { record: webhookRecord } = requestBody;');
         expect(sendPush).toMatch(/rpc\('claim_push_notification', \{\s*p_id: webhookRecord\.id,/);
         const claim = read('20260723090000_security_hardening_core.sql');
         expect(claim).toMatch(

@@ -9,10 +9,13 @@
  *   5. Visibility (personal / shared)
  *
  * Saves via createCustomRecipe()/updateCustomRecipe() → LocalDB + Supabase.
+ * An edit saves on the phone first, offline too (132-B18, GAL-04); only a
+ * change to a stored photo needs the server first, and its failure says so.
  */
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
     createCustomRecipe,
+    recipeEditNeedsConnection,
     updateCustomRecipe,
     type RecipeIngredient,
     type RecipeVisibility,
@@ -34,12 +37,22 @@ interface RecipeEditorProps {
     onSaved: () => void;
     recipe?: StoredRecipe;
     /**
-     * Set while a new recipe goes into a skipper's shared galley: the boat's
-     * name, or null when unknown. The recipe stays personal to the skipper's
-     * galley (createCustomRecipe), so the community choice is not offered.
+     * Set while the recipe is in a skipper's shared galley (a new one going
+     * in, or crew changing one, 132-B18): the boat's name, or null when
+     * unknown. The recipe stays personal to the skipper's galley
+     * (createCustomRecipe, updateCustomRecipe), so the community choice is
+     * not offered.
      */
     sharedGalleyBoat?: string | null;
 }
+
+/** What a failed save says. Only a stored photo change waits on the server. */
+const SAVE_FAILED_STORAGE = 'The recipe could not be saved. Check your storage and try again.';
+const SAVE_FAILED_PHOTO =
+    'This photo change has to reach the server first, and it could not. Nothing was changed. Try again once you are online.';
+const SAVE_FAILED_PERSONAL =
+    'Making this recipe personal takes its photo down on the server first, and that did not work. Nothing was changed. Try again once you are online.';
+const SAVE_FAILED_EDIT = 'The recipe could not be saved on this phone. Close the editor and try again.';
 
 const MEAL_TAGS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Sea-Friendly', 'Quick'];
 
@@ -77,7 +90,7 @@ function instructionsForEditing(instructions: string): string {
 }
 
 export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, recipe, sharedGalleyBoat }) => {
-    const intoSharedGalley = !recipe && sharedGalleyBoat !== undefined;
+    const intoSharedGalley = sharedGalleyBoat !== undefined;
     const isEditing = Boolean(recipe);
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
@@ -175,15 +188,21 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
         };
 
         try {
-            const result = recipe
-                ? await updateCustomRecipe(recipe.id, {
-                      ...input,
-                      image_url: input.image_url ?? '',
-                  })
-                : await createCustomRecipe(input);
+            const patch = { ...input, image_url: input.image_url ?? '' };
+            const result = recipe ? await updateCustomRecipe(recipe.id, patch) : await createCustomRecipe(input);
             if (!mountedRef.current) return;
             if (!result) {
-                setSaveError('The recipe could not be saved. Check your storage and try again.');
+                // An edit saves on the phone (132-B18): "check your storage"
+                // was untrue for an offline edit, which never failed for space.
+                setSaveError(
+                    !recipe
+                        ? SAVE_FAILED_STORAGE
+                        : !recipeEditNeedsConnection(recipe, patch)
+                          ? SAVE_FAILED_EDIT
+                          : recipe.visibility === 'shared' && patch.visibility === 'personal'
+                            ? SAVE_FAILED_PERSONAL
+                            : SAVE_FAILED_PHOTO,
+                );
                 return;
             }
             triggerHaptic('heavy');
@@ -192,7 +211,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
         } catch (error) {
             log.warn('galley: recipe-save', getErrorMessage(error));
             if (mountedRef.current) {
-                setSaveError('The recipe could not be saved. Check your storage and try again.');
+                setSaveError(SAVE_FAILED_STORAGE);
             }
         } finally {
             saveLockRef.current = false;
@@ -498,8 +517,9 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                         {/* Visibility toggle */}
                         {intoSharedGalley ? (
                             <p style={GLASS} className="p-4 text-xs font-semibold text-sky-200">
-                                This recipe goes into {sharedGalleyBoat ? `${sharedGalleyBoat}'s` : "your skipper's"}{' '}
-                                galley, where the crew can see it. Only the skipper can share it with the community.
+                                This recipe {isEditing ? 'stays in' : 'goes into'}{' '}
+                                {sharedGalleyBoat ? `${sharedGalleyBoat}'s` : "your skipper's"} galley, where the crew
+                                can see it. Only the skipper can share it with the community.
                             </p>
                         ) : (
                             <div style={GLASS} role="group" aria-labelledby={visibilityLabelId} className="p-4">
@@ -543,7 +563,9 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                 )}
             </div>
 
-            {/* Footer nav */}
+            {/* Footer nav. Each button keeps a 44 px floor in pixels (132-B17):
+                py-3.5 and text-sm are rem, and the root font is fluid, so
+                Continue measured 39 px at 320 pt. */}
             <div className="fixed bottom-0 left-0 right-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 bg-linear-to-t from-black via-black/95 to-transparent">
                 {saveError && (
                     <p role="alert" className="mb-3 text-center text-xs font-bold text-red-300">
@@ -555,7 +577,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                         <button
                             onClick={() => setStep(step - 1)}
                             aria-label={`Back to step ${step - 1}`}
-                            className="px-6 py-3.5 rounded-xl bg-white/10 text-white text-sm font-bold transition-all active:scale-95"
+                            className="min-h-[44px] px-6 py-3.5 rounded-xl bg-white/10 text-white text-sm font-bold transition-all active:scale-95"
                         >
                             Back
                         </button>
@@ -565,7 +587,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             onClick={() => canProceed() && setStep(step + 1)}
                             disabled={!canProceed()}
                             aria-label={`Continue to step ${step + 1}`}
-                            className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                            className={`flex-1 min-h-[44px] py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
                                 canProceed()
                                     ? 'bg-linear-to-r from-amber-500 to-orange-500 text-black'
                                     : 'bg-white/10 text-gray-500 cursor-not-allowed'
@@ -578,7 +600,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             onClick={handleSave}
                             disabled={saving}
                             aria-label={saving ? 'Saving recipe' : isEditing ? 'Save recipe changes' : 'Save recipe'}
-                            className="flex-1 py-3.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+                            className="flex-1 min-h-[44px] py-3.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
                             {saving ? (
                                 <>

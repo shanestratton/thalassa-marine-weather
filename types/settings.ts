@@ -6,6 +6,7 @@ import type { DisplayMode, DashboardMode, ScreenOrientationType, UnitPreferences
 import type { NotificationPreferences, WeatherModel, OffshoreModel } from './weather';
 import type { VesselProfile, VesselDimensionUnits } from './vessel';
 import type { PolarData } from './navigation';
+import type { AisDisplayFilters } from '../services/ais/aisFilter';
 
 /**
  * Preferred wind angle bands — used as a multi-select set so users can
@@ -30,7 +31,7 @@ export type PreferredAngle = 'beating' | 'close_reach' | 'beam_reach' | 'broad_r
  * 'satellite' is no longer offered (125-13a); it stays readable for old saved
  * settings, which open on 'reliefSat'.
  */
-export type ObsChartBase = 'relief' | 'reliefSat' | 'ocean' | 'satellite' | 'hybrid';
+export type ObsChartBase = 'relief' | 'reliefSat' | 'ocean' | 'satellite' | 'hybrid' | 'enc';
 
 /** User-defined safety thresholds for passage planning.
  *  The isochrone router treats zones exceeding these as obstacles.
@@ -91,6 +92,8 @@ export const POLISH_LABEL: Record<PolishStyle, string> = {
 };
 
 export interface UserSettings {
+    /** Reported AIS motion vector on the chart; never an alarm preference. */
+    aisVectorMinutes?: 6 | 12 | 30;
     /** @deprecated Use `subscriptionTier` instead. Kept for migration only. */
     isPro?: boolean;
     /** Active subscription tier */
@@ -191,6 +194,8 @@ export interface UserSettings {
     autoTrackEnabled?: boolean;
     backgroundLocationEnabled?: boolean;
     polarSource?: 'factory' | 'smart';
+    /** Sailing performance adjustment, 0.7–1.3; independent of engine cruising speed. */
+    routingPolarScale?: number;
     nmeaHost?: string;
     nmeaPort?: number;
     smartPolarsEnabled?: boolean;
@@ -237,6 +242,47 @@ export interface UserSettings {
      * components/map/mapHub/useEncAtOpen.ts reads it.
      */
     obsEncOnOpen?: boolean;
+    /** Account-synced display choices; never inputs to the collision alarm. */
+    aisDisplayFilters?: Partial<AisDisplayFilters>;
+    /**
+     * Settings → Alerts: "Cyclone warnings near the boat" (build 129, 129-09).
+     * The server's cyclone-watch push: a notice within 600 NM, urgent within
+     * 300 NM or when the forecast track comes within 300 NM inside 72 h. A
+     * safety alert, so unset = on; only exactly `false` turns it off. The
+     * watcher reads it from user_settings.
+     */
+    cycloneWarnings?: boolean;
+    /**
+     * Settings → Alerts: "Official marine warnings at the boat" (build 129,
+     * 129-06). official-alerts-watch pushes the issuers' marine and coastal
+     * warnings in force at the boat: Severe and Extreme at once, the rest as
+     * advisories. A safety alert, so unset = on; only exactly `false` turns it
+     * off. Land warnings are in the app only. The watcher reads it from
+     * user_settings.
+     */
+    officialMarineWarnings?: boolean;
+    /**
+     * Its sub-switch, "Small craft advisories" (129-06): the Moderate and Minor
+     * marine warnings (a US Small Craft Advisory, a gale watch), which wait out
+     * 22:00-07:00 at the boat unless they begin within 3 h. Unset = on; only
+     * exactly `false` mutes them. Never mutes a warning.
+     */
+    smallCraftAdvisories?: boolean;
+    /**
+     * Settings → Alerts: "Look ahead" (build 129, 129-07). How far ahead the
+     * background check (check-weather-alerts) reads the wind and sea
+     * thresholds: 6, 12 or 24 h. Unset = 24 (Shane, 13 Oct 2026); anything
+     * else reads as 24 (_shared/forecast-alerts/contract.ts lookaheadHours).
+     * Shown once the deployed function reports the look-ahead version.
+     */
+    alertLookaheadHours?: 6 | 12 | 24;
+    /**
+     * Settings → Alerts: "Good window opens" (129-07). A push when two of
+     * three models rate a 6 h window Go against the High wind and High seas
+     * limits, after hours that are not. Not a safety alert: off unless
+     * exactly `true`.
+     */
+    goodWindowAlerts?: boolean;
     /**
      * Settings → Preferences: "Start with The Glass beside the chart" (build
      * 128, Shane 2026-10-13). A tablet or wide window that starts in landscape
@@ -246,6 +292,15 @@ export interface UserSettings {
      * split's own rules.
      */
     glassBesideChartAtStart?: boolean;
+    /**
+     * Settings → Preferences → Currency (build 132, 132-B17): the ISO 4217
+     * code new Grocery list rows and their prices go in ('AUD', 'XPF').
+     * Unset or null = the phone's region's currency, else the Australian
+     * dollar (utils/money resolveCurrency); "Follow this phone" writes null so
+     * the cloud patch carries the key. Rows already saved keep their own
+     * currency; nothing is converted.
+     */
+    currency?: string | null;
     /**
      * Whether this account's paired Pi holds licensed (protected) charts
      * (127-DESKMAP C1). One boolean: no count, no ids, no positions. Written by

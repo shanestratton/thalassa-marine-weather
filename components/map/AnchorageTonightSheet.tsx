@@ -25,11 +25,14 @@ import {
 } from '../../services/anchorages/placeConditions';
 import { conditionsPlaceForAnchorage } from './useAnchorageLayer';
 import { triggerHaptic } from '../../utils/system';
+import { HoldingGroundNote } from '../anchor-watch/HoldingGroundNote';
 
 interface RankedRow extends PlaceConditions {
     id: string;
     name: string;
     distanceNM: number;
+    lat: number;
+    lon: number;
 }
 
 export const AnchorageTonightSheet: React.FC<{
@@ -84,7 +87,7 @@ export const AnchorageTonightSheet: React.FC<{
                 const candidates = data.points.features
                     .filter((f) => {
                         const p = f.properties;
-                        return p.kind !== 'marina' && p.likelyAnchorage !== false && p.fetchLandNM && p.fetchReefNM;
+                        return p.kind !== 'marina' && p.likelyAnchorage !== false;
                     })
                     .map((f) => ({
                         ...conditionsPlaceForAnchorage(f),
@@ -106,7 +109,14 @@ export const AnchorageTonightSheet: React.FC<{
                 if (cancelled) return;
                 const order = { green: 0, amber: 1, unknown: 2, red: 3 };
                 const ranked = candidates
-                    .map((c) => ({ id: c.id, name: c.name, distanceNM: c.distanceNM, ...cachedPlaceConditions(c) }))
+                    .map((c) => ({
+                        id: c.id,
+                        name: c.name,
+                        lat: c.lat,
+                        lon: c.lon,
+                        distanceNM: c.distanceNM,
+                        ...cachedPlaceConditions(c),
+                    }))
                     .sort((a, b) => order[a.light] - order[b.light] || a.distanceNM - b.distanceNM);
                 if (ranked.length === 0) {
                     setState('empty');
@@ -188,7 +198,8 @@ export const AnchorageTonightSheet: React.FC<{
                             )}
                             {state === 'empty' && (
                                 <div className="py-6 text-center text-xs text-gray-400">
-                                    No charted anchorages within 50 NM of the location box.
+                                    No mapped anchorage records available within50 NM of the location box. Less data
+                                    here does not mean there are no anchorages.
                                 </div>
                             )}
                             {rows?.map((r, i) => {
@@ -223,6 +234,7 @@ export const AnchorageTonightSheet: React.FC<{
                                             <span className="text-gray-500">{r.distanceNM.toFixed(1)} NM · </span>
                                             {r.reasons.slice(0, 2).join(' · ')}
                                         </div>
+                                        <HoldingGroundNote lat={r.lat} lon={r.lon} className="pl-6 mt-1" />
                                     </button>
                                 );
                             })}
@@ -230,8 +242,10 @@ export const AnchorageTonightSheet: React.FC<{
                                 <div className="pt-3 text-xs text-gray-400 leading-relaxed">
                                     Comparing up to 24 nearby mapped anchorages within 50 NM. Weather/shelter advisory,
                                     not clearance. Check warnings, tide/depth, holding and swing room. Missing data
-                                    stays unassessed. Data: © OpenStreetMap contributors (ODbL), © GBRMPA (CC BY).
-                                    Forecast: Open-Meteo / national weather services.
+                                    stays unassessed. Outside the regional shelter atlas there is less data: shelter,
+                                    depth and holding may be unknown. Data: © OpenStreetMap contributors (ODbL), ©
+                                    GBRMPA (CC BY), NOAA public reference data. Forecast: Open-Meteo / national weather
+                                    services.
                                 </div>
                             )}
                         </div>

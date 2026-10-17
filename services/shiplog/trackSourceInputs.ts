@@ -12,7 +12,7 @@
  * as recording, and a silent boat simply asks the skipper.
  */
 import { Capacitor } from '@capacitor/core';
-import { BoatLinkService } from '../boatLink/BoatLinkService';
+import { loadBoatLink } from '../boatLink/boatLinkGate';
 import type { DataState, Lane, LinkKind, Where } from '../boatLink/boatLinkModel';
 import { NmeaListenerService } from '../NmeaListenerService';
 import { getPairing } from '../PiPairingService';
@@ -29,6 +29,8 @@ const RECORDER_TIMEOUT_MS = 3_000;
 const ACCESSORY_TIMEOUT_MS = 1_500;
 /** An accessory flag older than this describes an earlier session. */
 const ACCESSORY_FIX_MAX_AGE_MS = 5 * 60_000;
+/** The boat link is loaded for a boat that has one (131-01); a load that never lands counts as "not known". */
+const LINK_LOAD_TIMEOUT_MS = 2_000;
 
 const UNKNOWN_LINK: TrackSourceInput['link'] = { where: 'unknown', lane: 'none', kind: 'none', data: 'none' };
 
@@ -94,8 +96,10 @@ async function phoneAccessoryActive(now: number): Promise<boolean> {
     }
 }
 
-function linkFacts(now: number): TrackSourceInput['link'] {
-    const snapshot = safely('boat link', () => BoatLinkService.evaluate(now), null);
+/** The boat link's facts, from the same service every screen reads; loaded here only for a boat that has a link. */
+async function linkFacts(now: number): Promise<TrackSourceInput['link']> {
+    const service = await within(loadBoatLink(), LINK_LOAD_TIMEOUT_MS, null);
+    const snapshot = service ? safely('boat link', () => service.evaluate(now), null) : null;
     if (!snapshot) return UNKNOWN_LINK;
     return {
         where: snapshot.where as Where,
@@ -110,8 +114,8 @@ export async function resolveTrackSourcePlan(now = Date.now()): Promise<TrackSou
     const piPaired = safely('pairing', () => getPairing() !== null, false);
     const gatewaySaved = safely('saved gateway', () => NmeaListenerService.getSavedConfig() !== null, false);
     const boatConfigured = piPaired || gatewaySaved;
-    const link = boatConfigured ? linkFacts(now) : UNKNOWN_LINK;
-    const [boatPosition, piRecorderOn, phoneAccessory] = await Promise.all([
+    const [link, boatPosition, piRecorderOn, phoneAccessory] = await Promise.all([
+        boatConfigured ? linkFacts(now) : Promise.resolve(UNKNOWN_LINK),
         boatConfigured ? freshBoatPosition(now) : Promise.resolve(null),
         piPaired ? piRecorderEnabled() : Promise.resolve(false),
         phoneAccessoryActive(now),

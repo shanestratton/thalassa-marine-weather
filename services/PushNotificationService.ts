@@ -34,14 +34,18 @@ export type ForegroundPushNotification = {
     data?: Record<string, unknown>;
 };
 
+/** The tapped notification's own words, where the platform gives them (an official warning shows them, 129-06). */
+export type PushTapNotice = Readonly<{ title?: string; body?: string }>;
+type TapCallback = (data: Record<string, unknown>, notice?: PushTapNotice) => void;
+
 export type PushNotificationHandlers = Readonly<{
     onForegroundPush: (notification: ForegroundPushNotification) => void;
-    onNotificationTap: (data: Record<string, unknown>) => void;
+    onNotificationTap: TapCallback;
 }>;
 
-type ScopedCallback<T> = Readonly<{
+type ScopedCallback<T, Extra extends unknown[] = []> = Readonly<{
     scope: AuthIdentityScope;
-    callback: (value: T) => void;
+    callback: (value: T, ...extra: Extra) => void;
     legacyPrivatePermit: LegacyPrivateMessagePermit | null;
 }>;
 
@@ -68,7 +72,7 @@ class PushNotificationServiceClass {
     private nativeListeners: PluginListenerHandle[] = [];
     private initGeneration = 0;
     private foregroundBinding: ScopedCallback<ForegroundPushNotification> | null = null;
-    private tapBinding: ScopedCallback<Record<string, unknown>> | null = null;
+    private tapBinding: ScopedCallback<Record<string, unknown>, [notice?: PushTapNotice]> | null = null;
 
     /**
      * UI callbacks are bound to the exact auth generation in which they were
@@ -79,11 +83,11 @@ class PushNotificationServiceClass {
      * AuthIdentityScope. This compatibility property cannot prove the caller's
      * originating scope if assigned from a stale async continuation.
      */
-    get onNotificationTap(): ((data: Record<string, unknown>) => void) | null {
+    get onNotificationTap(): TapCallback | null {
         return this.tapBinding?.callback ?? null;
     }
 
-    set onNotificationTap(callback: ((data: Record<string, unknown>) => void) | null) {
+    set onNotificationTap(callback: TapCallback | null) {
         this.tapBinding = callback
             ? this.scopedCallback(
                   getAuthIdentityScope(),
@@ -262,7 +266,14 @@ class PushNotificationServiceClass {
                             return;
                         if (isPrivatePush(data)) log.info('Private push tapped');
                         else log.info('Push tapped:', data);
-                        binding.callback(Object.freeze({ ...data }));
+                        const notification = action.notification;
+                        binding.callback(
+                            Object.freeze({ ...data }),
+                            Object.freeze({
+                                title: typeof notification?.title === 'string' ? notification.title : undefined,
+                                body: typeof notification?.body === 'string' ? notification.body : undefined,
+                            }),
+                        );
                     }),
                 );
 
@@ -562,21 +573,21 @@ class PushNotificationServiceClass {
 
     // ---- PRIVATE ----
 
-    private scopedCallback<T>(
+    private scopedCallback<T, Extra extends unknown[] = []>(
         scope: AuthIdentityScope,
-        callback: (value: T) => void,
-        selected: () => ScopedCallback<T> | null,
+        callback: (value: T, ...extra: Extra) => void,
+        selected: () => ScopedCallback<T, Extra> | null,
         payload: (value: T) => Record<string, unknown> | undefined,
-    ): ScopedCallback<T> {
+    ): ScopedCallback<T, Extra> {
         const originalScope = Object.freeze({ key: scope.key, userId: scope.userId, generation: scope.generation });
         const permit = captureLegacyPrivateMessagePermit(originalScope);
-        const binding: ScopedCallback<T> = Object.freeze({
+        const binding: ScopedCallback<T, Extra> = Object.freeze({
             scope: originalScope,
             legacyPrivatePermit: permit,
-            callback: (value: T) => {
+            callback: (value: T, ...extra: Extra) => {
                 if (selected() !== binding || !this.isOwnedScope(originalScope)) return;
                 if (isPrivatePush(payload(value)) && !isLegacyPrivateMessagePermitCurrent(permit)) return;
-                callback(value);
+                callback(value, ...extra);
             },
         });
         return binding;

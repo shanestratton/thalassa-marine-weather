@@ -74,6 +74,13 @@ interface Net {
 async function serveDesk(page: Page, origin: string, net: Net) {
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
+        // This fixture supplies a working synthetic Mapbox connection. The
+        // native WAN probe must agree: rejecting it marks the phone offline
+        // before a cold chart starts and deliberately selects the land-only
+        // fallback. No request leaves the fixture. Offline cold-start terrain
+        // has its separate real-service-worker test with networking disabled.
+        if (url.hostname === 'www.gstatic.com' && url.pathname === '/generate_204')
+            return route.fulfill({ status: 204 });
         const xyz = (m: RegExpMatchArray, at: number) => [Number(m[at]), Number(m[at + 1]), Number(m[at + 2])] as const;
         if (url.origin === origin) {
             const m = url.pathname.match(/^\/__log-map-fixture\/composite\/(\d+)\/(\d+)\/(\d+)\.mvt$/);
@@ -729,17 +736,54 @@ const quietWrites = (page: Page) =>
     page.evaluate(
         () =>
             new Promise<number>((resolve) => {
-                const map = window.__thalassaMap as unknown as {
-                    on(t: string, f: () => void): void;
-                    off(t: string, f: () => void): void;
+                // The app's own style writes, counted once the chart is idle. Mapbox can
+                // fire a 'styledata' of its own on a still chart, so counting those failed
+                // 128's code too (release run 38522448875, and 2 of 4 runs locally).
+                const map = window.__thalassaMap as unknown as Record<string, unknown> & {
+                    once(t: string, f: () => void): void;
+                    triggerRepaint(): void;
                 };
-                let writes = 0;
-                const count = () => (writes += 1);
-                map.on('styledata', count);
-                setTimeout(() => {
-                    map.off('styledata', count);
-                    resolve(writes);
-                }, 2_000);
+                const writers = [
+                    'setStyle',
+                    'addLayer',
+                    'removeLayer',
+                    'moveLayer',
+                    'setPaintProperty',
+                    'setLayoutProperty',
+                    'setFilter',
+                    'setLayerZoomRange',
+                    'addSource',
+                    'removeSource',
+                ];
+                let started = false;
+                const count = () => {
+                    if (started) return;
+                    started = true;
+                    let writes = 0;
+                    const saved = writers.map((name) => [name, map[name]] as const);
+                    for (const [name, real] of saved) {
+                        if (typeof real !== 'function') continue;
+                        map[name] = function (this: unknown, ...args: unknown[]) {
+                            // The offline fallback's one-time install (useOfflineBaseLayer, on
+                            // 'idle' when the phone reads offline) answers the network, not a
+                            // still chart rewriting its style; it raced this window in WebKit.
+                            const first = args[0] as { id?: unknown } | string | undefined;
+                            const id = typeof first === 'string' ? first : first?.id;
+                            const offlineInstall =
+                                (name === 'addSource' || name === 'addLayer') &&
+                                (id === 'osm-offline-fallback' || id === 'seamark-offline-fallback');
+                            if (!offlineInstall) writes += 1;
+                            return (real as (...a: unknown[]) => unknown).apply(this, args);
+                        };
+                    }
+                    setTimeout(() => {
+                        for (const [name, real] of saved) map[name] = real;
+                        resolve(writes);
+                    }, 2_000);
+                };
+                map.once('idle', count);
+                map.triggerRepaint();
+                setTimeout(count, 3_000);
             }),
     );
 /** The planner's line edges and the reliefBase palette, as the chart has them. */
@@ -844,10 +888,15 @@ test.describe('the phone’s planner on Light (128-LIGHT)', () => {
             }
             await shot(page, info, `phone-planner-${size.width}x${size.height}-light`);
 
-            // The bases only: no ENC, Seamarks or Wind row on the phone.
+            // Bases include the installed-charts-only view; no overlay toggles on the phone.
             await trigger.click();
             const menu = page.getByRole('menu', { name: 'Map base' });
-            await expect(menu.getByRole('menuitemradio')).toHaveText([/^Light/, /^Relief \+ Sat/, /^Hybrid/]);
+            await expect(menu.getByRole('menuitemradio')).toHaveText([
+                /^Light/,
+                /^Relief \+ Sat/,
+                /^Hybrid/,
+                /^ENC only/,
+            ]);
             await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(0);
             await expectWideFaceDrawn(menu.getByRole('menuitemradio').first());
             const open = (await menu.boundingBox())!;
@@ -903,7 +952,13 @@ test.describe('the phone’s planner on Light (128-LIGHT)', () => {
         await expect(trigger).not.toHaveAccessibleName(/Light/);
         await trigger.click();
         const menu = page.getByRole('menu', { name: 'Map base' });
-        await expect(menu.getByRole('menuitemradio')).toHaveText([/^Relief/, /^Relief \+ Sat/, /^Ocean/, /^Hybrid/]);
+        await expect(menu.getByRole('menuitemradio')).toHaveText([
+            /^Relief/,
+            /^Relief \+ Sat/,
+            /^Ocean/,
+            /^Hybrid/,
+            /^ENC only/,
+        ]);
         await expect(menu.getByRole('menuitemcheckbox', { name: /^ENC charts/ })).toHaveCount(1);
         await context.close();
     });

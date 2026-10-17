@@ -113,6 +113,7 @@ interface ParityCase {
     name: string;
     fn: string;
     expect: unknown;
+    reportedExpect?: unknown;
     [key: string]: unknown;
 }
 
@@ -184,5 +185,11 @@ describe('parity cases, through the app rule', () => {
         it(c.name, () => {
             expect(run(c)).toEqual(c.expect);
         });
+        if (c.reportedExpect !== undefined) {
+            it(`${c.name}: original report geometry remains unchanged`, () => {
+                const target = { ...(c.target as rule.CollisionTarget), reportAgeSec: 0 };
+                expect(run({ ...c, target })).toEqual(c.reportedExpect);
+            });
+        }
     }
 });

@@ -80,7 +80,11 @@ vi.mock('../services/supabase', () => {
     };
 });
 
-vi.mock('../services/PiPairingService', () => ({ getPairing: () => ({ publicKeySpki: 'fictional-spki' }) }));
+// The Pi rides pinnedPiRequest (129-12): pinned to the pairing key, as the real one does.
+vi.mock('../services/PiPairingService', () => ({
+    getPairing: () => ({ publicKeySpki: 'fictional-spki' }),
+    pinnedPiRequest: (options: { data?: Record<string, unknown> }) => pi.request({ ...options }),
+}));
 vi.mock('../services/PiCacheService', () => ({ piCache: { baseUrl: 'https://pi.invalid:3001' } }));
 vi.mock('../services/piTls', () => ({
     isPinnedTransportAvailable: () => true,

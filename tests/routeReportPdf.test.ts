@@ -8,6 +8,7 @@ import { generateRouteReportPdf, getRouteReportFileName } from '../services/Rout
 import type { TraceLegVerdict } from '../services/routeTracer';
 import { clearAllCellMetadata, putCell } from '../services/enc/EncCellMetadata';
 import type { EncCell } from '../services/enc/types';
+import { routeWeatherFixture, routeWeatherFixturePins } from './fixtures/routeWeatherFixture';
 
 const leg = (
     grade: 'clear' | 'caution' | 'danger',
@@ -23,6 +24,35 @@ const leg = (
     }) as TraceLegVerdict;
 
 describe('RouteReportPdfService', () => {
+    it('paginates the actual hourly UTC weather table, repeats headers, and preserves missing values', async () => {
+        const report = routeWeatherFixture('private-full-geometry-never-in-PDF');
+        const blob = generateRouteReportPdf({
+            routeName: 'Synthetic weather passage',
+            pins: routeWeatherFixturePins,
+            verdicts: [],
+            tideLabels: {},
+            departureLabel: '',
+            routeWeather: report,
+            nowMs: report.loadedAtMs,
+        });
+        const text = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(reader.error);
+            reader.readAsText(blob);
+        });
+        const pages = [...text.matchAll(/\/Type \/Page\b/g)].length;
+        expect(pages).toBeGreaterThan(2);
+        expect([...text.matchAll(/\(UTC \/ position\)/g)].length).toBeGreaterThan(1);
+        expect([...text.matchAll(/Advisory only - always cross-check/g)].length).toBe(pages);
+        expect(text).toContain('PASSAGE WEATHER - UTC');
+        expect(text).toContain('Unknown');
+        expect(text).toContain('Calm');
+        expect(text).toContain('UK Met Office');
+        expect(text).toContain('CC BY-SA 4.0');
+        expect(text).toContain(new Date(report.arrivalMs).toISOString().slice(5, 19).replace('T', ' '));
+        expect(text).not.toContain(report.identity);
+    });
     it('builds a valid multi-page PDF from a long route with emoji-laden labels', async () => {
         const pins = Array.from({ length: 30 }, (_, i) => ({ lat: -27.1 - i * 0.01, lon: 153.1 + i * 0.01 }));
         const verdicts = Array.from({ length: 29 }, (_, i) =>

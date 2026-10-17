@@ -23,8 +23,18 @@ import {
     minifyPublicScriptWhitespace,
 } from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
+import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
+import { shareClassNames } from './scripts/share-class-names.mjs';
+import { shareUiStrings } from './scripts/share-ui-strings.mjs';
+import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
+import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
+import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
+import { shareSvgProps } from './scripts/share-svg-props.mjs';
+import { shareSvgPaths } from './scripts/share-svg-paths.mjs';
+import { packPolarArguments } from './scripts/pack-polar-arguments.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
+import { handler as handleNoaaChart } from './api/noaa-chart';
 import {
     ROUTE_ENGINE_LOGGER_QUERY,
     ROUTE_JOB_LOGGER,
@@ -367,15 +377,14 @@ function oceanApiLocal(env: Record<string, string | undefined>): Plugin {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const serve = (server: any) => {
         server.middlewares.use(async (req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => {
-            if (!req.url?.startsWith('/api/ocean/')) {
+            const noaaChart = req.url?.split('?')[0] === '/api/noaa-chart';
+            if (!noaaChart && !req.url?.startsWith('/api/ocean/')) {
                 next();
                 return;
             }
             try {
-                const response = await handleOcean(
-                    new Request(`http://127.0.0.1${req.url}`, { method: req.method ?? 'GET' }),
-                    env,
-                );
+                const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method ?? 'GET' });
+                const response = noaaChart ? await handleNoaaChart(request) : await handleOcean(request, env);
                 res.statusCode = response.status;
                 response.headers.forEach((value, key) => res.setHeader(key, value));
                 res.end(Buffer.from(await response.arrayBuffer()));
@@ -427,6 +436,9 @@ export default defineConfig(({ mode }) => {
     }
 
     return {
+        // Lazy ENC contours otherwise introduce this dependency during a
+        // browser test and Vite reloads every open page halfway through input.
+        optimizeDeps: { include: ['delaunator'] },
         server: {
             port: 3000,
             // Localhost by default. LAN exposure is an explicit developer opt-in.
@@ -608,6 +620,17 @@ export default defineConfig(({ mode }) => {
             react(),
             // The route job's own logger copy (127-ROUTE-W; build only).
             routeEngineLogger(),
+            // log.info()/log.debug() are no-ops in production: their calls go,
+            // arguments with side effects stay (129-10; tests/StripNoopLogs.test.ts).
+            stripNoopLogs(__dirname),
+            pngInflateDedup(__dirname),
+            jspdfPrimitives(__dirname),
+            packTimezoneData(__dirname),
+            packPolarArguments(__dirname),
+            shareSvgProps(__dirname),
+            shareSvgPaths(__dirname),
+            shareClassNames(__dirname),
+            shareUiStrings(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
@@ -690,6 +713,12 @@ export default defineConfig(({ mode }) => {
         },
         build: {
             outDir: 'dist',
+            // Build 133: standard Terser compression keeps all features and
+            // diagnostics while recovering ~68 KB against the unchanged JS
+            // budget. No property mangling or unsafe compression is enabled.
+            minify: 'terser',
+            // A second standard compression pass recovers another ~8 KB; no unsafe transforms or property mangling.
+            terserOptions: { compress: { passes: 2 } },
             // Production emits source maps ONLY for a run that will upload and
             // then delete them (scripts/upload-sourcemaps.mjs, SENTRY_SOURCEMAPS=1
             // in CI). 'hidden' omits the sourceMappingURL comment, but the .map
@@ -738,7 +767,9 @@ export default defineConfig(({ mode }) => {
                     manualChunks(id, meta) {
                         const moduleId = id.replaceAll('\\', '/');
                         // The router: one chunk that is also the route worker's
-                        // script (routeEngineLogger, above).
+                        // script (routeEngineLogger, above). What the app's
+                        // start-up also imports of it is `engine-leaf`, so the
+                        // router loads when a route is planned or checked (131-04).
                         const engineChunk = routeEngineChunkOf(id, meta);
                         if (engineChunk) return engineChunk;
                         // Vite's dynamic-import preload helper and modulepreload
@@ -767,7 +798,6 @@ export default defineConfig(({ mode }) => {
                             return 'vendor-react';
                         }
                         if (moduleId.includes('/node_modules/@dnd-kit/')) return 'vendor-dnd';
-                        if (moduleId.includes('/node_modules/leaflet/')) return 'vendor-leaflet';
                         if (moduleId.includes('/node_modules/@supabase/')) return 'vendor-supabase';
                         if (moduleId.includes('/node_modules/@sentry/')) return 'vendor-sentry';
                         if (moduleId.includes('/node_modules/mapbox-gl/')) return 'vendor-mapbox';
@@ -785,6 +815,20 @@ export default defineConfig(({ mode }) => {
                 // build emits a ~159 KB canvg + core-js chunk nothing loads.
                 // See utils/vendorStubs/canvgUnavailable.ts.
                 { find: /^canvg$/, replacement: path.resolve(__dirname, 'utils/vendorStubs/canvgUnavailable.ts') },
+                // jsPDF's html() renderer and its sanitiser, reached only from
+                // doc.html(), which no PDF calls since 129-10 (the PDFs draw
+                // with jsPDF primitives). About 230 KB of lazy chunks nothing
+                // could load. Nothing else imports either package.
+                // See utils/vendorStubs/html2canvasUnavailable.ts and
+                // dompurifyUnavailable.ts; tests/JspdfHtmlStubs.test.ts.
+                {
+                    find: /^html2canvas$/,
+                    replacement: path.resolve(__dirname, 'utils/vendorStubs/html2canvasUnavailable.ts'),
+                },
+                {
+                    find: /^dompurify$/,
+                    replacement: path.resolve(__dirname, 'utils/vendorStubs/dompurifyUnavailable.ts'),
+                },
             ],
         },
         test: {

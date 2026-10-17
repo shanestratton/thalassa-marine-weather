@@ -69,6 +69,26 @@ function derive(overrides: Partial<NmeaBackboneStatusInput> = {}) {
 }
 
 describe('the NMEA backbone through the Pi', () => {
+    it('names qualified direct Signal K instruments without calling them a shared phone or Pi', () => {
+        const store = piStore();
+        store.remote = {
+            source: 'device',
+            via: 'signalk',
+            deviceLabel: 'Direct Signal K',
+            reportedAt: NOW,
+            receivedAt: NOW,
+        };
+        expect(derive({ store })).toMatchObject({
+            active: true,
+            detail: 'Direct Signal K · read only',
+            showRates: false,
+        });
+        store.depth = metric();
+        expect(derive({ store })).toMatchObject({
+            active: false,
+            detail: 'Direct Signal K · no current instrument readings',
+        });
+    });
     it.each<NmeaConnectionStatus>(['disconnected', 'connecting', 'error'])(
         'shows a fresh LAN feed despite the unused direct socket being %s',
         (directStatus) => {
@@ -311,6 +331,33 @@ describe('the phone’s direct NMEA gateway socket', () => {
             detail: 'Not connected',
             faulted: false,
             showRates: false,
+        });
+    });
+});
+
+describe('no boat-link snapshot yet (131-01)', () => {
+    it('a boat with a Pi or a gateway, her boat link still loading: Checking…, never Not connected', () => {
+        expect(derive({ linkAbsent: 'checking' })).toEqual({
+            active: false,
+            detail: 'Checking…',
+            faulted: false,
+            showRates: false,
+        });
+    });
+
+    it('a phone with neither: Not set up', () => {
+        expect(derive({ linkAbsent: 'not-set-up' }).detail).toBe('Not set up');
+    });
+
+    it('what the feed itself says still stands: a live Pi, a connecting socket, a real fault', () => {
+        expect(derive({ store: piStore('cloud'), linkAbsent: 'checking' })).toMatchObject({
+            active: true,
+            detail: 'Receiving instruments via the Pi · cloud',
+        });
+        expect(derive({ directStatus: 'connecting', linkAbsent: 'checking' }).detail).toBe('Connecting to YDWG-02');
+        expect(derive({ directStatus: 'error', linkAbsent: 'checking' })).toMatchObject({
+            detail: 'Gateway connection failed',
+            faulted: true,
         });
     });
 });

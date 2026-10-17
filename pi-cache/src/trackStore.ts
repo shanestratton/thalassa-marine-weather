@@ -75,13 +75,31 @@ export class TrackStore {
                 value TEXT NOT NULL
             );
         `);
+        const columns = new Set(
+            (this.db.prepare('PRAGMA table_info(track_points)').all() as { name: string }[]).map((c) => c.name),
+        );
+        for (const column of [
+            'engine_rpm',
+            'twa_deg',
+            'sog_at_ms',
+            'cog_true_at_ms',
+            'stw_at_ms',
+            'heading_true_deg',
+            'heading_true_at_ms',
+            'engine_rpm_at_ms',
+            'leeway_deg',
+            'leeway_at_ms',
+        ]) {
+            if (!columns.has(column)) this.db.exec(`ALTER TABLE track_points ADD COLUMN ${column} REAL`);
+        }
+        if (!columns.has('leeway_source')) this.db.exec('ALTER TABLE track_points ADD COLUMN leeway_source TEXT');
         this.insertStmt = this.db.prepare(`
             INSERT INTO track_points
                 (at_ms, lat, lon, reason, sog_kts, cog_deg, depth_m,
-                 tws_kts, twd_deg, stw_kts, hdg_deg, water_temp_c, pressure_hpa, heel_deg)
+                 tws_kts, twd_deg, stw_kts, hdg_deg, water_temp_c, pressure_hpa, heel_deg, engine_rpm, twa_deg, sog_at_ms, cog_true_at_ms, stw_at_ms, heading_true_deg, heading_true_at_ms, engine_rpm_at_ms, leeway_deg, leeway_at_ms, leeway_source)
             VALUES
                 (@at_ms, @lat, @lon, @reason, @sog_kts, @cog_deg, @depth_m,
-                 @tws_kts, @twd_deg, @stw_kts, @hdg_deg, @water_temp_c, @pressure_hpa, @heel_deg)
+                 @tws_kts, @twd_deg, @stw_kts, @hdg_deg, @water_temp_c, @pressure_hpa, @heel_deg, @engine_rpm, @twa_deg, @sog_at_ms, @cog_true_at_ms, @stw_at_ms, @heading_true_deg, @heading_true_at_ms, @engine_rpm_at_ms, @leeway_deg, @leeway_at_ms, @leeway_source)
         `);
     }
 
@@ -107,6 +125,17 @@ export class TrackStore {
                     water_temp_c: p.waterTempC,
                     pressure_hpa: p.pressureHpa,
                     heel_deg: p.heelDeg,
+                    engine_rpm: p.engineRpm ?? null,
+                    twa_deg: p.twaDeg ?? null,
+                    sog_at_ms: p.sogAtMs ?? null,
+                    cog_true_at_ms: p.cogTrueAtMs ?? null,
+                    stw_at_ms: p.stwAtMs ?? null,
+                    heading_true_deg: p.headingTrueDeg ?? null,
+                    heading_true_at_ms: p.headingTrueAtMs ?? null,
+                    engine_rpm_at_ms: p.engineRpmAtMs ?? null,
+                    leeway_deg: p.leewayDeg ?? null,
+                    leeway_at_ms: p.leewayAtMs ?? null,
+                    leeway_source: p.leewaySource ?? null,
                 });
             }
         });
@@ -120,6 +149,74 @@ export class TrackStore {
         return this.db
             .prepare(`SELECT * FROM track_points WHERE at_ms >= ? AND at_ms <= ? ORDER BY at_ms ASC LIMIT ?`)
             .all(query.fromMs, query.toMs, limit) as Record<string, number | string | null>[];
+    }
+
+    /** Additive replay protocol: a stable snapshot ordered by time AND append ID. */
+    pointsPage(query: TrackQuery & { cursor?: { atMs: number; rowId: number; snapshot: number } }): {
+        points: Record<string, number | string | null>[];
+        snapshot: number;
+        truncated: boolean;
+        nextCursor: string | null;
+    } {
+        const maximum = this.polarLastRowId();
+        const snapshot = query.cursor?.snapshot ?? maximum;
+        if (!Number.isSafeInteger(snapshot) || snapshot < 0 || snapshot > maximum)
+            throw new RangeError('Invalid track snapshot');
+        const limit = Math.max(1, Math.min(Math.floor(query.limit ?? 500), 2000));
+        const after = query.cursor;
+        const rows = this.db
+            .prepare(
+                `
+            SELECT rowid AS sample_id, * FROM track_points
+            WHERE at_ms >= ? AND at_ms <= ? AND rowid <= ?
+            ${after ? 'AND (at_ms > ? OR (at_ms = ? AND rowid > ?))' : ''}
+            ORDER BY at_ms ASC, rowid ASC LIMIT ?
+        `,
+            )
+            .all(
+                query.fromMs,
+                query.toMs,
+                snapshot,
+                ...(after ? [after.atMs, after.atMs, after.rowId] : []),
+                limit + 1,
+            ) as Record<string, number | string | null>[];
+        const truncated = rows.length > limit;
+        const points = truncated ? rows.slice(0, limit) : rows;
+        const last = points.at(-1);
+        return {
+            points,
+            snapshot,
+            truncated,
+            nextCursor: truncated && last ? `${last.at_ms}:${last.sample_id}:${snapshot}` : null,
+        };
+    }
+
+    /** Stable append cursor, independent of duplicate/backward GPS timestamps. */
+    polarPointsAfter(rowId: number, limit = 500): Record<string, number | string | null>[] {
+        return this.db
+            .prepare('SELECT rowid AS sample_id, * FROM track_points WHERE rowid > ? ORDER BY rowid LIMIT ?')
+            .all(rowId, Math.max(1, Math.min(500, Math.floor(limit)))) as Record<string, number | string | null>[];
+    }
+
+    readPolarState(): string | null {
+        const row = this.db.prepare("SELECT value FROM track_settings WHERE key = 'polar_learner_v1'").get() as
+            | { value: string }
+            | undefined;
+        return row?.value ?? null;
+    }
+
+    polarLastRowId(): number {
+        return (this.db.prepare('SELECT COALESCE(MAX(rowid), 0) AS last FROM track_points').get() as { last: number })
+            .last;
+    }
+
+    /** The aggregate and consumed cursor are one atomic SQLite write. */
+    writePolarState(state: string): void {
+        this.db
+            .prepare(
+                "INSERT INTO track_settings(key, value) VALUES ('polar_learner_v1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )
+            .run(state);
     }
 
     /** What the log holds, for the app's settings screen to show honestly. */

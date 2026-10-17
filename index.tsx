@@ -1,4 +1,6 @@
-// Sentry must be imported FIRST — before any other app code
+// Remove recipient bearer fragments before telemetry/import-time diagnostics.
+import './services/shoreConsentLink';
+// Sentry is next, before the rest of the app boot code.
 import { captureException } from './services/sentry';
 import { crumb, startFlightRecorder } from './utils/flightRecorder';
 import { installCanvasProbe } from './utils/canvasProbe';
@@ -152,13 +154,8 @@ if (typeof document !== 'undefined') {
     const blockPageZoom = (e: Event) => {
         const target = e.target as HTMLElement | null;
         // Allow the gesture through when it starts inside a map canvas.
-        // .mapboxgl-map = charts page (Mapbox GL); .leaflet-container =
-        // any Leaflet surface. Both drive their own zoom.
-        if (
-            target &&
-            typeof target.closest === 'function' &&
-            (target.closest('.mapboxgl-map') || target.closest('.leaflet-container'))
-        ) {
+        // All map surfaces share Mapbox and drive their own zoom.
+        if (target && typeof target.closest === 'function' && target.closest('.mapboxgl-map')) {
             return;
         }
         e.preventDefault();

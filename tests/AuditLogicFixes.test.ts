@@ -38,7 +38,10 @@ describe('audit logic fixes stay fixed', () => {
         const check = src.indexOf('if (entries.length === 0 && !route)');
         expect(extract).toBeGreaterThan(-1);
         expect(check).toBeGreaterThan(extract);
-        expect(src).toMatch(/const lastEntry = track\[track\.length - 1\];/);
+        // Since 132-B21 the parser measures the track itself (distance and
+        // the file's own first/last times); waypoints never set either.
+        expect(src).toMatch(/Math\.round\(parsed\.totalDistanceNM \* 10\) \/ 10/);
+        expect(src).toMatch(/formatImportDuration\(parsed\.firstTimeMs, parsed\.lastTimeMs\)/);
     });
     it('the shopping list does not re-scale ingredients that are already scaled', () => {
         const src = read('components/chat/MealCalendar.tsx');

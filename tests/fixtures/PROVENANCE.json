@@ -15,6 +15,10 @@
             "licence": "synthetic",
             "source": "One second of plain blue at 64x36, no sound, made with ffmpeg (see e2e/fixtures/diary-compose.tsx)."
         },
+        "tests/fixtures/boat-quiet/cases.json": {
+            "licence": "synthetic",
+            "source": "The quiet-boat watchdog’s decision, recipient and message cases (129-08), written by hand: made-up times, fictional boats (Kestrel, Αύρα, 海風, دانة) and fictional all-zero UUIDs."
+        },
         "tests/fixtures/buoys/irish-mi-iwbnetwork-latest-2026-10-07T1700Z.json": {
             "licence": "cc-by-4.0",
             "source": "Marine Institute (Ireland) ERDDAP, Irish Weather Buoy Network wave dataset, latest rows fetched 2026-10-07 17:00 UTC.",
@@ -61,7 +65,47 @@
         },
         "tests/fixtures/customs-same-country-baseline.json": {
             "licence": "own",
-            "source": "A snapshot of Thalassa's own customs guide (data/customsDb.ts at 058ba16e), kept as a regression baseline."
+            "source": "A snapshot of Thalassa's own customs guide (data/customsDb.ts at 058ba16e), kept as a regression baseline; its answers re-baselined on purpose from data/customsPortIndex.ts when names began to match as whole words (130-09), and again when the US states' full names began to find the United States (132)."
+        },
+        "tests/fixtures/cyclone/adeck-atlantic.dat": {
+            "licence": "synthetic",
+            "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. North Atlantic (AL31), several model techs and cycles."
+        },
+        "tests/fixtures/cyclone/adeck-spac.dat": {
+            "licence": "synthetic",
+            "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. South Pacific (SH37) near Fiji over the antimeridian."
+        },
+        "tests/fixtures/cyclone/adeck-wpac.dat": {
+            "licence": "synthetic",
+            "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. West Pacific (WP33) over the antimeridian, a JTWC tech, and an invest."
+        },
+        "tests/fixtures/cyclone/jtwc-sh3727-doc.kml": {
+            "licence": "synthetic",
+            "source": "Fictional KML in the layout of the doc.kml inside a JTWC warning KMZ (storm track, 34 knot Danger Swath polygon across the antimeridian, a best-track posit), made by hand for 129-09b; no real storm, the ZZ name is invented. Zipped in the test, after a stored image entry, as a KMZ."
+        },
+        "tests/fixtures/cyclone/jtwc-sh3727.tcw": {
+            "licence": "synthetic",
+            "source": "Fictional JTWC JMV 3.0 warning file (header, forecast taus, wind radii, REMARKS position, past posits) made by hand for 129-09b; no real storm, the ZZ name is invented. South Pacific (SH37) near Fiji over the antimeridian."
+        },
+        "tests/fixtures/cyclone/jtwc-sh3827.tcw": {
+            "licence": "synthetic",
+            "source": "Fictional JTWC JMV 3.0 warning file made by hand for 129-09b; no real storm, the ZZ name is invented. Coral Sea (SH38)."
+        },
+        "tests/fixtures/cyclone/jtwc.rss": {
+            "licence": "synthetic",
+            "source": "Fictional RSS in the layout of the JTWC tropical cyclone information feed (warning titles, numbers, issue times and product links) made by hand for 129-09b; no real storm, the ZZ names are invented."
+        },
+        "tests/fixtures/cyclone/nhc-current-storms.json": {
+            "licence": "synthetic",
+            "source": "Fictional JSON in the layout of NHC's CurrentStorms.json (ids, bins, intensity, positions, advisory numbers, product URLs from MIA and HFO) made by hand for 129-09b; no real storm, the ZZ and Ñandú names are invented."
+        },
+        "tests/fixtures/cyclone/noaa-ep3-forecast-points.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON in the field layout of NOAA's NHC_tropical_weather MapServer 'Forecast Points' layer (lower-case fields, VALIDTIME, ADVDATE in the issuing office's zone) made by hand for 129-09b; no real storm, the ZZ name is invented."
+        },
+        "tests/fixtures/cyclone/tcvitals.txt": {
+            "licence": "synthetic",
+            "source": "Fictional fixed-width NCEP TC vitals lines (NHC and JTWC centres, every basin, a 9-character name overflow, an invest) generated for 129-09b; no real storm, the ZZ names are invented."
         },
         "tests/fixtures/gmgsi-tropical-histograms-2026-10-07.json": {
             "licence": "public-domain",
@@ -76,6 +120,18 @@
             "licence": "odbl",
             "source": "OpenStreetMap overlay for the Newport to Pinkenba bbox, as the Pi's /api/osm/overlay served it (Overpass), captured 2026-07-31.",
             "credit": "© OpenStreetMap contributors (ODbL)"
+        },
+        "tests/fixtures/polars/fair-wind-expedition.txt": {
+            "licence": "synthetic",
+            "source": "A polar for a fictional 38 ft cruiser (Fair Wind), figures made up by hand, written in the layout Expedition reads and writes: a '!Expedition polar' line, then a tab-separated line per true wind speed of angle / boat speed pairs, beat and run angles moving with the wind (132-B22)."
+        },
+        "tests/fixtures/polars/fair-wind-table.pol": {
+            "licence": "synthetic",
+            "source": "The same fictional boat's polar as a TWA × TWS table, figures made up by hand: semicolons, decimal commas and a 0 kn column, as qtVlm-style .pol files have them (132-B22)."
+        },
+        "tests/fixtures/polars/upwind-only.pol": {
+            "licence": "synthetic",
+            "source": "A made-up TWA × TWS table with figures only to 52°: a file routes cannot sail on, which the Polars page import refuses (132-B22)."
         },
         "tests/fixtures/routeJob/archipelago-12nm.json": {
             "licence": "synthetic",
@@ -153,6 +209,173 @@
         "tests/fixtures/trim-hevc.mov": {
             "licence": "synthetic",
             "source": "ffmpeg testsrc2 picture and a 440 Hz sine, 130 s, HEVC (scripts/make-trim-fixtures.sh)."
+        },
+        "tests/fixtures/official-alerts/eccc-alert.cap": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 alert in the layout of an ECCC MSC Datamart CAP-CP file (fr-CA and en-CA info blocks, Alert_Location_Status, a polygon and a CLC geocode), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-day-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart day directory of CAP alerts (one office), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-fog.cap": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 alert in the layout of an ECCC CAP-CP file (a fog advisory, fr-CA and en-CA), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-hour-17-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart hour directory of CAP files, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-hour-18-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart hour directory of CAP files, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-office-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart office directory (hour subdirectories), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-update-ended.cap": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 Update in the layout of an ECCC CAP-CP file that ends the fixture alert (Alert_Location_Status ended, references), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-extra.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the JMA PULL high-frequency feed extra.xml (VPWW53, VPWW54 and VPFJ50 entries for two offices), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-other.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the JMA PULL feed other.xml (VPCU51 and VPCU50 entries), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-vpcu51-010000.xml": {
+            "licence": "synthetic",
+            "source": "Fictional JMA disaster prevention XML report in the layout of 地方海上警報（Ｈ２８） (VPCU51): kinds, sea-area codes, sentences and ValidDateTime; the sea areas and codes are invented, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-vpww54-130000.xml": {
+            "licence": "synthetic",
+            "source": "Fictional JMA disaster prevention XML report in the layout of 気象警報・注意報（Ｈ２７） (VPWW54): municipality items with kinds and statuses (発表, 継続, 解除, 発表警報・注意報はなし); the municipalities and codes are invented, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/malformed-cap.xml": {
+            "licence": "synthetic",
+            "source": "A deliberately broken CAP 1.2 document (an element left open) for the parser's malformed-feed test, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-de-cap-2.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 Update in the layout of a MeteoAlarm CAP document (de-DE, a storm surge, references), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-de-cap.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 document in the layout of a MeteoAlarm CAP for Germany (de-DE and en-GB info blocks, awareness parameters, EMMA_ID geocode), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-de.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for Germany (cap: elements inline, one entry per area, a Test entry), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-fr-cap.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 document in the layout of a MeteoAlarm CAP for France (fr-FR and en-GB), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-fr.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for France, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-gr-cap.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 document in the layout of a MeteoAlarm CAP for Greece (en-GB and el-GR info blocks, Greek text written for the test), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-gr.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for Greece, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-geocodes.json": {
+            "licence": "synthetic",
+            "source": "Fictional FeatureCollection in the layout of MeteoAlarm's Geocodes JSON (the Redistribution Hub's EMMA_ID outlines: code, country, name, type), made by hand for 129-05b: simple boxes around Marseille, Hamburg and Athens and a few more, not the real outlines (the real file is EUMETNET's Content and is not copied here), plus three features the loader must skip; every name with \"Zz\" or \"fictional\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/nws-active.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON in the layout of api.weather.gov/alerts/active (zone-based and polygon alerts, a Spanish es-US alert, an Update across 180 degrees, a Cancel, and an alert whose CAP expiry has passed while NWS still lists it until its end), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/nws-zone-anz531.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON Feature in the layout of an api.weather.gov zone (a simple box, not the real zone outline), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/rpc-answers.json": {
+            "licence": "synthetic",
+            "source": "Fictional official_alerts_at(lat, lon) answers in the shape of 129-05's RPC (coverage live, partial, unavailable, off and none, a marine warning matched within 3 NM of a berth, and one outside every listed issuer's coverage; NWS, ECCC, MeteoAlarm, BOM and a made-up issuer; for 129-05b a MeteoAlarm France warning in French and English and a MeteoAlarm Italy one near the French border), made by hand for 129-06 and 129-05b; no real warning, and every name with \"Zz\", \"架空\", \"fictional\", \"fictif\", \"fittizio\", \"test\", \"وهمي\", \"בדיוני\" or \"φανταστικό\" in it is invented."
+        },
+        "tests/fixtures/sea-partitions/gulf-of-lion-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 43.0, 4.5, the Gulf of Lion, France; fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/north-sea-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 53.5, 3.0, the southern North Sea; fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/north-sea-south-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 53.48, 3.02, the southern North Sea 2.4 km from the north-sea fixture’s point and in the next MFWAM cell (elevation 0 m; its own cell answers, 2.8 km off); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/moorea-slope-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -17.5, -149.8, a tap on the slope of Moorea, French Polynesia (Open-Meteo’s 90 m elevation for the point is 411 m; MFWAM’s own 1/12° cell there is wet, its centre at sea 4.7 km north, so the island is below the model’s grid); fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 16:00 UTC 22 Oct to 15:00 UTC 23 Oct, across MFWAM’s 9-day horizon) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/tahiti-windward-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -17.55, -149.05, open water in the trades off Tahiti’s windward east coast, French Polynesia (elevation 0 m; its own MFWAM cell answers, 1.3 km off); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 16:00 UTC 22 Oct to 15:00 UTC 23 Oct, across MFWAM’s 9-day horizon) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/anegada-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 18.9, -64.3, north of Anegada, British Virgin Islands (a Caribbean cross sea); fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 19 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/whitehaven-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -20.30, 149.10, open water east of Whitehaven Beach, the Whitsundays, Queensland, inside the Great Barrier Reef (elevation 0 m; believed: its own MFWAM cell answers, 2.8 km off); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/airlie-beach-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -20.268, 148.718, Airlie Beach, Queensland (refused: 17.7 km snap); fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/lake-superior-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 47.71, -87.52, open water on Lake Superior, between Michigan and Ontario (Open-Meteo’s 90 m elevation for the point is 181 m, the lake’s surface; its own MFWAM cell answers, 1.6 km off: MFWAM models the lake, so an elevation is no proof of land); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/noaa-publisher/README.md": {
+            "licence": "own",
+            "source": "Thalassa documentation of the retained public NOAA catalogue excerpt and reproducible generated index, written for the build 135 publisher regression."
+        },
+        "tests/fixtures/noaa-publisher/generated-index.json": {
+            "licence": "public-domain",
+            "source": "Generated by scripts/noaa-enc/catalogue.py from the retained NOAA ENCProdCat_19115.xml excerpt in real-metadata.xml; fixed separate check time and exact parsed-object regression are documented in the adjacent README."
+        },
+        "tests/fixtures/noaa-publisher/real-metadata.xml": {
+            "licence": "public-domain",
+            "source": "NOAA Office of Coast Survey ENC product catalogue https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml fetched 2026-10-16; series and US5CA1LK elements excerpted without changing their values. Original SHA25661509e0c72439cbbf30e4dab12c1f223ad40cdf321cd564762734af3d38c0588."
+        },
+        "tests/fixtures/noaaHarmonicReference.json": {
+            "licence": "public-domain",
+            "source": "NOAA CO-OPS predictions for San Francisco station9414290, https://api.tidesandcurrents.noaa.gov/api/prod/datagetter, hourly GMT predictions in metres relative to MLLW. The three retained start times and sample arrays validate the bounded station reconstruction without calibration."
+        },
+        "tests/fixtures/relief/au250-availability.json": {
+            "licence": "cc-by-4.0",
+            "source": "Exact tile-presence index generated by the build 135 inactive AU250 renderer from Geoscience Australia AusBathyTopo Australia2026 250m, eCat151280 https://pid.geoscience.gov.au/dataset/ga/151280; 50,308 tile pairs,626 runs. Coverage only, no height samples or boat positions.",
+            "credit": "Commonwealth of Australia (Geoscience Australia), AusBathyTopo Australia2026 250m, CC BY4.0. Derived tile-presence coverage. Not for navigation."
+        },
+        "tests/fixtures/relief/nz61-availability.json": {
+            "licence": "cc-by-4.0",
+            "source": "Exact tile-presence index generated by the build 135 inactive NZ renderer from61 LINZ coastal LiDAR DEM tiles in dataset122508; 2,197 tile pairs,724 runs. Coverage only, no height samples or boat positions.",
+            "credit": "Toitū Te Whenua Land Information New Zealand (LINZ), NZ Coastal LiDAR1m DEM, CC BY4.0. Derived tile-presence coverage. Not for navigation."
+        },
+        "tests/fixtures/radar-relay137.json": {
+            "licence": "own",
+            "source": "Thalassa-authored fictional radar collision identity fixture for build 137: patterned UUID/device/feed identifiers, a fixed synthetic clock and invented CPA/TCPA/range/bearing. Canonical identity and SHA-256 are generated from utils/radarRelayContract.ts. Contains no chart extract, provider feed, live instrument capture or real account/vessel data."
         }
     }
 }

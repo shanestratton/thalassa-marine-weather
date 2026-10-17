@@ -13,8 +13,7 @@
  * to the wind, which had none — and the compass now shows HEADING rather than
  * COG, because COG below a knot is GPS noise.
  *
- * All data is live from the NmeaStore via useNmeaStore(), with dummy fallback
- * values when no live NMEA data is connected so the panel remains testable.
+ * Readings come from NmeaStore; absent instruments never receive placeholder numeric data.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import './instrumentDaylight.css';
@@ -35,7 +34,7 @@ import { bellsAt } from '../../utils/shipsBells';
 import { HeadingGauge } from './gauges/HeadingGauge';
 import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
-import { hpaToInHg, observedTendency, type TendencySeverity } from '../../utils/barometerTendency';
+import { hpaToInHg, marineTendency, type TendencySeverity } from '../../utils/barometerTendency';
 import * as barometerService from '../../services/native/barometer';
 import { useNmeaStore } from './useNmeaStore';
 import { SereneWindRose } from './gauges/SereneWindRose';
@@ -70,9 +69,18 @@ import { depthTrendFor, newDepthTrack, recordDepth } from './depthTrend';
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { CloudTelemetryService } from '../../services/CloudTelemetryService';
 import { WindHistoryStats } from './WindHistoryStats';
+import { useInstrumentDerivations } from '../../hooks/useInstrumentDerivations';
+import {
+    useInstrumentPanelPreferences,
+    visibleInstrumentSections,
+    type InstrumentSection,
+} from '../../services/instruments/panelPreferences';
+import { CurrentReadout, PerformanceReadout } from './DerivedInstrumentPanels';
+import { EngineReadout, enginePanelAvailable } from './EngineReadout';
 import { useViewportHeight } from '../../hooks/useViewportHeight';
 
 /** Picker value meaning “wherever the boat is”. */
+const CurrentHistorySheet = React.lazy(() => import('./CurrentHistorySheet'));
 const SHIP_ZONE_AUTO = 'auto';
 
 /**
@@ -720,6 +728,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const crewShare = useCrewInstrumentShare();
     // Where this phone is and how the boat reaches it: the pill says what the
     // NMEA Gateway page and the System status box say (services/boatLink).
+    // Null while it loads (131-01): the panel's own words then, never a place.
     const boatLink = useBoatLink();
     const deviceClass = useDeviceClass();
     // 0 (no DOM) reads as a tall phone, as the hook documents.
@@ -748,6 +757,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     // patience stops being the right answer.
     const [connectedAt, setConnectedAt] = useState<number | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const derived = useInstrumentDerivations(state, nowMs);
+    const panelPrefs = useInstrumentPanelPreferences();
+    const [showCurrentHistory, setShowCurrentHistory] = useState(false);
+    const closeCurrentHistory = useCallback(() => setShowCurrentHistory(false), []);
     useEffect(() => {
         if (state.connectionStatus !== 'connected' && state.connectionStatus !== 'remote') {
             setConnectedAt(null);
@@ -774,7 +787,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const baro = useBarometerSource(true);
     const baroUnit = barometerService.getUnit();
     const baroTendency = React.useMemo(
-        () => observedTendency(baro.samples, Date.now()),
+        () => marineTendency(baro.samples, Date.now()),
         // Recomputed when the record changes; the panel re-renders on the
         // store's own tick, so a clock dependency would only add churn.
         [baro.samples],
@@ -784,7 +797,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
        hunting the sample list again, so the hands and the number can never
        tell different stories. */
     const baroSetHand = React.useMemo(
-        () => (baroTendency && baro.latest ? baro.latest.hpa - baroTendency.deltaHpa : null),
+        () =>
+            baroTendency && baro.latest
+                ? baro.latest.hpa -
+                  ((baroTendency.rawDelta3h ?? baroTendency.delta3h) * baroTendency.spanMs) / (3 * 3_600_000)
+                : null,
         [baroTendency, baro.latest],
     );
 
@@ -798,7 +815,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     /* Every page but the last stops 24px above the tab bar, so the next
        plate's heading ("Wind · 2 of 9") peeks at the bottom edge: "1 of 9" was
        the only cue that more lay below, and the owner vetoed a chevron (UX
-       scorecard run 7). The last page (Helm) stays full height with
+       scorecard run 7). The last visible page stays full height with
        sectionPb, or snap could not bring its top to the top. The others end
        above the bar themselves and need no foot: the peeking plate's own top
        padding is the gap, so a page keeps within 1px of the height it had. */
@@ -809,7 +826,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
        through its letters (Shane 2026-10-02 on the iPad: "they are about 1.5
        lines too big"). In a pane each page but the last fills exactly what
        the pane shows, so a snap shows one whole instrument. The phone keeps
-       sectionHeight and its peek; Helm keeps h-full and sectionPb. */
+       sectionHeight and its peek; the last visible page keeps h-full and sectionPb. */
     const inPane = usePaneScope() !== null;
     const paneSnapFit = inPane ? '[&>section:not(:last-child)]:h-[calc(100%_-_var(--split-page-overhang,0px))]' : '';
     const cardPad = pickByDevice(deviceClass, 'p-3', 'p-5');
@@ -907,19 +924,28 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const hasMyWatch = myWatchList.length > 0;
     // The snap pages in render order, for each plate's "n of N". Watch mounts
     // only for a crew member on the bill, so the count follows it.
-    const panelPages = [
-        'Clock',
-        ...(hasMyWatch ? ['Watch'] : []),
-        'Wind',
-        'Barometer',
-        'Position',
-        'Speed',
-        'Depth',
-        'Sea temp',
-        'Heading',
-        'Helm',
-    ];
-    const placeOf = (title: string) => `${panelPages.indexOf(title) + 1} of ${panelPages.length}`;
+    const panelPages = visibleInstrumentSections(
+        {
+            Clock: true,
+            Watch: hasMyWatch,
+            Wind: [tws, aws, awa, twd, twaSigned, heel].some((metric) => metric.value !== null),
+            Barometer: !!baro.latest,
+            Position: latitude.value !== null && longitude.value !== null,
+            Speed: sog.value !== null || stw.value !== null,
+            Performance: derived.performance.kind === 'available',
+            Current: derived.current.kind === 'available',
+            Depth: depth.value !== null,
+            'Sea temp': waterTemp.value !== null,
+            Heading: heading.value !== null,
+            Helm: rudder.value !== null || helmWindow !== null,
+            Engine: enginePanelAvailable(state.instrumentEvidence, nowMs),
+        },
+        panelPrefs,
+    );
+    const showSection = (title: InstrumentSection) => panelPages.includes(title);
+    const placeOf = (title: InstrumentSection) => `${panelPages.indexOf(title) + 1} of ${panelPages.length}`;
+    const sectionSizing = (title: InstrumentSection) =>
+        panelPages.at(-1) === title ? `h-full ${sectionPb}` : sectionHeight;
 
     // COG is a GPS-derived course made good. Below a knot it is noise — a
     // moored boat's fixes wander, and the compass card was reporting 053 while
@@ -1270,7 +1296,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const panelStatus = diagnosis.label;
     // When the panel's words are the boat link's ('Away · Live'), draw them as
     // the same WHERE and DATA chips the NMEA Gateway page uses.
-    const linkPill = diagnosis.label === boatLink.pill.text && boatLink.pill.place ? boatLink.pill : null;
+    const linkPill = boatLink && diagnosis.label === boatLink.pill.text && boatLink.pill.place ? boatLink.pill : null;
     // No gateway ever set up is how a phone-only skipper uses the app, not a
     // fault: neutral grey, the same 'No gateway' the NMEA Gateway page shows.
     // Red stays for a configured gateway that has dropped (UX scorecard run 7).
@@ -1413,6 +1439,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                     </div>
                 </ModalSheet>
 
+                {showCurrentHistory && (
+                    <React.Suspense fallback={null}>
+                        <CurrentHistorySheet onClose={closeCurrentHistory} />
+                    </React.Suspense>
+                )}
                 {/* ═══ INSTRUMENT PANEL — one instrument per screen, snap-scrolled ═══
                     Rebuilt 2026-08-26 (Shane: "make the instruments page really
                     pop… scrolls up and down, but snaps to each instrument"). Each section owns the
@@ -1438,25 +1469,27 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
 
                             Shane 2026-09-03: "build a beautiful chelsea ships
                             bell clock… the whole works." */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Clock" place={placeOf('Clock')} />
-                            {/* Centred in whatever is left after the plate, so
+                        {showSection('Clock') && (
+                            <section
+                                className={`w-full ${sectionSizing('Clock')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Clock" place={placeOf('Clock')} />
+                                {/* Centred in whatever is left after the plate, so
                                 the face is as big as the screen allows and no
                                 bigger. Nothing else on this page competes. */}
-                            <div className="flex-1 min-h-0 flex items-center justify-center pb-2 [container-type:size]">
-                                <ShipsBellClock
-                                    hour={zoneClock.hour}
-                                    minute={zoneClock.minute}
-                                    second={zoneClock.second}
-                                    zoneLabel={zoneClock.label}
-                                    // The bells and watch now sit under the face,
-                                    // so the face yields their height (~3.5rem).
-                                    faceMaxWidth={`min(${CLOCK_MAX_WIDTH}, calc(100cqh - 3.5rem))`}
-                                />
-                            </div>
-                        </section>
+                                <div className="flex-1 min-h-0 flex items-center justify-center pb-2 [container-type:size]">
+                                    <ShipsBellClock
+                                        hour={zoneClock.hour}
+                                        minute={zoneClock.minute}
+                                        second={zoneClock.second}
+                                        zoneLabel={zoneClock.label}
+                                        // The bells and watch now sit under the face,
+                                        // so the face yields their height (~3.5rem).
+                                        faceMaxWidth={`min(${CLOCK_MAX_WIDTH}, calc(100cqh - 3.5rem))`}
+                                    />
+                                </div>
+                            </section>
+                        )}
 
                         {/* ── SECTION: WATCH ──
                             EXISTS ONLY IF THE PUNTER HAS A WATCH. Not an empty
@@ -1472,9 +1505,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                             isOwnWatch rule WatchAlarmService uses, so the page
                             and the alarm can never disagree about whose watch
                             it is. */}
-                        {hasMyWatch && (
+                        {hasMyWatch && showSection('Watch') && (
                             <section
-                                className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                                className={`w-full ${sectionSizing('Watch')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                             >
                                 <SectionPlate title="Watch" place={placeOf('Watch')} />
                                 <div className="flex-1 min-h-0 overflow-y-auto pb-2">
@@ -1514,13 +1547,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                         )}
 
                         {/* ── SECTION: WIND ── */}
-                        <section
-                            // Short screens: the three gauges take 16% of the
-                            // height, not 19%, or the rose captions ran off the
-                            // foot at 375×667 (UX scorecard run 7).
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 [@media(max-height:700px)]:[--wind-gauge-share:0.16]`}
-                        >
-                            {/* The diagnosis and the "not reporting" list used
+                        {showSection('Wind') && (
+                            <section
+                                // Short screens: the three gauges take 16% of the
+                                // height, not 19%, or the rose captions ran off the
+                                // foot at 375×667 (UX scorecard run 7).
+                                className={`w-full ${sectionSizing('Wind')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 [@media(max-height:700px)]:[--wind-gauge-share:0.16]`}
+                            >
+                                {/* The diagnosis and the "not reporting" list used
                                 to sit here as two stacked banners. On a
                                 full-height snap panel they cost the wind roses
                                 their bottom third — and with the boat on the
@@ -1534,15 +1568,15 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                 the coloured dot still reports the state at a
                                 glance, and tapping it opens the detail. Zero
                                 layout cost, and nothing is hidden. */}
-                            <SectionPlate title="Wind" place={placeOf('Wind')} />
-                            {/* justify-between, not evenly: now the section
+                                <SectionPlate title="Wind" place={placeOf('Wind')} />
+                                {/* justify-between, not evenly: now the section
                                 reserves the tab bar there is less free space
                                 to spread, and evenly banked what was left into
                                 one gap above the dial ("there is ample space at
                                 the top"). Between pins the three blocks to top,
                                 middle and bottom. */}
-                            <div className="flex-1 min-h-0 flex flex-col items-center justify-between py-1">
-                                {/* Three metrics down each side of the dial.
+                                <div className="flex-1 min-h-0 flex flex-col items-center justify-between py-1">
+                                    {/* Three metrics down each side of the dial.
                                     A round gauge in a rectangular panel leaves
                                     two columns of dead space beside it, and the
                                     numbers that were pushed off the bottom fit
@@ -1550,58 +1584,58 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                     all, which is the whole reason it works
                                     (Shane 2026-08-28). Depth first: it is the
                                     one that runs you aground. */}
-                                <div className="flex w-full items-center justify-center gap-2">
-                                    <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
-                                        <FlankMetric
-                                            label="Depth"
-                                            value={depth.value}
-                                            unit="m"
-                                            digits={1}
-                                            tone="text-cyan-300"
-                                        />
-                                        <FlankMetric
-                                            label="SOG"
-                                            value={sog.value}
-                                            unit="kts"
-                                            digits={1}
-                                            tone="text-white"
-                                        />
-                                        <FlankMetric
-                                            label="COG"
-                                            value={cog.value}
-                                            unit="°"
-                                            digits={0}
-                                            pad3
-                                            tone="text-white"
-                                        />
-                                    </div>
-                                    <div
-                                        className="nmea-wind-bezel rounded-full p-[3px]"
-                                        style={{
-                                            background:
-                                                'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
-                                            boxShadow:
-                                                '0 0 30px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.4)',
-                                        }}
-                                    >
+                                    <div className="flex w-full items-center justify-center gap-2">
+                                        <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
+                                            <FlankMetric
+                                                label="Depth"
+                                                value={depth.value}
+                                                unit="m"
+                                                digits={1}
+                                                tone="text-cyan-300"
+                                            />
+                                            <FlankMetric
+                                                label="SOG"
+                                                value={sog.value}
+                                                unit="kts"
+                                                digits={1}
+                                                tone="text-white"
+                                            />
+                                            <FlankMetric
+                                                label="COG"
+                                                value={cog.value}
+                                                unit="°"
+                                                digits={0}
+                                                pad3
+                                                tone="text-white"
+                                            />
+                                        </div>
                                         <div
-                                            className="nmea-wind-rim rounded-full p-[2px]"
+                                            className="nmea-wind-bezel rounded-full p-[3px]"
                                             style={{
                                                 background:
-                                                    'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
+                                                    'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
+                                                boxShadow:
+                                                    '0 0 30px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.4)',
                                             }}
                                         >
                                             <div
-                                                className="nmea-wind-face rounded-full p-2"
+                                                className="nmea-wind-rim rounded-full p-[2px]"
                                                 style={{
                                                     background:
-                                                        'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
-                                                    boxShadow:
-                                                        'inset 0 4px 14px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)',
-                                                    border: '1px solid rgba(255,255,255,0.06)',
+                                                        'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
                                                 }}
                                             >
-                                                {/* Capped against viewport HEIGHT, not just a
+                                                <div
+                                                    className="nmea-wind-face rounded-full p-2"
+                                                    style={{
+                                                        background:
+                                                            'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
+                                                        boxShadow:
+                                                            'inset 0 4px 14px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)',
+                                                        border: '1px solid rgba(255,255,255,0.06)',
+                                                    }}
+                                                >
+                                                    {/* Capped against viewport HEIGHT, not just a
                                                 device bucket. The wind panel carries four
                                                 stacked blocks now — plate, this gauge, the
                                                 stat row and the two roses — and a fixed px
@@ -1609,68 +1643,74 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                                 roses off the bottom of a snap panel that
                                                 cannot scroll (Shane 2026-08-28). min() makes
                                                 the biggest element the one that yields. */}
-                                                <div className="relative" style={windHeroStyle(heroGaugeSize)}>
-                                                    {renderWindInstrument(windHero, 'hero')}
-                                                    {/* Only a promoted ROSE needs naming — the dial
+                                                    <div className="relative" style={windHeroStyle(heroGaugeSize)}>
+                                                        {renderWindInstrument(windHero, 'hero')}
+                                                        {/* Only a promoted ROSE needs naming — the dial
                                                         prints its own "TWS" inside its SVG. Absolutely
                                                         positioned so it costs no layout height: this
                                                         panel cannot scroll, and anything that adds
                                                         height here pushes the bottom roses off the
                                                         screen (Shane 2026-08-28). */}
-                                                    {windHero !== 'tws' && (
-                                                        <p className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                                            {WIND_CAPTIONS[windHero]}
-                                                        </p>
-                                                    )}
+                                                        {windHero !== 'tws' && (
+                                                            <p className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                                                {WIND_CAPTIONS[windHero]}
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
+                                        <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
+                                            <FlankMetric
+                                                label="HDG"
+                                                value={heading.value}
+                                                unit="°"
+                                                digits={0}
+                                                pad3
+                                                tone="text-white"
+                                            />
+                                            <FlankMetric
+                                                label="Helm"
+                                                value={rudder.value}
+                                                unit="°"
+                                                digits={1}
+                                                sideColoured
+                                            />
+                                            <FlankMetric
+                                                label="Heel"
+                                                value={heel.value}
+                                                unit="°"
+                                                digits={1}
+                                                sideColoured
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
-                                        <FlankMetric
-                                            label="HDG"
-                                            value={heading.value}
-                                            unit="°"
-                                            digits={0}
-                                            pad3
-                                            tone="text-white"
-                                        />
-                                        <FlankMetric
-                                            label="Helm"
-                                            value={rudder.value}
-                                            unit="°"
-                                            digits={1}
-                                            sideColoured
-                                        />
-                                        <FlankMetric label="Heel" value={heel.value} unit="°" digits={1} sideColoured />
-                                    </div>
-                                </div>
-                                {/* The fix, directly under the dial. Everything
+                                    {/* The fix, directly under the dial. Everything
                                     else on this screen is relative — angles off
                                     the bow, speed through water, depth under the
                                     keel — and this is the one line that says
                                     where she actually is. Monospaced and tabular
                                     so the digits do not dance as she moves. */}
-                                <div className="w-full text-center">
-                                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-gray-500">
-                                        Position
-                                    </p>
-                                    <p
-                                        className={`font-mono text-[13px] font-black tabular-nums ${
-                                            formatFix(latitude.value, longitude.value)
-                                                ? 'text-emerald-300'
-                                                : 'text-gray-400'
-                                        }`}
-                                    >
-                                        {formatFix(latitude.value, longitude.value) ?? '— no fix —'}
-                                    </p>
-                                </div>
-                                <WindHistoryStats
-                                    apparentWind={aws.value}
-                                    history={windHistory}
-                                    onShowDetails={() => setShowDiagnosis(true)}
-                                />
-                                {/* Both roses on the one page (Shane 2026-08-28).
+                                    <div className="w-full text-center">
+                                        <p className="text-[8px] font-black uppercase tracking-[0.2em] text-gray-500">
+                                            Position
+                                        </p>
+                                        <p
+                                            className={`font-mono text-[13px] font-black tabular-nums ${
+                                                formatFix(latitude.value, longitude.value)
+                                                    ? 'text-emerald-300'
+                                                    : 'text-gray-400'
+                                            }`}
+                                        >
+                                            {formatFix(latitude.value, longitude.value) ?? '— no fix —'}
+                                        </p>
+                                    </div>
+                                    <WindHistoryStats
+                                        apparentWind={aws.value}
+                                        history={windHistory}
+                                        onShowDetails={() => setShowDiagnosis(true)}
+                                    />
+                                    {/* Both roses on the one page (Shane 2026-08-28).
                                     APPARENT is bow-relative — what the sails are
                                     trimmed to — so it carries no heading and the
                                     ring is labelled in degrees off the bow. TRUE
@@ -1685,19 +1725,20 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                     would paint the second rose with the first
                                     one's needle — the WRONG SIDE on opposite
                                     tacks. */}
-                                <div className="grid w-full grid-cols-2 gap-2">
-                                    {windBottom.map((id) => (
-                                        <WindSwapSlot
-                                            key={id}
-                                            caption={WIND_CAPTIONS[id]}
-                                            onPromote={() => promoteWindHero(id)}
-                                        >
-                                            {renderWindInstrument(id, 'cell')}
-                                        </WindSwapSlot>
-                                    ))}
+                                    <div className="grid w-full grid-cols-2 gap-2">
+                                        {windBottom.map((id) => (
+                                            <WindSwapSlot
+                                                key={id}
+                                                caption={WIND_CAPTIONS[id]}
+                                                onPromote={() => promoteWindHero(id)}
+                                            >
+                                                {renderWindInstrument(id, 'cell')}
+                                            </WindSwapSlot>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        </section>
+                            </section>
+                        )}
 
                         {/* ── SECTION: BAROMETER ──
                             Sits after the instruments and before the advice,
@@ -1711,12 +1752,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                             content — and the source line is not decoration
                             either: a phone that has been up and down the
                             companionway has invented most of its own trend. */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Barometer" place={placeOf('Barometer')} />
-                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                {/* The dial is the one thing on this page that may
+                        {showSection('Barometer') && (
+                            <section
+                                className={`w-full ${sectionSizing('Barometer')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Barometer" place={placeOf('Barometer')} />
+                                <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                    {/* The dial is the one thing on this page that may
                                     give up height. Its box starts at the dial's
                                     300 px and is the only item allowed to shrink,
                                     and the dial is never wider than the box is
@@ -1726,112 +1768,122 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                     smaller instead. Where the page is tall enough
                                     nothing moves. Sized from this page, never the
                                     viewport, because in a pane those differ. */}
-                                <div className="min-h-0 flex flex-col text-center">
-                                    <div className="min-h-0 flex-[0_1_300px] [container-type:size]">
-                                        <div className="mx-auto w-[min(100%,100cqh)]">
-                                            <BarometerGauge
-                                                hpa={baro.latest?.hpa ?? null}
-                                                setHandHpa={baroSetHand}
-                                                severity={baroTendency?.severity ?? 'calm'}
-                                                readout={
-                                                    baro.latest
-                                                        ? baroUnit === 'inHg'
-                                                            ? hpaToInHg(baro.latest.hpa).toFixed(2)
-                                                            : baro.latest.hpa.toFixed(1)
-                                                        : '--'
-                                                }
-                                                readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
-                                            />
+                                    <div className="min-h-0 flex flex-col text-center">
+                                        <div className="min-h-0 flex-[0_1_300px] [container-type:size]">
+                                            <div className="mx-auto w-[min(100%,100cqh)]">
+                                                <BarometerGauge
+                                                    hpa={baro.latest?.hpa ?? null}
+                                                    setHandHpa={baroSetHand}
+                                                    severity={baroTendency?.severity ?? 'calm'}
+                                                    readout={
+                                                        baro.latest
+                                                            ? baroUnit === 'inHg'
+                                                                ? hpaToInHg(baro.latest.hpa).toFixed(2)
+                                                                : baro.latest.hpa.toFixed(1)
+                                                            : '--'
+                                                    }
+                                                    readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div>
-                                        {/* Not rendered empty: with no source and no set hand
+                                        <div>
+                                            {/* Not rendered empty: with no source and no set hand
                                             it was a blank paragraph under the dial for
                                             VoiceOver to stop on (UX scorecard run 9). */}
-                                        {(baro.source === 'boat' ||
-                                            baro.source === 'phone' ||
-                                            baroSetHand !== null) && (
-                                            <p className="text-[10px] font-bold text-gray-500">
-                                                {baro.source === 'boat' && 'Boat sensor'}
-                                                {baro.source === 'phone' && 'This device'}
-                                                {baroSetHand !== null && ' · pale hand = 3 h ago'}
-                                            </p>
-                                        )}
-                                        {baroTendency && (
-                                            <div
-                                                className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
-                                            >
-                                                <span aria-hidden="true" className="text-sm leading-none">
-                                                    {baroTendency.direction === 'rising'
-                                                        ? '▲'
-                                                        : baroTendency.direction === 'falling'
-                                                          ? '▼'
-                                                          : '▬'}
-                                                </span>
-                                                <span className="text-xs font-black uppercase tracking-wider">
-                                                    {baroTendency.label}
-                                                </span>
-                                            </div>
-                                        )}
+                                            {(baro.source === 'boat' ||
+                                                baro.source === 'gateway' ||
+                                                baro.source === 'phone' ||
+                                                baroSetHand !== null) && (
+                                                <p className="text-[10px] font-bold text-gray-500">
+                                                    {baro.source === 'boat' && 'Boat sensor'}
+                                                    {baro.source === 'gateway' &&
+                                                        `${baro.sourceLabel ?? 'Gateway'} · sensor pressure`}
+                                                    {baro.source === 'phone' && 'This device'}
+                                                    {baroSetHand !== null && ' · pale hand = 3 h ago'}
+                                                </p>
+                                            )}
+                                            {baroTendency && (
+                                                <div
+                                                    className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
+                                                >
+                                                    <span aria-hidden="true" className="text-sm leading-none">
+                                                        {baroTendency.direction === 'rising'
+                                                            ? '▲'
+                                                            : baroTendency.direction === 'falling'
+                                                              ? '▼'
+                                                              : '▬'}
+                                                    </span>
+                                                    <span className="text-xs font-black uppercase tracking-wider">
+                                                        {baroTendency.label}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
 
-                                {/* The sentence a skipper can act on, straight from
+                                    {/* The sentence a skipper can act on, straight from
                                     the shared tendency brain — never re-worded here,
                                     so the Glass panel and this page cannot drift. */}
-                                <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
-                                    {baroTendency
-                                        ? baroTendency.read
-                                        : (baro.reason ??
-                                          'Building a record — a barometer needs three hours before it can say anything.')}
-                                </p>
-
-                                <div className="grid grid-cols-3 gap-2">
-                                    <StatCell
-                                        label="3 h"
-                                        spoken="Three-hour change"
-                                        value={
-                                            baroTendency
-                                                ? `${baroTendency.deltaHpa >= 0 ? '+' : ''}${baroTendency.deltaHpa.toFixed(1)}`
-                                                : '--'
-                                        }
-                                        unit="hPa"
-                                        unitSpoken="hectopascals"
-                                        tone={baroTendency ? BARO_SEVERITY[baroTendency.severity].text : 'text-white'}
-                                    />
-                                    <StatCell
-                                        label="Rate"
-                                        spoken="Rate"
-                                        value={baroTendency ? baroTendency.perHour.toFixed(1) : '--'}
-                                        unit="/h"
-                                        unitSpoken="hectopascals per hour"
-                                        tone="text-cyan-300"
-                                    />
-                                    <StatCell
-                                        label="Record"
-                                        spoken="Record length"
-                                        value={
-                                            baro.samples.length > 1
-                                                ? (
-                                                      (baro.samples[baro.samples.length - 1].t - baro.samples[0].t) /
-                                                      3_600_000
-                                                  ).toFixed(1)
-                                                : '--'
-                                        }
-                                        unit="h"
-                                        unitSpoken="hours"
-                                        tone="text-white"
-                                    />
-                                </div>
-
-                                {baro.source === 'phone' && (
-                                    <p className="px-3 text-center text-[10px] font-medium leading-snug text-amber-300/80">
-                                        This device&apos;s barometer. Carrying it up or down changes the reading — the
-                                        boat&apos;s sensor is steadier.
+                                    <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
+                                        {baroTendency
+                                            ? baroTendency.read +
+                                              (baroTendency.diurnal?.applied
+                                                  ? ` Daily tide removed; raw change ${baroTendency.rawDelta3h!.toFixed(1)} hPa/3 h.`
+                                                  : '')
+                                            : (baro.reason ??
+                                              'Building a record — a barometer needs three hours before it can say anything.')}
                                     </p>
-                                )}
-                            </div>
-                        </section>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <StatCell
+                                            label={baroTendency?.diurnal?.applied ? '3 h adjusted' : '3 h'}
+                                            spoken="Three-hour change"
+                                            value={
+                                                baroTendency
+                                                    ? `${baroTendency.deltaHpa >= 0 ? '+' : ''}${baroTendency.deltaHpa.toFixed(1)}`
+                                                    : '--'
+                                            }
+                                            unit="hPa"
+                                            unitSpoken="hectopascals"
+                                            tone={
+                                                baroTendency ? BARO_SEVERITY[baroTendency.severity].text : 'text-white'
+                                            }
+                                        />
+                                        <StatCell
+                                            label="Rate"
+                                            spoken="Rate"
+                                            value={baroTendency ? baroTendency.perHour.toFixed(1) : '--'}
+                                            unit="/h"
+                                            unitSpoken="hectopascals per hour"
+                                            tone="text-cyan-300"
+                                        />
+                                        <StatCell
+                                            label="Record"
+                                            spoken="Record length"
+                                            value={
+                                                baro.samples.length > 1
+                                                    ? (
+                                                          (baro.samples[baro.samples.length - 1].t -
+                                                              baro.samples[0].t) /
+                                                          3_600_000
+                                                      ).toFixed(1)
+                                                    : '--'
+                                            }
+                                            unit="h"
+                                            unitSpoken="hours"
+                                            tone="text-white"
+                                        />
+                                    </div>
+
+                                    {baro.source === 'phone' && (
+                                        <p className="px-3 text-center text-[10px] font-medium leading-snug text-amber-300/80">
+                                            This device&apos;s barometer. Carrying it up or down changes the reading —
+                                            the boat&apos;s sensor is steadier.
+                                        </p>
+                                    )}
+                                </div>
+                            </section>
+                        )}
 
                         {/* ── SECTION: POSITION ── */}
                         {/* A page that does one thing (Shane 2026-08-30). The fix
@@ -1849,221 +1901,264 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                             The no-fix state is a dash, never zeros. 0°0.000′N is a
                             real place in the Gulf of Guinea, and a confident green
                             reading of it is the worst thing this page could do. */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Position" place={placeOf('Position')} />
-                            <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-7">
-                                {formatFix(latitude.value, longitude.value) ? (
-                                    <>
-                                        {(
-                                            [
-                                                ['Latitude', formatLatitude(latitude.value)],
-                                                ['Longitude', formatLongitude(longitude.value)],
-                                            ] as const
-                                        ).map(([label, text]) => (
-                                            <div key={label} className="w-full text-center">
-                                                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-500">
-                                                    {label}
-                                                </p>
-                                                <p
-                                                    data-testid={`position-${label.toLowerCase()}`}
-                                                    className="font-mono font-black tabular-nums leading-none text-emerald-400"
-                                                    style={{
-                                                        /* Scales with the screen but capped, because the
+                        {showSection('Position') && (
+                            <section
+                                className={`w-full ${sectionSizing('Position')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Position" place={placeOf('Position')} />
+                                <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-7">
+                                    {formatFix(latitude.value, longitude.value) ? (
+                                        <>
+                                            {(
+                                                [
+                                                    ['Latitude', formatLatitude(latitude.value)],
+                                                    ['Longitude', formatLongitude(longitude.value)],
+                                                ] as const
+                                            ).map(([label, text]) => (
+                                                <div key={label} className="w-full text-center">
+                                                    <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                                                        {label}
+                                                    </p>
+                                                    <p
+                                                        data-testid={`position-${label.toLowerCase()}`}
+                                                        className="font-mono font-black tabular-nums leading-none text-emerald-400"
+                                                        style={{
+                                                            /* Scales with the screen but capped, because the
                                                            longest string here is 11 monospace characters
                                                            and this section cannot scroll — an overflowing
                                                            longitude would simply be cut off. */
-                                                        fontSize: POSITION_FONT_SIZE,
-                                                        textShadow:
-                                                            'var(--nmea-position-shadow, 0 0 30px rgba(52, 211, 153, 0.35))',
-                                                    }}
-                                                >
-                                                    {text}
+                                                            fontSize: POSITION_FONT_SIZE,
+                                                            textShadow:
+                                                                'var(--nmea-position-shadow, 0 0 30px rgba(52, 211, 153, 0.35))',
+                                                        }}
+                                                    >
+                                                        {text}
+                                                    </p>
+                                                </div>
+                                            ))}
+                                            {latitude.freshness !== 'live' && (
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                                                    Last known — not live
                                                 </p>
-                                            </div>
-                                        ))}
-                                        {latitude.freshness !== 'live' && (
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">
-                                                Last known — not live
-                                            </p>
-                                        )}
-                                    </>
-                                ) : (
-                                    <p className="font-mono text-2xl font-black tabular-nums text-gray-400">
-                                        — no fix —
-                                    </p>
-                                )}
-                            </div>
-                        </section>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <p className="font-mono text-2xl font-black tabular-nums text-gray-400">
+                                            — no fix —
+                                        </p>
+                                    )}
+                                </div>
+                            </section>
+                        )}
 
                         {/* ── SECTION: SPEED ── */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Speed" place={placeOf('Speed')} />
-                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                <div className="text-center">
-                                    <span className="sr-only">
-                                        {spokenReading('Speed over ground', fmt(sog.value), 'knots')}
-                                    </span>
-                                    <p
-                                        aria-hidden="true"
-                                        className="text-[10px] font-black uppercase tracking-widest text-gray-400"
-                                    >
-                                        SOG
-                                    </p>
-                                    <p
-                                        aria-hidden="true"
-                                        className="text-7xl font-black tabular-nums font-mono text-white leading-none"
-                                    >
-                                        {fmt(sog.value)}
-                                    </p>
-                                    <p aria-hidden="true" className="text-xs font-bold text-gray-400 mt-1">
-                                        knots over ground
-                                    </p>
-                                    <div className="mt-3 mx-auto max-w-xs h-1.5 rounded-full bg-white/6 overflow-hidden">
-                                        <div
-                                            className="h-full rounded-full bg-linear-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
-                                            style={{ width: `${Math.min(100, ((sog.value ?? 0) / 20) * 100)}%` }}
+                        {showSection('Speed') && (
+                            <section
+                                className={`w-full ${sectionSizing('Speed')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Speed" place={placeOf('Speed')} />
+                                <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                    <div className="text-center">
+                                        <span className="sr-only">
+                                            {spokenReading('Speed over ground', fmt(sog.value), 'knots')}
+                                        </span>
+                                        <p
+                                            aria-hidden="true"
+                                            className="text-[10px] font-black uppercase tracking-widest text-gray-400"
+                                        >
+                                            SOG
+                                        </p>
+                                        <p
+                                            aria-hidden="true"
+                                            className="text-7xl font-black tabular-nums font-mono text-white leading-none"
+                                        >
+                                            {fmt(sog.value)}
+                                        </p>
+                                        <p aria-hidden="true" className="text-xs font-bold text-gray-400 mt-1">
+                                            knots over ground
+                                        </p>
+                                        <div className="mt-3 mx-auto max-w-xs h-1.5 rounded-full bg-white/6 overflow-hidden">
+                                            <div
+                                                className="h-full rounded-full bg-linear-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
+                                                style={{ width: `${Math.min(100, ((sog.value ?? 0) / 20) * 100)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <StatCell
+                                            label="STW"
+                                            spoken="Speed through water"
+                                            value={fmt(stw.value)}
+                                            unit="kts"
+                                            unitSpoken="knots"
+                                            tone="text-cyan-300"
+                                        />
+                                        <StatCell
+                                            label="Best"
+                                            spoken="Best speed"
+                                            value={sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
+                                            unit="kts"
+                                            unitSpoken="knots"
+                                            tone="text-emerald-300"
+                                        />
+                                        <StatCell
+                                            label="Trip"
+                                            spoken="Trip"
+                                            value={fmt(tripDisplay)}
+                                            unit="NM"
+                                            unitSpoken="nautical miles"
+                                            tone="text-white"
                                         />
                                     </div>
-                                </div>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <StatCell
-                                        label="STW"
-                                        spoken="Speed through water"
-                                        value={fmt(stw.value)}
-                                        unit="kts"
-                                        unitSpoken="knots"
-                                        tone="text-cyan-300"
-                                    />
-                                    <StatCell
-                                        label="Best"
-                                        spoken="Best speed"
-                                        value={sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
-                                        unit="kts"
-                                        unitSpoken="knots"
-                                        tone="text-emerald-300"
-                                    />
-                                    <StatCell
-                                        label="Trip"
-                                        spoken="Trip"
-                                        value={fmt(tripDisplay)}
-                                        unit="NM"
-                                        unitSpoken="nautical miles"
-                                        tone="text-white"
-                                    />
-                                </div>
-                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
-                                    <Sparkline
-                                        history={sogChart.history}
-                                        min={sogChart.min}
-                                        max={sogChart.max}
-                                        color="#d946ef"
-                                        width={sparklineWidth * 2}
-                                        height={sparklineHeight + 20}
-                                        showAxes
-                                        label="sog"
-                                    />
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
-                                        Rolling Chart
-                                    </p>
-                                    <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/6 pt-1.5">
-                                        {/* Named in words: VoiceOver read a bare '-- V'
+                                    {state.distanceLog &&
+                                        nowMs - state.distanceLog.at >= -1000 &&
+                                        nowMs - state.distanceLog.at <= 13_000 && (
+                                            <p className="text-xs text-gray-400 text-center">
+                                                Gateway water log {state.distanceLog.totalNm?.toFixed(1) ?? '—'} NM ·
+                                                since reset {state.distanceLog.tripNm?.toFixed(1) ?? '—'} NM
+                                            </p>
+                                        )}
+                                    <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
+                                        <Sparkline
+                                            history={sogChart.history}
+                                            min={sogChart.min}
+                                            max={sogChart.max}
+                                            color="#d946ef"
+                                            width={sparklineWidth * 2}
+                                            height={sparklineHeight + 20}
+                                            showAxes
+                                            label="sog"
+                                        />
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
+                                            Rolling Chart
+                                        </p>
+                                        <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/6 pt-1.5">
+                                            {/* Named in words: VoiceOver read a bare '-- V'
                                             with nothing to say what it was (UX scorecard run 9). */}
-                                        <span className="sr-only">
-                                            {spokenReading('Battery voltage', fmt(voltage.value), 'volts')}
-                                        </span>
-                                        <LightningBoltIcon className="h-3.5 w-3.5 text-gray-400" />
-                                        <span
-                                            aria-hidden="true"
-                                            className="font-mono text-xs font-black tabular-nums text-white"
-                                        >
-                                            {fmt(voltage.value)}
-                                        </span>
-                                        <span aria-hidden="true" className="text-[10px] font-bold text-gray-500">
-                                            V
-                                        </span>
+                                            <span className="sr-only">
+                                                {spokenReading('Battery voltage', fmt(voltage.value), 'volts')}
+                                            </span>
+                                            <LightningBoltIcon className="h-3.5 w-3.5 text-gray-400" />
+                                            <span
+                                                aria-hidden="true"
+                                                className="font-mono text-xs font-black tabular-nums text-white"
+                                            >
+                                                {fmt(voltage.value)}
+                                            </span>
+                                            <span aria-hidden="true" className="text-[10px] font-bold text-gray-500">
+                                                V
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </section>
+                            </section>
+                        )}
+
+                        {showSection('Performance') && derived.performance.kind === 'available' && (
+                            <section
+                                className={`w-full ${sectionSizing('Performance')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Performance" place={placeOf('Performance')} />
+                                <PerformanceReadout
+                                    performance={derived.performance}
+                                    now={nowMs}
+                                    confirmed={derived.confirmed}
+                                    engineRunning={derived.engineRunning}
+                                    onConfirm={derived.confirmSail}
+                                />
+                            </section>
+                        )}
+                        {showSection('Current') && derived.current.kind === 'available' && (
+                            <section
+                                className={`w-full ${sectionSizing('Current')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Current" place={placeOf('Current')} />
+                                <CurrentReadout
+                                    current={derived.current}
+                                    now={nowMs}
+                                    onHistory={() => setShowCurrentHistory(true)}
+                                />
+                            </section>
+                        )}
 
                         {/* ── SECTION: DEPTH ── */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Depth" place={placeOf('Depth')} />
-                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                <div className="text-center">
-                                    <span className="sr-only">
-                                        {spokenReading('Depth', fmt(depth.value), 'metres')}
-                                    </span>
-                                    <p
-                                        aria-hidden="true"
-                                        className="text-7xl font-black tabular-nums font-mono text-white leading-none"
-                                    >
-                                        {fmt(depth.value)}
-                                        <span className="text-2xl text-gray-500"> m</span>
-                                    </p>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
-                                        {nmeaDepthReferenceLabel(state.depthReference)}
-                                    </p>
-                                </div>
-                                {/* Shoaling trend — least-squares over the last 6 min, from the
+                        {showSection('Depth') && (
+                            <section
+                                className={`w-full ${sectionSizing('Depth')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Depth" place={placeOf('Depth')} />
+                                <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                    <div className="text-center">
+                                        <span className="sr-only">
+                                            {spokenReading('Depth', fmt(depth.value), 'metres')}
+                                        </span>
+                                        <p
+                                            aria-hidden="true"
+                                            className="text-7xl font-black tabular-nums font-mono text-white leading-none"
+                                        >
+                                            {fmt(depth.value)}
+                                            <span className="text-2xl text-gray-500"> m</span>
+                                        </p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
+                                            {nmeaDepthReferenceLabel(state.depthReference)}
+                                        </p>
+                                    </div>
+                                    {/* Shoaling trend — least-squares over the last 6 min, from the
                                     serene brain: one wild sounding cannot set the trend, and a
                                     shoaling rate is translated into the number that matters —
                                     minutes until the keel meets the bottom. */}
-                                <div
-                                    className={`rounded-2xl border p-3 text-center ${
-                                        depthTrend.level === 'critical'
-                                            ? 'border-rose-500/40 bg-rose-500/10'
-                                            : depthTrend.level === 'serious'
-                                              ? 'border-orange-500/30 bg-orange-500/8'
-                                              : depthTrend.level === 'warning'
-                                                ? 'border-amber-500/25 bg-amber-500/6'
-                                                : 'border-white/6 bg-white/3'
-                                    }`}
-                                >
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                        {depthTrend.label}
-                                    </p>
-                                    {/* The brain's no-data glyph is an em dash; the panel's
+                                    <div
+                                        className={`rounded-2xl border p-3 text-center ${
+                                            depthTrend.level === 'critical'
+                                                ? 'border-rose-500/40 bg-rose-500/10'
+                                                : depthTrend.level === 'serious'
+                                                  ? 'border-orange-500/30 bg-orange-500/8'
+                                                  : depthTrend.level === 'warning'
+                                                    ? 'border-amber-500/25 bg-amber-500/6'
+                                                    : 'border-white/6 bg-white/3'
+                                        }`}
+                                    >
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            {depthTrend.label}
+                                        </p>
+                                        {/* The brain's no-data glyph is an em dash; the panel's
                                         one no-data glyph is '--'. */}
-                                    <p className="text-lg font-black text-white">
-                                        {depthTrend.text === '—' ? (
-                                            <>
-                                                <span aria-hidden="true">--</span>
-                                                <span className="sr-only">no data</span>
-                                            </>
-                                        ) : (
-                                            depthTrend.text
+                                        <p className="text-lg font-black text-white">
+                                            {depthTrend.text === '—' ? (
+                                                <>
+                                                    <span aria-hidden="true">--</span>
+                                                    <span className="sr-only">no data</span>
+                                                </>
+                                            ) : (
+                                                depthTrend.text
+                                            )}
+                                        </p>
+                                        {depthTrend.note && (
+                                            <p className="text-[11px] text-gray-400">{depthTrend.note}</p>
                                         )}
-                                    </p>
-                                    {depthTrend.note && <p className="text-[11px] text-gray-400">{depthTrend.note}</p>}
-                                    <p className="mt-1 text-[10px] text-gray-500">
-                                        Comfort line {COMFORT_M.toFixed(1)} m under the keel
-                                    </p>
+                                        <p className="mt-1 text-[10px] text-gray-500">
+                                            Comfort line {COMFORT_M.toFixed(1)} m under the keel
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
+                                        <Sparkline
+                                            history={depthChart.history}
+                                            min={depthChart.min}
+                                            max={depthChart.max}
+                                            color="#22d3ee"
+                                            width={sparklineWidth * 2}
+                                            height={sparklineHeight + 20}
+                                            showAxes
+                                            axisUnit="m"
+                                            label="depth"
+                                        />
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
+                                            15 min chart
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
-                                    <Sparkline
-                                        history={depthChart.history}
-                                        min={depthChart.min}
-                                        max={depthChart.max}
-                                        color="#22d3ee"
-                                        width={sparklineWidth * 2}
-                                        height={sparklineHeight + 20}
-                                        showAxes
-                                        axisUnit="m"
-                                        label="depth"
-                                    />
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
-                                        15 min chart
-                                    </p>
-                                </div>
-                            </div>
-                        </section>
+                            </section>
+                        )}
 
                         {/* ── SECTION: SEA TEMP ──
                             Water temperature from the hull sensor ($--MTW on the
@@ -2072,166 +2167,171 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                             beautiful trimmings as the other pages have." Same shape
                             as Depth: the number, what it is doing, the 15-min chart —
                             and an honest card when the bus carries no such sentence. */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Sea temp" place={placeOf('Sea temp')} />
-                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                <div className="text-center">
-                                    <span className="sr-only">
-                                        {spokenReading(
-                                            'Sea temperature',
-                                            formatSeaTemp(waterTemp.value, tempUnit),
-                                            tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius',
-                                        )}
-                                    </span>
-                                    <p
-                                        aria-hidden="true"
-                                        className="text-7xl font-black tabular-nums font-mono text-white leading-none"
-                                    >
-                                        {formatSeaTemp(waterTemp.value, tempUnit)}
-                                        <span className="text-2xl text-gray-500"> °{tempUnit}</span>
-                                    </p>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
-                                        {waterTemp.value === null
-                                            ? 'No water temperature on the bus'
-                                            : waterTemp.freshness === 'stale'
-                                              ? 'Hull sensor · last reading is getting old'
-                                              : 'Hull sensor · live'}
-                                    </p>
-                                    {seaTrend && (
-                                        <div
-                                            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${
-                                                seaTrend.direction === 'warming'
-                                                    ? 'border-orange-400/30 bg-orange-500/10 text-orange-200'
-                                                    : seaTrend.direction === 'cooling'
-                                                      ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200'
-                                                      : 'border-white/12 bg-white/5 text-gray-200'
-                                            }`}
+                        {showSection('Sea temp') && (
+                            <section
+                                className={`w-full ${sectionSizing('Sea temp')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Sea temp" place={placeOf('Sea temp')} />
+                                <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                    <div className="text-center">
+                                        <span className="sr-only">
+                                            {spokenReading(
+                                                'Sea temperature',
+                                                formatSeaTemp(waterTemp.value, tempUnit),
+                                                tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius',
+                                            )}
+                                        </span>
+                                        <p
+                                            aria-hidden="true"
+                                            className="text-7xl font-black tabular-nums font-mono text-white leading-none"
                                         >
-                                            <span aria-hidden="true" className="text-sm leading-none">
-                                                {seaTrend.direction === 'warming'
-                                                    ? '▲'
-                                                    : seaTrend.direction === 'cooling'
-                                                      ? '▼'
-                                                      : '▬'}
+                                            {formatSeaTemp(waterTemp.value, tempUnit)}
+                                            <span className="text-2xl text-gray-500"> °{tempUnit}</span>
+                                        </p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
+                                            {waterTemp.value === null
+                                                ? 'No water temperature on the bus'
+                                                : waterTemp.freshness === 'stale'
+                                                  ? 'Hull sensor · last reading is getting old'
+                                                  : 'Hull sensor · live'}
+                                        </p>
+                                        {seaTrend && (
+                                            <div
+                                                className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${
+                                                    seaTrend.direction === 'warming'
+                                                        ? 'border-orange-400/30 bg-orange-500/10 text-orange-200'
+                                                        : seaTrend.direction === 'cooling'
+                                                          ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200'
+                                                          : 'border-white/12 bg-white/5 text-gray-200'
+                                                }`}
+                                            >
+                                                <span aria-hidden="true" className="text-sm leading-none">
+                                                    {seaTrend.direction === 'warming'
+                                                        ? '▲'
+                                                        : seaTrend.direction === 'cooling'
+                                                          ? '▼'
+                                                          : '▬'}
+                                                </span>
+                                                <span className="text-xs font-black uppercase tracking-wider">
+                                                    {seaTrend.label}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
+                                        {waterTemp.value === null
+                                            ? 'Your instruments are not sending a sea temperature, so none is shown. It appears here once a hull sensor reports through the gateway or the Pi.'
+                                            : (seaTrend?.read ??
+                                              'Building a record — give it a few minutes before it can say what the water is doing.')}
+                                    </p>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <StatCell
+                                            label="Low"
+                                            spoken="Low"
+                                            value={
+                                                waterTempReal.history.length > 0
+                                                    ? formatSeaTemp(waterTempReal.min, tempUnit)
+                                                    : '--'
+                                            }
+                                            unit={`°${tempUnit}`}
+                                            unitSpoken={tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius'}
+                                            tone="text-cyan-300"
+                                        />
+                                        <StatCell
+                                            label="High"
+                                            spoken="High"
+                                            value={
+                                                waterTempReal.history.length > 0
+                                                    ? formatSeaTemp(waterTempReal.max, tempUnit)
+                                                    : '--'
+                                            }
+                                            unit={`°${tempUnit}`}
+                                            unitSpoken={tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius'}
+                                            tone="text-orange-300"
+                                        />
+                                        <StatCell
+                                            label="Change"
+                                            spoken="Change"
+                                            value={seaTrend ? formatSeaTempDelta(seaTrend.deltaC, tempUnit) : '--'}
+                                            unit="°"
+                                            unitSpoken="degrees"
+                                            tone="text-white"
+                                        />
+                                    </div>
+
+                                    <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
+                                        <Sparkline
+                                            history={waterTempReal.history}
+                                            min={waterTempReal.min}
+                                            max={waterTempReal.max}
+                                            color="#fb923c"
+                                            width={sparklineWidth * 2}
+                                            height={sparklineHeight + 20}
+                                            showAxes
+                                            axisUnit="°"
+                                            label="sea temp"
+                                        />
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
+                                            15 min chart
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
+                        )}
+
+                        {/* ── SECTION: HEADING ── */}
+                        {showSection('Heading') && (
+                            <section
+                                className={`w-full ${sectionSizing('Heading')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Heading" place={placeOf('Heading')} />
+                                <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
+                                    <HeadingGauge
+                                        value={heading.value}
+                                        isLive={heading.value !== null && heading.freshness === 'live'}
+                                    />
+                                    <p className="font-mono text-sm font-bold tabular-nums text-gray-300">
+                                        {makingWay && cog.value !== null
+                                            ? `COG ${Math.round(cog.value)}°`
+                                            : 'COG — not making way'}
+                                    </p>
+                                    {heelAvailable && (
+                                        <div className="flex items-baseline gap-2" aria-label="Heel angle">
+                                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
+                                                Heel
                                             </span>
-                                            <span className="text-xs font-black uppercase tracking-wider">
-                                                {seaTrend.label}
+                                            <span className="font-mono text-2xl font-black tabular-nums text-white">
+                                                {Math.abs(heel.value as number).toFixed(1)}°
+                                            </span>
+                                            <span
+                                                className={`text-[10px] font-black uppercase tracking-wider ${
+                                                    heelSide === 'PORT'
+                                                        ? 'text-rose-400'
+                                                        : heelSide === 'STBD'
+                                                          ? 'text-emerald-400'
+                                                          : 'text-gray-500'
+                                                }`}
+                                            >
+                                                {heelSide}
                                             </span>
                                         </div>
                                     )}
                                 </div>
-
-                                <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
-                                    {waterTemp.value === null
-                                        ? 'Your instruments are not sending a sea temperature, so none is shown. It appears here once a hull sensor reports through the gateway or the Pi.'
-                                        : (seaTrend?.read ??
-                                          'Building a record — give it a few minutes before it can say what the water is doing.')}
-                                </p>
-
-                                <div className="grid grid-cols-3 gap-2">
-                                    <StatCell
-                                        label="Low"
-                                        spoken="Low"
-                                        value={
-                                            waterTempReal.history.length > 0
-                                                ? formatSeaTemp(waterTempReal.min, tempUnit)
-                                                : '--'
-                                        }
-                                        unit={`°${tempUnit}`}
-                                        unitSpoken={tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius'}
-                                        tone="text-cyan-300"
-                                    />
-                                    <StatCell
-                                        label="High"
-                                        spoken="High"
-                                        value={
-                                            waterTempReal.history.length > 0
-                                                ? formatSeaTemp(waterTempReal.max, tempUnit)
-                                                : '--'
-                                        }
-                                        unit={`°${tempUnit}`}
-                                        unitSpoken={tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius'}
-                                        tone="text-orange-300"
-                                    />
-                                    <StatCell
-                                        label="Change"
-                                        spoken="Change"
-                                        value={seaTrend ? formatSeaTempDelta(seaTrend.deltaC, tempUnit) : '--'}
-                                        unit="°"
-                                        unitSpoken="degrees"
-                                        tone="text-white"
-                                    />
-                                </div>
-
-                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
-                                    <Sparkline
-                                        history={waterTempReal.history}
-                                        min={waterTempReal.min}
-                                        max={waterTempReal.max}
-                                        color="#fb923c"
-                                        width={sparklineWidth * 2}
-                                        height={sparklineHeight + 20}
-                                        showAxes
-                                        axisUnit="°"
-                                        label="sea temp"
-                                    />
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
-                                        15 min chart
-                                    </p>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* ── SECTION: HEADING ── */}
-                        <section
-                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
-                        >
-                            <SectionPlate title="Heading" place={placeOf('Heading')} />
-                            <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
-                                <HeadingGauge
-                                    value={heading.value}
-                                    isLive={heading.value !== null && heading.freshness === 'live'}
-                                />
-                                <p className="font-mono text-sm font-bold tabular-nums text-gray-300">
-                                    {makingWay && cog.value !== null
-                                        ? `COG ${Math.round(cog.value)}°`
-                                        : 'COG — not making way'}
-                                </p>
-                                {heelAvailable && (
-                                    <div className="flex items-baseline gap-2" aria-label="Heel angle">
-                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
-                                            Heel
-                                        </span>
-                                        <span className="font-mono text-2xl font-black tabular-nums text-white">
-                                            {Math.abs(heel.value as number).toFixed(1)}°
-                                        </span>
-                                        <span
-                                            className={`text-[10px] font-black uppercase tracking-wider ${
-                                                heelSide === 'PORT'
-                                                    ? 'text-rose-400'
-                                                    : heelSide === 'STBD'
-                                                      ? 'text-emerald-400'
-                                                      : 'text-gray-500'
-                                            }`}
-                                        >
-                                            {heelSide}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        </section>
+                            </section>
+                        )}
 
                         {/* ── SECTION: HELM ── */}
-                        <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
-                        >
-                            <SectionPlate title="Helm" place={placeOf('Helm')} />
-                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                {rudder.value !== null ? (
-                                    <>
-                                        {/* The rudder as a DIAL rather than a bar (Shane
+                        {showSection('Helm') && (
+                            <section
+                                className={`w-full ${sectionSizing('Helm')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Helm" place={placeOf('Helm')} />
+                                <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                    {rudder.value !== null ? (
+                                        <>
+                                            {/* The rudder as a DIAL rather than a bar (Shane
                                             2026-09-02: "a round guage that literally shows
                                             you where the rudder is like 0 is middle"). This
                                             is the one instrument whose reading is a physical
@@ -2239,67 +2339,78 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                             beats a length you have to convert. Colours and
                                             the amidships dead-band are unchanged from the
                                             bar, so only the shape is new. */}
-                                        <RudderGauge angle={rudder.value} freshness={rudder.freshness} />
-                                        {helm && helm.ok ? (
-                                            <div
-                                                className={`rounded-2xl border p-4 ${
-                                                    helm.level === 'serious'
-                                                        ? 'border-orange-500/30 bg-orange-500/8'
-                                                        : helm.level === 'warning'
-                                                          ? 'border-amber-500/25 bg-amber-500/6'
-                                                          : 'border-emerald-500/20 bg-emerald-500/5'
-                                                }`}
-                                            >
-                                                <p className="text-2xl font-black text-white">{helm.word}</p>
-                                                <p className="mt-1 text-[13px] leading-relaxed text-gray-300">
-                                                    {helm.what}
+                                            <RudderGauge angle={rudder.value} freshness={rudder.freshness} />
+                                            {helm && helm.ok ? (
+                                                <div
+                                                    className={`rounded-2xl border p-4 ${
+                                                        helm.level === 'serious'
+                                                            ? 'border-orange-500/30 bg-orange-500/8'
+                                                            : helm.level === 'warning'
+                                                              ? 'border-amber-500/25 bg-amber-500/6'
+                                                              : 'border-emerald-500/20 bg-emerald-500/5'
+                                                    }`}
+                                                >
+                                                    <p className="text-2xl font-black text-white">{helm.word}</p>
+                                                    <p className="mt-1 text-[13px] leading-relaxed text-gray-300">
+                                                        {helm.what}
+                                                    </p>
+                                                    <p className="mt-2 rounded-xl bg-white/5 p-2.5 text-[13px] leading-relaxed text-white">
+                                                        {helm.fix}
+                                                    </p>
+                                                    <p className="mt-1 text-[10px] text-gray-500">
+                                                        {helm.deg.toFixed(1)}° weather helm · {helm.tack} tack
+                                                    </p>
+                                                </div>
+                                            ) : helm && !helm.ok ? (
+                                                <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
+                                                    <p className="text-sm font-bold text-gray-300">
+                                                        {helm.downwind ? 'No verdict off the wind' : 'No verdict yet'}
+                                                    </p>
+                                                    <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
+                                                        {helm.why}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
+                                                    <p className="text-sm font-bold text-gray-300">
+                                                        Averaging the helm…
+                                                    </p>
+                                                    <p className="mt-1 text-[12px] text-gray-400">
+                                                        The balance verdict needs 30 seconds of rudder history — an
+                                                        instantaneous angle flickers with every wave.
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {helmWords && (
+                                                <p className="text-center text-[11px] text-gray-500">
+                                                    45 s mean {helmWindow!.mean.toFixed(1)}° · {helmWords.word} —{' '}
+                                                    {helmWords.note}
                                                 </p>
-                                                <p className="mt-2 rounded-xl bg-white/5 p-2.5 text-[13px] leading-relaxed text-white">
-                                                    {helm.fix}
-                                                </p>
-                                                <p className="mt-1 text-[10px] text-gray-500">
-                                                    {helm.deg.toFixed(1)}° weather helm · {helm.tack} tack
-                                                </p>
-                                            </div>
-                                        ) : helm && !helm.ok ? (
-                                            <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
-                                                <p className="text-sm font-bold text-gray-300">
-                                                    {helm.downwind ? 'No verdict off the wind' : 'No verdict yet'}
-                                                </p>
-                                                <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
-                                                    {helm.why}
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
-                                                <p className="text-sm font-bold text-gray-300">Averaging the helm…</p>
-                                                <p className="mt-1 text-[12px] text-gray-400">
-                                                    The balance verdict needs 30 seconds of rudder history — an
-                                                    instantaneous angle flickers with every wave.
-                                                </p>
-                                            </div>
-                                        )}
-                                        {helmWords && (
-                                            <p className="text-center text-[11px] text-gray-500">
-                                                45 s mean {helmWindow!.mean.toFixed(1)}° · {helmWords.word} —{' '}
-                                                {helmWords.note}
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
+                                            <p aria-hidden="true" className="text-4xl font-black text-gray-400">
+                                                --
                                             </p>
-                                        )}
-                                    </>
-                                ) : (
-                                    <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
-                                        <p aria-hidden="true" className="text-4xl font-black text-gray-400">
-                                            --
-                                        </p>
-                                        <p className="mt-2 text-sm font-bold text-gray-300">No rudder sensor</p>
-                                        <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
-                                            Helm balance needs a rudder-angle sensor reporting on your instruments.
-                                            Until one does, this stays blank rather than guessing.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        </section>
+                                            <p className="mt-2 text-sm font-bold text-gray-300">No rudder sensor</p>
+                                            <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
+                                                Helm balance needs a rudder-angle sensor reporting on your instruments.
+                                                Until one does, this stays blank rather than guessing.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                        )}
+                        {showSection('Engine') && state.instrumentEvidence && (
+                            <section
+                                className={`w-full ${sectionSizing('Engine')} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Engine" place={placeOf('Engine')} />
+                                <EngineReadout evidence={state.instrumentEvidence} now={nowMs} />
+                            </section>
+                        )}
                     </div>
                 </div>
             </div>

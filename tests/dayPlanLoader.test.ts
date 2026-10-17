@@ -15,13 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../services/anchorages/CruisingReferenceService', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/anchorages/CruisingReferenceService')>()),
     loadReferenceTile: vi.fn(async () => ({ points: [], stale: false })),
+    loadNamedPlaces: vi.fn(async () => ({ points: [], stale: false })),
 }));
 vi.mock('../services/TideHeightService', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/TideHeightService')>()),
     fetchTideCurve: vi.fn(async () => null),
 }));
 
-import { loadReferenceTile } from '../services/anchorages/CruisingReferenceService';
+import { loadNamedPlaces, loadReferenceTile } from '../services/anchorages/CruisingReferenceService';
 import type { CruisingPoint, ReferenceTile } from '../services/anchorages/cruisingReference';
 import { fetchTideCurve, type TideCurve } from '../services/TideHeightService';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
@@ -215,6 +216,7 @@ function fakes(over: Partial<TodayLoaderDeps> = {}): Fakes {
         querySpread: async () => ({ atmos: trade(), marine: null }),
         loadAtlas: async () => QLD_TILE.features,
         loadReferenceTile: async () => ({ points: [], stale: false }),
+        loadNamedPlaces: async () => ({ points: [], stale: false }),
         loadCoastline: async () => null,
         savedRoutes: () => [],
         loadTides: async () => ({
@@ -338,6 +340,8 @@ describe('loadToday: everything about the place, as it arrives', () => {
         expect(deps.loadReferenceTile.mock.calls.length).toBeGreaterThanOrEqual(1);
         expect(deps.loadReferenceTile.mock.calls.length).toBeLessThanOrEqual(4);
         expect(deps.loadCoastline).toHaveBeenCalledTimes(1);
+        // 131-PYD-10: the atlas holds Queensland's bays; public Overpass is not asked for names here.
+        expect(deps.loadNamedPlaces).not.toHaveBeenCalled();
         expect(deps.loadTides).toHaveBeenCalledWith(MARINA.lat, MARINA.lon);
         expect(deps.loadCyclones).toHaveBeenCalledTimes(1);
         expect(deps.savedRoutes).toHaveBeenCalledWith(getAuthIdentityScope());
@@ -528,6 +532,19 @@ describe('loadToday: everything about the place, as it arrives', () => {
         expect(signals.every((s) => s.aborted)).toBe(true);
     });
 
+    it('away from the atlas, the named-place cells get the signal too, so a closed sheet stops them (131-PYD-10)', async () => {
+        const names = deferred<{ points: never[]; stale: boolean }>();
+        const deps = fakes({ loadAtlas: async () => [], loadNamedPlaces: () => names.promise });
+        const controller = new AbortController();
+        const done = loadToday({ start: NOUMEA, cruiseKts: 6 }, { signal: controller.signal, deps });
+        await flush();
+        controller.abort();
+        expect(isPlanCancelled(await done.catch((e) => e))).toBe(true);
+        const signals = deps.loadNamedPlaces.mock.calls.map((c) => c[1] as AbortSignal);
+        expect(signals.length).toBeGreaterThan(0);
+        expect(signals.every((s) => s.aborted)).toBe(true);
+    });
+
     it('asks nothing when the sheet is already closed', async () => {
         const controller = new AbortController();
         controller.abort();
@@ -559,6 +576,13 @@ describe('the real sources it is wired to', () => {
         const signal = new AbortController().signal;
         await TODAY_LOADER_DEPS.loadReferenceTile(tile, signal);
         expect(loadReferenceTile).toHaveBeenCalledWith(tile, signal, { requireRestrictionMetadata: true });
+    });
+
+    it('asks the same cells for their named places (131-PYD-10), cached and capped there, with the sheet’s signal', async () => {
+        const tile = { key: 'k', west: 18, south: 69, east: 19, north: 70 } as ReferenceTile;
+        const signal = new AbortController().signal;
+        await TODAY_LOADER_DEPS.loadNamedPlaces(tile, signal);
+        expect(loadNamedPlaces).toHaveBeenCalledWith(tile, signal);
     });
 
     it('asks the tide curve for three days, as the landing window wants', async () => {
@@ -827,6 +851,7 @@ describe("Shane's case through the loader and the engine", () => {
             weatherAtMs: null,
             places: null,
             placesStatus: 'failed',
+            coastline: null,
             tides: null,
             tideStation: null,
             tidesStatus: 'loading',

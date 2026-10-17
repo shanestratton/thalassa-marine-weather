@@ -40,6 +40,11 @@ same kind of token for `git pull`: see `docs/GOING_PRIVATE.md`.
 
 ## Runtime
 
+The optional Signal K course writer is separately disabled by default. It needs an operator-approved
+`SIGNALK_ACCESS_TOKEN` and `THALASSA_SIGNALK_COURSE_WRITES=1`, plus an enrolled phone on the boat's own Wi-Fi and
+the phone's helm confirmation. Read-only Signal K access cannot enable it. See
+[the bounded course-writer contract](../docs/build136-course-writer.md) before configuring it.
+
 Node.js `>=20.18.1` is required by the pinned HTTP transport. `install.sh` upgrades an older Pi runtime through the
 NodeSource 22.x repository and aborts before dependency installation or service restart if that minimum is not met.
 
@@ -108,6 +113,52 @@ the terms of the licenses signed with the chart providers." So licensed cells ar
   vault's bytes, signed over the hash the vault checked, and never parses a licensed cell.
 - Only open charts (NOAA, `src/chartLicence.ts`) are kept as files, in `enc-charts/open/`. The parser is a mirror of
   `tools/senc-extractor` (`src/sencEngine`, `scripts/sync-senc-engine.mjs --check` in CI); never edit it here.
+
+## Only her own devices can command the Pi (Pi update 4, 129-12)
+
+Every route has a class in one table, `src/piCommandLock.ts` (`PI_ROUTES`), read by one middleware in front of every
+route; a route missing from the table is a command, and `src/piCommandLock.test.mts` fails on any route with no row.
+
+- **read** (anyone on her network, always): everything that only reads, the watch state included.
+- **raise** (anyone, always): arming the night watch for this caller, acknowledging an alarm, starting an anchor watch
+  while none runs (or renewing the running one unchanged), and saying the internet policy again exactly as the Pi last
+  took it as a command (kept in `CACHE_DIR/pi-internet.json`). While the lock is on, a guest's arm only adds to the
+  watch (never its thresholds looser, never another ship as our own boat), and a guest's acknowledgement silences
+  that phone only: only her own devices silence an alarm for everyone aboard.
+- **command**: standing a watch down, stopping or moving an anchor watch, configure, remote access, purge, installs,
+  diary posts, settings. With the lock on, only an enrolled device (the chart device token,
+  `X-Thalassa-Chart-Device`) may send one. Every `/api/enc` route keeps the chart front door, which is stricter.
+
+After install the Pi **observes**: it answers everyone as before and counts, by route and time only, each command from a
+device that is not set up (`GET /api/pi-lock`, shown in the app). The skipper turns the lock on from an enrolled phone
+on her own Wi-Fi (Settings → Boat network → Boat Pi). It will not turn on while no device is enrolled, a Pi left with
+none enrolled answers everyone again, and turning it off needs an enrolled device too. A refused command changes
+nothing: every watch keeps running, and still alarms. The switch is kept in `CACHE_DIR/pi-lock.json` (0600). A device
+removed from her list stays refused even when no device is left.
+
+The internet gate still shuts at every restart (below). Any phone aboard may open it again only to the policy an enrolled
+device (or any device, while the Pi observes) last set; anything else from a phone not set up waits for one of hers. A Pi
+that only ever talks through ordinary internet is best declared `THALASSA_PI_WAN_UPLINK=ordinary`, so its night watch
+can wake the skipper after a restart before any phone comes aboard.
+
+**Locked out?** On the Pi, as the service's user, from the install directory:
+
+```
+cd /opt/thalassa-pi-cache && sudo -u "$(stat -c %U dist/server.js)" node dist/vault/enrolCode.js --recover
+```
+
+It puts the Pi back to observe at once (no restart) and prints a fresh owner code, good for 30 minutes, to set a phone
+up again. Re-running the installer keeps the lock as it is, so an update never turns it off by itself. Run as anyone
+but the owner of `CACHE_DIR` (plain `sudo` is root) it changes nothing and says so: a file root wrote would lock the
+service out of it. The same goes for the device list, which holds five:
+
+```
+cd /opt/thalassa-pi-cache && sudo -u "$(stat -c %U dist/server.js)" node dist/vault/enrolCode.js --list
+cd /opt/thalassa-pi-cache && sudo -u "$(stat -c %U dist/server.js)" node dist/vault/enrolCode.js --remove ID
+```
+
+`--list` shows each device's id, label and dates; `--remove ID` takes one off (it is refused at once), which frees a
+place when all five are taken and a new code is answered `chart-device-limit`.
 
 ## Internet gate across restarts (`THALASSA_PI_WAN_UPLINK`)
 

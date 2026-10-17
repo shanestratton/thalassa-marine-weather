@@ -182,6 +182,32 @@ beforeEach(async () => {
 });
 
 describe('WindDataController request generation', () => {
+    it('cannot send an online request while an imported local source is selected', async () => {
+        mocks.state.current = {
+            ...mocks.state.current,
+            isGlobalMode: false,
+            localGribPath: 'grib-import/selected.grb',
+        };
+        const { map } = makeMap();
+        expect(await controller.fetchOnline(map as never)).toBe(false);
+        expect(mocks.fetchModelWindGrid).not.toHaveBeenCalled();
+        expect(mocks.fetchWindGrid).not.toHaveBeenCalled();
+        expect(mocks.fetchGlobalWindField).not.toHaveBeenCalled();
+    });
+    it('a selected attachment change invalidates its pending Worker result', async () => {
+        const pending = deferred<ReturnType<typeof grid>>();
+        mocks.loadLocalWindFile.mockReturnValue(pending.promise);
+        mocks.state.current = { ...mocks.state.current, isGlobalMode: false, localGribPath: 'grib-import/old.grb' };
+        const { map } = makeMap(),
+            activation = controller.activate(map as never);
+        const current = mocks.loadLocalWindFile.mock.calls[0][1] as () => boolean;
+        expect(current()).toBe(true);
+        mocks.state.current = { ...mocks.state.current, localGribPath: 'grib-import/new.grb' };
+        expect(current()).toBe(false);
+        pending.resolve(grid('old-import'));
+        await activation;
+        expect(mocks.setGrid).not.toHaveBeenCalled();
+    });
     it('publishes only the latest model when requests resolve out of order', async () => {
         const first = deferred<ReturnType<typeof grid> | null>();
         const second = deferred<ReturnType<typeof grid> | null>();

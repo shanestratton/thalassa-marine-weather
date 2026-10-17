@@ -6,6 +6,24 @@ import { join } from 'node:path';
 export default defineConfig({
     testDir: './browser-tests',
     testMatch: [
+        'pi-track-history-layout.spec.ts',
+        'systems136-layout.spec.ts',
+        'wake-rules137-layout.spec.ts',
+        'weather-watch137-layout.spec.ts',
+        'buddy-watch137-layout.spec.ts',
+        'shore-contacts137-layout.spec.ts',
+        'overdue-watch137-layout.spec.ts',
+        'obs-credits137-layout.spec.ts',
+        'radar137-layout.spec.ts',
+        'radar-equipment137-layout.spec.ts',
+        'radar-alarm137-layout.spec.ts',
+        'radar-pi137-layout.spec.ts',
+        'course136-layout.spec.ts',
+        'timezone136.spec.ts',
+        'ais-fleet-layout.spec.ts',
+        'marine-places-layout.spec.ts',
+        'paper-charts-layout.spec.ts',
+        'noaa-catalogue-layout.spec.ts',
         'keyboard-layout.spec.ts',
         'daylight-layout.spec.ts',
         // The Glass's compact conditions row: 'Trace' and inch readings stay in their cells.
@@ -13,7 +31,11 @@ export default defineConfig({
         'ui-legibility.spec.ts',
         'split-pane-layout.spec.ts',
         'nmea-daylight.spec.ts',
+        'instruments136-layout.spec.ts',
+        'nmea-udp136-layout.spec.ts',
+        'signalk136-layout.spec.ts',
         'wind-tide-layout.spec.ts',
+        'tide-footer-layout.spec.ts',
         'vessel-scroll.spec.ts',
         // Menu pages fit one screen; the split-pane Plan and Log front doors fit their pane.
         'menu-pages-fit.spec.ts',
@@ -106,6 +128,11 @@ export default defineConfig({
         // picker, six readings and the credit fit 320 × 568 in wide fonts, centred
         // above the tab bar, in every palette (e2e/fixtures/sounding-sheet.tsx).
         'sounding-sheet-layout.spec.ts',
+        // The sea in parts (130-04): the weather bubble's wind sea, swell and swell 2 rows, the
+        // wave power, the beta comfort word and the MFWAM credit keep the Save row above the tab
+        // bar at 320 × 568 in wide fonts; a berth reads "No open-water wave model reaches here"
+        // (e2e/fixtures/weather-inspect.tsx).
+        'weather-inspect-layout.spec.ts',
         // The big Log track map on Relief + Sat (build 125, 125-13b): Mapbox GL in
         // TrackMapViewer at 320 × 568 and 390 × 844 in wide fonts, the Solent,
         // Fiji across the antimeridian and the Whitsundays, offline tiles from
@@ -160,6 +187,49 @@ export default defineConfig({
         // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
         // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
         'route-worker.spec.ts',
+        // Global model comparison runs public forecasts in its own Worker; chart cells stay out of its DTO.
+        'offshore-worker.spec.ts',
+        'offshore-comparison.spec.ts',
+        'offline-relief.spec.ts',
+        // Mail/Files GRIB imports: actual disposable Worker and transparent
+        // missing-cell rendering, using generated fictional files only.
+        'grib-import.spec.ts',
+        // Official warnings in the app (129-06): the Glass's official count beside the forecast
+        // pill, the Warnings page's official section and Settings → Alerts' switches fit 320 × 568
+        // and 390 × 844 in wide fonts (e2e/fixtures/official-warnings.tsx).
+        'official-warnings-layout.spec.ts',
+        // If the boat goes quiet (129-08): the skipper's and the crew's switches in Preferences fit
+        // 320 × 568 and 375 × 667 in wide fonts, and stay hidden until the column probe answers
+        // (e2e/fixtures/boat-quiet.tsx).
+        'boat-quiet-layout.spec.ts',
+        // A storm open on Obs (129-13): one card with the storm stepper inside it, clear of the
+        // chip, MOB and the top row at 320 x 568 in large text to the iPad, with the basin
+        // named in words; and the clear view, which keeps MOB, the credits and the scrubber
+        // (e2e/fixtures/storm-overlay.tsx).
+        'storm-overlay-layout.spec.ts',
+        'synoptic-charts-layout.spec.ts',
+        // The point meteogram (131-02): 'All metrics' fits 375 × 667 in wide fonts, down to 320 × 568,
+        // centred above the tab bar, and its day names never touch whatever hour it opens at
+        // (e2e/fixtures/meteogram.tsx).
+        'meteogram-layout.spec.ts',
+        'route-meteogram-layout.spec.ts',
+        // The Galley fits every phone (132-B17, GAL-17): Active meals Today and Next first under
+        // plain dates; the Grocery list clear of the status bar and the home indicator, prices in
+        // each row's currency, 44 pt ticks and no clipped names; the Recipe editor and Cooking
+        // Mode on screen, at 375 × 667, 320 × 568 and 390 × 844 in wide fonts (e2e/fixtures/galley-layout.tsx).
+        'galley-layout.spec.ts',
+        // Binder sheets fit one screen (132-B19): every Boat Binder page and its Add and Edit
+        // sheets at 375 × 667, 320 × 568 and 390 × 844 in wide fonts, under the real header and
+        // tab bar; each sheet's Save on screen while its fields scroll, its categories on the
+        // Stores grid (e2e/fixtures/binder-sheets.tsx, browser-tests/helpers/binderLayout.ts).
+        'equipment-layout.spec.ts',
+        'documents-sheet-layout.spec.ts',
+        'maintenance-layout.spec.ts',
+        'stores-layout.spec.ts',
+        'checklists-layout.spec.ts',
+        // The Stores category grid: fifteen in three columns and five rows at 320 to 430 px
+        // (e2e/fixtures/stores-category-grid.tsx). Its own config was never run by CI (132-B19).
+        'stores-category-grid-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
@@ -195,6 +265,11 @@ export default defineConfig({
         // phone). Only SignInScreen and googleSignIn read these, and no other
         // fixture opens the sheet. Google also needs VITE_GOOGLE_OAUTH_CLIENT_ID,
         // which .env.local and the CI job both carry.
-        env: { VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true', VITE_GOOGLE_SIGN_IN_ENABLED: 'true' },
+        env: {
+            VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true',
+            VITE_GOOGLE_SIGN_IN_ENABLED: 'true',
+            // Fictional layout fixtures must never emit production telemetry.
+            VITE_SENTRY_DSN: '',
+        },
     },
 });

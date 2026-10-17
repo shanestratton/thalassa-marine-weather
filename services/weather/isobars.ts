@@ -15,7 +15,7 @@
 // ── Types ──────────────────────────────────────────────────────
 
 export interface PressureGrid {
-    allHourlyPressure: number[][][]; // [hour][row][col] in hPa
+    allHourlyPressure: (number[] | Float32Array)[][]; // [hour][row][col] in hPa
     allHourlyWindSpeed: number[][][]; // [hour][row][col] in knots
     allHourlyWindDir: number[][][]; // [hour][row][col] in degrees
     lats: number[]; // South → North
@@ -32,15 +32,16 @@ export interface PressureGrid {
     keyframeFhrs: number[];
     /** Hours per sub-frame after interpolation (2h for the GFS 6h/3-step case). */
     subFrameStepHours: number;
+    stepHours?: number[];
     /** The actual source behind the chart. Emergency fallback data must never
      *  be visually indistinguishable from the primary GFS grid. */
-    source: 'gfs' | 'open-meteo';
+    source: 'gfs' | 'open-meteo' | 'imported-grib';
 }
 
 // Runtime grid for a single hour (used by contour/barb generators)
 interface HourGrid {
-    values: number[][];
-    forecastValues: number[][];
+    values: (number[] | Float32Array)[];
+    forecastValues: (number[] | Float32Array)[];
     forecastLeadHours: number;
     windSpeeds: number[][];
     windDirs: number[][];
@@ -431,11 +432,18 @@ function extractHourGrid(grid: PressureGrid, hour: number): HourGrid {
     const h = Math.min(hour, grid.totalHours - 1);
     // GFS sub-frames are 2h, not 1h. Twelve indices used to mean 24h of
     // displacement reported as 12h (and double the implied system speed).
-    const forecastH = Math.min(h + Math.round(12 / grid.subFrameStepHours), grid.totalHours - 1);
+    const forecastH = grid.stepHours
+        ? Math.max(
+              h,
+              grid.stepHours.findIndex((step) => Math.abs(step - grid.stepHours![h] - 12) < 1e-8),
+          )
+        : Math.min(h + Math.round(12 / grid.subFrameStepHours), grid.totalHours - 1);
     return {
         values: grid.allHourlyPressure[h],
         forecastValues: grid.allHourlyPressure[forecastH],
-        forecastLeadHours: (forecastH - h) * grid.subFrameStepHours,
+        forecastLeadHours: grid.stepHours
+            ? grid.stepHours[forecastH] - grid.stepHours[h]
+            : (forecastH - h) * grid.subFrameStepHours,
         windSpeeds: grid.allHourlyWindSpeed[h],
         windDirs: grid.allHourlyWindDir[h],
         lats: grid.lats,
@@ -458,6 +466,7 @@ function generateContourLines(grid: HourGrid, level: number): number[][][] {
             const tr = values[r][c + 1];
             const br = values[r + 1][c + 1];
             const bl = values[r + 1][c];
+            if (![tl, tr, br, bl].every(Number.isFinite)) continue;
 
             // Marching squares case index (4-bit)
             const caseIdx =
@@ -890,6 +899,19 @@ export async function generateIsobars(
     zoom: number,
 ): Promise<{ grid: PressureGrid; result: IsobarResult } | null> {
     // Try GFS first (higher resolution, NOAA source), fallback to Open-Meteo
+    const { WindStore } = await import('../../stores/WindStore');
+    const local = WindStore.getState();
+    if (!local.isGlobalMode && local.localGribPath?.startsWith('grib-import/')) {
+        const [{ loadImportedGrib, importedFieldCoversNow }, { importedGribPressure }] = await Promise.all([
+            import('./localGribImport'),
+            import('./importedGribPressure'),
+        ]);
+        const file = await loadImportedGrib(local.localGribPath);
+        if (!importedFieldCoversNow(file, 'pressure'))
+            throw new Error('Imported pressure is missing, expired or does not cover the current time.');
+        const grid = importedGribPressure(file);
+        return grid ? { grid, result: generateIsobarsFromGrid(grid, 0) } : null;
+    }
     let grid = await fetchPressureGridGfs(north, south, west, east);
 
     if (grid && pressureReplacementError(grid)) grid = null;

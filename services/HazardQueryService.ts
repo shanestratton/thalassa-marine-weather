@@ -33,6 +33,8 @@ import type { EncAreaGraze, EncCatzoc, EncHazardResult, EncHazardType } from './
 import { ENC_HAZARD_DEPTH_M } from './enc/types';
 import type { EncCautionArea } from './enc/EncSpatialIndex';
 
+export { queryChartLookahead } from './underway/ChartLookaheadQuery';
+
 const log = createLogger('HazardQueryService');
 
 // ── Types ──────────────────────────────────────────────────────────

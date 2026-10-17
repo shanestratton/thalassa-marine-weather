@@ -12,6 +12,11 @@
 export const MAX_SPEED = 60.0; // m/s — clamp range for texture encoding
 
 export interface WindGrid {
+    /** Validated private attachment; no provider replacement or borrowed time coverage. */
+    importedGrib?: boolean;
+    /** Attachment identity as encoded by its producer; no inferred provider/model name. */
+    edition?: 1 | 2;
+    source?: { centre: number; subcentre: number; process: number; parameterTable: number };
     /** U component (m/s, +east) per hour: [hour][row][col] */
     u: Float32Array[];
     /** V component (m/s, +north) per hour: [hour][row][col] */
@@ -67,6 +72,7 @@ export function encodeWindTexture(grid: WindGrid, hour: number): Uint8Array {
         const v = vData[i];
         const s = sData[i];
 
+        if (!Number.isFinite(uData[i]) || !Number.isFinite(vData[i]) || !Number.isFinite(sData[i])) continue;
         rgba[i * 4 + 0] = Math.round(Math.max(0, Math.min(255, ((u + MAX_SPEED) / (2 * MAX_SPEED)) * 255)));
         rgba[i * 4 + 1] = Math.round(Math.max(0, Math.min(255, ((v + MAX_SPEED) / (2 * MAX_SPEED)) * 255)));
         rgba[i * 4 + 2] = Math.round(Math.max(0, Math.min(255, (s / MAX_SPEED) * 255)));

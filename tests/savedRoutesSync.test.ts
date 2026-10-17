@@ -28,7 +28,7 @@ vi.mock('../services/supabase', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { deleteTrace, getSavedTraceTombstones, loadSavedTraces, saveTrace } from '../services/routeTracer';
+import { deleteTrace, getSavedTraceTombstones, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { pushSavedRoute, syncSavedRoutes } from '../services/savedRoutesSync';
 import {
     autoroutingProposalGeometryKey,

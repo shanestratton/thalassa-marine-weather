@@ -90,6 +90,8 @@ export interface PassageSpeedModel {
      * sailed as given with both end columns held, as the routers do.
      */
     polarKind?: 'shape' | 'figures';
+    /** User sailing adjustment already in the polar; preserve it when normalising a shape. */
+    polarScaleFactor?: number;
     /** Closest she sails to the true wind, degrees. */
     closeHauledDeg: number;
 }
@@ -161,8 +163,10 @@ export function passageSpeed(
     if (twsKts === null || twdDeg === null || !Number.isFinite(courseDeg)) return flat('assumed');
     // Her own figures are sailed as given (the routers' rule); a shape is scaled.
     const own = model.polarKind === 'figures';
-    const scale = own ? 1 : polarScale(model.polar, cruise);
-    if (scale === null) return flat('cruise');
+    const normalisation = own ? 1 : polarScale(model.polar, cruise);
+    if (normalisation === null) return flat('cruise');
+    const factor = Number.isFinite(model.polarScaleFactor) ? Math.max(0.7, Math.min(1.3, model.polarScaleFactor!)) : 1;
+    const scale = normalisation * (own ? 1 : factor);
     const motor = (offBowDeg: number): LegSpeed => {
         const kts = motoringKts(cruise, twsKts, offBowDeg);
         return { kts, how: 'motor', boatKts: kts };
@@ -190,7 +194,7 @@ export function passageSpeed(
     const firstTws = columns[0];
     const lastTws = columns[columns.length - 1];
     const lightAir = !own && firstTws > 0 && twsKts < firstTws ? twsKts / firstTws : 1;
-    const ceiling = own ? Number.POSITIVE_INFINITY : twsKts > lastTws ? cruise : cruise * MAX_OVER_CRUISE;
+    const ceiling = own ? Number.POSITIVE_INFINITY : (twsKts > lastTws ? cruise : cruise * MAX_OVER_CRUISE) * factor;
 
     const pointing = pointingDeg(model);
     let kts: number;

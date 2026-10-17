@@ -24,13 +24,18 @@ export const SECURE_AUTH_STORAGE_KEYS = [
  * Supabase's migration and orphan purge walk SECURE_AUTH_STORAGE_KEYS, never this.
  */
 export const SECURE_PI_CHART_DEVICE_KEY = 'thalassa-pi-chart-device';
+export const SECURE_SIGNALK_DEVICE_KEY = 'thalassa-signalk-device-v1';
 
 /**
  * Every key the native plugin accepts, and the one list the guard below is
  * built from: tests/SecureStorageAllowlist.test.ts holds it equal to
  * SecureStoragePlugin.swift's allowedKeys.
  */
-export const SECURE_STORAGE_KEYS: readonly string[] = [...SECURE_AUTH_STORAGE_KEYS, SECURE_PI_CHART_DEVICE_KEY];
+export const SECURE_STORAGE_KEYS: readonly string[] = [
+    ...SECURE_AUTH_STORAGE_KEYS,
+    SECURE_PI_CHART_DEVICE_KEY,
+    SECURE_SIGNALK_DEVICE_KEY,
+];
 
 const secureStorageKeySet = new Set(SECURE_STORAGE_KEYS);
 

@@ -3,7 +3,7 @@
  * chart mode (design 2026-07-11, Shane: "maybe just a toggle switch??
  * ... but needs a disclaimer of course").
  *
- * AU charted depths and tide predictions share the LAT datum, so
+ * When the charted depths and prediction explicitly share LAT,
  * live depth = charted + predicted height. This service reads that
  * height for "now" at the nearest station to a position, plus the
  * badge furniture (station name, trend, approx flag).
@@ -18,6 +18,8 @@
  *  - VISUAL ONLY: routing and tracer verdicts keep their own per-spot
  *    LAT-based tide windows. Nothing here feeds the safety maths.
  */
+import { readChartDatumForBounds } from './enc/readChartDatum';
+import type { ChartBounds } from './enc/chartDatum';
 import { fetchTideCurve } from './TideHeightService';
 import { createLogger } from '../utils/createLogger';
 
@@ -36,6 +38,7 @@ export interface TideOffsetRead {
 
 /** A tide curve spanning now → +24 h — the scrubber's raw material. */
 export interface TideCurveWindow {
+    datum: 'LAT';
     heightAt(tMs: number): number | null;
     rangeMs: [number, number];
     stationName: string | null;
@@ -46,12 +49,20 @@ export interface TideCurveWindow {
     fix: { lat: number; lon: number };
 }
 
-export async function readTideCurveWindow(lat: number, lon: number): Promise<TideCurveWindow | null> {
+export async function readTideCurveWindow(
+    lat: number,
+    lon: number,
+    chartBounds?: ChartBounds,
+): Promise<TideCurveWindow | null> {
     const now = Date.now();
     try {
-        const curve = await fetchTideCurve(lat, lon, now - 3 * 3600_000, now + 27 * 3600_000);
-        if (!curve) return null;
+        // One paint offset affects every visible chart, so the whole
+        // viewport must agree. Never apply a LAT curve to MLLW/LLWLT/MSL.
+        if (chartBounds && (await readChartDatumForBounds(chartBounds, true)) !== 'LAT') return null;
+        const curve = await fetchTideCurve(lat, lon, now - 3 * 3600_000, now + 27 * 3600_000, { chartBounds });
+        if (!curve || curve.datum !== 'LAT') return null;
         return {
+            datum: curve.datum,
             heightAt: (t: number) => curve.heightAt(t),
             rangeMs: curve.rangeMs,
             stationName: curve.stationName ?? null,

@@ -418,6 +418,8 @@ export interface BroadcastDeps {
     fetchImpl: FetchLike;
     /** Base origin of Signal K on this Pi, e.g. http://127.0.0.1:3000 */
     signalkOrigin: string;
+    /** Operator-owned authenticated read-session cache. Null/failure never falls back to REST. */
+    selfDocument?: () => Promise<unknown | null>;
     now?: () => number;
     signal?: AbortSignal;
     isCurrent?: () => boolean;
@@ -444,6 +446,15 @@ export type BroadcastOutcome = 'sent' | 'no-fix' | 'stale-fix' | 'not-authorised
  * vessel document yet.
  */
 export async function fetchSelfDocument(deps: BroadcastDeps): Promise<unknown | null> {
+    if (deps.selfDocument) {
+        try {
+            if (deps.signal?.aborted || deps.isCurrent?.() === false) return null;
+            const document = await deps.selfDocument();
+            return deps.signal?.aborted || deps.isCurrent?.() === false ? null : (document ?? null);
+        } catch {
+            return null;
+        }
+    }
     return fetchSignalkDocument(deps, SELF_PATH);
 }
 
@@ -730,6 +741,11 @@ export class AnchorWatchRunner {
 
     isRunning(): boolean {
         return this.timer !== null;
+    }
+
+    /** The watch it keeps now, without its credential, or null (piCommandLock.ts reads it to tell a renewal from a move). */
+    current(): AnchorWatchAssignment | null {
+        return this.timer !== null && this.assignment ? { ...this.assignment } : null;
     }
 
     /** Never includes the credential — this is safe to put in /status. */

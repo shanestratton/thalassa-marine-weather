@@ -1114,10 +1114,23 @@ for (const size of sizes)
                     page.evaluate(() => {
                         const map = (
                             window as unknown as {
-                                __trialFixture: { map: { getStyle: () => { layers: { id: string }[] } } };
+                                __trialFixture: {
+                                    map: {
+                                        isStyleLoaded(): boolean;
+                                        getStyle: () => { layers: { id: string }[] };
+                                    };
+                                };
                             }
                         ).__trialFixture.map;
-                        const layers = map.getStyle().layers;
+                        // Layer order is available while GeoJSON sources are still updating.
+                        // A replacing style graph may be absent; wait for that graph itself.
+                        let layers;
+                        try {
+                            layers = map.getStyle()?.layers;
+                        } catch {
+                            return false;
+                        }
+                        if (!layers) return false;
                         const enc = layers.findIndex((layer) => layer.id === 'enc-vec-depare-fill');
                         const route = layers.findIndex((layer) => layer.id === 'trial-route');
                         return enc >= 0 && route > enc;

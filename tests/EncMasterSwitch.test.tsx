@@ -70,8 +70,10 @@ describe('the ENC master switch', () => {
         const call = hubCode.slice(hubCode.indexOf('<MapBaseSelector'));
         const props = call.slice(0, call.indexOf('/>'));
         expect(props).toContain('encCellCount={encCellCount}');
-        expect(props).toContain('encVisible={encVisible}');
-        expect(props).toContain('onToggleEnc={toggleEnc}');
+        expect(props).toContain('encVisible={encMaster}');
+        expect(props).toContain("if (shownBase === 'enc')");
+        expect(props).toContain("setMapBase('relief')");
+        expect(props).toContain('toggleEnc()');
         // And the old home no longer carries it.
         const controls = readFileSync('components/map/ChartDepthControls.tsx', 'utf8');
         expect(controls).not.toContain('onToggleEncVisible');
@@ -84,8 +86,8 @@ describe('the ENC master switch', () => {
         const items = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
         // Relief, Relief + Sat, Ocean, Hybrid (the old Satellite base went in
         // 125-13a), then the ENC row.
-        expect(items).toHaveLength(5);
-        expect(items[items.length - 2]).toHaveTextContent('Hybrid');
+        expect(items).toHaveLength(6);
+        expect(items[items.length - 2]).toHaveTextContent('ENC only');
         expect(items[items.length - 1]).toHaveAttribute('role', 'menuitemcheckbox');
         expect(items[items.length - 1]).toHaveTextContent('ENC charts');
     });
@@ -115,11 +117,11 @@ describe('the ENC master switch', () => {
         expect(screen.getByRole('menuitemcheckbox')).toHaveAttribute('aria-checked', 'false');
     });
 
-    it('is a checkbox, not a fourth base-map radio', () => {
+    it('is a checkbox independent of the five base-map radios', () => {
         render(<Harness />);
         openMenu();
         // Four bases, one exclusive choice; ENC is not one of them.
-        expect(screen.getAllByRole('menuitemradio')).toHaveLength(4);
+        expect(screen.getAllByRole('menuitemradio')).toHaveLength(5);
         expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(1);
     });
 
@@ -131,6 +133,8 @@ describe('the ENC master switch', () => {
         openMenu();
         const menu = screen.getByRole('menu', { name: 'Map base' });
         expect(document.activeElement).toHaveTextContent('Hybrid');
+        fireEvent.keyDown(menu, { key: 'ArrowDown' });
+        expect(document.activeElement).toHaveTextContent('ENC only');
         fireEvent.keyDown(menu, { key: 'ArrowDown' });
         expect(document.activeElement).toBe(screen.getByRole('menuitemcheckbox'));
         // And it wraps back round to the first base rather than sticking.

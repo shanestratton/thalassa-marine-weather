@@ -162,7 +162,7 @@ export const Row = React.memo(
     }: {
         children: React.ReactNode;
         className?: string;
-        onClick?: () => void;
+        onClick?: React.MouseEventHandler<HTMLButtonElement>;
         label?: string;
     }) => {
         const baseClass = `p-4 border-b border-white/5 last:border-0 flex items-center justify-between gap-4 ${className}`;
@@ -191,12 +191,24 @@ Row.displayName = 'Row';
  *  Slate-500 is ~3.7:1 on the dark card and ~4.5:1 on the daylight card, and
  *  the white knob stays ~4.8:1 on it. Daylight needs no remap of its own. */
 export const Toggle = React.memo(
-    ({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) => (
+    ({
+        checked,
+        onChange,
+        label,
+        disabled,
+    }: {
+        checked: boolean;
+        onChange: (v: boolean) => void;
+        label?: string;
+        /** A sub-switch whose parent is off (129-06): shown, not operable. */
+        disabled?: boolean;
+    }) => (
         <button
             role="switch"
             aria-checked={checked}
             aria-label={label}
-            className="relative inline-flex items-center cursor-pointer py-2.5 px-2 -mr-2 group"
+            disabled={disabled}
+            className="relative inline-flex items-center cursor-pointer py-2.5 px-2 -mr-2 group disabled:cursor-not-allowed disabled:opacity-50"
             onClick={(e) => {
                 e.stopPropagation();
                 void triggerHaptic('light');

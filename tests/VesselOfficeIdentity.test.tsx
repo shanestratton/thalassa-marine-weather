@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
     documentRows: [] as any[],
     checklistRows: [] as any[],
     equipmentCreate: vi.fn(),
-    pullDocuments: vi.fn(),
+    documentUploads: {} as Record<string, { failed: boolean; reason?: string }>,
+    retryUploads: vi.fn(),
     checklistSaveRun: vi.fn(),
     maintenanceCreate: vi.fn(),
     toastSuccess: vi.fn(),
@@ -52,17 +53,17 @@ vi.mock('../services/vessel/LocalDocumentService', () => ({
 }));
 vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
-        pullFromCloud: (...args: unknown[]) => mocks.pullDocuments(...args),
         getDownloadUrl: vi.fn(async (uri: string) => uri),
         openDownload: vi.fn().mockResolvedValue(undefined),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
+        uploadStates: () => mocks.documentUploads,
+        onUploadsChanged: () => () => undefined,
+        retryUploads: (...args: unknown[]) => mocks.retryUploads(...args),
     },
 }));
 vi.mock('../services/vessel/LocalChecklistService', () => ({
     LocalChecklistService: {
         getAll: vi.fn(() => mocks.checklistRows),
+        getRuns: vi.fn(() => []),
         create: vi.fn().mockResolvedValue({ id: 'checklist-new' }),
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue(undefined),
@@ -144,12 +145,15 @@ const checklistA = [
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // A checklist run in progress is kept here (132-B16).
+    localStorage.clear();
     setAuthIdentityScope('account-a');
     mocks.equipmentRows = [equipmentA];
     mocks.documentRows = [documentA];
     mocks.checklistRows = checklistA;
     mocks.equipmentCreate.mockResolvedValue({ id: 'equipment-new' });
-    mocks.pullDocuments.mockResolvedValue(0);
+    mocks.documentUploads = {};
+    mocks.retryUploads.mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
     mocks.checklistSaveRun.mockResolvedValue({});
     mocks.maintenanceCreate.mockResolvedValue({});
 });
@@ -178,20 +182,28 @@ describe('vessel office identity boundary', () => {
         expect(mocks.toastSuccess).not.toHaveBeenCalledWith('Equipment registered');
     });
 
-    it('clears A documents/selections and ignores a deferred A cloud restore', async () => {
-        const pull = deferred<number>();
-        mocks.pullDocuments.mockReturnValueOnce(pull.promise);
+    it("clears A documents/selections and A's refused upload, and suppresses a deferred A retry in B", async () => {
+        const retry = deferred<{ pushed: number; pulled: number; errors: string[] }>();
+        mocks.retryUploads.mockReturnValueOnce(retry.promise);
+        mocks.documentUploads = { 'document-a': { failed: true, reason: 'the connection dropped' } };
         render(<DocumentsHub onBack={vi.fn()} />);
         expect(await screen.findByText('A private insurance policy')).toBeInTheDocument();
+        expect(screen.getByText('Upload failed: the connection dropped')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry uploading A private insurance policy' }));
+        await waitFor(() => expect(mocks.retryUploads).toHaveBeenCalledOnce());
 
         fireEvent.click(screen.getByText('A private insurance policy'));
         mocks.documentRows = [];
+        mocks.documentUploads = {};
         act(() => setAuthIdentityScope('account-b'));
         expect(screen.queryByText('A private insurance policy')).not.toBeInTheDocument();
+        expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument();
 
-        pull.resolve(1);
+        // A clean push: only the account switch keeps A's "uploaded" out of B.
+        retry.resolve({ pushed: 1, pulled: 0, errors: [] });
         await act(async () => Promise.resolve());
-        expect(mocks.toastSuccess).not.toHaveBeenCalledWith(expect.stringContaining('Restored'));
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+        expect(mocks.toastError).not.toHaveBeenCalled();
     });
 
     it('closes A run state and suppresses a deferred A run completion in B', async () => {
@@ -200,8 +212,7 @@ describe('vessel office identity boundary', () => {
         render(<ChecklistsPage onBack={vi.fn()} />);
         expect(await screen.findByText('A private bilge check')).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Run checklist inspection' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Run A private departure' }));
         fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
         await waitFor(() => expect(mocks.checklistSaveRun).toHaveBeenCalledOnce());
 
@@ -215,5 +226,35 @@ describe('vessel office identity boundary', () => {
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
         expect(mocks.toastError).not.toHaveBeenCalledWith(expect.stringContaining('Checklist complete'));
         expect(mocks.maintenanceCreate).not.toHaveBeenCalled();
+        // A's run was saved, so A's copy on the phone is gone too (132-B16), and B never had one.
+        expect(localStorage.getItem('thalassa_checklist_run_draft_v1::user%3Aaccount-a')).toBeNull();
+        expect(screen.queryByRole('dialog', { name: 'Run checklist' })).not.toBeInTheDocument();
+    });
+
+    it("keeps A's unfinished run on the phone for A, never shows it to B, and brings it back to A (132-B16)", async () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        expect(await screen.findByText('A private bilge check')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Run A private departure' }));
+        fireEvent.click(
+            screen.getByRole('button', { name: 'A private bilge check: not checked. Change status to passed' }),
+        );
+
+        mocks.checklistRows = [];
+        act(() => setAuthIdentityScope('account-b'));
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(screen.queryByRole('dialog', { name: 'Run checklist' })).not.toBeInTheDocument();
+        expect(screen.queryByText('A private bilge check')).not.toBeInTheDocument();
+
+        mocks.checklistRows = checklistA;
+        act(() => setAuthIdentityScope('account-a'));
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(screen.getByRole('dialog', { name: 'Run checklist' })).toBeInTheDocument();
+        expect(
+            screen.getByRole('button', { name: 'A private bilge check: passed. Change status to failed' }),
+        ).toBeInTheDocument();
     });
 });

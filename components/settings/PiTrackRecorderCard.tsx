@@ -15,9 +15,12 @@
  *   on, not running — asked for, but the loop is not going. Worth seeing rather
  *                    than hiding behind a happy-looking switch.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { getPiTrackStatus, setPiTrackRecording, type PiTrackStatus } from '../../services/piTrackRecorder';
+import { piCommandRefusalWords } from '../../services/piCommandRefusal';
 import { triggerHaptic } from '../../utils/system';
+
+const PiTrackHistorySheet = lazy(() => import('./PiTrackHistorySheet'));
 
 function human(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -37,6 +40,9 @@ export const PiTrackRecorderCard: React.FC = () => {
     const [status, setStatus] = useState<PiTrackStatus | null>(null);
     const [asked, setAsked] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [history, setHistory] = useState(false);
+    /** Her Pi refused the switch from this phone (129-12): its words. */
+    const [refused, setRefused] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         setStatus(await getPiTrackStatus());
@@ -51,8 +57,13 @@ export const PiTrackRecorderCard: React.FC = () => {
         if (busy || !status) return;
         setBusy(true);
         triggerHaptic('light');
+        const askedAt = Date.now();
         try {
-            setStatus((await setPiTrackRecording(!status.enabled)) ?? null);
+            const next = await setPiTrackRecording(!status.enabled);
+            // Her Pi answered, and said no (129-12): not "can't reach", and nothing changed.
+            const words = next ? null : piCommandRefusalWords(Date.now(), askedAt);
+            setRefused(words);
+            if (!words) setStatus(next ?? null);
         } finally {
             setBusy(false);
         }
@@ -105,11 +116,31 @@ export const PiTrackRecorderCard: React.FC = () => {
                 {status.stored.points.toLocaleString()} points
                 {held ? ` · ${held}` : ''} · {human(status.stored.bytes)}
             </p>
+            <button
+                type="button"
+                onClick={(event) => {
+                    event.currentTarget.focus({ preventScroll: true });
+                    setHistory(true);
+                }}
+                className="min-h-11 rounded-lg border border-white/15 px-3 text-xs font-semibold text-sky-300"
+            >
+                View track
+            </button>
+            {history && (
+                <Suspense fallback={<p role="status">Opening track history...</p>}>
+                    <PiTrackHistorySheet lastMs={status.stored.lastMs} onClose={() => setHistory(false)} />
+                </Suspense>
+            )}
 
             {/* Asked for, but not actually going. The one state a plain switch
                 would hide, and the one worth knowing about. */}
             {status.enabled && !status.running && (
                 <p className="text-[11px] text-amber-300/80">Switched on, but the recorder isn’t running.</p>
+            )}
+            {refused && (
+                <p aria-live="polite" className="text-[11px] text-amber-300/80">
+                    {refused}
+                </p>
             )}
         </div>
     );

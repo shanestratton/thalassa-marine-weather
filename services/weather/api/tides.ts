@@ -1,7 +1,14 @@
 import { Tide, TidePoint, StormGlassTideData } from '../../../types';
+import type { TideGUIDetails } from '../../../types/weather';
+export type { TideGUIDetails } from '../../../types/weather';
+import { fetchOfficialTides } from '../../tides/officialTides';
 import { fetchWorldTides } from './worldtides';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { pruneMap } from '../../../utils/boundedMap';
+import { satelliteModeActive } from '../../networkPolicy';
+import { savedTidesForPoint, saveTideTable, tableFromOfficial } from '../../tides/offlineTideStore';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../authIdentityScope';
+import { WORLD_TIDES_ATTRIBUTION } from '../../tides/worldTidesAttribution';
 
 const TIDE_NEGATIVE_TTL_MS = 5 * 60 * 1000;
 const failedTideChainAt = new Map<string, number>();
@@ -9,15 +16,6 @@ const failedTideChainAt = new Map<string, number>();
 import { createLogger } from '../../../utils/createLogger';
 
 const log = createLogger('tides');
-
-/** Tide station GUI metadata for source provenance display */
-export interface TideGUIDetails {
-    stationName: string;
-    isSecondary: boolean;
-    referenceStation?: string;
-    timeOffsetHigh?: number;
-    timeOffsetLow?: number;
-}
 
 /**
  * Fetch tide extremes directly from the WorldTides API.
@@ -29,9 +27,67 @@ export const fetchRealTides = async (
     lat: number,
     lon: number,
 ): Promise<{ tides: Tide[]; guiDetails?: TideGUIDetails }> => {
+    const scope = getAuthIdentityScope();
+    const saved = await savedTidesForPoint({ lat, lon });
+    if (!isAuthIdentityScopeCurrent(scope)) return { tides: [] };
+    const savedResult = saved
+        ? {
+              tides: saved.extremes.map((e) => ({
+                  time: new Date(e.timeMs).toISOString(),
+                  type: e.type,
+                  height: e.heightM,
+              })),
+              guiDetails: {
+                  stationName: saved.predictionStationName ?? saved.station.name,
+                  isSecondary: false,
+                  source: saved.official ? ('saved-official' as const) : ('saved-worldtides' as const),
+                  provider: saved.provider,
+                  stationId: saved.station.id,
+                  datumId: saved.datumId ?? undefined,
+                  datumLabel: saved.datum ?? undefined,
+                  attribution: saved.copyright,
+                  sourceUrl: saved.sourceUrl,
+                  licenceUrl: saved.licenceUrl,
+                  generatedAt: saved.generatedAt ?? undefined,
+                  savedAt: new Date(saved.savedAtMs).toISOString(),
+                  coverageStart: new Date(saved.coverageStartMs).toISOString(),
+                  coverageEnd: new Date(saved.coverageEndMs).toISOString(),
+              },
+          }
+        : null;
+    if (satelliteModeActive() || (typeof navigator !== 'undefined' && navigator.onLine === false))
+        return savedResult ?? { tides: [] };
+    // Read capability before the long-lived WorldTides cache. No official
+    // label survives a missing, expired or invalid publisher generation.
+    const official = await fetchOfficialTides(lat, lon);
+    if (!isAuthIdentityScopeCurrent(scope)) return { tides: [] };
+    if (official) {
+        const table = tableFromOfficial(official, { lat, lon });
+        if (table) await saveTideTable(table);
+        if (!isAuthIdentityScopeCurrent(scope)) return { tides: [] };
+        return {
+            tides: official.events.map((event) => ({ time: event.time, type: event.type, height: event.heightM })),
+            guiDetails: {
+                stationName: official.stationName,
+                isSecondary: false,
+                source: 'official',
+                provider: official.provider,
+                stationId: official.stationId,
+                datumId: official.datumId,
+                datumLabel: official.datumLabel,
+                rawDatum: official.rawDatum,
+                attribution: official.attribution,
+                sourceUrl: official.sourceUrl,
+                licenceUrl: official.licenceUrl,
+                generatedAt: official.generatedAt,
+                expiresAt: official.expiresAt,
+                observation: official.observation,
+            },
+        };
+    }
     // Check cache first (24h TTL — predictions don't change)
     const cached = apiCacheGet<{ tides: Tide[]; guiDetails?: TideGUIDetails }>('tides', lat, lon);
-    if (cached) return cached;
+    if (cached && cached.guiDetails?.source !== 'official') return cached;
 
     // Negative cache: a failed chain (Pi 502, proxy down) must not be
     // replayed by every consumer at trigger cadence — the 2026-08-04 device
@@ -40,11 +96,12 @@ export const fetchRealTides = async (
     const negKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
     const lastFail = failedTideChainAt.get(negKey);
     if (lastFail !== undefined && Date.now() - lastFail < TIDE_NEGATIVE_TTL_MS) {
-        return { tides: [], guiDetails: undefined };
+        return savedResult ?? { tides: [], guiDetails: undefined };
     }
 
     try {
         const wtData = await fetchWorldTides(lat, lon, 14);
+        if (!isAuthIdentityScopeCurrent(scope)) return { tides: [] };
 
         if (wtData && wtData.extremes) {
             // (Diagnostic log removed 2026-04-24 after confirming WorldTides
@@ -64,6 +121,12 @@ export const fetchRealTides = async (
             const guiDetails: TideGUIDetails = {
                 stationName,
                 isSecondary: false,
+                source: 'worldtides',
+                provider: 'WorldTides',
+                datumLabel: wtData.responseDatum,
+                attribution: wtData.copyright ?? WORLD_TIDES_ATTRIBUTION,
+                sourceUrl: 'https://www.worldtides.info',
+                licenceUrl: 'https://www.worldtides.info/copyright',
             };
 
             const result = { tides: mappedTides, guiDetails };
@@ -79,7 +142,7 @@ export const fetchRealTides = async (
     // Return empty so transformers.ts correctly classifies as INLAND/OFFSHORE.
     failedTideChainAt.set(negKey, Date.now());
     pruneMap(failedTideChainAt, 32);
-    return { tides: [], guiDetails: undefined };
+    return savedResult ?? { tides: [], guiDetails: undefined };
 };
 
 export const fetchSeaLevels = async (_lat: number, _lon: number): Promise<Partial<StormGlassTideData>[]> => {

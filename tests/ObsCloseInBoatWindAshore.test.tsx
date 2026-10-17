@@ -86,8 +86,16 @@ vi.mock('../services/PiCacheService', () => ({
         getStatus: () => ({ reachable: false, diaryRelayConfigured: false, diaryRelayOwnerId: null }),
     },
 }));
-vi.mock('leaflet', () => ({ default: {} }));
-vi.mock('leaflet-velocity-ts', () => ({}));
+vi.mock('../components/map/MapboxWindField', () => ({
+    MapboxWindField: class {
+        element = document.createElement('div');
+        setData = vi.fn();
+        destroy = vi.fn(() => this.element.remove());
+        constructor(map: { getContainer(): HTMLElement }) {
+            map.getContainer().appendChild(this.element);
+        }
+    },
+}));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));

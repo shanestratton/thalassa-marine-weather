@@ -5,7 +5,8 @@ import type { PassageStatus } from '../services/PassagePlanService';
 import type { VoyageRow } from '../components/CrewManagement';
 import type { CrewMember } from '../services/CrewService';
 
-vi.mock('../data/customsPortIndex', () => ({
+vi.mock('../data/customsPortIndex', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../data/customsPortIndex')>()),
     isSameCountry: vi.fn(() => false),
 }));
 
@@ -13,6 +14,13 @@ vi.mock('../data/customsPortIndex', () => ({
 const { boatOf } = vi.hoisted(() => ({
     boatOf: (vessel: { name?: string } | null | undefined) =>
         vessel === undefined ? 'own' : vessel === null ? 'unknown' : (vessel.name ?? ''),
+}));
+const observed = vi.hoisted(() => ({ renders: vi.fn() }));
+vi.mock('../components/observations/ObservedNearbyCard', () => ({
+    default: (props: unknown) => {
+        observed.renders(props);
+        return <div data-testid="observed-nearby-card">Observed station readings</div>;
+    },
 }));
 
 vi.mock('../components/passage/PassageSummaryCard', () => ({
@@ -238,9 +246,30 @@ const renderStack = (
 
 afterEach(() => {
     vi.mocked(isSameCountry).mockReturnValue(false);
+    observed.renders.mockClear();
 });
 
 describe('passage permission integration', () => {
+    it('loads current observations only in the open, route-and-checklist-authorized briefing without counting readiness', async () => {
+        renderStack(ownerStatus);
+        expect(observed.renders).not.toHaveBeenCalled();
+        const group = screen.getByText('Departure Brief').closest('details')!;
+        (group as HTMLDetailsElement).open = true;
+        fireEvent(group, new Event('toggle'));
+        expect(await screen.findByTestId('observed-nearby-card')).toBeInTheDocument();
+        expect(observed.renders).toHaveBeenCalledWith(
+            expect.objectContaining({ point: voyage.departureCoords, briefing: true }),
+        );
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/4');
+    });
+    it('does not disclose departure-area stations to a checklist-only crew grant', () => {
+        renderStack(restrictedChecklistStatus);
+        const group = screen.getByText('Departure Brief').closest('details')!;
+        (group as HTMLDetailsElement).open = true;
+        fireEvent(group, new Event('toggle'));
+        expect(screen.queryByTestId('observed-nearby-card')).not.toBeInTheDocument();
+        expect(observed.renders).not.toHaveBeenCalled();
+    });
     it('mounts every child-card family but hides delegation controls for a solo owner', () => {
         renderStack(ownerStatus);
 
@@ -367,6 +396,42 @@ describe('passage permission integration', () => {
         });
 
         expect(screen.getByTestId('navigation-card')).toHaveAttribute('data-other-cards-ready', 'true');
+    });
+
+    it('counts documents on the customs row when the index can place the ports', () => {
+        const { unmount } = renderStack(ownerStatus, [], { customsProgress: { total: 12, checked: 3 } });
+        const customsRow = () => screen.getByText('Customs & Immigration').closest('summary');
+        expect(customsRow()).toHaveTextContent('3/12 documents · Brisbane, Australia → Noumea, New Caledonia');
+        unmount();
+
+        renderStack(ownerStatus, [], { customsCleared: true, customsProgress: { total: 12, checked: 12 } });
+        expect(customsRow()).toHaveTextContent('✅ All documents cleared');
+    });
+
+    it('130-09: names the border check, never documents, when neither port can be placed', () => {
+        // The card's one item is the skipper's border check (1, n): no
+        // document was listed, so the row must not claim any.
+        const bermudaRun: VoyageRow = {
+            ...voyage,
+            departure_port: 'Newport, RI',
+            destination_port: "St George's, Bermuda",
+        };
+        const { unmount } = renderStack(ownerStatus, [], {
+            draftVoyages: [bermudaRun],
+            customsProgress: { total: 1, checked: 0 },
+        });
+        const customsRow = () => screen.getByText('Customs & Immigration').closest('summary');
+        expect(customsRow()).toHaveTextContent("Border check · Newport, RI → St George's, Bermuda");
+        expect(customsRow()).not.toHaveTextContent(/documents/);
+        unmount();
+
+        renderStack(ownerStatus, [], {
+            draftVoyages: [bermudaRun],
+            customsCleared: true,
+            customsProgress: { total: 1, checked: 1 },
+        });
+        expect(customsRow()).toHaveTextContent('✅ Border checked');
+        expect(customsRow()).not.toHaveTextContent(/documents/);
     });
 
     it('shows delegation controls as soon as a pending crew invite exists', () => {

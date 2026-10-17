@@ -65,12 +65,39 @@ const widgets: MetricWidget[] = [
         labelColor: 'text-purple-300',
     },
     { id: 'cape', label: 'CAPE', icon: <CloudIcon />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
-    { id: 'swell2', label: 'SWELL 2', icon: <WaveIcon />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
-    { id: 'period2', label: 'PER. 2', icon: <GaugeIcon />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
+    // Build 130 (130-04): PER. 2 became WIND SEA; both sea cells draw their own arrow.
+    {
+        id: 'swell2',
+        label: 'SWELL 2',
+        icon: <WaveIcon />,
+        headingColor: 'text-cyan-400',
+        labelColor: 'text-cyan-300',
+        dirDeg: 200,
+    },
+    {
+        id: 'windsea',
+        label: 'WIND SEA',
+        icon: <WaveIcon />,
+        headingColor: 'text-cyan-400',
+        labelColor: 'text-cyan-300',
+        dirDeg: 75,
+        compactLabel: true,
+    },
 ];
+/** The same grid before 130-06 fills the parts: dashes, and no arrow beside a dash. */
+const dashWidgets: MetricWidget[] = widgets.map((w) => (w.dirDeg === undefined ? w : { ...w, dirDeg: null }));
+/**
+ * ?seagrid=1 (130-04): the offshore grid, filled and dashed, at the size the
+ * Glass gives it: 16 px from each edge of the screen (the Dashboard's px-4 on
+ * HeroSection: 288 px wide at 320) and the 163 px cell. The pane's own 8 px
+ * gutter is too generous: at 304 px the old WIND SEA heading never broke.
+ */
+const SEA_GRID = new URLSearchParams(window.location.search).get('seagrid') === '1';
+/** The Glass's offshore grid height: a hard constraint. */
+const GLASS_GRID_PX = 163;
 // The widest readings each offshore tile draws, as HeroSlide formats them
-// (W1-07, build 123): SWELL 2 in the skipper's own Seas unit, no arrow.
-// ?seas=ft is the imperial skipper's grid.
+// (W1-07, build 123): SWELL 2 and WIND SEA in the skipper's own Seas unit,
+// each with its arrow (130-04). ?seas=ft is the imperial skipper's grid.
 const SEAS_FT = new URLSearchParams(window.location.search).get('seas') === 'ft';
 const offshoreReadings: Record<string, [string, string]> = SEAS_FT
     ? {
@@ -79,7 +106,7 @@ const offshoreReadings: Record<string, [string, string]> = SEAS_FT
           set: ['NNW', ''],
           cape: ['2400', ''],
           swell2: ['13.1', 'ft'],
-          period2: ['16', 's'],
+          windsea: ['12.8', 'ft'],
       }
     : {
           water: ['29', '°C'],
@@ -87,7 +114,7 @@ const offshoreReadings: Record<string, [string, string]> = SEAS_FT
           set: ['NNW', ''],
           cape: ['2400', ''],
           swell2: ['4.6', 'm'],
-          period2: ['16', 's'],
+          windsea: ['3.9', 'm'],
       };
 
 // ?daySlots=1 (2026-10-02): the day card in the Glass carousel's slot heights,
@@ -230,6 +257,34 @@ function Fixture() {
                         getUnit={(id) => offshoreReadings[id][1]}
                     />
                 </section>
+                {SEA_GRID && (
+                    <div className="flex flex-col gap-3" style={{ paddingInline: 8 }}>
+                        <section
+                            data-testid="sea-grid"
+                            className="relative w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 flex flex-col"
+                            style={{ height: GLASS_GRID_PX }}
+                        >
+                            <MetricGridPanel
+                                widgets={widgets}
+                                getValue={(id) => offshoreReadings[id][0]}
+                                getUnit={(id) => offshoreReadings[id][1]}
+                            />
+                        </section>
+                        <section
+                            data-testid="sea-grid-dash"
+                            className="relative w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 flex flex-col"
+                            style={{ height: GLASS_GRID_PX }}
+                        >
+                            <MetricGridPanel
+                                widgets={dashWidgets}
+                                getValue={(id) =>
+                                    id === 'swell2' || id === 'windsea' ? '--' : offshoreReadings[id][0]
+                                }
+                                getUnit={(id) => offshoreReadings[id][1]}
+                            />
+                        </section>
+                    </div>
+                )}
                 <section
                     data-testid="daily-summary"
                     className="w-full bg-white/8 rounded-xl border border-white/15"

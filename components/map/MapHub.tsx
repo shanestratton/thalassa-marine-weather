@@ -17,7 +17,8 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
-import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from './creditsStrip';
+import { CREDITS_SLOT_PX } from './creditsStrip';
+import ObsCreditsRollup from './ObsCreditsRollup';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -42,6 +43,7 @@ import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase'
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
 import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
+import { localWindSource } from './localWindSource';
 import { LINE_EDGE_LAYERS, lineEdges, traceHintPaint } from './traceLegInk';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
@@ -72,7 +74,6 @@ import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { useSatelliteLayer } from './useSatelliteLayer';
-import { SatelliteIrCredit } from './SatelliteIrCredit';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 
 import {
@@ -93,11 +94,14 @@ import { usePinViewMode, readCurrentPinView, type PinViewHandoff } from './usePi
 // Manual route editing happens through the route planner instead.
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
+import { useRadarLayer } from './useRadarLayer';
 import { useCycloneLayer } from './useCycloneLayer';
 import { useSquallMap } from './useSquallMap';
 import { useVesselTracker } from './useVesselTracker';
 import { useAvNavCharts } from './useAvNavCharts';
 import { useChartCatalog } from './useChartCatalog';
+import { applyEncOnlyBase } from './encOnlyBase';
+import { CATEGORY_DETAIL, type ChartDisplayCategory } from './chartDisplayCategory';
 import { useLocalCharts } from './useLocalCharts';
 import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
@@ -163,28 +167,32 @@ import { hazardDepthForDraft } from '../../services/HazardQueryService';
 import {
     traceHealth,
     pointInBbox,
-    loadSavedTraces,
-    linkTraceToPassage,
-    attachSavedTraceTombstoneLinks,
-    deleteTrace,
     tracePinBlocked,
     rdpTracePoints,
     bearingDegBetween,
     courseArrow,
     commonDepartureWindowLabel,
-    nextLegSeed,
-    ordinalLegLabel,
-    stripLegBadge,
-    buildTripPassageRollups,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     splitLegForDepthGrid,
     holdTracerCtx,
+    setTracerCtxLru,
+    tracerContextCurrent,
     type TraceLegVerdict,
     type TracePoint,
     type TracerContext,
-    type SavedTrace,
 } from '../../services/routeTracer';
+import {
+    loadSavedTraces,
+    linkTraceToPassage,
+    attachSavedTraceTombstoneLinks,
+    deleteTrace,
+    nextLegSeed,
+    ordinalLegLabel,
+    stripLegBadge,
+    buildTripPassageRollups,
+    type SavedTrace,
+} from '../../services/savedTraceStore';
 import { tideCurveBucket } from '../../services/TideHeightService';
 import {
     consumeTracerOpenRequest,
@@ -203,6 +211,7 @@ import { setEncHydrationPaused } from '../../services/enc/EncHazardService';
 import {
     getRegistryFingerprint as getEncRegistryFingerprint,
     getVersion as getEncRegistryVersion,
+    subscribe as subscribeEncRegistry,
 } from '../../services/enc/EncCellMetadata';
 import { evaluateTraceRelease, traceRegistryScope } from '../../services/traceVerification';
 import {
@@ -265,12 +274,6 @@ import { buildTacticalState } from './buildTacticalState';
 import { MapActionFabs } from './MapActionFabs';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 
-// Eager import — the chip doubles as the live diagnostic pill for the
-// lightning feed, so a lazy chunk that fails to load silently (and
-// leaves the user staring at an empty chart with no feedback) is the
-// exact failure mode we're trying to fix. Tiny component, not worth the
-// risk of a broken chunk hiding our debug surface.
-import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { EncAttributionChip } from './EncAttributionChip';
 import { HazardReportPanel } from '../passage/HazardReportPanel';
 import { ThreatBanner } from './ThreatBanner';
@@ -302,6 +305,7 @@ import { usePersistedState } from '../../hooks/usePersistedState';
 // or hook order changed.
 import {
     AisGuardAlert,
+    AisTargetsSheet,
     ChartKeyPanel,
     CmemsAttribution,
     ConsensusMatrix,
@@ -321,6 +325,8 @@ import {
 import { IMAGERY_SCRUB_OWNED } from './mapHub/constants';
 import { useActiveVoyageChartSync } from './mapHub/useActiveVoyageChartSync';
 import { useCycloneCenterLock } from './mapHub/useCycloneCenterLock';
+import { useObsClearView } from './mapHub/useObsClearView';
+import { ObsClearViewChrome } from './ObsClearViewChrome';
 import { useFollowRouteClearOnPassage } from './mapHub/useFollowRouteClearOnPassage';
 import { useMarkHaloPulse } from './mapHub/useMarkHaloPulse';
 import { useOpenSeaMapRasterHide } from './mapHub/useOpenSeaMapRasterHide';
@@ -334,8 +340,13 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 // ── Component ──────────────────────────────────────────────────
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
+const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
+const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
+
+const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -387,6 +398,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         return !!pinView;
     });
     const [showVesselSearch, setShowVesselSearch] = useState(false);
+    const [showAisTargets, setShowAisTargets] = useState(false);
     const vesselSearchMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const vesselSearchMarkerTimerRef = useRef<number | null>(null);
     useEffect(
@@ -536,15 +548,35 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  single slot: grid required, 0.008° interior margin, marks-only NEVER
      *  held. Cleared with the ctx on draft change and Done. */
     const tracerCtxLruRef = useRef<TracerContext[]>([]);
+    const tracerMountedRef = useRef(true);
     const tracerCtxFromLru = useCallback((pts: ReadonlyArray<{ lat: number; lon: number }>): TracerContext | null => {
+        tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, tracerCtxLruRef.current);
+        if (tracerCtxRef.current && !tracerContextCurrent(tracerCtxRef.current)) tracerCtxRef.current = null;
         for (const c of tracerCtxLruRef.current) {
             if (c.grid && pts.every((p) => pointInBbox(p, c.bbox, 0.008))) return c;
         }
         return null;
     }, []);
     const tracerCtxHold = useCallback((ctx: TracerContext) => {
-        tracerCtxRef.current = ctx;
+        if (!tracerMountedRef.current || !tracerContextCurrent(ctx)) return;
         tracerCtxLruRef.current = holdTracerCtx(tracerCtxLruRef.current, ctx);
+        tracerCtxRef.current = ctx;
+    }, []);
+    useEffect(() => {
+        tracerMountedRef.current = true;
+        const discardStale = () => {
+            tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, tracerCtxLruRef.current);
+            if (tracerCtxRef.current && !tracerContextCurrent(tracerCtxRef.current)) tracerCtxRef.current = null;
+        };
+        const stopRegistry = subscribeEncRegistry(discardStale);
+        const stopIdentity = subscribeAuthIdentityScope(discardStale);
+        return () => {
+            tracerMountedRef.current = false;
+            stopRegistry();
+            stopIdentity();
+            tracerCtxRef.current = null;
+            tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, []);
+        };
     }, []);
     // A background route check frees these windows before each check and at
     // the end of its queue (125-07): kept alive here, hidden, they sat under
@@ -562,7 +594,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     tracingPinsRef.current,
                 );
                 tracerCtxRef.current = kept.current;
-                tracerCtxLruRef.current = kept.lru;
+                tracerCtxLruRef.current = setTracerCtxLru(tracerCtxLruRef.current, kept.lru);
             }),
         [],
     );
@@ -2246,11 +2278,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // was the safe pilot for breaking this file up. Called exactly where the
     // state used to be declared: below mapReady, above chokepointVisible, so
     // hook order is unchanged.
-    const { encCellCount, encReferenceCellCount, encHydration, encNoCoverage } = useEncChartInventory(
-        mapRef,
-        mapReady,
-        encVisible,
-    );
     // OBS opens on Relief (Shane 2026-10-04: "the stitching"), one choice for
     // day and night alike, kept with the account (settings.obsChartBase). The
     // localStorage write below is only EncVectorLayer's synchronous mirror,
@@ -2293,6 +2320,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
+    const [displayCategory, setDisplayCategory] = useState<ChartDisplayCategory | null>(null);
+    const [paperChartsOpen, setPaperChartsOpen] = useState(false);
+    const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
+    const closeNoaaCatalogue = useCallback(() => setNoaaCatalogueOpen(false), []);
+    const closePaperCharts = useCallback(() => setPaperChartsOpen(false), []);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page"). The browsing chart and the plotting
     // surface are the SAME map. The planner maps show the planner's own pick
@@ -2313,16 +2345,22 @@ export const MapHub: React.FC<MapHubProps> = ({
     // over its pale sea the glaze's safe white is a ΔE 3-6 step from no-data
     // water, so uncharted would nearly read as safe (hard rule 1). There the
     // cells draw opaque S-52 bands, the safety contour, marks and soundings.
-    const imageryOn: boolean = shownBase !== 'light';
+    const imageryOn: boolean = shownBase !== 'light' && shownBase !== 'enc';
     // ...and on the desk tracer that chart is the whole open chart: its land,
     // coastline, contours and names as well as the plotting floors, so a NOAA
     // cell reads as a paper chart (127-DESKMAP A3). The desk has no ENC row; the
     // tracer mounts its cells either way. Everywhere else the switch decides.
-    const encMaster = encVisible || (deskPlanner && coordCaptureMode && !imageryOn);
+    const encMaster = encVisible || shownBase === 'enc' || (deskPlanner && coordCaptureMode && !imageryOn);
+    const { encCellCount, encReferenceCellCount, encHydration, encNoCoverage } = useEncChartInventory(
+        mapRef,
+        mapReady,
+        encMaster,
+    );
+
     // Relief is damped under the drawn ENC glaze so two depth colour codes don't
     // fight (reliefBase setReliefPalette); a boolean, so loading cells don't
     // re-run the base pass.
-    const encDrawn = encVisible && encCellCount > 0;
+    const encDrawn = encMaster && encCellCount > 0;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -2466,7 +2504,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     ((map.getLayoutProperty('hybrid-base-layer', 'visibility') as string | undefined) ?? 'visible') !==
                         'none';
                 const duplicateHybridLabels = styleLayers.filter(isBasemapHybridDuplicateLabelLayer);
-                const desiredBaseLabelVisibility = hybridRasterVisible ? 'none' : 'visible';
+                const desiredBaseLabelVisibility = hybridRasterVisible || shownBase === 'enc' ? 'none' : 'visible';
                 for (const layer of duplicateHybridLabels) {
                     if (setVis(layer.id, desiredBaseLabelVisibility)) changed = true;
                 }
@@ -2613,7 +2651,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // and hid every light and buoy for the rest of the session
                 // (W1-01 review). Plotting still gets exactly what the skipper
                 // set; browseDetailLevel holds the rule.
-                const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);
+                const effectiveDeclutter = displayCategory
+                    ? CATEGORY_DETAIL[displayCategory]
+                    : browseDetailLevel(coordCaptureMode, declutter);
                 if (
                     applyChartDetailLevel(map, effectiveDeclutter, {
                         encMasterOff: !encMaster,
@@ -2621,6 +2661,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     })
                 )
                     changed = true;
+                applyEncOnlyBase(map, shownBase === 'enc');
             } catch {
                 /* style mid-swap — re-applied on the next styledata tick */
             }
@@ -2668,6 +2709,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         nightMode,
         encDrawn,
         declutter,
+        displayCategory,
         mapReady,
         encVisible,
         encMaster,
@@ -2678,18 +2720,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Charted depth + predicted tide plus the night-dim treatment, both in
     // components/map/useTideDepthMode.ts. VISUAL ONLY by hard rule: the
     // safety contour, tracer and router keep grading against chart datum.
+    // 'Auto with night' (131-03) drives the dim as well as the relief's night
+    // palette: App's nightMode is its dusk-to-dawn answer in that mode. The
+    // dim is drawn only while the chart is on screen (131-03 review: kept
+    // alive hidden, it covered every other page), and its switch is the
+    // Night dim row in the map-base menu.
     const {
         tideDepthMode,
         setTideDepthMode,
         nightDim,
         setNightDim,
+        nightDimRow,
         tideOffsetInfo,
         showTideAck,
         setShowTideAck,
         tideScrubQ,
         setTideScrubQ,
         onToggleTideDepth,
-    } = useTideDepthMode(mapRef, mapReady, planningSurface);
+    } = useTideDepthMode(
+        mapRef,
+        mapReady,
+        planningSurface,
+        nightMode && settings.displayMode === 'auto-night',
+        currentView === 'map',
+    );
     // Keel-honesty flag for the tap-the-water popup — a verdict against
     // the 2.5 m fallback draft must say so (mirrors the tracer).
     useEffect(() => {
@@ -2808,6 +2862,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setRoutePickerOpen(false);
         setTrackPickerOpen(false);
         setShowVesselSearch(false);
+        setShowAisTargets(false);
         setShowOfflineArea(false);
         setStormPickerOpen(false);
         setShowReport(false);
@@ -3034,6 +3089,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // 2026-09-09: a green flag at Lady Musgrave for a route he had not
     // plugged in, and no way on the chart to ask what it was or drop it).
     const [stopFollowAsk, setStopFollowAsk] = useState(false);
+    const [sendFollowedCourse, setSendFollowedCourse] = useState(false);
     const followedPlan = useFollowRouteStore((s) => s.voyagePlan);
     const isFollowingRoute = useFollowRouteStore((s) => s.isFollowing);
     const followedRouteCoords = useFollowRouteStore((s) => s.routeCoords);
@@ -3146,6 +3202,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!planningSurface) return;
         setWeatherInspectMode(false);
         setShowVesselSearch(false);
+        setShowAisTargets(false);
         setStormPickerOpen(false);
         setRoutePickerOpen(false);
         setTrackPickerOpen(false);
@@ -3214,7 +3271,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         obsStart,
         onLocationSelect,
         pickerMode,
-        encVisible,
+        encVisible: encMaster,
         settingPoint: passage.settingPoint,
         showPassage: passage.showPassage,
         departure: passage.departure,
@@ -3246,6 +3303,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
+    // Clear view (133): the top-centre map menu hides Obs's controls, with
+    // or without a weather layer; one tap brings them back. Never while
+    // MOB, the picker, plotting, Inspect or a passage point has the chart.
+    const obsFrameRef = useRef<HTMLDivElement>(null);
+    const clearView = useObsClearView({
+        frameRef: obsFrameRef,
+        available: obsShowing,
+        modeOwnsChart: mobActive || coordCaptureMode || browseWeatherInspectMode || !!passage.settingPoint,
+    });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
     // account's paired Pi holds licensed charts (127-DESKMAP C1).
@@ -3404,13 +3470,20 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── AIS Vessel Target Layer ──
     useAisLayer(mapRef, mapReady, browseAisVisible);
-    useAisStreamLayer(mapReady ? mapRef.current : null, browseAisVisible);
+    const radarMergedMmsis = useRadarLayer(mapReady ? mapRef.current : null, browseAisVisible);
+    useAisStreamLayer(mapReady ? mapRef.current : null, browseAisVisible, radarMergedMmsis);
 
     // ── Signal K Nautical Charts ──
     const skCharts = useAvNavCharts(mapRef, mapReady, planningSurface ? noChartIds : skChartIds, skChartOpacity);
 
     // ── Free Chart Catalog (NOAA, LINZ) ──
-    const chartCatalog = useChartCatalog(mapRef, mapReady, !planningSurface, true);
+    const chartCatalog = useChartCatalog(
+        mapRef,
+        mapReady,
+        !embedded && !pickerMode && !isPinView && shownBase !== 'enc',
+        true,
+        settings.satelliteMode === true,
+    );
 
     // ── Local MBTiles Charts (on-phone, no AvNav needed) ──
     const localCharts = useLocalCharts(
@@ -3422,8 +3495,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Offline OSM raster fallback — renders when offline, invisible when online ──
     useOfflineBaseLayer(mapRef, mapReady, isOnline);
-    const chartsActive =
-        !planningSurface && (skChartIds.size > 0 || chartCatalog.hasEnabledCharts || localChartIds.size > 0);
+    // A public raster service can return transparent/no-data tiles within its
+    // coarse region. Selection alone must not remove the fallback sea marks.
+    const chartsActive = !planningSurface && (skChartIds.size > 0 || localChartIds.size > 0);
     // ENC vector chart actually rendering — master toggle ON and at least one
     // cell imported. Drives the same "another chart source draws its own
     // navaids" switch-offs as `chartsActive` (OSM raster icons + full-mode
@@ -3431,7 +3505,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // global toggle: panning outside ENC coverage with cells loaded shows no
     // OSM seamarks there — accepted; a bbox-aware gate can come with the
     // coverage layer's cell bboxes later.
-    const encActive = encVisible && encCellCount > 0;
+    const encActive = encMaster && encCellCount > 0;
 
     // ── Single-select chart picker ──
     // Only one nautical chart layer visible at a time across all three kinds
@@ -3858,19 +3932,17 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // Determine if tablet split-screen is active
     const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded && !pickerMode;
-    // Mirrors MapWeatherControls.showRainViewerAttribution: while the RainViewer
-    // pill occupies the credits strip's first slot, other credits stack below it.
+    // Obs shares one credit row. Embedded and planner surfaces retain their
+    // existing weather attribution controls. Both radar and forecast frames credit
+    // their actual provider.
+    const obsCreditsVisible = !pickerMode && !planningSurface && !embedded && !isPinView;
     const rainCreditShown =
         weather.activeLayers.has('rain') &&
         weather.rainReady &&
-        // Either kind of frame carries a credit in slot 0 (RainViewer for radar,
-        // Rainbow.ai for forecast — MapWeatherControls), so Copernicus stacks
-        // under both. Testing for 'radar' alone let the two overlap.
         !!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
-    // The wind model's licence credit on Obs whenever the field draws
-    // (127-DESKMAP-b; the desk shows it in its strip): after the radar and
-    // Copernicus credits, lightning and the satellite cloud under it.
+    // The rollup names the wind source only while its field draws. The desk
+    // retains its own model/licence strip.
     const obsWindCredit =
         ownshipStartup &&
         !mobActive &&
@@ -3880,10 +3952,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     const windPalette = shownBase === 'light' && !nightMode ? 'light' : 'dark';
     // The desk menu's Wind row (127-DESKMAP-b); the phone's planner menu has the bases alone.
     const deskWindRow = deskWindOffered
-        ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
+        ? [
+              deskWindToggle(
+                  deskWindOn,
+                  weather.windModel,
+                  () => setDeskWindOn((on) => !on),
+                  localWindSource(weather.windState) ?? undefined,
+              ),
+          ]
         : [];
     const obsKeyProps: ObsLayerKeyProps = {
-        enc: encVisible
+        enc: encMaster
             ? {
                   imageryOn,
                   tideDepthMode: tideDepthMode && !!tideOffsetInfo,
@@ -3925,12 +4004,17 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* in the background after the basic plan lands. */}
             {!pickerMode && <RouteEnhancementChip />}
             {/* Map container — 70% on tablet during passage, full otherwise */}
-            <div className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}>
+            <div
+                ref={obsFrameRef}
+                data-obs-clear-view={clearView.on ? 'on' : undefined}
+                className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}
+            >
                 <div
                     ref={containerRef}
                     data-map-pane={isHelmSplit ? 'split' : undefined}
                     className="thalassa-chart-map w-full h-full"
                 />
+                <ObsClearViewChrome view={clearView} />
 
                 {pickerMode && (
                     <div
@@ -3987,14 +4071,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* The base beneath the ENC stack: Relief, Relief + Sat, Ocean
-                    or Hybrid. The pick is kept with the account. */}
+                    or Hybrid. The pick is kept with the account. Under the ENC
+                    row, the Night dim row whenever there is a dim to switch
+                    (131-03 review). */}
                 <MapBaseSelector
                     visible={!planningSurface && !embedded && !pickerMode && !isPinView}
                     value={mapBase}
                     onChange={setMapBase}
                     encCellCount={encCellCount}
-                    encVisible={encVisible}
-                    onToggleEnc={toggleEnc}
+                    encVisible={encMaster}
+                    onToggleEnc={() => {
+                        if (shownBase === 'enc') {
+                            setMapBase('relief');
+                            if (encVisible) toggleEnc();
+                        } else toggleEnc();
+                    }}
+                    onCharts={() => setPaperChartsOpen(true)}
+                    toggles={nightDimRow ? [nightDimRow] : []}
+                    onClearView={clearView.available ? clearView.hide : undefined}
                 />
                 {/* The planner's own menu, the same pill (127-DESKMAP A2/B1):
                     Light, Relief + Sat or Hybrid, then on the desk OpenSeaMap's
@@ -4007,6 +4101,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     value={deskBase}
                     onChange={setDeskBase}
                     options={DESK_MAP_BASE_OPTIONS}
+                    onCharts={() => setPaperChartsOpen(true)}
                     encRow={false}
                     toggles={
                         deskSurface
@@ -4037,7 +4132,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // seamarks step aside for a chart: nothing in the strip
                         // jumps as the view crosses a cell edge.
                         seamarks={deskSeamarks ? (deskSeamarkView.down ? 'down' : 'shown') : null}
-                        wind={deskWind && weather.windReady ? windCreditLine(weather.windModel) : null}
+                        wind={
+                            deskWind && weather.windReady
+                                ? (localWindSource(weather.windState) ?? windCreditLine(weather.windModel))
+                                : null
+                        }
                         seabed={shownBase === 'light' && !!RELIEF_TILE_BASE && deskSeamarkView.low}
                     />
                 )}
@@ -4078,8 +4177,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
-                        boatInstruments={!planningSurface && obsStart.kind === 'follow'}
-                        boatLookUp={!planningSurface && obsShowing}
+                        boatInstruments={
+                            weather.windState.isGlobalMode && !planningSurface && obsStart.kind === 'follow'
+                        }
+                        boatLookUp={weather.windState.isGlobalMode && !planningSurface && obsShowing}
                         palette={windPalette}
                     />
                 )}
@@ -4115,6 +4216,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
+                {mapReady && obsShowing && (
+                    <React.Suspense fallback={null}>
+                        <SailingInstrumentOverlay mapRef={mapRef} />
+                    </React.Suspense>
+                )}
                 {/* ═══ RADIAL HELM MENU (gesture-based layer control) ═══
                     Hidden while TRACING (Shane 2026-07-17: routing page
                     declutter) — Done brings the rail back. */}
@@ -4180,6 +4286,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // No Passage HUD row (build 124): the HUD is standard for a
                             // followed route, a recording or a route pulled up here.
                             sources: [
+                                ...(isFollowingRoute && followedPlan
+                                    ? [
+                                          {
+                                              id: 'send-followed-course',
+                                              label: 'Send to plotter',
+                                              iconKind: 'generic' as const,
+                                              enabled: false,
+                                              onToggle: () => setSendFollowedCourse(true),
+                                              opensSheet: true,
+                                          },
+                                      ]
+                                    : []),
                                 // CAPAD protected-area context belongs with map
                                 // overlays, not the tactical danger menu. Its
                                 // popup remains explicitly indicative and
@@ -4353,6 +4471,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     const v = Number(e.target.value);
                                     if (v !== declutter) triggerHaptic('light');
                                     setDeclutter(v);
+                                    setDisplayCategory(null);
                                 }}
                                 aria-label="Chart detail — full at left, minimal at right"
                                 className="detail-scrubber flex-1"
@@ -5291,15 +5410,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* Lightning legend pill — rendered OUTSIDE the AisLegend
-                    Suspense block. The eager-imported BlitzortungAttribution
-                    used to live inside that Suspense, which meant if any
-                    sibling lazy component (AisLegend, etc.) suspended, the
-                    fallback={null} would hide the entire block — including
-                    our chip. The chip then "disappeared" even though its
-                    own code was loaded and ready. Now it stands alone so
-                    it renders independently of any other component's
-                    loading state. */}
                 {/* Live-tide badge — the permanent, unmistakable "you are
                     NOT looking at chart datum" marker (design 2026-07-11).
                     Teal = live offset applied; amber = mode on but no tide
@@ -5315,7 +5425,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onToggleTideDepth={onToggleTideDepth}
                     encCellCount={encCellCount}
                     encReferenceCellCount={encReferenceCellCount}
-                    encVisible={encVisible}
+                    encVisible={encMaster}
                     encHydration={encHydration}
                     encNoCoverage={encNoCoverage}
                     referenceNoticeVisible={!embedded && !pickerMode && !isPinView}
@@ -5482,6 +5592,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     cyclones={allCyclones}
                     lightningActive={browseLightningVisible}
                     onShowingChange={setThreatBannerShowing}
+                    stormCardSid={browseCycloneVisible ? (closestStorm?.sid ?? null) : null}
                     flyTo={(lat, lon, zoom) => {
                         const map = mapRef.current;
                         if (!map) return;
@@ -5501,58 +5612,25 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onShow={anchorageLayer.showAnchorage}
                 />
 
-                {/* Keep licence credit and feed status visible independently
-                    of the shared key's collapsed state. */}
-                {!pickerMode && !planningSurface && !embedded && !isPinView && browseLightningVisible && (
-                    <div
-                        // What the passage HUD clears: the chart key's own copy of this
-                        // chip (ObsLayerKey) carries the same label, low in its column.
-                        data-testid="lightning-credit"
-                        className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
-                        style={{
-                            top: creditsStripTop(
-                                creditStackPx({
-                                    rain: rainCreditShown,
-                                    cmems: cmemsAttributionLayers.length > 0,
-                                    wind: obsWindCredit,
-                                }),
-                            ),
-                        }}
-                    >
-                        <BlitzortungAttribution visible compact />
-                    </div>
-                )}
-                {obsWindCredit && (
-                    <div
-                        data-testid="wind-credit"
-                        // Cut out of the layer menu's scrim, like every licence credit.
-                        // Its look is index.css .thalassa-wind-credit (the radar pill's).
-                        data-map-credit
-                        className={`thalassa-wind-credit ${CREDITS_STRIP_POSITION_CLASS}`}
-                        style={{
-                            top: creditsStripTop(
-                                creditStackPx({ rain: rainCreditShown, cmems: cmemsAttributionLayers.length > 0 }),
-                            ),
-                        }}
-                    >
-                        {windCreditLine(weather.windModel)}
-                    </div>
-                )}
-                {!pickerMode && !planningSurface && !embedded && !isPinView && satellite.status !== 'off' && (
-                    <SatelliteIrCredit
-                        state={satellite}
-                        top={creditsStripTop(
-                            creditStackPx({
-                                rain: rainCreditShown,
-                                cmems: cmemsAttributionLayers.length > 0,
-                                wind: obsWindCredit,
-                                lightning: browseLightningVisible,
-                            }),
-                        )}
-                        onTogglePlay={() => satellite.setPlaying(!satellite.playing)}
+                {obsCreditsVisible && (
+                    <ObsCreditsRollup
+                        rain={
+                            rainCreditShown
+                                ? (weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type ?? null)
+                                : null
+                        }
+                        wind={
+                            obsWindCredit
+                                ? (localWindSource(weather.windState) ?? windCreditLine(weather.windModel))
+                                : null
+                        }
+                        cmems={cmemsAttributionLayers}
+                        lightning={browseLightningVisible}
+                        satellite={satellite}
+                        onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
+                        ais={browseAisVisible}
                     />
                 )}
-
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
                 {/* Viewport-aware — only renders when ENC cells overlap the
                     current view. IHO standard practice for chart displays.
@@ -5568,7 +5646,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     the surfaces where the chart is being USED for navigation
                     work — plotting a route or following a passage — and hides
                     during plain weather browsing. */}
-                {encVisible && !embedded && !pickerMode && !isPinView && (coordCaptureMode || passage.showPassage) && (
+                {encMaster && !embedded && !pickerMode && !isPinView && (coordCaptureMode || passage.showPassage) && (
                     <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
                 )}
 
@@ -5597,7 +5675,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
-                    {cmemsAttributionLayers.length > 0 && (
+                    {!obsCreditsVisible && cmemsAttributionLayers.length > 0 && (
                         <React.Suspense fallback={null}>
                             <CmemsAttribution
                                 layers={cmemsAttributionLayers}
@@ -5621,6 +5699,48 @@ export const MapHub: React.FC<MapHubProps> = ({
                         >
                             <SearchIcon className="w-5 h-5" />
                         </button>
+                    )}
+
+                    {!planningSurface && !embedded && !pickerMode && !isPinView && browseAisVisible && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAisTargets(true)}
+                            className="absolute z-700 top-[312px] right-[16px] min-w-12 min-h-12 rounded-2xl bg-slate-900/90 border border-white/8 px-2 text-[10px] font-bold text-white"
+                            aria-label="AIS targets"
+                        >
+                            Targets
+                        </button>
+                    )}
+                    {showAisTargets && !pickerMode && !planningSurface && (
+                        <AisTargetsSheet
+                            onClose={() => setShowAisTargets(false)}
+                            onSelect={(feature) => {
+                                const map = mapRef.current;
+                                if (!map) return;
+                                const [lon, lat] = feature.geometry.coordinates;
+                                setShowAisTargets(false);
+                                // This sheet is on Obs: clear any earlier camera padding for this flight.
+                                map.flyTo({
+                                    center: [lon, lat],
+                                    zoom: 14,
+                                    essential: true,
+                                    padding: 0,
+                                    retainPadding: false,
+                                });
+                                window.dispatchEvent(
+                                    new CustomEvent(
+                                        feature.properties?.radarContactKey
+                                            ? 'thalassa:select-radar-target'
+                                            : 'thalassa:select-ais-target',
+                                        {
+                                            detail: feature.properties?.radarContactKey
+                                                ? { contactKey: String(feature.properties.radarContactKey) }
+                                                : { mmsi: Number(feature.properties?.mmsi) },
+                                        },
+                                    ),
+                                );
+                            }}
+                        />
                     )}
 
                     {/* ═══ VESSEL SEARCH OVERLAY ═══ */}
@@ -5686,9 +5806,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                 </Suspense>
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
-                    Parked behind OFFLINE_AREA_FAB_VISIBLE until the selected
-                    provider has an explicit bulk/offline-download licence. */}
-                {!embedded && !pickerMode && !isPinView && !planningSurface && (
+                    Saves app-owned relief. Other providers never enter the download plan. */}
+                {!embedded && !pickerMode && !isPinView && !planningSurface && !clearView.on && (
                     <>
                         {OFFLINE_AREA_FAB_VISIBLE && (
                             <>
@@ -5699,9 +5818,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     }}
                                     // Right-rail column — sits directly below SysStatus and
                                     // above the Radial Helm FAB.
-                                    className="absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                                    aria-label="Download offline map area"
-                                    title="Download offline area"
+                                    className="thalassa-offline-area-download absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                                    aria-label="Download offline relief"
+                                    title="Download offline relief"
                                 >
                                     <svg
                                         className="w-5 h-5 text-sky-400"
@@ -5740,10 +5859,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <div className="flex-1">
                                 <p className="text-sm font-bold text-white">Offline</p>
                                 <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
-                                    The base map may not fully render — tiles can only load when there was internet
-                                    before, or when a boat Pi has them cached. Your downloaded{' '}
-                                    <span className="text-emerald-400 font-bold">.mbtiles</span> charts and GPS work
-                                    fully offline.
+                                    Saved relief and installed free charts can draw offline. Mapbox imagery and place
+                                    labels are not included in relief downloads. GPS continues to work.
                                 </p>
                             </div>
                             <button
@@ -5763,8 +5880,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </button>
                         </div>
                         <p className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/8 px-3 py-2 text-[11px] leading-relaxed text-sky-200/80">
-                            Offline-area tile downloads are unavailable for this public map source. Imported MBTiles,
-                            licensed charts and previously viewed cached tiles remain available offline.
+                            Use Download offline relief before leaving internet coverage. Free NOAA charts and imported
+                            public charts remain in Chart Locker. Licensed charts require your boat Pi connection.
                         </p>
                     </div>
                 )}
@@ -5818,6 +5935,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </svg>
                         </button>
                     )}
+
+                {sendFollowedCourse && (
+                    <Suspense fallback={null}>
+                        <FollowedCourseDialog onClose={() => setSendFollowedCourse(false)} />
+                    </Suspense>
+                )}
 
                 {/* Following a route — the flag's own door to stop it. Centred per
                     the standing modal rule; stopping is reversible (Follow again
@@ -5934,6 +6057,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <Suspense fallback={null}>
                         <MapWeatherControls
                             weather={weather}
+                            creditsInRollup={obsCreditsVisible}
+                            chartPoint={{ lat: location.lat, lon: location.lon }}
                             cmemsLayerStates={cmemsLayerStates}
                             visible
                             embedded={embedded}
@@ -5941,6 +6066,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onControlsHiddenChange={setChartControlsHidden}
                             extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
                             extraLegendCount={obsKeyCount}
+                            keepInClearView={clearView.available || clearView.on}
                             desk={
                                 deskWind
                                     ? {
@@ -5999,6 +6125,33 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </div>
                 )}
+            </Suspense>
+
+            <Suspense fallback={null}>
+                {paperChartsOpen && (
+                    <PaperChartSheet
+                        onClose={closePaperCharts}
+                        bounds={chartCatalog.bounds}
+                        sources={chartCatalog.sources}
+                        onToggle={(id) => {
+                            if (shownBase === 'enc' && !chartCatalog.sources.find((s) => s.id === id)?.enabled) {
+                                if (plannerMap) setDeskBase('light');
+                                else setMapBase('relief');
+                            }
+                            chartCatalog.toggleSource(id);
+                        }}
+                        onOpacity={chartCatalog.setOpacity}
+                        onConsent={chartCatalog.refreshConsent}
+                        category={displayCategory ?? (coordCaptureMode ? (declutter === 0 ? 'all' : null) : 'standard')}
+                        onCategory={(category) => {
+                            setDisplayCategory(category);
+                            setDeclutter(CATEGORY_DETAIL[category]);
+                        }}
+                        satelliteMode={settings.satelliteMode === true}
+                        onCatalogue={() => setNoaaCatalogueOpen(true)}
+                    />
+                )}
+                {noaaCatalogueOpen && <NoaaCatalogueSheet onClose={closeNoaaCatalogue} bounds={chartCatalog.bounds} />}
             </Suspense>
 
             {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}

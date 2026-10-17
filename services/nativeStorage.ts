@@ -27,8 +27,10 @@ const exactEncryptedKeys = new Set([
     CACHE_VERSION_STORAGE_KEY,
     SMART_POLAR_STORAGE_KEY,
     SATLINK_STATE_STORAGE_KEY,
+    'thalassa_synoptic_charts_v1',
 ]);
 const scopedEncryptedBaseKeys = [
+    'thalassa_offline_tides_v1',
     DATA_CACHE_KEY,
     VOYAGE_CACHE_KEY,
     HISTORY_CACHE_KEY,

@@ -89,6 +89,10 @@ interface Net {
 async function serve(page: Page, origin: string, net: Net) {
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
+        // The fixture's synthetic Mapbox service is reachable, including on
+        // a native-style phone; no actual WAN request leaves this test.
+        if (url.hostname === 'www.gstatic.com' && url.pathname === '/generate_204')
+            return route.fulfill({ status: 204 });
         const xyz = (m: RegExpMatchArray, at: number) => [Number(m[at]), Number(m[at + 1]), Number(m[at + 2])] as const;
         if (url.pathname.endsWith('/functions/v1/proxy-openmeteo'))
             return proxy(route.request().postData(), net, route);
@@ -670,7 +674,7 @@ test.describe('wind on the desk planner', () => {
             // On over Light first, drawing, then Relief + Sat under the running field.
             await setDeskWind(page, true);
             await expect(page.getByTestId('desk-strip-slot-2')).toBeVisible({ timeout: 30_000 });
-            await expect(page.locator('.leaflet-container').first(), 'the field draws over Light').toBeAttached({
+            await expect(page.locator('[data-wind-field="true"]').first(), 'the field draws over Light').toBeAttached({
                 timeout: 30_000,
             });
             await page.getByRole('button', { name: 'Map base: Light' }).click(UNDER_WIND);
@@ -826,32 +830,50 @@ test.describe('the wind credit on the phone’s Obs chart', () => {
             await page.getByRole('menuitem', { name: 'Sky layers' }).click();
             await page.getByRole('menuitemcheckbox', { name: 'Wind, off' }).click();
             await page.getByRole('button', { name: 'Close layer menu' }).click();
-            const credit = page.getByTestId('wind-credit');
-            await expect(credit).toHaveText('Wind: ECMWF (CC BY 4.0) via Open-Meteo', { timeout: 30_000 });
-            // The longest credit, UK Met Office's share-alike.
+            const credit = page.getByTestId('obs-credits-rollup');
+            const openCredits = page.getByRole('button', { name: /^Credits(?:; layer status needs review)?$/ });
+            const dialog = page.getByRole('dialog', { name: 'Map credits & source status' });
+            await expect(credit).toBeVisible({ timeout: 30_000 });
+            await openCredits.click();
+            await expect(dialog).toContainText('Wind: ECMWF (CC BY 4.0) via Open-Meteo');
+            await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+            // The longest provider licence stays available in the scrollable
+            // rollup; replacing the field must replace its source text too.
             await inPanel(page, (region) =>
                 region.getByRole('button', { name: 'Wind model UKMO' }).click({ timeout: 4_000 }),
             );
-            await expect(credit).toHaveText('Wind: UK Met Office (CC BY-SA 4.0) via Open-Meteo', { timeout: 30_000 });
-            await expectWideFaceDrawn(credit);
-            const box = (await credit.boundingBox())!;
-            expect(box.height, 'one line').toBeLessThan(26);
-            expect(box.x).toBeGreaterThanOrEqual(0);
-            expect(box.x + box.width).toBeLessThanOrEqual(size.width);
-            const picker = (await page.getByRole('button', { name: /^Map base: / }).boundingBox())!;
-            expect(box.y, 'under the base picker').toBeGreaterThanOrEqual(picker.y + picker.height);
-            for (const [name, locator] of Object.entries({
-                zoom: page.getByRole('button', { name: /^Zoom / }),
-                mic: page.getByTitle('Talk to Calypso'),
-                status: page.getByRole('button', { name: /^System status/ }),
-                layers: page.getByRole('button', { name: /layer menu$/ }),
-            })) {
-                for (let i = 0; i < (await locator.count()); i++) {
-                    const item = locator.nth(i);
-                    if (!(await item.isVisible())) continue;
-                    expect(overlaps(box, (await item.boundingBox())!), `the credit lies on the ${name}`).toBe(false);
+            await expect(credit).toBeVisible({ timeout: 30_000 });
+            await openCredits.click();
+            const source = dialog.getByText('Wind: UK Met Office (CC BY-SA 4.0) via Open-Meteo', { exact: true });
+            await expect(source).toBeVisible({ timeout: 30_000 });
+            await expectWideFaceDrawn(source);
+            const sourceBox = await boxOf(source);
+            expect(sourceBox.x).toBeGreaterThanOrEqual(0);
+            expect(sourceBox.x + sourceBox.width).toBeLessThanOrEqual(size.width);
+            await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+            // Licence length no longer adds rows over the chart. Keep the
+            // original map-control overlap checks on the closed credit row.
+            await expect(async () => {
+                await expect(credit).toBeVisible();
+                const box = await boxOf(credit);
+                expect(box.height, 'one touch-height row at the configured text size').toBeLessThanOrEqual(64);
+                expect(box.x).toBeGreaterThanOrEqual(0);
+                expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+                const picker = await boxOf(page.getByRole('button', { name: /^Map base: / }));
+                expect(box.y, 'under the base picker').toBeGreaterThanOrEqual(picker.y + picker.height);
+                for (const [name, locator] of Object.entries({
+                    zoom: page.getByRole('button', { name: /^Zoom / }),
+                    mic: page.getByTitle('Talk to Calypso'),
+                    status: page.getByRole('button', { name: /^System status/ }),
+                    layers: page.getByRole('button', { name: /layer menu$/ }),
+                })) {
+                    for (let i = 0; i < (await locator.count()); i++) {
+                        const item = locator.nth(i);
+                        if (!(await item.isVisible())) continue;
+                        expect(overlaps(box, await boxOf(item)), `the credit lies on the ${name}`).toBe(false);
+                    }
                 }
-            }
+            }, 'closed source rollup fits after the replacement field loads').toPass({ timeout: 30_000 });
             await shot(page, info, `obs-wind-credit-${size.width}x${size.height}`);
             await context.close();
         });

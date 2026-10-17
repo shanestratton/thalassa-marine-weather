@@ -142,6 +142,12 @@ export function DeskWindAgreement({
                     {credit}
                 </p>
             )}
+            {verdict?.gustRangeKts && (
+                <p className="px-2 text-[11px] leading-snug text-slate-300">
+                    Peak gusts across comparable models: {Math.round(verdict.gustRangeKts[0])}–
+                    {Math.round(verdict.gustRangeKts[1])} kt ({day}). Forecast spread, not measured gusts.
+                </p>
+            )}
         </>
     );
 }

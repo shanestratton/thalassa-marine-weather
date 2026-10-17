@@ -44,7 +44,7 @@ describe('every chart credit sits on the strip', () => {
         // gained a look-ahead arm (passage strip phase 2); assert BOTH markers
         // are found, because a missing end marker turns this slice into "to
         // the end of the file" and the test into one about something else.
-        const start = src.indexOf('{showRainViewerAttribution && (');
+        const start = src.indexOf('{showRainViewerAttribution && !creditsInRollup && (');
         const end = src.indexOf('{!surfaceAvailable ? null : controlsHidden ? (');
         expect(start).toBeGreaterThan(-1);
         expect(end).toBeGreaterThan(start);

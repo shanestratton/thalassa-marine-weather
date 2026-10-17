@@ -34,6 +34,23 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * on one line, inside its row, with no new scroll, and the thunder day's
  * headline (thunder now in it) takes no more lines than it did. The stop
  * page's primary button is AA (4.5:1) in dark and in light.
+ *
+ * The stop page as a plan (build 132, 132-PYD-8): its level at the top, the
+ * way, the times big ("LEAVE 07:00 · ASHORE 10:28 · HOME 15:57"), the leave
+ * chips, up to four facts and a reviewed stop's notes, whole; every row of
+ * prose a tap away in "How each time was worked out". A stop with no local
+ * notes fits outright from 320 x 568, a reviewed one from 375 x 667 (at 320 x
+ * 568 its first note in view); the big times are whole on one line at every
+ * size, large text too; the details open into a scroll and close back to one
+ * screen; phone landscape reads it in two columns.
+ *
+ * Its route picture and shelter rose (build 132, 132-PYD-9): a rose beside the
+ * shelter word where the stop has a land table, and under the facts and notes
+ * a small picture of the way, 2 : 1, in the room the plan leaves it: never the
+ * cause of a scroll (with under 72 px left it is not drawn), its words in the
+ * band along its foot, saying what its land is ("Land not loaded" on these
+ * sources, which have no coastline but with ?coast=ring), and no line until
+ * the stop is routed (day-planner-route.spec.ts routes it).
  */
 
 // The phone's clock, deliberately not the place's.
@@ -282,6 +299,101 @@ function layoutIssues(page: Page, mayScroll: boolean) {
 }
 
 /**
+ * The stop page's plan (132-PYD-8), measured in the page: each big time whole on one line, and bigger than the
+ * page's title (at ordinary text); each fact one chip on one line (at ordinary text), four at most, the shelter
+ * word's rose (132-PYD-9) on that line beside it; the details closed as it opens, their summary a 44 pt target.
+ * Returns what broke.
+ */
+function planIssues(page: Page, largeText = false) {
+    return page.evaluate((largeText) => {
+        const issues: string[] = [];
+        const card = document.querySelector<HTMLElement>('.today-detail');
+        if (!card) return ['no stop page'];
+        const lines = (el: Node) => {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            return {
+                width: range.getBoundingClientRect().width,
+                count: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size,
+            };
+        };
+        const title = parseFloat(getComputedStyle(card.querySelector('h2')!).fontSize);
+        const times = [...card.querySelectorAll<HTMLElement>('.today-times-at')];
+        if (!times.length) issues.push('no times');
+        for (const time of times) {
+            const text = lines(time);
+            if (text.width > time.getBoundingClientRect().width + 0.02 || text.count !== 1)
+                issues.push(`the time "${time.textContent}" is cut or wraps`);
+            if (!largeText && parseFloat(getComputedStyle(time).fontSize) <= title)
+                issues.push(`the time "${time.textContent}" is no bigger than the title`);
+        }
+        const facts = [...card.querySelectorAll<HTMLElement>('.today-glance > li')];
+        if (facts.length > 4) issues.push(`${facts.length} facts`);
+        if (!largeText)
+            for (const fact of facts) {
+                // Its words (the rose is a drawing beside them), and the chip one line tall, rose and all.
+                const one = parseFloat(getComputedStyle(fact).lineHeight);
+                if (lines(fact.lastChild!).count !== 1 || fact.getBoundingClientRect().height > 1.5 * one + 4)
+                    issues.push(`"${fact.textContent}" wraps`);
+            }
+        const rose = card.querySelector('.today-rose');
+        if (rose && rose !== facts[0]?.firstElementChild) issues.push('the rose is not beside the shelter word');
+        const more = card.querySelector<HTMLDetailsElement>('details.today-how');
+        if (!more || more.open) issues.push('the details are not closed');
+        const summary = more?.querySelector('summary')?.getBoundingClientRect();
+        if (!summary || summary.height < 44 - 0.5) issues.push(`the details' summary is ${summary?.height} tall`);
+        return issues;
+    }, largeText);
+}
+
+/**
+ * The stop page's route picture (132-PYD-9), measured in the page where it is drawn: 2 : 1 and at least 72 px
+ * tall, inside its column, under the facts and notes and over the details, its words whole in its band and
+ * clear of her start and the stop, and no line before the stop is routed. Returns what broke, and its height
+ * (0: not drawn, the plan having left it too little room). Measured once its drawing is in: the box is sized as
+ * the page opens, the drawing comes in its own lazy chunk (on a cold dev server, after the first measure).
+ */
+async function pictureIssues(page: Page) {
+    await expect(page.locator('.today-detail .today-pic:not(:has(svg, .today-pic-band))')).toHaveCount(0);
+    return page.evaluate(() => {
+        const issues: string[] = [];
+        const box = document.querySelector<HTMLElement>('.today-detail .today-pic');
+        if (!box) return { issues, height: 0 };
+        const r = box.getBoundingClientRect();
+        const column = box.parentElement!.getBoundingClientRect();
+        if (Math.abs(r.width - 2 * r.height) > 1) issues.push(`the picture is ${r.width}×${r.height}, not 2 : 1`);
+        if (r.height < 72 - 0.5) issues.push(`the picture is ${r.height} px tall`);
+        if (r.left < column.left - 0.5 || r.right > column.right + 0.5)
+            issues.push('the picture is wider than its column');
+        if (!box.previousElementSibling?.matches('.today-glance, .today-rows'))
+            issues.push('the picture is not under the facts and notes');
+        if (!box.nextElementSibling?.matches('details.today-how')) issues.push('the picture is not over the details');
+        if (!box.querySelector('svg[role="img"]')?.getAttribute('aria-label')?.startsWith('Map: '))
+            issues.push('the picture has no words for VoiceOver');
+        if (box.querySelector('polyline, line')) issues.push('a line before the stop is routed');
+        const band = box.querySelector<HTMLElement>('.today-pic-band');
+        const note = box.querySelector<HTMLElement>('.today-pic-note');
+        if (!band || !note?.textContent) issues.push('the picture says nothing of its land');
+        else {
+            const b = band.getBoundingClientRect();
+            if (b.bottom > r.bottom + 0.5 || b.top < r.top) issues.push('its band is cut');
+            // Its words whole on the band's one line, and the wind's arrow beside them; only the longest note (a
+            // picture reaching past the coastline asked for, "…, to 27 NM") may give way on the smallest.
+            const long = note.textContent.includes('27 NM');
+            if (!long && note.scrollWidth > note.clientWidth + 1) issues.push(`"${note.textContent}" is cut`);
+            const arrow = box.querySelector('.today-pic-wind')?.getBoundingClientRect();
+            if (!long && arrow && arrow.top > b.top + b.height / 2) issues.push("the wind's arrow is crowded out");
+            for (const mark of box.querySelectorAll('.today-pic-mark')) {
+                const m = mark.getBoundingClientRect();
+                if (m.bottom > b.top + 0.5) issues.push('a mark is under its words');
+                if (m.top < r.top - 0.5) issues.push('a mark is cut at the top');
+            }
+        }
+        return { issues, height: r.height };
+    });
+}
+
+/**
  * The card once it has settled (127-PYD-4): five stops' weather along the way
  * lands one by one, and a ✕ gives way to a checked backup that fits, so a row
  * may change after the first has its times. Two equal reads 300 ms apart.
@@ -387,18 +499,21 @@ for (const size of nestedSizes) {
 
         // The stop's detail fits outright at ordinary text from 375 x 667 up, with
         // its leave chips, a reviewed stop's own Parks notes and both buttons; in
-        // phone landscape it may scroll inside itself, buttons whole. At 320 x 568
-        // the Parks notes (Maureen's Cove: northerlies, reef markers) push the
-        // later rows into a scroll, the first note in view as it opens. Its times
-        // are Airlie Beach's, not the phone's.
+        // phone landscape it may scroll inside itself, buttons whole, in two
+        // columns (132-PYD-8). At 320 x 568 the Parks notes (Maureen's Cove:
+        // northerlies, reef markers) push the later rows into a scroll, the first
+        // note in view as it opens. Its times are Airlie Beach's, not the phone's.
         await first.click();
         const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
-        await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
+        await expect(detail.getByRole('list', { name: 'Times' })).toBeVisible();
         await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
         await expect(detail.locator('.today-sub')).toHaveText(/ · times in AEST$/);
         const parks = detail.locator('.today-rows li[data-parks]');
         expect(await parks.count()).toBeGreaterThan(0);
         expect(await layoutIssues(page, size.height < 640)).toEqual([]);
+        expect(await planIssues(page)).toEqual([]);
+        // 132-PYD-9: its picture, where the plan leaves it room (or in the scroll where the notes already scroll).
+        expect((await pictureIssues(page)).issues).toEqual([]);
         expect(
             await parks.first().evaluate((note) => {
                 const body = note.closest('.today-body')!.getBoundingClientRect();
@@ -406,6 +521,16 @@ for (const size of nestedSizes) {
                 return r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5;
             }),
         ).toBe(true);
+        if (size.landscape)
+            // Two columns: the plan on the left, the facts and notes on the right.
+            expect(
+                await page.evaluate(() => {
+                    const [a, b] = [...document.querySelectorAll('.today-detail .today-plan')].map((el) =>
+                        el.getBoundingClientRect(),
+                    );
+                    return b.left >= a.right && Math.abs(b.top - a.top) < 1;
+                }),
+            ).toBe(true);
         await detail.getByRole('button', { name: 'Back', exact: true }).click();
 
         for (const [opener, name] of [
@@ -435,9 +560,70 @@ for (const size of sizes.filter((s) => !s.mayScroll)) {
         await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
         await expect(detail.locator('.today-rows li[data-parks]')).toHaveCount(0);
         expect(await layoutIssues(page, size.height < 568)).toEqual([]);
+        expect(await planIssues(page)).toEqual([]);
+        // 132-PYD-9: the picture of the way takes only the room the plan leaves; with room, it is there.
+        const picture = await pictureIssues(page);
+        expect(picture.issues).toEqual([]);
+        if (size.height >= 640) {
+            expect(picture.height).toBeGreaterThanOrEqual(72);
+            // These sources have no coastline: it says so, and is grey, never open sea.
+            await expect(detail.locator('.today-pic-note')).toHaveText('Land not loaded');
+            await expect(detail.locator('.today-pic rect')).toHaveClass('today-pic-none');
+        }
         expect(errors).toEqual([]);
     });
 }
+
+// 132-PYD-8: the plan at a glance. Every row of prose is a tap away: opened, the page may scroll inside its card,
+// nothing cut; closed again, it is one screen again. Its times are big at every size and stay whole at large text.
+for (const size of [sizes[0], sizes[1], AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.shane, sizes[8], sizes[4]])
+    for (const mode of ['noumea', 'default-boat'] as const)
+        test(`the stop page reads as a plan at ${size.name}, its rows a tap away: ${mode}`, async ({ page }) => {
+            const errors = await open(page, size, `&mode=${mode}${size.query}`);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+            await expect(first.locator('.today-stop-l2')).toHaveText(TIMES);
+            const times = (await first.locator('.today-stop-l2').textContent())!.match(/\d\d:\d\d/g)!;
+            await first.click();
+            const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
+            // Its level, the way, then the times big: her row's times, on the place's clock.
+            await expect(detail.locator('.today-level')).toHaveText(/^[✓≈✕?] /);
+            await expect(detail.getByRole('list', { name: 'The way' })).toBeVisible();
+            const cells = detail.getByRole('list', { name: 'Times' }).locator('.today-times-at');
+            await expect(cells).toHaveText(times);
+            await expect(detail.getByRole('list', { name: 'Times' }).locator('.today-times-label')).toHaveText([
+                'Leave',
+                'Ashore',
+                'Home',
+            ]);
+            await expect(detail.getByRole('list', { name: 'At a glance' })).toBeVisible();
+            // The prose is not on the page until she asks for it; what is not checked is, the current with it.
+            await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeHidden();
+            await expect(detail.locator('.today-footnote')).toBeVisible();
+            await expect(detail.locator('.today-footnote')).toHaveText(/^No current\. .+ Not a clearance\./);
+            const reviewed = mode === 'default-boat';
+            // A stop with no local notes fits from 320 x 568; a reviewed one from 375 x 667 (at 320 x 568 its first
+            // note in view, above); anything may scroll at large text and in phone landscape. As the app draws it, a
+            // page that fills its room (its picture in the room left, or its details open) sits the overlay's 1rem
+            // over the tab bar, 13-15 px on an SE: nestedIssues measures that 1rem there, 16 px on the fixed root.
+            const fits = !size.mayScroll && !size.landscape && (!reviewed || size.height >= 640);
+            expect(await nestedIssues(page, size, !fits)).toEqual([]);
+            expect(await planIssues(page, size.mayScroll)).toEqual([]);
+            expect((await pictureIssues(page)).issues).toEqual([]);
+            const summary = detail.getByText('How each time was worked out', { exact: true });
+            await summary.click();
+            const rows = detail.getByRole('list', { name: 'How the day goes' });
+            await expect(rows).toBeVisible();
+            await expect(rows.getByRole('listitem').first()).toHaveAttribute('data-why', 'true');
+            await expect(rows.getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toHaveCount(1);
+            await expect(rows.getByText(/^Times from .+ wind\.$/)).toHaveCount(1);
+            // Opened, the page may scroll; nothing is cut sideways, and the buttons stay whole.
+            expect(await nestedIssues(page, size)).toEqual([]);
+            await summary.click();
+            await expect(rows).toBeHidden();
+            expect(await nestedIssues(page, size, !fits)).toEqual([]);
+            expect(errors).toEqual([]);
+        });
 
 for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane]) {
     test(`an overnight stay fits ${size.name}, and so does its stop's detail`, async ({ page }) => {
@@ -454,14 +640,51 @@ for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane])
 
         await first.click();
         const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
-        await expect(detail.getByRole('list', { name: 'How the day goes' })).toContainText(
-            /At anchor \d\d:\d\d → 09:00 tomorrow/,
-        );
+        // Leave and at anchor, big, to 09:00 tomorrow; no home (132-PYD-8).
+        await expect(detail.getByRole('list', { name: 'Times' }).getByRole('listitem')).toHaveText([
+            /^Leave\s*\d\d:\d\d\s/,
+            /^At anchor\s*\d\d:\d\d\s*to 09:00 tomorrow$/,
+        ]);
         // A reviewed stop's Parks notes may push it into a scroll under 640 px tall.
         expect(await layoutIssues(page, size.height < 640)).toEqual([]);
+        expect(await planIssues(page)).toEqual([]);
+        expect((await pictureIssues(page)).issues).toEqual([]);
         expect(errors).toEqual([]);
     });
 }
+
+// 132-PYD-9: the stop page's picture draws its land from the coastline the planner already read (?coast=ring: a
+// synthetic shore ringing the start), with a dot at her start, a pin at the stop and the wind, never a line before
+// the stop is routed; and a rose beside the shelter word shows which way the land shelters her.
+for (const size of [sizes[2], AS_DRAWN.shane])
+    test(`the stop page's picture and shelter rose at ${size.name} (132-PYD-9)`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal&coast=ring${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+        await expect(first.locator('.today-stop-l2')).toHaveText(TIMES);
+        await first.click();
+        const detail = page.locator('.today-detail');
+        // The atlas's stops have their land table: the rose, beside the shelter word, its words unchanged.
+        const shelter = detail.locator('.today-glance > li').first();
+        await expect(shelter.getByRole('img', { name: /^Shelter rose: / })).toBeVisible();
+        await expect(shelter).toHaveText(/^(Very sheltered|Sheltered|Some chop|Exposed|Shelter not known)$/);
+        const map = detail.locator('.today-pic svg[role="img"]');
+        await expect(map).toHaveAttribute(
+            'aria-label',
+            /^Map: your start \(dot\) and .+ \(pin\), wind [NESW]{1,2} \d+(–\d+)? kn\. Land © OpenStreetMap/,
+        );
+        await expect(detail.locator('.today-pic-land')).toHaveCount(1);
+        await expect(detail.locator('.today-pic-note')).toHaveText(/^Land © OpenStreetMap/);
+        // Sea and land drawn apart, and neither in the grey of land not known.
+        const fills = await page.evaluate(() =>
+            ['.today-pic-sea', '.today-pic-land'].map((s) => getComputedStyle(document.querySelector(s)!).fill),
+        );
+        expect(new Set(fills).size).toBe(2);
+        expect((await pictureIssues(page)).issues).toEqual([]);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(await planIssues(page)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
 
 // 127-PYD-3: never a straight line from Plan Your Day. A tester's Plot by hand hands the chart her start
 // and the stop as two marks, no pins (the routed cases are in day-planner-route.spec.ts).
@@ -1663,6 +1886,22 @@ for (const display of ['dark', 'light'] as const)
             color: display === 'dark' ? 'rgb(252, 211, 77)' : amber,
             fill: 'rgba(0, 0, 0, 0)',
         });
+        // Its stop page says so among its facts (132-PYD-8), in the same amber outline. (`has` is looked for inside
+        // each row, so the row's own tag, not `tag`, which starts from the dialog and is never inside a row.)
+        await dialog
+            .getByRole('list', { name: 'Stops' })
+            .getByRole('button')
+            .filter({ has: page.locator('.today-tag', { hasText: 'Local notes' }) })
+            .first()
+            .click();
+        const chip = page.locator('.today-detail .today-glance li[data-notes]');
+        await expect(chip).toHaveText('Local notes');
+        expect(
+            await chip.evaluate((el) => {
+                const cs = getComputedStyle(el);
+                return { border: cs.borderTopColor, color: cs.color };
+            }),
+        ).toEqual({ border: amber, color: style.color });
         expect(errors).toEqual([]);
     });
 
@@ -1713,19 +1952,30 @@ for (const size of [AS_DRAWN.se, sizes[0], sizes[1], AS_DRAWN.shane, sizes[4], s
 
 for (const size of [AS_DRAWN.se, sizes[1], AS_DRAWN.shane])
     for (const mode of ['normal', 'noumea', 'over'] as const)
-        test(`the stop page says why first, under its verdict, at ${size.name}: ${mode}`, async ({ page }) => {
+        test(`the stop page opens on its level, and says why first among its rows, at ${size.name}: ${mode}`, async ({
+            page,
+        }) => {
             const errors = await open(page, size, `&mode=${mode}${size.query}`);
             const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
             const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
             await expect(stops.first().locator('.today-stop-l2')).toHaveText(line2For(mode));
             await stops.nth(1).click();
             const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
-            const rows = detail.getByRole('list', { name: 'How the day goes' }).getByRole('listitem');
-            const verdict = (await rows.first().getAttribute('data-level')) !== null;
-            const why = rows.nth(verdict ? 1 : 0);
+            // 132-PYD-8: its level first, always, in its colour; why it is here heads the rows a tap away.
+            const level = detail.locator('.today-level');
+            await expect(level).toHaveText(/^[✓≈✕?] /);
+            await expect(level).toHaveAttribute('data-level', /^(inside|near|over|unknown)$/);
+            expect(
+                await level.evaluate((el) => {
+                    const body = el.closest('.today-body')!.getBoundingClientRect();
+                    return el.getBoundingClientRect().top - body.top;
+                }),
+            ).toBeLessThan(8);
+            expect(await layoutIssues(page, size.height < 640)).toEqual([]);
+            await detail.getByText('How each time was worked out', { exact: true }).click();
+            const why = detail.getByRole('list', { name: 'How the day goes' }).getByRole('listitem').first();
             await expect(why).toHaveAttribute('data-why', 'true');
             await expect(why).toHaveText(/\S/);
-            expect(await layoutIssues(page, size.height < 640)).toEqual([]);
             expect(errors).toEqual([]);
         });
 
@@ -1777,10 +2027,12 @@ function placesIssues(page: Page, largeText = false) {
 /**
  * The house rules for a nested card, as layoutIssues measures them, less one: drawn on the app's fluid root
  * (13-15 px on an SE), the overlay keeps a list that fills the room its 1rem over the tab bar, as All places
- * always sat there and the tall narrow windows' lists do (above). That 1rem is measured instead.
+ * always sat there and the tall narrow windows' lists do (above). That 1rem is measured instead. A stop page whose
+ * picture takes the room its plan leaves (132-PYD-9), or whose details are open, fills it too; it is held to
+ * `mayScroll` as layoutIssues holds it (day-planner-route.spec.ts measures the stop page's 1rem the same way).
  */
-async function nestedIssues(page: Page, size: Size) {
-    const issues = await layoutIssues(page, true);
+async function nestedIssues(page: Page, size: Size, mayScroll = true) {
+    const issues = await layoutIssues(page, mayScroll);
     if (!size.query.includes('root=app')) return issues;
     const gap = await page.evaluate(() => {
         const card = [...document.querySelectorAll<HTMLElement>('.today-card')].at(-1)!.getBoundingClientRect();
@@ -1822,7 +2074,7 @@ for (const size of [AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.mid, AS_DRAWN.shane, siz
         const name = (await row.locator('.today-stop-name').textContent())!;
         await row.click();
         const detail = page.getByRole('dialog', { name: new RegExp(`^${escaped(name)}`) });
-        await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
+        await expect(detail.getByRole('list', { name: 'Times' })).toBeVisible();
         expect(await layoutIssues(page, size.mayScroll || size.height < 640)).toEqual([]);
         await detail.getByRole('button', { name: 'Back', exact: true }).click();
         await expect(places).toBeVisible();
@@ -1849,7 +2101,7 @@ test('All places on a thunder afternoon still has places to open, each on its re
     const name = (await bolts.first().locator('.today-stop-name').textContent())!;
     await bolts.first().click();
     const detail = page.getByRole('dialog', { name: new RegExp(`^${escaped(name)}`) });
-    await expect(detail.getByRole('list', { name: 'How the day goes' }).getByRole('listitem').first()).toHaveText(
+    await expect(detail.locator('.today-level')).toHaveText(
         /^✕ Over your limits: thunder in \d of 7 models on the way home$/,
     );
     expect(errors).toEqual([]);

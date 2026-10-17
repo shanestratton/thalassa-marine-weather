@@ -114,7 +114,10 @@ export function collisionLines(
     const old = sec == null ? 'age unknown' : `${ago(sec)} old`;
     const when =
         c.tcpaMin < 0 ? 'passed, opening' : c.tcpaMin < 1 ? 'within a minute' : `in ${Math.round(c.tcpaMin)} min`;
-    const cpa = `CPA ${nm(c.cpaNm)} NM ${when}`;
+    const basis = c.positionBasis
+        ? ` · ${c.positionBasis === 'dead-reckoned' ? 'estimated now' : 'last report'}${c.uncertaintyNm ? ', allowing for uncertainty' : ''}`
+        : '';
+    const cpa = `CPA ${nm(c.cpaNm)} NM ${when}${basis}`;
     const where = `${String(Math.round(card.bearing)).padStart(3, '0')}° · ${card.distanceNm.toFixed(1)} NM`;
     if (c.lost) {
         // Lost: the numbers are the last ones computed, said as such.

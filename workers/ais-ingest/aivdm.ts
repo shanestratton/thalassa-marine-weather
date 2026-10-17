@@ -17,6 +17,7 @@
  * Class B nav_status is pinned to 15.
  */
 import type { VesselRecord } from './parser.js';
+import { aisEta } from './parser.js';
 
 // ── NMEA framing ─────────────────────────────────────────────────────
 
@@ -143,6 +144,9 @@ function classAStatic(bits: Uint8Array): VesselRecord | null {
     if (destination !== undefined) record.destination = destination;
     const imo = getUint(bits, 40, 30);
     if (imo >= 1_000_000 && imo <= 9_999_999) record.imo_number = imo;
+    const draught = getUint(bits, 294, 8) / 10;
+    if (draught > 0) record.draught_m = draught;
+    record.eta = aisEta(getUint(bits, 274, 4), getUint(bits, 278, 5), getUint(bits, 283, 5), getUint(bits, 288, 6));
     return Object.keys(record).length > 1 ? record : null;
 }
 
@@ -191,9 +195,24 @@ function classBStatic(bits: Uint8Array): VesselRecord | null {
 }
 
 export function decodeAisPayload(payload: string): VesselRecord | null {
-    if (!payload) return null;
+    // A complete AIS message is at most1008 bits. Reject invalid armouring
+    // before allocation; getUint's zero-padding must not invent a short frame.
+    if (!payload || payload.length > 168 || !/^[0-W`-w]+$/.test(payload)) return null;
     const bits = payloadToBits(payload);
     const type = getUint(bits, 0, 6);
+    const minimum =
+        type === 5
+            ? 424
+            : type === 19
+              ? 312
+              : type === 24
+                ? getUint(bits, 38, 2) === 0
+                    ? 160
+                    : 168
+                : type === 14
+                  ? 46
+                  : 168;
+    if (bits.length < minimum) return null;
     switch (type) {
         case 1:
         case 2:
@@ -207,6 +226,13 @@ export function decodeAisPayload(payload: string): VesselRecord | null {
             return classBExtended(bits);
         case 24:
             return classBStatic(bits);
+        case 14: {
+            const mmsi = getUint(bits, 8, 30);
+            if (!validMmsi(mmsi) || bits.length < 46 || bits.length > 1008) return null;
+            // The six-bit alphabet produces printable ASCII only.
+            const text = getString(bits, 40, Math.floor((bits.length - 40) / 6) * 6).slice(0, 161);
+            return text ? { mmsi, safety_text: text } : null;
+        }
         default:
             return null;
     }
@@ -251,7 +277,16 @@ export function decodeAisSentence(sentence: string, now = Date.now(), source = '
     if (!payload || !Number.isInteger(fragCount) || !Number.isInteger(fragNum)) return null;
     if (fragCount < 1 || fragCount > 9 || fragNum < 1 || fragNum > fragCount) return null;
 
-    if (fragCount === 1) return decodeAisPayload(payload);
+    const received = (record: VesselRecord | null) =>
+        record
+            ? {
+                  ...record,
+                  data_source: 'receiver' as const,
+                  ...(record.lat !== undefined ? { position_at: new Date(now).toISOString() } : {}),
+                  ...(record.safety_text ? { safety_text_at: new Date(now).toISOString() } : {}),
+              }
+            : null;
+    if (fragCount === 1) return received(decodeAisPayload(payload));
 
     // Multi-fragment: key by SOURCE + sequence id + channel + talker so
     // interleaved streams cannot cross-assemble. The source dimension is
@@ -275,7 +310,7 @@ export function decodeAisSentence(sentence: string, now = Date.now(), source = '
 
     if (frag.parts.every((p) => p !== undefined)) {
         fragments.delete(key);
-        return decodeAisPayload(frag.parts.join(''));
+        return received(decodeAisPayload(frag.parts.join('')));
     }
 
     if (fragments.size > MAX_PENDING_FRAGMENTS) {

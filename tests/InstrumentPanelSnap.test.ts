@@ -38,11 +38,11 @@ describe('snap-scroll structure', () => {
         expect(source).not.toContain('<SailPartsDiagram');
         expect(source).not.toContain('title="Sail Plan"');
         const sections = [...source.matchAll(/<section\b[\s\S]*?<\/section>/g)].map(([section]) => section);
-        expect(sections).toHaveLength(10); // Nine instruments plus the conditional crew Watch.
+        expect(sections).toHaveLength(13); // Fixed legacy order plus Performance/Current/Engine; runtime visibility removes absent sections.
         for (const section of sections) {
             expect(section).toContain('snap-start snap-always');
             expect(section).toContain('<SectionPlate title=');
-            expect(section).toMatch(/<(?:div|ShipsBellClock)\b/);
+            expect(section).toMatch(/<(?:div|ShipsBellClock|PerformanceReadout|CurrentReadout|EngineReadout)\b/);
         }
     });
 

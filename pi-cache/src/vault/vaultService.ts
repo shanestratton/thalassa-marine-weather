@@ -22,6 +22,8 @@ import {
 } from './decoder.js';
 import { VAULT_LIMITS } from './limits.js';
 import { prewarmOrder } from './prewarm.js';
+import { VaultLookahead } from './lookahead.js';
+import type { VaultLookaheadRequest, VaultLookaheadResponse } from './protocol.js';
 import type { VaultCellMeta, VaultRescanWire, VaultState, VaultStatusWire } from './protocol.js';
 import { VaultIndex, entryFromDecoded, type PendingFile, type ScanResult, type VaultFileEntry } from './vaultIndex.js';
 
@@ -54,6 +56,7 @@ export interface VaultServiceOptions {
 const CHECKPOINT_EVERY = 50;
 
 export class VaultService {
+    private readonly ahead = new VaultLookahead();
     private readonly catalogue: VaultIndex;
     private readonly vault: ChartVault<VaultFileEntry>;
     private readonly log: Pick<Console, 'log' | 'warn'>;
@@ -173,6 +176,15 @@ export class VaultService {
     }
 
     /** One cell's bytes, from memory or decoded now. */
+    async lookahead(request: VaultLookaheadRequest): Promise<VaultLookaheadResponse> {
+        this.assertServable();
+        const cells = this.catalogue.served();
+        const signature = (items: VaultCellMeta[]) => JSON.stringify(items.map((c) => [c.cellId, c.contentSha256]));
+        const before = signature(cells);
+        const answer = await this.ahead.query(request, cells, (id) => this.cell(id));
+        return signature(this.catalogue.served()) === before ? answer : { coverage: 'unavailable', danger: false };
+    }
+
     async cell(cellId: string): Promise<{ bytes: Buffer; sha256: string }> {
         this.assertServable();
         const got = await this.vault.get(cellId);

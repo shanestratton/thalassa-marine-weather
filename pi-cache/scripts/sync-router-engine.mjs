@@ -163,9 +163,13 @@ function git(...gitArgs) {
 }
 
 function prettierFormat(files) {
-    const prettier = path.join(REPO, 'node_modules', '.bin', 'prettier');
+    // Prettier's own entry run by this node: the extensionless .bin shim cannot be executed on Windows.
+    const prettier = path.join(REPO, 'node_modules', 'prettier', 'bin', 'prettier.cjs');
     if (!fs.existsSync(prettier)) fail(`${prettier} is missing — run npm ci at the repo root first`);
-    execFileSync(prettier, ['--write', '--log-level', 'warn', ...files], { cwd: REPO, stdio: 'inherit' });
+    execFileSync(process.execPath, [prettier, '--write', '--log-level', 'warn', ...files], {
+        cwd: REPO,
+        stdio: 'inherit',
+    });
 }
 
 const modules = readClosure();

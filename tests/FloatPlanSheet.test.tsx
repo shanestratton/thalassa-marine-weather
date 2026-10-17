@@ -23,12 +23,16 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: (selector: (state: { settings: { vessel: typeof mocks.vessel } }) => unknown) =>
-        selector({ settings: { vessel: mocks.vessel } }),
-}));
+vi.mock('../stores/settingsStore', () => {
+    const state = () => ({ settings: { vessel: mocks.vessel }, activeVesselId: null });
+    return {
+        useSettingsStore: Object.assign((select: (snapshot: ReturnType<typeof state>) => unknown) => select(state()), {
+            getState: state,
+        }),
+    };
+});
 
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 
 // RELATIVE, deliberately. This was `2026-08-10T00:00Z` — and on 2026-08-12
 // five tests died at once with no relevant commit, because validateFloatPlan

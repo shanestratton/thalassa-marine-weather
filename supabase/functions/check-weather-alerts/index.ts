@@ -1,215 +1,108 @@
 /**
- * check-weather-alerts — Server-Side Weather Alert Cron
+ * check-weather-alerts — Server-Side Weather Alert Cron, looking ahead (129-07)
  *
- * Runs every 30 minutes via pg_cron → pg_net HTTP POST.
- * For each user with ≥1 alert threshold enabled:
- *   1. Read their location (defaultLocation or Guardian last_known)
- *   2. Fetch current weather from Open-Meteo (commercial customer endpoint;
- *      requires the OPEN_METEO_API_KEY secret, no free-host fallback)
- *   3. Evaluate thresholds from user_settings.settings.notifications
- *   4. Dedup against weather_alerts_log (skip if alerted in last 6h)
- *   5. Insert into push_notification_queue → triggers send-push webhook
- *
- * This ensures alerts fire even when the app is backgrounded/closed.
+ * Runs every 30 minutes via pg_cron → pg_net HTTP POST (invoke_edge_function,
+ * 20261010151900). For each account with ≥1 alert threshold enabled, or
+ * "Good window opens" on:
+ *   1. Read every page of user_settings (only the six settings the check
+ *      uses, by JSON path), and the position: the place the weather is set to
+ *      (defaultLocationCoords), else Guardian's last known. An account
+ *      mid-deletion is skipped.
+ *   2. Fetch Open-Meteo on the commercial customer endpoints (the
+ *      OPEN_METEO_API_KEY secret, no free-host fallback), many places to a
+ *      request, every request with its models pinned (&models=):
+ *        ahead  wind and gusts, hourly, ECMWF + ICON + UKMO;
+ *        sea    wave height and period, hourly, ECMWF WAM + MFWAM;
+ *        now    visibility, UV, temperature and weather, the hour under way,
+ *               hourly per model (a two-model `current` block is the first
+ *               model's only), ECMWF + GFS.
+ *      There is no silent cap: over the run's ceiling the places rotate run
+ *      by run, so each is read within a few runs; the count is logged and
+ *      reported, and a skipper whose place waits is told in the status.
+ *   3. Decide with _shared/forecast-alerts/lookahead.ts: two of three models
+ *      inside the same 3 h, within the skipper's look-ahead (24 h by
+ *      default); one named wave model, at its own cell; no UKMO value ever
+ *      quoted; an alert an official warning in force there already covers
+ *      is dropped (official_alerts_watch_match, 129-06), if this skipper was
+ *      sent that warning (official_alert_deliveries); held 22:00-07:00 on the
+ *      boat's clock (tz-lookup) unless it starts within 3 h; copy in the
+ *      skipper's units and the boat's time, always "Forecast:", never
+ *      official.
+ *   4. Claim each push once in weather_alerts_log (one per kind, strength and
+ *      alert day of the event at the boat, the day turning at 07:00), queue
+ *      it in push_notification_queue (→ send-push), and claim the weaker
+ *      strengths of that day with it.
+ *   5. Write each account's status lines where they changed, and the run's
+ *      version and counts (weather_alert_status, weather_alert_runs: held
+ *      migration 20261014190000). The app shows the look-ahead choice only
+ *      once that answers. Without the tables the run still pushes.
+ * A position goes to Open-Meteo and the official match and nowhere else: it
+ * is never pushed, stored or logged. Logs carry counts only.
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import tzLookup from 'npm:tz-lookup@6.1.25';
 import {
     fetchWithTimeout,
+    isJsonContentType,
     jsonResponse,
-    readResponseJsonObjectLimited,
+    readResponseTextLimited,
     requireServiceRolePost,
 } from '../_shared/http-security.ts';
+import { boatZone } from '../_shared/cyclone/watch.ts';
+import { matchBoats, readAllRows } from '../_shared/official-alerts/watchReads.ts';
+import type { OfficialForCover } from '../_shared/forecast-alerts/cover.ts';
+import { FORECAST_ALERTS_VERSION, lookaheadHours } from '../_shared/forecast-alerts/contract.ts';
+import {
+    type AheadAccount,
+    type AheadDecision,
+    batchPoints,
+    decideForAccount,
+    deliveredOfficial,
+    estimateCallVolume,
+    kindModels,
+    kindVariables,
+    overCapacityLine,
+    parseReplies,
+    placesThisRun,
+    readHourly,
+    readNow,
+    type RequestKind,
+    requestParams,
+    RUN_MINUTES,
+    waveChain,
+} from '../_shared/forecast-alerts/lookahead.ts';
 
-// ── Open-Meteo weather variables we need ──
-const WEATHER_VARS = [
-    'weather_code',
-    'temperature_2m',
-    'wind_speed_10m',
-    'wind_gusts_10m',
-    'visibility',
-    'uv_index',
-].join(',');
-const WEATHER_KEYS = [
-    'weather_code',
-    'temperature_2m',
-    'wind_speed_10m',
-    'wind_gusts_10m',
-    'visibility',
-    'uv_index',
-] as const;
-const MAX_WEATHER_RESPONSE_BYTES = 128_000;
+// Commercial customer endpoints only: the free tier is not licensed for App
+// Store apps, so it is never a fallback (127-H). The key rides in the query
+// string, so a URL is never logged.
+const UPSTREAM: Record<RequestKind, string> = {
+    ahead: 'https://customer-api.open-meteo.com/v1/forecast',
+    sea: 'https://customer-marine-api.open-meteo.com/v1/marine',
+    now: 'https://customer-api.open-meteo.com/v1/forecast',
+};
+/** One batch's reply: 50 places of six 72-hour series is ~150 KB; bounded well above it. */
+const MAX_BATCH_RESPONSE_BYTES = 2_000_000;
+/**
+ * The run's ceiling on distinct places, against a runaway on the paid key and
+ * the cron's 150 s: 40 batches a kind at 4 lanes. Never silent: over it the
+ * places rotate (placesThisRun), each read at least every ceil(n / 2000)
+ * runs; the count waiting is logged and reported (`skipped`), and their
+ * skippers' status says so. Well past it, shard the run.
+ */
+const MAX_PLACES_PER_RUN = 2_000;
+const FETCH_LANES = 4;
+const FETCH_TIMEOUT_MS = 20_000;
+const STATUS_LINES_MAX = 12;
+const STATUS_BYTES_MAX = 4_000;
 
-// ── Alert type configurations ──
-interface AlertCheck {
-    type: string;
-    setting: string;
-    getValue: (weather: Record<string, number | null>) => number | null;
-    compare: 'gte' | 'lte'; // gte = fire when value >= threshold, lte = fire when value <= threshold
-    formatValue: (v: number) => string;
-    emoji: string;
-    label: string;
-    unit: string;
-}
-
-const ALERT_CHECKS: AlertCheck[] = [
-    {
-        type: 'wind',
-        setting: 'wind',
-        getValue: (w) => (w.wind_speed_10m != null ? kphToKts(w.wind_speed_10m) : null),
-        compare: 'gte',
-        formatValue: (v) => `${Math.round(v)}`,
-        emoji: '🌬️',
-        label: 'High Wind',
-        unit: 'kts',
-    },
-    {
-        type: 'gusts',
-        setting: 'gusts',
-        getValue: (w) => (w.wind_gusts_10m != null ? kphToKts(w.wind_gusts_10m) : null),
-        compare: 'gte',
-        formatValue: (v) => `${Math.round(v)}`,
-        emoji: '💨',
-        label: 'Gust Alert',
-        unit: 'kts',
-    },
-    {
-        type: 'visibility',
-        setting: 'visibility',
-        getValue: (w) => (w.visibility != null ? w.visibility / 1852 : null), // metres → NM
-        compare: 'lte',
-        formatValue: (v) => v.toFixed(1),
-        emoji: '🌫️',
-        label: 'Low Visibility',
-        unit: 'NM',
-    },
-    {
-        type: 'uv',
-        setting: 'uv',
-        getValue: (w) => w.uv_index,
-        compare: 'gte',
-        formatValue: (v) => `${Math.round(v)}`,
-        emoji: '☀️',
-        label: 'High UV',
-        unit: 'idx',
-    },
-    {
-        type: 'tempHigh',
-        setting: 'tempHigh',
-        getValue: (w) => w.temperature_2m,
-        compare: 'gte',
-        formatValue: (v) => `${Math.round(v)}°C`,
-        emoji: '🌡️',
-        label: 'Heat Alert',
-        unit: '',
-    },
-    {
-        type: 'tempLow',
-        setting: 'tempLow',
-        getValue: (w) => w.temperature_2m,
-        compare: 'lte',
-        formatValue: (v) => `${Math.round(v)}°C`,
-        emoji: '🥶',
-        label: 'Freeze Alert',
-        unit: '',
-    },
-    {
-        type: 'precipitation',
-        setting: 'precipitation',
-        getValue: (w) => {
-            // Weather codes 51-99 indicate precipitation/storm
-            const code = w.weather_code;
-            if (code == null) return null;
-            return code >= 51 ? 1 : 0;
-        },
-        compare: 'gte',
-        formatValue: () => '',
-        emoji: '🌧️',
-        label: 'Precipitation',
-        unit: '',
-    },
-];
-
-function kphToKts(kph: number): number {
-    return kph * 0.539957;
-}
-
-// ── Weather code to description ──
-function weatherCodeToDescription(code: number): string {
-    if (code <= 3) return 'Clear/Cloudy';
-    if (code <= 48) return 'Fog';
-    if (code <= 55) return 'Drizzle';
-    if (code <= 57) return 'Freezing Drizzle';
-    if (code <= 65) return 'Rain';
-    if (code <= 67) return 'Freezing Rain';
-    if (code <= 77) return 'Snow';
-    if (code <= 82) return 'Rain Showers';
-    if (code <= 86) return 'Snow Showers';
-    if (code === 95) return 'Thunderstorm';
-    if (code <= 99) return 'Thunderstorm with Hail';
-    return 'Unknown';
-}
-
-function parseWeatherCurrent(value: Record<string, unknown>): Record<string, number | null> | null {
-    const current = value.current;
-    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
-
-    const result: Record<string, number | null> = {};
-    for (const key of WEATHER_KEYS) {
-        const field = (current as Record<string, unknown>)[key];
-        if (field === null) {
-            result[key] = null;
-        } else if (typeof field === 'number' && Number.isFinite(field)) {
-            result[key] = field;
-        } else {
-            return null;
-        }
-    }
-    return result;
-}
-
-// ── Batch weather fetch from Open-Meteo ──
-// Groups nearby locations to minimize API calls. Commercial customer endpoint
-// only: the free tier is not licensed for App Store apps, so it is never a
-// fallback (127-H). The key rides in the query string, so the URL is never
-// logged.
-const OPEN_METEO_FORECAST = 'https://customer-api.open-meteo.com/v1/forecast';
-
-async function fetchWeather(
-    lat: number,
-    lon: number,
-    apiKey: string,
-): Promise<Record<string, number | null> | null> {
-    try {
-        const query = new URLSearchParams({
-            latitude: String(lat),
-            longitude: String(lon),
-            current: WEATHER_VARS,
-            wind_speed_unit: 'kmh',
-            timezone: 'auto',
-            apikey: apiKey,
-        });
-        const res = await fetchWithTimeout(`${OPEN_METEO_FORECAST}?${query}`, {}, 10_000);
-        if (!res.ok) {
-            console.warn(`Open-Meteo error: ${res.status}`);
-            await res.body?.cancel().catch(() => undefined);
-            return null;
-        }
-        const data = await readResponseJsonObjectLimited(res, MAX_WEATHER_RESPONSE_BYTES);
-        return data ? parseWeatherCurrent(data) : null;
-    } catch {
-        console.error('Weather fetch failed');
-        return null;
-    }
-}
+type JsonRecord = Record<string, unknown>;
 
 // ── Round coordinates to 0.1° for dedup (nearby users share weather) ──
 function roundCoord(v: number): number {
     return Math.round(v * 10) / 10;
 }
-
-type JsonRecord = Record<string, unknown>;
 
 interface AlertPreference {
     enabled: boolean;
@@ -222,17 +115,34 @@ interface AlertLocation {
     name: string;
 }
 
-interface UserAlert {
-    userId: string;
-    lat: number;
-    lon: number;
-    notifications: Record<string, AlertPreference>;
-    locationName: string;
-}
+/**
+ * Only the settings the check reads, by JSON path (PostgREST's
+ * `alias:column->key`, as settingsStore reads settings->skipperDevice): not
+ * every account's whole settings blob into the function's memory.
+ */
+const SETTINGS_COLUMNS =
+    'user_id, notifications:settings->notifications, units:settings->units, coords:settings->defaultLocationCoords, place:settings->defaultLocation, hours:settings->alertLookaheadHours, good_window:settings->goodWindowAlerts';
 
 interface UserSettingsRow {
     user_id: string;
-    settings: unknown;
+    notifications: unknown;
+    units: unknown;
+    coords: unknown;
+    place: unknown;
+    hours: unknown;
+    good_window: unknown;
+}
+
+/** The row in the settings shape the rest of the check reads. */
+function settingsOf(row: UserSettingsRow): JsonRecord {
+    return {
+        notifications: row.notifications,
+        units: row.units,
+        defaultLocationCoords: row.coords,
+        defaultLocation: row.place,
+        alertLookaheadHours: row.hours,
+        goodWindowAlerts: row.good_window,
+    };
 }
 
 /**
@@ -296,6 +206,12 @@ function parseAlertPreferences(value: unknown): Record<string, AlertPreference> 
     return Object.keys(parsed).length > 0 ? parsed : null;
 }
 
+/** A stored threshold, armed or not: "Good window opens" scores against the High wind and High seas limits. */
+function storedThreshold(notifications: unknown, key: string): number | null {
+    const value = asRecord(asRecord(notifications)?.[key])?.threshold;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
 /**
  * `defaultLocationCoords` is the current app setting. The object-shaped
  * `defaultLocation` fallback keeps already-synchronised legacy settings
@@ -354,6 +270,52 @@ async function guardianLocationsForUsers(
     return locations;
 }
 
+/** Run `work` over `items`, `lanes` at a time. */
+async function eachInLanes<T>(items: readonly T[], lanes: number, work: (item: T) => Promise<void>): Promise<void> {
+    let next = 0;
+    await Promise.all(
+        Array.from({ length: Math.min(lanes, items.length) }, async () => {
+            while (next < items.length) await work(items[next++]);
+        }),
+    );
+}
+
+interface Place {
+    key: string;
+    lat: number;
+    lon: number;
+    needs: Set<RequestKind>;
+}
+
+/** One batch of places, one request: each place's reply, or null when the batch got no usable answer. */
+async function fetchBatch(
+    kind: RequestKind,
+    batch: readonly Place[],
+    apiKey: string,
+): Promise<(JsonRecord | null)[] | null> {
+    try {
+        const query = new URLSearchParams({ ...requestParams(kind, batch), apikey: apiKey });
+        const res = await fetchWithTimeout(`${UPSTREAM[kind]}?${query}`, {}, FETCH_TIMEOUT_MS);
+        if (!res.ok || !isJsonContentType(res.headers.get('content-type'))) {
+            console.warn(`Open-Meteo ${kind} batch error: ${res.status}`);
+            await res.body?.cancel().catch(() => undefined);
+            return null;
+        }
+        const text = await readResponseTextLimited(res, MAX_BATCH_RESPONSE_BYTES);
+        if (!text) return null;
+        return parseReplies(JSON.parse(text), batch.length);
+    } catch {
+        console.error(`Open-Meteo ${kind} batch failed`);
+        return null;
+    }
+}
+
+interface Checked {
+    account: AheadAccount;
+    place: Place;
+    basis: 'saved' | 'last-known';
+}
+
 serve(async (req: Request) => {
     const startTime = Date.now();
     const authorizationFailure = requireServiceRolePost(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
@@ -377,45 +339,69 @@ serve(async (req: Request) => {
         const supabase = createClient(supabaseUrl, serviceRoleKey, {
             auth: { persistSession: false, autoRefreshToken: false },
         });
+        const db = supabase;
+        const nowMs = Date.now();
 
-        // ── 1. Get all users with at least one alert enabled ──
+        // ── 1. Every account with at least one alert enabled ──
         // Settings used to live in an undeployed `profiles` table. The
         // user_settings contract is now the cloud authority, so this cron must
         // fail closed (no alert) for rows without a valid opt-in rather than
         // failing the entire scheduled run because a retired table is absent.
-        const { data: settingsRows, error: settingsError } = await supabase
-            .from('user_settings')
-            .select('user_id, settings');
-
-        if (settingsError) {
-            console.error('Failed to fetch user settings:', settingsError);
+        // Every page: PostgREST answers 1000 rows a request and cuts the rest
+        // off without an error.
+        let settingsRows: UserSettingsRow[];
+        try {
+            settingsRows = await readAllRows<UserSettingsRow>(
+                (from, to) =>
+                    db
+                        .from('user_settings')
+                        .select(SETTINGS_COLUMNS)
+                        .order('user_id')
+                        .range(from, to),
+                'settings',
+            );
+        } catch {
+            console.error('Failed to fetch user settings');
             return jsonResponse({ error: 'Settings fetch failed' }, 500);
         }
 
-        if (!settingsRows || settingsRows.length === 0) {
-            return jsonResponse({ checked: 0, message: 'No user settings' });
+        if (settingsRows.length === 0) {
+            return jsonResponse({ checked: 0, message: 'No user settings', version: FORECAST_ALERTS_VERSION });
         }
 
         interface AlertUserCandidate {
             userId: string;
+            settings: JsonRecord;
             notifications: Record<string, AlertPreference>;
             location: AlertLocation | null;
         }
 
-        // Filter to users with ≥1 alert enabled. Resolve Guardian positions in
-        // one bounded batch after inspecting the saved location configuration.
+        // Filter to users with ≥1 alert enabled, or "Good window opens" on.
+        // Resolve Guardian positions in one bounded batch after inspecting the
+        // saved location configuration.
         const candidates: AlertUserCandidate[] = [];
-        for (const row of settingsRows as UserSettingsRow[]) {
+        for (const row of settingsRows) {
             if (!row || typeof row.user_id !== 'string') continue;
-            const settings = asRecord(row.settings);
-            if (!settings) continue;
-            const notifications = parseAlertPreferences(settings.notifications);
-            if (!notifications) continue;
+            const settings = settingsOf(row);
+            const notifications = parseAlertPreferences(settings.notifications) ?? {};
+            if (Object.keys(notifications).length === 0 && settings.goodWindowAlerts !== true) continue;
             candidates.push({
                 userId: row.user_id,
+                settings,
                 notifications,
                 location: configuredLocation(settings),
             });
+        }
+
+        // An account mid-deletion is write-fenced: never queue or record for it.
+        const deleting = new Set<string>();
+        for (const ids of chunk(candidates.map((c) => c.userId), 200)) {
+            const { data, error } = await db.from('account_deletion_jobs').select('user_id').in('user_id', ids);
+            if (error) {
+                console.warn('Account deletion lookup failed');
+                continue;
+            }
+            for (const r of data ?? []) if (typeof r.user_id === 'string') deleting.add(r.user_id);
         }
 
         const guardianLocations = await guardianLocationsForUsers(
@@ -423,160 +409,355 @@ serve(async (req: Request) => {
             candidates.filter((candidate) => !candidate.location).map((candidate) => candidate.userId),
         );
 
-        const usersToCheck: UserAlert[] = [];
+        // ── 2. The places, each with what its accounts need fetched ──
+        const wanted: { checked: Checked; needs: Set<RequestKind> }[] = [];
         for (const candidate of candidates) {
-            const location = candidate.location ?? guardianLocations.get(candidate.userId);
+            if (deleting.has(candidate.userId)) continue;
+            const saved = candidate.location;
+            const location = saved ?? guardianLocations.get(candidate.userId);
             if (!location) continue; // Can't alert without a configured or Guardian location.
-            usersToCheck.push({
-                userId: candidate.userId,
-                lat: location.lat,
-                lon: location.lon,
-                notifications: candidate.notifications,
-                locationName: location.name,
+            const n = candidate.notifications;
+            const settings = candidate.settings;
+            const goodWindow = settings.goodWindowAlerts === true;
+            const needs = new Set<RequestKind>();
+            if (n.wind || n.gusts || goodWindow) needs.add('ahead');
+            if (n.waves || n.swellPeriod || goodWindow) needs.add('sea');
+            if (n.visibility || n.uv || n.tempHigh || n.tempLow || n.precipitation) needs.add('now');
+            if (needs.size === 0) continue;
+            const key = `${roundCoord(location.lat)},${roundCoord(location.lon)}`;
+            const place: Place = {
+                key,
+                lat: roundCoord(location.lat),
+                lon: roundCoord(location.lon),
+                needs: new Set(),
+            };
+            wanted.push({
+                needs,
+                checked: {
+                    place,
+                    basis: saved ? 'saved' : 'last-known',
+                    account: {
+                        userId: candidate.userId,
+                        place: location.name,
+                        zone: boatZone({ lat: location.lat, lon: location.lon }, tzLookup),
+                        units: asRecord(settings.units) ?? {},
+                        hours: lookaheadHours(settings.alertLookaheadHours),
+                        notifications: n,
+                        goodWindow,
+                        limits: {
+                            windKts: storedThreshold(settings.notifications, 'wind'),
+                            waveFt: storedThreshold(settings.notifications, 'waves'),
+                        },
+                    },
+                },
             });
         }
 
-        if (usersToCheck.length === 0) {
-            return jsonResponse({ checked: 0, message: 'No users with alerts + location' });
-        }
-
-        // ── 2. Deduplicate weather fetches by rounded coord ──
-        const weatherCache = new Map<string, Record<string, number | null> | null>();
-
-        async function getWeather(lat: number, lon: number): Promise<Record<string, number | null> | null> {
-            const key = `${roundCoord(lat)},${roundCoord(lon)}`;
-            if (weatherCache.has(key)) return weatherCache.get(key)!;
-
-            const weather = await fetchWeather(roundCoord(lat), roundCoord(lon), weatherKey);
-            weatherCache.set(key, weather);
-            return weather;
-        }
-
-        // ── 3. Check each user's thresholds ──
-        const today = new Date().toISOString().split('T')[0]; // '2026-03-19'
-        let alertsQueued = 0;
-        let usersChecked = 0;
-
-        // Rate limit: max 60 Open-Meteo requests per run
-        const MAX_WEATHER_REQS = 60;
-        let weatherReqs = 0;
-
-        for (const user of usersToCheck) {
-            const weatherKey = `${roundCoord(user.lat)},${roundCoord(user.lon)}`;
-            const needsWeatherFetch = !weatherCache.has(weatherKey);
-            if (weatherReqs >= MAX_WEATHER_REQS && needsWeatherFetch) {
-                continue; // Skip if we'd exceed rate limit
+        // Over the ceiling, a window of the places moves on each run, so no
+        // skipper waits run after run; one who waits this run is told.
+        const allPlaces = new Set(wanted.map((w) => w.checked.place.key)).size;
+        const runIndex = Math.floor(nowMs / (RUN_MINUTES * 60_000));
+        const thisRun = placesThisRun(
+            wanted.map((w) => w.checked.place.key),
+            MAX_PLACES_PER_RUN,
+            runIndex,
+        );
+        const places = new Map<string, Place>();
+        const checked: Checked[] = [];
+        const statusRows = new Map<string, { basis: 'saved' | 'last-known'; lines: string[] }>();
+        for (const w of wanted) {
+            const c = w.checked;
+            if (!thisRun.has(c.place.key)) {
+                statusRows.set(c.account.userId, {
+                    basis: c.basis,
+                    lines: [overCapacityLine(allPlaces, MAX_PLACES_PER_RUN)],
+                });
+                continue;
             }
+            const place = places.get(c.place.key) ?? c.place;
+            places.set(place.key, place);
+            for (const kind of w.needs) place.needs.add(kind);
+            checked.push({ ...c, place });
+        }
+        const skipped = allPlaces - thisRun.size;
+        if (skipped > 0) {
+            console.warn(
+                `[check-weather-alerts] ${skipped} places over the run's ceiling of ${MAX_PLACES_PER_RUN}: they wait for a later run (every place within ${
+                    Math.ceil(allPlaces / MAX_PLACES_PER_RUN)
+                } runs)`,
+            );
+        }
 
-            // Count a cache miss before issuing it, including a failed request.
-            // The former post-fetch increment accidentally counted cache hits
-            // as requests and could stop checking sailors sharing one location.
-            if (needsWeatherFetch) weatherReqs++;
+        if (checked.length === 0) {
+            return jsonResponse({
+                checked: 0,
+                message: 'No users with alerts + location',
+                version: FORECAST_ALERTS_VERSION,
+                skipped,
+            });
+        }
 
-            const weather = await getWeather(user.lat, user.lon);
-            if (!weather) continue;
-            usersChecked++;
+        // ── 3. Fetch, many places a request, models pinned ──
+        const replies: Record<RequestKind, Map<string, JsonRecord | null>> = {
+            ahead: new Map(),
+            sea: new Map(),
+            now: new Map(),
+        };
+        const perKind: Record<RequestKind, number> = { ahead: 0, sea: 0, now: 0 };
+        const jobs: { kind: RequestKind; batch: Place[] }[] = [];
+        for (const kind of ['ahead', 'sea', 'now'] as const) {
+            const list = [...places.values()].filter((p) => p.needs.has(kind));
+            perKind[kind] = list.length;
+            for (const batch of batchPoints(list)) jobs.push({ kind, batch });
+        }
+        await eachInLanes(jobs, FETCH_LANES, async ({ kind, batch }) => {
+            const got = await fetchBatch(kind, batch, weatherKey);
+            if (got) batch.forEach((p, i) => replies[kind].set(p.key, got[i]));
+        });
+        const volume = estimateCallVolume(perKind);
 
-            for (const check of ALERT_CHECKS) {
-                const setting = user.notifications[check.setting];
-                if (!setting?.enabled) continue;
+        const hourlyAt = new Map<string, ReturnType<typeof readHourly>>();
+        const seaAt = new Map<string, ReturnType<typeof readHourly>>();
+        const nowAt = new Map<string, ReturnType<typeof readNow>>();
+        for (const place of places.values()) {
+            hourlyAt.set(
+                place.key,
+                readHourly(replies.ahead.get(place.key) ?? null, kindVariables('ahead'), kindModels('ahead')),
+            );
+            seaAt.set(
+                place.key,
+                readHourly(replies.sea.get(place.key) ?? null, kindVariables('sea'), kindModels('sea')),
+            );
+            nowAt.set(
+                place.key,
+                readNow(replies.now.get(place.key) ?? null, kindVariables('now'), kindModels('now'), nowMs),
+            );
+        }
 
-                const value = check.getValue(weather);
-                if (value == null) continue;
+        const decide = (
+            c: Checked,
+            official: readonly OfficialForCover[],
+            officialAtPlace: readonly OfficialForCover[],
+        ): AheadDecision =>
+            decideForAccount(
+                c.account,
+                {
+                    ahead: hourlyAt.get(c.place.key) ?? null,
+                    // At the point asked: a wave cell Open-Meteo reached far from it is not the sea here.
+                    sea: waveChain(seaAt.get(c.place.key) ?? null, nowMs, c.account.hours, {
+                        lat: c.place.lat,
+                        lon: c.place.lon,
+                    }),
+                    seaAnswered: replies.sea.has(c.place.key) && seaAt.get(c.place.key) !== null,
+                    now: nowAt.get(c.place.key) ?? null,
+                    official,
+                    officialAtPlace,
+                },
+                nowMs,
+            );
 
-                const threshold = setting.threshold;
-
-                // Precipitation is a boolean check (no threshold)
-                let triggered = false;
-                if (check.type === 'precipitation') {
-                    triggered = value >= 1;
-                } else if (threshold != null) {
-                    triggered = check.compare === 'gte' ? value >= threshold : value <= threshold;
+        // ── 4. The official warnings in force where an alert is in play ──
+        // Decided once without them; only the places with something to send
+        // (or hold) are matched. Without 129-06's migration the match is
+        // absent, and the alert is sent: nothing is suppressed on a guess.
+        // A warning covers an account's alert only if official-alerts-watch
+        // sent it to that account (official_alert_deliveries): one muted
+        // (official warnings or small craft advisories off), told at the
+        // boat's fix elsewhere, or still held overnight covers nothing.
+        const first = checked.map((c) => decide(c, [], []));
+        const inPlay = [
+            ...new Set(checked.filter((_, i) => first[i].pushes.length + first[i].held.length > 0).map((c) => c.place)),
+        ];
+        const officialAt = new Map<string, OfficialForCover[]>();
+        const deliveredTo = new Map<string, Set<number>>();
+        if (inPlay.length > 0) {
+            try {
+                const matched = await matchBoats(
+                    inPlay.map((p) => ({ userId: p.key, position: { lat: p.lat, lon: p.lon } })),
+                    (points) => db.rpc('official_alerts_watch_match', { p_points: points }),
+                );
+                const ids = [...new Set([...matched.values()].flatMap((s) => [...s]))];
+                const infos = new Map<number, OfficialForCover>();
+                for (const part of chunk(ids, 200)) {
+                    const { data, error } = await db.from('official_alerts').select('id, provider_id, infos').in(
+                        'id',
+                        part,
+                    );
+                    if (error) throw new Error('official read failed');
+                    for (const r of data ?? []) {
+                        if (typeof r.id === 'number' && typeof r.provider_id === 'string' && Array.isArray(r.infos)) {
+                            infos.set(r.id, { id: r.id, provider: r.provider_id, infos: r.infos });
+                        }
+                    }
                 }
+                for (const [key, set] of matched) {
+                    officialAt.set(key, [...set].map((id) => infos.get(id)).filter((o): o is OfficialForCover => !!o));
+                }
+                // Which of those warnings each account there was sent.
+                const users = [
+                    ...new Set(checked.filter((c) => officialAt.has(c.place.key)).map((c) => c.account.userId)),
+                ];
+                const alertIds = [...infos.keys()];
+                for (const userPart of chunk(users, 100)) {
+                    for (const idPart of chunk(alertIds, 200)) {
+                        const rows = await readAllRows<{ user_id: unknown; alert_id: unknown }>(
+                            (from, to) =>
+                                db
+                                    .from('official_alert_deliveries')
+                                    .select('user_id, alert_id')
+                                    .eq('channel', 'push')
+                                    .in('user_id', userPart)
+                                    .in('alert_id', idPart)
+                                    .order('user_id')
+                                    .order('alert_id')
+                                    .range(from, to),
+                            'delivery',
+                        );
+                        for (const r of rows) {
+                            if (typeof r.user_id !== 'string' || typeof r.alert_id !== 'number') continue;
+                            const told = deliveredTo.get(r.user_id) ?? new Set<number>();
+                            told.add(r.alert_id);
+                            deliveredTo.set(r.user_id, told);
+                        }
+                    }
+                }
+            } catch {
+                officialAt.clear();
+                deliveredTo.clear();
+                console.warn('[check-weather-alerts] official warnings unavailable this run: nothing is suppressed');
+            }
+        }
 
-                if (!triggered) continue;
+        // ── 5. Claim, queue, and keep each account's status ──
+        let alertsQueued = 0;
+        let held = 0;
+        let covered = 0;
+        for (const [i, c] of checked.entries()) {
+            const atPlace = officialAt.get(c.place.key) ?? [];
+            const decision = atPlace.length > 0
+                ? decide(c, deliveredOfficial(atPlace, deliveredTo.get(c.account.userId)), atPlace)
+                : first[i];
+            held += decision.held.length;
+            covered += decision.covered.length;
+            const lines = decision.lines.slice(0, STATUS_LINES_MAX);
+            while (lines.length > 0 && new TextEncoder().encode(JSON.stringify(lines)).length > STATUS_BYTES_MAX) {
+                lines.pop();
+            }
+            statusRows.set(c.account.userId, { basis: c.basis, lines });
 
-                // ── 4. Atomically claim the daily alert slot ──
-                const alertKey = check.type === 'precipitation'
-                    ? `precip-${weatherCodeToDescription(weather.weather_code ?? 0)}-${today}`
-                    : `${check.type}-${check.formatValue(value)}${check.unit}-${today}`;
-
+            for (const push of decision.pushes) {
                 // `weather_alerts_log` has a `(user_id, alert_key)` unique
                 // constraint. Claim it before enqueueing the push so two
                 // overlapping cron invocations cannot both notify the same
                 // skipper after each observed an empty pre-check.
-                const { data: claimedAlert, error: claimError } = await supabase
+                const { data: claimedAlert, error: claimError } = await db
                     .from('weather_alerts_log')
                     .upsert(
-                        {
-                            user_id: user.userId,
-                            alert_type: check.type,
-                            alert_key: alertKey,
-                        },
+                        { user_id: c.account.userId, alert_type: push.kind, alert_key: push.alertKey },
                         { onConflict: 'user_id,alert_key', ignoreDuplicates: true },
                     )
                     .select('id')
                     .maybeSingle();
                 if (claimError) {
-                    console.error(`Weather alert dedup claim failed for ${user.userId}:`, claimError);
+                    console.error(`Weather alert dedup claim failed for ${c.account.userId.slice(0, 8)}…`);
                     continue;
                 }
-                if (!claimedAlert) continue; // An overlapping run already owns this alert.
+                if (!claimedAlert) continue; // Already sent for this day, or an overlapping run owns it.
 
-                // ── 5. Build alert message ──
-                let title: string;
-                let body: string;
-
-                if (check.type === 'precipitation') {
-                    const condition = weatherCodeToDescription(weather.weather_code ?? 0);
-                    title = `${check.emoji} ${condition} Detected`;
-                    body = `Current conditions at ${user.locationName}: ${condition}`;
-                } else {
-                    const valueStr = check.formatValue(value);
-                    title = `${check.emoji} ${check.label}: ${valueStr}${check.unit}`;
-                    body = check.compare === 'gte'
-                        ? `${check.label} at ${user.locationName} has exceeded your ${threshold}${check.unit} threshold.`
-                        : `${check.label} at ${user.locationName} has dropped below your ${threshold}${check.unit} threshold.`;
-                }
-
-                // Determine if this should be a critical alert
-                const isSevere = (check.type === 'wind' && value >= 50) || (check.type === 'gusts' && value >= 65);
-
-                // ── 6. Queue push notification ──
-                const { error: insertError } = await supabase.from('push_notification_queue').insert({
-                    recipient_user_id: user.userId,
-                    notification_type: isSevere ? 'severe_weather_alert' : 'weather_alert',
-                    title,
-                    body,
-                    data: {
-                        alert_type: check.type,
-                        value,
-                        threshold,
-                        location: user.locationName,
-                        lat: user.lat,
-                        lon: user.lon,
-                        is_severe: isSevere,
-                    },
+                const { error: insertError } = await db.from('push_notification_queue').insert({
+                    recipient_user_id: c.account.userId,
+                    notification_type: push.type,
+                    title: push.title,
+                    body: push.body,
+                    data: push.data,
                 });
-
                 if (insertError) {
-                    console.error(`Push queue insert failed for ${user.userId}:`, insertError);
-                } else {
-                    alertsQueued++;
-                    console.log(`Alert queued: ${check.type} for user ${user.userId.slice(0, 8)}…`);
+                    console.error(`Push queue insert failed for ${c.account.userId.slice(0, 8)}…`);
+                    continue;
+                }
+                alertsQueued++;
+                // The weaker strengths of the same day, so the forecast easing later today stays quiet.
+                if (push.alsoClaims.length > 0) {
+                    const { error: lowerError } = await db.from('weather_alerts_log').upsert(
+                        push.alsoClaims.map((key) => ({
+                            user_id: c.account.userId,
+                            alert_type: push.kind,
+                            alert_key: key,
+                        })),
+                        { onConflict: 'user_id,alert_key', ignoreDuplicates: true },
+                    );
+                    if (lowerError) console.warn('Weather alert weaker-strength claims failed');
                 }
             }
         }
 
+        // ── 6. The status the app reads (held migration 20261014190000) ──
+        // Only the lines that changed are written, and an account the check no
+        // longer reads loses its row, so a quiet account costs no write a run.
+        try {
+            const prior = await readAllRows<{ user_id: string; basis: unknown; lines: unknown }>(
+                (from, to) =>
+                    db
+                        .from('weather_alert_status')
+                        .select('user_id, basis, lines')
+                        .order('user_id')
+                        .range(from, to),
+                'status',
+            );
+            const before = new Map(prior.map((r) => [r.user_id, JSON.stringify([r.basis, r.lines])]));
+            const changed = [...statusRows]
+                .filter(([userId, s]) => before.get(userId) !== JSON.stringify([s.basis, s.lines]))
+                .map(([userId, s]) => ({
+                    user_id: userId,
+                    basis: s.basis,
+                    lines: s.lines,
+                    changed_at: new Date(nowMs).toISOString(),
+                }));
+            for (const part of chunk(changed, 500)) {
+                const { error } = await db.from('weather_alert_status').upsert(part, { onConflict: 'user_id' });
+                if (error) throw new Error('status write failed');
+            }
+            const gone = prior.map((r) => r.user_id).filter((userId) => !statusRows.has(userId));
+            for (const part of chunk(gone, 200)) {
+                const { error } = await db.from('weather_alert_status').delete().in('user_id', part);
+                if (error) throw new Error('status delete failed');
+            }
+            const { error: runError } = await db.from('weather_alert_runs').upsert({
+                id: 1,
+                ran_at: new Date(nowMs).toISOString(),
+                version: FORECAST_ALERTS_VERSION,
+                accounts: checked.length,
+                places: places.size,
+                requests: volume.requestsPerRun,
+                calls: volume.callsPerRun,
+                pushes: alertsQueued,
+                held,
+                covered,
+                skipped,
+            });
+            if (runError) throw new Error('run write failed');
+        } catch {
+            console.warn(
+                '[check-weather-alerts] weather_alert_status is not there yet (held migration 20261014190000), or its write failed: no status this run',
+            );
+        }
+
         const elapsed = Date.now() - startTime;
         console.log(
-            `Weather check complete: ${usersChecked} users, ${weatherCache.size} locations, ${alertsQueued} alerts in ${elapsed}ms`,
+            `Weather check complete: ${checked.length} accounts, ${places.size} places, ${volume.requestsPerRun} requests, ${alertsQueued} alerts (${held} held, ${covered} covered) in ${elapsed}ms`,
         );
 
         return jsonResponse({
-            checked: usersChecked,
-            locations: weatherCache.size,
+            version: FORECAST_ALERTS_VERSION,
+            checked: checked.length,
+            locations: places.size,
+            requests: volume.requestsPerRun,
+            calls: volume.callsPerRun,
+            calls_per_30_days: volume.callsPer30Days,
             alerts: alertsQueued,
+            held,
+            covered,
+            skipped,
             elapsed_ms: elapsed,
         });
     } catch {

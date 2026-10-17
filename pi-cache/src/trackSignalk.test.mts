@@ -42,6 +42,35 @@ const SELF = {
     },
 };
 
+test('polar history takes coherent wind and fresh PGN 127488 revolutions, excluding any running engine', () => {
+    const timestamp = '2026-08-29T19:48:49.000Z';
+    const leaf = (value: number) => ({ value, timestamp });
+    const doc = {
+        ...SELF,
+        navigation: {
+            ...SELF.navigation,
+            speedOverGround: leaf(3),
+            speedThroughWater: leaf(2.5),
+            headingTrue: leaf(Math.PI / 2),
+        },
+        environment: { ...SELF.environment, wind: { speedTrue: leaf(6), directionTrue: leaf(Math.PI) } },
+        propulsion: { port: { revolutions: leaf(20) }, starboard: { revolutions: { value: 0 } } },
+    };
+    const fix = readTrackFix(doc)!;
+    assert.equal(fix.engineRpm, 1200);
+    assert.equal(fix.twaDeg, 90);
+    const stale = {
+        ...doc,
+        environment: {
+            ...doc.environment,
+            wind: { speedTrue: { value: 6, timestamp: '2026-08-29T19:47:00.000Z' }, directionTrue: leaf(Math.PI) },
+        },
+    };
+    assert.equal(readTrackFix(stale)!.twaDeg, null);
+    assert.equal(readTrackFix(SELF)!.engineRpm, null);
+    assert.equal(readTrackFix(SELF)!.twaDeg, null);
+});
+
 test('reads a position out of Signal K’s nested envelopes', () => {
     const fix = readTrackFix(SELF);
     assert.ok(fix, 'a real document must yield a fix');

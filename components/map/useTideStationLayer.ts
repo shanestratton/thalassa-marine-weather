@@ -12,6 +12,7 @@ import {
 import { TideStationCard, TideStationGauge } from './TideStationCard';
 import { tideGaugePresentation } from './tideStationPresentation';
 import { subscribeWeatherRefresh } from '../../services/weather/pressureRefresh';
+import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 
 export type { TideStation } from '../../services/tides/stationDetails';
 export interface TideExtreme {
@@ -130,6 +131,15 @@ export function useTideStationLayer(
     const [error, setError] = useState(false);
     const [zoomRequired, setZoomRequired] = useState(false);
     const cache = useRef<{ center: { lat: number; lon: number }; at: number; stations: TideStation[] } | null>(null);
+    // The layer may be hidden during a switch; its next mount must not seed
+    // station selections from the preceding account's cruising area.
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                cache.current = null;
+            }),
+        [],
+    );
 
     useEffect(() => {
         const map = mapRef.current;
@@ -439,6 +449,22 @@ export function useTideStationLayer(
             if (event.key === 'Escape' && selected) closeDetail();
         };
 
+        const stopIdentity = subscribeAuthIdentityScope(() => {
+            searchGeneration++;
+            searchController?.abort();
+            searchController = null;
+            searchCenter = null;
+            if (moveTimer !== null) clearTimeout(moveTimer);
+            moveTimer = null;
+            cache.current = null;
+            stations = [];
+            sourceData = undefined;
+            closeDetail();
+            setStationCount(0);
+            setLoading(false);
+            setError(false);
+            restore();
+        });
         setStationCount(stations.length);
         restore();
         void loadViewport();
@@ -462,6 +488,7 @@ export function useTideStationLayer(
             searchGeneration++;
             searchController?.abort();
             stopRefresh();
+            stopIdentity();
             if (moveTimer !== null) clearTimeout(moveTimer);
             closeDetail();
             map.off('zoom', syncZoomStatus);

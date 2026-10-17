@@ -8,8 +8,8 @@
  * walks that graph from the source (scripts/route-job-closure.mjs, the same
  * walk the build uses to give the job its own logger) and holds it to:
  *   - only the router: the modules the Pi mirrors (sync-router-engine), the
- *     Seaway graph (services/seaway/*), and the job, its sample helper and the
- *     logger;
+ *     Seaway graph (services/seaway/*), and the job, its sample helper, the
+ *     satellite water check's picture reader (131-05) and the logger;
  *   - no storage or network API, no Capacitor plugin, no DOM (use of the
  *     globals, not the bare words: tideCeiling.ts and fairlead.ts name a
  *     parameter `window`);
@@ -36,7 +36,35 @@ function files(dir: string, out: string[] = []): string[] {
 
 /** The engine modules the Pi mirrors (pi-cache/scripts/sync-router-engine.mjs writes them at the app's paths). */
 const MIRRORED = new Set(files(MIRROR).filter((f) => f !== 'syncedFrom.ts'));
-const JOB_OWN = new Set([ROUTE_JOB_ENTRY, 'services/routing/backstopSamples.ts', ROUTE_JOB_LOGGER]);
+const JOB_OWN = new Set([
+    ROUTE_JOB_ENTRY,
+    'services/routing/backstopSamples.ts',
+    // The satellite crops' pictures, read in the route worker (131-05): no
+    // IO, its tiles are fetched on the main thread and handed over as bytes.
+    'services/routing/satelliteWaterJob.ts',
+    // Offshore comparison uses public forecasts/relief in separate instances of this script.
+    'services/routing/offshoreJob.ts',
+    'services/routing/offshoreProtocol.ts',
+    'services/isochrone/offshoreKernel.ts',
+    'services/isochrone/comfortKernel.ts',
+    'services/isochrone/publicBathymetry.ts',
+    'services/isochrone/publicLandAvoidance.ts',
+    'services/isochrone/cycloneField.ts',
+    'services/isochrone/types.ts',
+    'services/isochrone/geodesy.ts',
+    'services/isochrone/polar.ts',
+    'services/isochrone/pruning.ts',
+    'services/isochrone/smoothing.ts',
+    'services/isochrone/routeSailingStats.ts',
+    'services/isochrone/routeComfort.ts',
+    'services/isochrone/routeSampling.ts',
+    'services/weather/WindFieldAdapter.ts',
+    'services/weather/CurrentFieldAdapter.ts',
+    'services/weather/WaveFieldAdapter.ts',
+    'services/weather/windLongitude.ts',
+    'utils/seaComfort.ts',
+    ROUTE_JOB_LOGGER,
+]);
 
 function stripComments(code: string): string {
     return code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\'"`])\/\/.*$/gm, '$1');
@@ -94,11 +122,12 @@ describe("the route job's graph", () => {
             'services/seaway/seawayRouter.ts',
             'services/seaway/leadGraphSearch.ts',
             'services/routing/backstopSamples.ts',
+            'services/routing/satelliteWaterJob.ts',
         ])
             expect(closure.has(f), f).toBe(true);
     });
 
-    it('is only the router: mirrored engine modules, the Seaway graph and the job’s own three', () => {
+    it('is only the router: mirrored engine modules, the Seaway graph and the job’s own four', () => {
         const strays = [...closure.keys()].filter(
             (f) => !MIRRORED.has(f) && !f.startsWith('services/seaway/') && !JOB_OWN.has(f),
         );

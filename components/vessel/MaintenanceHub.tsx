@@ -6,7 +6,7 @@
  *   - ServiceLogSheet: bottom sheet for logging maintenance
  *   - TaskFormModal: add/edit task form
  */
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { createLogger } from '../../utils/createLogger';
 
@@ -17,6 +17,8 @@ import {
 } from '../../services/vessel/LocalMaintenanceService';
 import {
     calculateStatus,
+    isFixedRepair,
+    statusWithReading,
     type TaskWithStatus,
     type TrafficLight as _TrafficLight,
 } from '../../services/MaintenanceService';
@@ -43,11 +45,13 @@ import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { CATEGORIES } from './maintenance/constants';
 import { ServiceLogSheet, clockTime } from './maintenance/ServiceLogSheet';
 import { TaskFormModal } from './maintenance/TaskFormModal';
-import { SwipeableTaskCard, PERIOD_DAYS } from './maintenance/SwipeableTaskCard';
+import { SwipeableTaskCard } from './maintenance/SwipeableTaskCard';
+import { scheduleFromForm } from './maintenance/taskSchedule';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -65,8 +69,13 @@ import {
     type EngineHoursReading,
 } from '../../services/vessel/LocalEngineHoursService';
 import { useBinderSource } from '../../hooks/useBinderSource';
+import { supabase } from '../../services/supabase';
+import {
+    maintenanceHistoryKeepsRecords,
+    maintenanceHistoryKeptKnown,
+} from '../../services/vessel/maintenanceHistoryColumn';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
-import { toLocalDateString } from '../../utils/localDate';
+import { localDayString } from '../../utils/localDate';
 // 'Sun 28 Sep 2026', shared with the task cards (UX scorecard run 9).
 import { formatDisplayDate } from '../../utils/displayDate';
 
@@ -116,6 +125,10 @@ const CATEGORY_ORDER: MaintenanceCategory[] = ['Repair', 'Engine', 'Safety', 'Hu
 // A group's heading and count: each category, and Paused.
 const GROUP_LABEL = 'text-label font-black text-gray-400 uppercase tracking-widest';
 const GROUP_COUNT = 'text-micro text-gray-400 font-bold';
+/** The engine-hours card with a figure, as a button and as the field it opens into (132-B20). */
+const HOURS_CARD = 'w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5';
+/** Its label: full-strength sky, 4.5:1 and over on the card (sky-400 at 70% read 4.48:1). */
+const HOURS_LABEL = 'block text-label text-sky-400 font-bold uppercase tracking-widest';
 
 export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── State ──
@@ -159,6 +172,31 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         LocalEngineHoursService.getReading(),
     );
     const engineHours = engineHoursReading.hours;
+    const [hasEndedEngineRun, setHasEndedEngineRun] = useState(false);
+    useEffect(() => {
+        const scope = taskData.identity;
+        let live = true;
+        setHasEndedEngineRun(false);
+        void import('../../services/shiplog/TrackingStateStore')
+            .then(async ({ loadTrackingState }) => {
+                const state = await loadTrackingState(scope);
+                const { engineRunSummary, validEngineRunCounter } =
+                    await import('../../services/shiplog/engineRunCounter');
+                if (
+                    live &&
+                    isAuthIdentityScopeCurrent(scope) &&
+                    state?.engineRun &&
+                    state.engineRun.ended &&
+                    validEngineRunCounter(state.engineRun, state.engineRun.voyageId)
+                ) {
+                    setHasEndedEngineRun(engineRunSummary(state.engineRun).seconds > 0);
+                }
+            })
+            .catch(() => undefined);
+        return () => {
+            live = false;
+        };
+    }, [taskData.identity]);
     /** False on a view-only share: the figure shows, the field does not open. */
     const engineHoursCanEdit = engineHoursReading.canEdit;
     /** The engine-hours table is live on this device: listen for changes to it. */
@@ -182,6 +220,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         records: number;
     } | null>(null);
     const [showPaused, setShowPaused] = useState(false);
+    const [showFixed, setShowFixed] = useState(false);
+    // A search over the tasks (132-B19): the suggested schedule alone is 40.
+    const [searchQuery, setSearchQuery] = useState('');
+    // Whether a deleted task's records stay (131-B7): only once the held
+    // migration's column has been seen; until then they go with it, and the
+    // question says so (126-B7a).
+    const [historyKept, setHistoryKept] = useState(maintenanceHistoryKeptKnown);
     const [sheetNotes, setSheetNotes] = useState('');
     const [sheetSaving, setSheetSaving] = useState(false);
 
@@ -194,6 +239,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         setTrigger,
         reset: resetForm,
         populate: populateForm,
+        openForAdd,
     } = useMaintenanceForm();
     const [showAddForm, setShowAddForm] = useState(false);
     const [addFormIdentity, setAddFormIdentity] = useState<AuthIdentityScope | null>(null);
@@ -227,11 +273,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [showEditForm, setShowEditForm] = useState(false);
     const [editTask, setEditTask] = useState<{ identity: AuthIdentityScope; task: TaskWithStatus } | null>(null);
 
-    // Export
-    const [showExportModal, setShowExportModal] = useState(false);
+    // Share or save a PDF (130-B8). The ref is the double-tap guard: state
+    // lands a render late, so a second tap would start a second PDF.
     const [menuOpen, setMenuOpen] = useState(false);
     const [exporting, setExporting] = useState(false);
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || 'Vessel');
+    const exportingRef = useRef(false);
+    // The ⋮ is Diary's menu (132-B20): named a menu with its state, focus goes
+    // into it, the arrows move through it and Escape closes it.
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
+    const menuId = useId();
+    const closeMenu = useCallback(() => setMenuOpen(false), []);
+    const menuRef = useMenuNavigation<HTMLDivElement>(menuOpen, { triggerRef: menuButtonRef, onClose: closeMenu });
+    const hoursLabelId = useId();
+    // No name set: the PDF prints none, rather than 'Vessel'.
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || '');
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
     const loadRequestRef = useRef(0);
@@ -335,6 +390,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         void loadTasks(identity);
     }, [loadTasks]);
 
+    // Ask the server once per visit whether it keeps a deleted task's records
+    // (131-B7). It never throws; offline or signed out it says no.
+    useEffect(() => {
+        let live = true;
+        void maintenanceHistoryKeepsRecords(supabase).then((kept) => {
+            if (live) setHistoryKept(kept);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+
     // The Service history sheet on show, so a background reload refreshes it
     // too: a service logged on another device belongs in it straight away.
     const openHistoryRef = useRef<{ identity: AuthIdentityScope; taskId: string } | null>(null);
@@ -388,6 +455,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         rowCount: tasks.length,
     });
     const sharedBinder = binder.mode === 'shared';
+    // The boat's name on the PDFs (130-B8): the skipper's on his shared R&M,
+    // not the crew member's own boat from settings. None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || '' : ownVesselName;
 
     // ── Engine Hours ──
     // Saved as the R&M binder's shared reading: every device of the skipper
@@ -443,22 +513,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }, [engineHours, engineHoursCanEdit]);
 
     const tasksWithStatus = useMemo(() => {
-        const withStatus = activeTasks.map((t) => {
-            const hasHours = t.next_due_hours !== null && t.next_due_hours !== undefined;
-            if (engineHours !== null || (!hasHours && t.trigger_type !== 'engine_hours')) {
-                return calculateStatus(t, engineHours ?? 0);
-            }
-            // Engine hours not entered yet: judge the task on its date alone
-            // rather than counting hours from an invented zero. An hour task
-            // with no hours due yet (the suggested engine service is seeded so
-            // since 126-B1) waits for the same first reading.
-            const byDate = calculateStatus({ ...t, next_due_hours: null }, 0);
-            return {
-                ...byDate,
-                next_due_hours: t.next_due_hours,
-                statusLabel: byDate.status === 'grey' ? 'Enter engine hours' : byDate.statusLabel,
-            };
-        });
+        // Engine hours not entered yet: judged on the date alone, never on
+        // hours counted from an invented zero (statusWithReading, the rule the
+        // Vessel page's overdue badge counts with too).
+        const withStatus = activeTasks.map((t) => statusWithReading(t, engineHours));
         // Sort: category order first, then alphabetical within each category
         return withStatus.sort((a, b) => {
             const catA = CATEGORY_ORDER.indexOf(a.category);
@@ -467,8 +525,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             return a.title.localeCompare(b.title);
         });
     }, [activeTasks, engineHours]);
-    // Paused: never due, so the card says 'Paused' (calculateStatus). By title.
-    const pausedTasks = useMemo(
+    // Off the list, by title: a repair marked fixed waits under Fixed
+    // (132-B15), any other task under Paused (126-B7a). Never due.
+    const inactiveTasks = useMemo(
         () =>
             visibleTasks
                 .filter((task) => !task.is_active)
@@ -476,16 +535,33 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 .sort((a, b) => a.title.localeCompare(b.title)),
         [visibleTasks, engineHours],
     );
+    const pausedTasks = useMemo(() => inactiveTasks.filter((task) => !isFixedRepair(task)), [inactiveTasks]);
+    const fixedRepairs = useMemo(() => inactiveTasks.filter(isFixedRepair), [inactiveTasks]);
+
+    // What the search finds (132-B19): a task's name, its notes or its
+    // category ('rigging'), in every group, Paused and Fixed too. The counts
+    // in the header stay the whole list's.
+    const query = searchQuery.trim().toLowerCase();
+    const matches = useCallback(
+        (task: TaskWithStatus) =>
+            !query ||
+            task.title.toLowerCase().includes(query) ||
+            (task.description ?? '').toLowerCase().includes(query) ||
+            task.category.toLowerCase().includes(query),
+        [query],
+    );
+    const foundPaused = useMemo(() => pausedTasks.filter(matches), [pausedTasks, matches]);
+    const foundFixed = useMemo(() => fixedRepairs.filter(matches), [fixedRepairs, matches]);
 
     // Group tasks by category for rendering
     const groupedTasks = useMemo(() => {
         const groups: { category: MaintenanceCategory; tasks: TaskWithStatus[] }[] = [];
         for (const cat of CATEGORY_ORDER) {
-            const catTasks = tasksWithStatus.filter((t) => t.category === cat);
+            const catTasks = tasksWithStatus.filter((t) => t.category === cat && matches(t));
             if (catTasks.length > 0) groups.push({ category: cat, tasks: catTasks });
         }
         return groups;
-    }, [tasksWithStatus]);
+    }, [tasksWithStatus, matches]);
 
     // The 40 suggested tasks are seeded with due dates counted from the day
     // they were added. Until the skipper logs a service, say so, rather than
@@ -506,9 +582,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         () =>
             tasksWithStatus.reduce(
                 (acc, t) => {
-                    // A due still counted from zero is amber (calculateStatus), so
-                    // it counts with the tasks that need attention.
-                    if (t.status !== 'grey') acc[t.status]++;
+                    // An open repair is counted as one to fix, not as due
+                    // (132-B15). A due still counted from zero is amber
+                    // (calculateStatus), so it counts with the tasks that need
+                    // attention.
+                    if (t.toFix) acc.toFix++;
+                    else if (t.status !== 'grey') acc[t.status]++;
                     else if (
                         engineHours === null &&
                         ((t.next_due_hours !== null && t.next_due_hours !== undefined) ||
@@ -518,7 +597,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     else acc.unscheduled++;
                     return acc;
                 },
-                { red: 0, yellow: 0, green: 0, needsHours: 0, paused: pausedTasks.length, unscheduled: 0 },
+                { red: 0, toFix: 0, yellow: 0, green: 0, needsHours: 0, paused: pausedTasks.length, unscheduled: 0 },
             ),
         [tasksWithStatus, engineHours, pausedTasks.length],
     );
@@ -533,8 +612,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const countsSummary = useMemo(() => {
         const parts: string[] = [];
         if (counts.red > 0) parts.push(`${counts.red} overdue`);
+        if (counts.toFix > 0) parts.push(`${counts.toFix} to fix`);
         if (counts.yellow > 0) parts.push(`${counts.yellow} due soon`);
-        if (tasksWithStatus.length > 0)
+        if (tasksWithStatus.length > counts.toFix)
             parts.push(`${counts.green} ${anyServiceLogged ? 'up to date' : 'not yet due'}`);
         if (counts.needsHours > 0)
             parts.push(`${counts.needsHours} ${counts.needsHours === 1 ? 'needs' : 'need'} engine hours`);
@@ -543,15 +623,17 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         return parts.length > 0 ? `Tasks: ${parts.join(', ')}.` : '';
     }, [counts, tasksWithStatus.length, anyServiceLogged]);
 
-    // ── Undo a logged service (126-B7a): the skipper's binder only ──
+    // ── Undo a logged service (126-B7a), or a repair marked fixed (132-B15):
+    // the skipper's binder only ──
     const undoLog = useCallback(
-        async (logged: LoggedService, identity: AuthIdentityScope) => {
+        async (logged: LoggedService, identity: AuthIdentityScope, fix = false) => {
             if (!isAuthIdentityScopeCurrent(identity)) return;
             try {
                 const { restored } = await MaintenanceService.undoLogService(logged);
                 if (!isAuthIdentityScopeCurrent(identity)) return;
                 reloadInBackground();
-                toast.success(restored ? 'Log undone' : 'Log undone. The later service still counts.');
+                if (fix) toast.success(restored ? 'Undone. It needs fixing again.' : 'Undone. It was changed since.');
+                else toast.success(restored ? 'Log undone' : 'Log undone. The later service still counts.');
             } catch (e) {
                 log.warn('Failed to undo the service log:', e);
                 if (isAuthIdentityScopeCurrent(identity)) {
@@ -600,6 +682,41 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sheetTask, engineHours, sheetNotes, loadTasks, sharedBinder, undoLog]);
 
+    // ── Mark a repair fixed (132-B15): it leaves the list for Fixed ──
+    // From its sheet, with what was done in the notes; or offered instead of
+    // deleting an open repair that has service records, which keeps them.
+    const markRepairFixed = useCallback(
+        async (task: MaintenanceTask, identity: AuthIdentityScope, notes: string | null) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            setSheetSaving(true);
+            try {
+                triggerHaptic('medium');
+                const logged = await MaintenanceService.markFixed(task.id, notes);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                setSheetTask(null);
+                setSheetNotes('');
+                await loadTasks(identity, true);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                const message = `“${task.title}” fixed. It's under Fixed.`;
+                // As a logged service: Undo deletes the record, so crew get none.
+                if (sharedBinder) toast.success(message);
+                else toast.success(message, { label: 'Undo', onClick: () => void undoLog(logged, identity, true) });
+            } catch (e) {
+                log.error('Failed to mark the repair fixed:', e);
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    toast.error(e instanceof SharedBinderReadOnlyError ? e.message : 'Could not mark it fixed');
+                }
+            } finally {
+                if (isAuthIdentityScopeCurrent(identity)) setSheetSaving(false);
+            }
+        },
+        [loadTasks, sharedBinder, undoLog],
+    );
+    const handleMarkFixed = useCallback(async () => {
+        if (!sheetTask) return;
+        await markRepairFixed(sheetTask.task, sheetTask.identity, sheetNotes.trim() || null);
+    }, [sheetTask, sheetNotes, markRepairFixed]);
+
     // ── Pause / Resume (126-B7a) ──
     const setTaskPaused = useCallback(
         async (task: MaintenanceTask, identity: AuthIdentityScope, pause: boolean) => {
@@ -611,7 +728,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setSheetTask(null);
                 await loadTasks(identity, true);
                 if (!isAuthIdentityScopeCurrent(identity)) return;
-                toast.success(pause ? `“${task.title}” paused. It's under Paused.` : `“${task.title}” resumed`);
+                toast.success(
+                    pause
+                        ? `“${task.title}” paused. It's under Paused.`
+                        : isFixedRepair(task)
+                          ? `“${task.title}” reopened: it needs fixing again`
+                          : `“${task.title}” resumed`,
+                );
             } catch (e) {
                 log.warn('Failed to pause or resume a task:', e);
                 if (isAuthIdentityScopeCurrent(identity)) {
@@ -634,51 +757,38 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         try {
             triggerHaptic('medium');
 
-            // Repairs: auto-set to daily trigger with today's due date
-            // They'll go red almost immediately — fix it or delete it!
+            // A repair is the one shape the log and Checklists raise too: it
+            // needs fixing, with no schedule to roll on (132-B15). It was a
+            // daily task due today, rolled on to tomorrow by every log.
             const isRepair = form.category === 'Repair';
-            const triggerType = isRepair ? 'daily' : form.trigger;
-
-            // Auto-compute interval and due date for period-based triggers
-            const periodDays = isRepair ? 1 : PERIOD_DAYS[form.trigger];
-            const intervalValue =
-                triggerType === 'engine_hours'
-                    ? form.interval
-                        ? parseInt(form.interval, 10)
-                        : null
-                    : (periodDays ?? null);
-            const dueDate =
-                triggerType === 'engine_hours'
-                    ? null
-                    : isRepair
-                      ? toLocalDateString() // local calendar day, not the UTC one (audit 2026-09-02)
-                      : form.dueDate || toLocalDateString(new Date(Date.now() + (periodDays || 30) * 86400000));
-
-            await MaintenanceService.createTask({
-                title: form.title.trim(),
-                description: form.description.trim() || null,
-                category: form.category,
-                trigger_type: triggerType,
-                interval_value: intervalValue,
-                next_due_date: dueDate,
-                next_due_hours: triggerType === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
-                last_completed: null,
-                is_active: true,
-            });
+            if (isRepair) {
+                await MaintenanceService.createRepair(form.title, form.description);
+            } else {
+                await MaintenanceService.createTask({
+                    title: form.title.trim(),
+                    description: form.description.trim() || null,
+                    category: form.category,
+                    // Blank fields save sensibly: a blank 'Next due' hours is
+                    // the reading plus the interval (132-B15, MAINT-17).
+                    ...scheduleFromForm(form, engineHours),
+                    last_completed: null,
+                    is_active: true,
+                });
+            }
             if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowAddForm(false);
             setAddFormIdentity(null);
             resetForm();
             await loadTasks(identity);
             if (!isAuthIdentityScopeCurrent(identity)) return;
-            toast.success('Task created');
+            toast.success(isRepair ? 'Repair added' : 'Task created');
             flash();
         } catch (e) {
             log.error('Failed to create task:', e);
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to create task');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [form, resetForm, loadTasks, addFormIdentity]);
+    }, [form, resetForm, loadTasks, addFormIdentity, engineHours]);
 
     // ── Load History ──
     const loadHistory = useCallback(async (taskId: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
@@ -697,30 +807,67 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, []);
 
-    // ── Export PDF ──
+    // The service history the PDF prints. A record waiting out its Undo is
+    // left out, as it is on screen. So are the records of a task waiting out
+    // its delete Undo while they would go with it; once the server keeps them
+    // (131-B7) they print as they will be, under its name, '(task removed)'.
+    const historyForPdf = useCallback((): MaintenanceHistory[] => {
+        const removed = new Map(taskData.tasks.filter((task) => hiddenIds.has(task.id)).map((t) => [t.id, t.title]));
+        const records = MaintenanceService.getAllHistory().filter((record) => !recordUndo.hiddenIds.has(record.id));
+        if (!historyKept) return records.filter((record) => !record.task_id || !removed.has(record.task_id));
+        return records.map((record) =>
+            record.task_id && removed.has(record.task_id)
+                ? { ...record, task_id: null, task_title: removed.get(record.task_id) }
+                : record,
+        );
+    }, [taskData.tasks, hiddenIds, recordUndo.hiddenIds, historyKept]);
+
+    // ── Share or save a PDF (130-B8) ──
+    // From the rows on this phone, as the list shows them: the server's copy
+    // left the PDFs blank offline at sea. A task or record waiting out its
+    // Undo is left out, as it is on screen.
     const handleExport = useCallback(
         async (type: 'checklist' | 'history', identity: AuthIdentityScope = getAuthIdentityScope()) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!isAuthIdentityScopeCurrent(identity) || exportingRef.current) return;
             const engineHoursSnapshot = engineHours;
             const vesselNameSnapshot = vesselName;
+            exportingRef.current = true;
             setExporting(true);
             try {
                 triggerHaptic('medium');
-                if (type === 'checklist') {
-                    await exportChecklist(engineHoursSnapshot, vesselNameSnapshot);
-                } else {
-                    await exportServiceHistory(vesselNameSnapshot);
-                }
+                const outcome =
+                    type === 'checklist'
+                        ? await exportChecklist(
+                              activeTasks.map((task) => ({ ...task })),
+                              engineHoursSnapshot,
+                              vesselNameSnapshot,
+                          )
+                        : await exportServiceHistory(
+                              historyForPdf(),
+                              // Every task, paused ones too, for the records' titles.
+                              taskData.tasks.map((task) => ({ ...task })),
+                              vesselNameSnapshot,
+                          );
                 if (!isAuthIdentityScopeCurrent(identity)) return;
-                setShowExportModal(false);
+                // The share sheet speaks for itself; only the web's download needs a word.
+                if (outcome === 'empty') {
+                    toast.info(
+                        type === 'checklist'
+                            ? 'No active tasks to put on a checklist yet.'
+                            : 'No services logged yet, so there is no history to share.',
+                    );
+                } else if (outcome === 'downloaded') {
+                    toast.success('PDF downloaded');
+                }
             } catch (e) {
                 log.error('Failed to export PDF:', e);
-                if (isAuthIdentityScopeCurrent(identity)) toast.error('PDF export failed');
+                if (isAuthIdentityScopeCurrent(identity)) toast.error('Could not make the PDF. Try again.');
             } finally {
+                exportingRef.current = false;
                 if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
         },
-        [engineHours, vesselName],
+        [engineHours, vesselName, activeTasks, taskData.tasks, historyForPdf],
     );
 
     useEffect(
@@ -737,6 +884,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setSheetTask(null);
                 setDeleteAsk(null);
                 setShowPaused(false);
+                setShowFixed(false);
+                setSearchQuery('');
                 setSheetNotes('');
                 setSheetSaving(false);
                 resetForm();
@@ -745,7 +894,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setShowHistory(false);
                 setShowEditForm(false);
                 setEditTask(null);
-                setShowExportModal(false);
                 setMenuOpen(false);
                 setExporting(false);
 
@@ -772,9 +920,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (!task || !isAuthIdentityScopeCurrent(identity)) return;
             triggerHaptic('medium');
             setSheetTask(null);
-            // The server cascades a task's records with it (MAINT-02): when
-            // there are any, ask first, and offer Pause instead (126-B7a).
-            // A record waiting out its own Undo is already gone.
+            // When a task has records, ask first, and offer Pause instead
+            // (126-B7a), or Mark fixed for an open repair (132-B15): until
+            // the server keeps them (131-B7) they go with it (MAINT-02). A
+            // record waiting out its own Undo is already gone.
             const records = MaintenanceService.getHistory(task.id).filter(
                 (record) => !recordHiddenIds.has(record.id),
             ).length;
@@ -803,8 +952,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 category: task.category,
                 trigger: task.trigger_type,
                 interval: String(task.interval_value || '200'),
-                dueDate: task.next_due_date ? task.next_due_date.split('T')[0] : '',
-                dueHours: task.next_due_hours !== null ? String(task.next_due_hours) : '',
+                // The local day the card shows: the UTC date of a logged
+                // service's due was a day early east of Greenwich (131-B11).
+                dueDate: localDayString(task.next_due_date),
+                // A row with no hours field at all opened on 'undefined'.
+                dueHours:
+                    task.next_due_hours !== null && task.next_due_hours !== undefined
+                        ? String(task.next_due_hours)
+                        : '',
                 description: task.description || '',
             });
             setShowEditForm(true);
@@ -819,23 +974,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
             triggerHaptic('medium');
-            const periodDays = PERIOD_DAYS[form.trigger];
-            const intervalValue =
-                form.trigger === 'engine_hours'
-                    ? form.interval
-                        ? parseInt(form.interval, 10)
-                        : null
-                    : (periodDays ?? null);
-            const dueDate = form.trigger === 'engine_hours' ? null : form.dueDate || null;
-
             await MaintenanceService.updateTask(taskId, {
                 title: form.title.trim(),
                 description: form.description.trim() || null,
                 category: form.category,
-                trigger_type: form.trigger,
-                interval_value: intervalValue,
-                next_due_date: dueDate,
-                next_due_hours: form.trigger === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
+                // The same schedule rule as Add (132-B15). A repair has none
+                // to edit: the sheet hides it, and what the task held stays.
+                ...(form.category === 'Repair' ? {} : scheduleFromForm(form, engineHours)),
             });
             if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowEditForm(false);
@@ -850,9 +995,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update task');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editTask, form, loadTasks]);
+    }, [editTask, form, loadTasks, engineHours]);
 
-    // One card for the category groups and the Paused group alike.
+    // One card for the category groups and the Paused and Fixed groups alike.
     const taskCard = (task: TaskWithStatus) => (
         <SwipeableTaskCard
             key={task.id}
@@ -880,96 +1025,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <>
                             <OfflineBadge />
                             <SharedBinderLine register="maintenance" source={binder} />
-                            {countsSummary && <span className="sr-only">{countsSummary}</span>}
-                            {/* 12 px chips on 6 px sides, so '3 due soon · 36 ok · 1 needs
-                                hours' is one row at 393 pt instead of two (UX scorecard
-                                run 9: the chips were half of what pushed the first task
-                                to mid-screen). */}
-                            {/* The chip row runs the header's full width, under the ⋮
-                                (UX scorecard run 10, maint-chips-375): at 375 pt the
-                                title column alone wrapped the chips onto a second row
-                                and pushed the first task ~24 pt down. PageHeader sets
-                                the ⋮ at the top of its row (items-start), so the chips
-                                always sit below it; -mr-14 is its 44 pt plus the 12 pt
-                                gap. Rendered only with a chip in it, so the status row
-                                still collapses (empty:hidden) when there are no tasks. */}
-                            {(tasksWithStatus.length > 0 || counts.paused > 0) && (
-                                <span
-                                    aria-hidden="true"
-                                    data-testid="maintenance-status-chips"
-                                    className="-mr-14 flex flex-wrap items-center gap-1.5"
-                                >
-                                    {counts.red > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
-                                            title="Overdue"
-                                        >
-                                            {counts.red} overdue
-                                        </span>
-                                    )}
-                                    {counts.yellow > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
-                                            title="Due soon"
-                                        >
-                                            {/* 'due soon', as the rows and the spoken summary
-                                        say it; a bare '3 due' read as overdue (UX
-                                        scorecard run 8). */}
-                                            {counts.yellow} due soon
-                                        </span>
-                                    )}
-                                    {tasksWithStatus.length > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
-                                            title={anyServiceLogged ? 'Up to date' : 'Not yet due'}
-                                        >
-                                            {counts.green} {anyServiceLogged ? 'ok' : 'not due'}
-                                        </span>
-                                    )}
-                                    {/* '1 by hours', not '1 needs hours' (UX scorecard run 10,
-                                maint-chips-375): the three chips wrapped to two rows
-                                at 375 pt. The title and the spoken summary keep the
-                                full reason. */}
-                                    {counts.needsHours > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                            title="Due by engine hours — enter current engine hours"
-                                        >
-                                            {counts.needsHours} by hours
-                                        </span>
-                                    )}
-                                    {counts.unscheduled > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                            title="No due date or engine hours set"
-                                        >
-                                            {counts.unscheduled} unscheduled
-                                        </span>
-                                    )}
-                                    {counts.paused > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                            title="Paused"
-                                        >
-                                            {counts.paused} paused
-                                        </span>
-                                    )}
-                                </span>
-                            )}
                         </>
                     }
                     action={
                         <div className="relative">
                             <button
+                                type="button"
+                                ref={menuButtonRef}
                                 onClick={() => setMenuOpen(!menuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
+                                aria-expanded={menuOpen}
+                                aria-haspopup="menu"
+                                aria-controls={menuOpen ? menuId : undefined}
                             >
                                 <svg
                                     aria-hidden="true"
@@ -988,20 +1056,33 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </button>
                             {menuOpen && (
                                 <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div
+                                        role="presentation"
+                                        aria-hidden="true"
+                                        className="fixed inset-0 z-40"
+                                        onClick={closeMenu}
+                                    />
+                                    <div
+                                        ref={menuRef}
+                                        id={menuId}
+                                        role="menu"
+                                        aria-label="Maintenance actions"
+                                        className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                    >
                                         {/* Named by their visible words (the glyphs are
-                                            decoration), so Voice Control's "Tap Blank
-                                            checklist PDF" finds them; "Export blank
-                                            maintenance checklist PDF" did not start with
-                                            them. */}
+                                            decoration), so Voice Control's "Tap Share or
+                                            save blank checklist" finds them. One row per
+                                            PDF (130-B8): the share sheet offers Save to
+                                            Files, Mail, AirDrop and Print. */}
                                         <button
                                             type="button"
+                                            role="menuitem"
+                                            disabled={exporting}
                                             onClick={() => {
                                                 handleExport('checklist', taskData.identity);
                                                 setMenuOpen(false);
                                             }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
+                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 disabled:opacity-40"
                                         >
                                             <svg
                                                 aria-hidden="true"
@@ -1017,15 +1098,17 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"
                                                 />
                                             </svg>
-                                            Blank checklist PDF
+                                            Share or save blank checklist
                                         </button>
                                         <button
                                             type="button"
+                                            role="menuitem"
+                                            disabled={exporting}
                                             onClick={() => {
                                                 handleExport('history', taskData.identity);
                                                 setMenuOpen(false);
                                             }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
+                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5 disabled:opacity-40"
                                         >
                                             <svg
                                                 aria-hidden="true"
@@ -1041,7 +1124,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
                                                 />
                                             </svg>
-                                            Service history PDF
+                                            Share or save service history
                                         </button>
                                     </div>
                                 </>
@@ -1049,6 +1132,96 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         </div>
                     }
                 />
+
+                {/* The status chips on one wrapping row under the header, the
+                    page's full width (132-B20). Inside the title's column, beside
+                    '‹ BOAT BINDER' and the ⋮, five chips stood one to a line at
+                    320 pt and the header was 193 px, room for one task. Each
+                    chip keeps its words, and VoiceOver hears them as one sentence
+                    (UX scorecard run 7). 12 px chips on 6 px sides (UX scorecard
+                    run 9); rendered only with a chip in it. */}
+                {(tasksWithStatus.length > 0 || counts.paused > 0) && (
+                    <div className="shrink-0 px-4 pb-3 -mt-1">
+                        {countsSummary && <p className="sr-only">{countsSummary}</p>}
+                        <span
+                            aria-hidden="true"
+                            data-testid="maintenance-status-chips"
+                            className="flex flex-wrap items-center gap-1.5"
+                        >
+                            {counts.red > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
+                                    title="Overdue"
+                                >
+                                    {counts.red} overdue
+                                </span>
+                            )}
+                            {/* Open repairs: to fix, not due (132-B15). */}
+                            {counts.toFix > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
+                                    title="Repairs to fix"
+                                >
+                                    {counts.toFix} to fix
+                                </span>
+                            )}
+                            {counts.yellow > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
+                                    title="Due soon"
+                                >
+                                    {/* 'due soon', as the rows and the spoken summary
+                                        say it; a bare '3 due' read as overdue (UX
+                                        scorecard run 8). */}
+                                    {counts.yellow} due soon
+                                </span>
+                            )}
+                            {tasksWithStatus.length > counts.toFix && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
+                                    title={anyServiceLogged ? 'Up to date' : 'Not yet due'}
+                                >
+                                    {counts.green} {anyServiceLogged ? 'ok' : 'not due'}
+                                </span>
+                            )}
+                            {/* '1 by hours', not '1 needs hours' (UX scorecard run 10,
+                                maint-chips-375): the three chips wrapped to two rows
+                                at 375 pt. The title and the spoken summary keep the
+                                full reason. */}
+                            {counts.needsHours > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                    title="Due by engine hours — enter current engine hours"
+                                >
+                                    {counts.needsHours} by hours
+                                </span>
+                            )}
+                            {counts.unscheduled > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                    title="No due date or engine hours set"
+                                >
+                                    {counts.unscheduled} unscheduled
+                                </span>
+                            )}
+                            {counts.paused > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                    title="Paused"
+                                >
+                                    {counts.paused} paused
+                                </span>
+                            )}
+                        </span>
+                    </div>
+                )}
 
                 {/* ═══ ENGINE HOURS CARD ═══
                     Unset, it is one 56 pt row: a 110 pt card holding a dash
@@ -1131,66 +1304,61 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </svg>
                             </span>
                         </button>
+                    ) : isEditingHours ? (
+                        // The field in a plain card, named by its label (132-B20):
+                        // it sat inside the card's button, a text field within
+                        // a button, which VoiceOver and the keyboard could not
+                        // reach as a field. Enter or leaving it saves, as before.
+                        <div data-testid="engine-hours-field" className={`${HOURS_CARD} flex items-center gap-4`}>
+                            <span aria-hidden="true" className="p-3 rounded-xl bg-sky-500/20">
+                                <svg
+                                    className="w-6 h-6 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
+                                </svg>
+                            </span>
+                            <span className="min-w-0">
+                                <label htmlFor={hoursLabelId} className={HOURS_LABEL}>
+                                    Current engine hours
+                                </label>
+                                <input
+                                    id={hoursLabelId}
+                                    ref={hoursInputRef}
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={engineHoursInput}
+                                    onChange={(e) => setEngineHoursInput(e.target.value)}
+                                    onBlur={saveEngineHours}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveEngineHours();
+                                    }}
+                                    placeholder="--"
+                                    className="block min-h-[44px] bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
+                                    autoFocus
+                                />
+                            </span>
+                        </div>
                     ) : (
+                        // Unset hours never reach here: they are the one-row
+                        // button above until the field opens.
                         <button
-                            aria-label={
-                                engineHours === null
-                                    ? 'Engine hours not set — enter engine hours'
-                                    : `Edit engine hours, currently ${engineHours.toLocaleString()}`
-                            }
+                            type="button"
+                            aria-label={`Edit engine hours, currently ${engineHours?.toLocaleString() ?? 'not set'}`}
                             onClick={startEditingHours}
-                            className="w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
+                            className={`${HOURS_CARD} flex items-center justify-between text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]`}
                         >
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-3 rounded-xl bg-sky-500/20">
-                                        <svg
-                                            className="w-6 h-6 text-sky-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                                            />
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <p className="text-label text-sky-400/70 font-bold uppercase tracking-widest">
-                                            Current engine hours
-                                        </p>
-                                        {isEditingHours ? (
-                                            <input
-                                                ref={hoursInputRef}
-                                                type="text"
-                                                inputMode="numeric"
-                                                value={engineHoursInput}
-                                                onChange={(e) => setEngineHoursInput(e.target.value)}
-                                                onBlur={saveEngineHours}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') saveEngineHours();
-                                                }}
-                                                onClick={(e) => e.stopPropagation()}
-                                                aria-label="Current engine hours"
-                                                placeholder="--"
-                                                className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            // Unset hours never reach here: they are the one-row
-                                            // button above until the field opens.
-                                            <p className="text-3xl font-black text-white tracking-wider">
-                                                {engineHours?.toLocaleString() ?? '--'}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                                {!isEditingHours && (
+                            <span className="flex items-center gap-4">
+                                <span aria-hidden="true" className="p-3 rounded-xl bg-sky-500/20">
                                     <svg
-                                        className="w-5 h-5 text-sky-400/50"
+                                        className="w-6 h-6 text-sky-400"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
@@ -1199,14 +1367,64 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         <path
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
-                                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
                                         />
                                     </svg>
-                                )}
-                            </div>
+                                </span>
+                                <span>
+                                    <span className={HOURS_LABEL}>Current engine hours</span>
+                                    <span className="block text-3xl font-black text-white tracking-wider">
+                                        {engineHours?.toLocaleString() ?? '--'}
+                                    </span>
+                                </span>
+                            </span>
+                            <svg
+                                aria-hidden="true"
+                                className="w-5 h-5 text-sky-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                />
+                            </svg>
                         </button>
                     )}
                 </div>
+
+                {/* ═══ SEARCH (132-B19) ═══ as its sibling pages have it: only
+                    once there is something to search. */}
+                {hasEndedEngineRun && taskDataIsCurrent && engineHoursCanEdit && !engineHoursShared && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <button
+                            type="button"
+                            className="min-h-[44px] w-full rounded-xl border border-sky-500/25 px-3 py-2 text-sm text-sky-300"
+                            onClick={() => {
+                                void import('./GlobalEngineHoursReviewGate')
+                                    .then(({ reviewLatestEndedEngineRun }) => reviewLatestEndedEngineRun())
+                                    .catch(() => toast.error('Can’t open the voyage engine record.'));
+                            }}
+                        >
+                            Review last voyage’s engine time
+                        </button>
+                    </div>
+                )}
+                {(visibleTasks.length > 0 || searchQuery) && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <input
+                            type="text"
+                            aria-label="Search maintenance tasks"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search tasks and notes…"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
 
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
@@ -1221,7 +1439,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
                             {bringingInCopy(binder)}
                         </p>
-                    ) : groupedTasks.length === 0 && pausedTasks.length === 0 ? (
+                    ) : !query && groupedTasks.length === 0 && pausedTasks.length === 0 && fixedRepairs.length === 0 ? (
                         <EmptyState
                             icon={
                                 <svg
@@ -1241,9 +1459,30 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             title="No maintenance tasks"
                             subtitle="Set up service intervals for your engine, rigging and safety gear. Tap Add task below to add one."
                         />
+                    ) : query && groupedTasks.length === 0 && foundPaused.length === 0 && foundFixed.length === 0 ? (
+                        <EmptyState
+                            icon={
+                                <svg
+                                    className="w-8 h-8"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                                    />
+                                </svg>
+                            }
+                            title="No tasks match"
+                            subtitle="Try a different search term."
+                            className="py-16"
+                        />
                     ) : (
                         <>
-                            {showSuggestedNote && (
+                            {showSuggestedNote && !query && (
                                 // Two lines, not three (UX scorecard run 9); the caveat
                                 // itself is unchanged.
                                 <p className="text-xs text-gray-400 px-1">
@@ -1265,22 +1504,48 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 );
                             })}
                             {/* Paused tasks (126-B7a): at the bottom, collapsed,
-                                out of every due count. */}
-                            {pausedTasks.length > 0 && (
+                                out of every due count. A search opens it on
+                                what it finds there (132-B19). */}
+                            {foundPaused.length > 0 && (
                                 <div>
                                     <button
                                         type="button"
-                                        aria-expanded={showPaused}
+                                        aria-expanded={showPaused || !!query}
                                         onClick={() => setShowPaused((open) => !open)}
+                                        disabled={!!query}
                                         className="flex min-h-[44px] w-full items-center gap-2 text-left"
                                     >
                                         <span className={GROUP_LABEL}>Paused</span>{' '}
-                                        <span className={GROUP_COUNT}>({pausedTasks.length})</span>
+                                        <span className={GROUP_COUNT}>({foundPaused.length})</span>
                                         <ChevronRightIcon
-                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showPaused ? '-rotate-90' : 'rotate-90'}`}
+                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showPaused || query ? '-rotate-90' : 'rotate-90'}`}
                                         />
                                     </button>
-                                    {showPaused && <div className="space-y-2">{pausedTasks.map(taskCard)}</div>}
+                                    {(showPaused || !!query) && (
+                                        <div className="space-y-2">{foundPaused.map(taskCard)}</div>
+                                    )}
+                                </div>
+                            )}
+                            {/* Repairs marked fixed (132-B15): last, collapsed, out of
+                                every count, each with its record in the history. */}
+                            {foundFixed.length > 0 && (
+                                <div>
+                                    <button
+                                        type="button"
+                                        aria-expanded={showFixed || !!query}
+                                        onClick={() => setShowFixed((open) => !open)}
+                                        disabled={!!query}
+                                        className="flex min-h-[44px] w-full items-center gap-2 text-left"
+                                    >
+                                        <span className={GROUP_LABEL}>Fixed</span>{' '}
+                                        <span className={GROUP_COUNT}>({foundFixed.length})</span>
+                                        <ChevronRightIcon
+                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showFixed || query ? '-rotate-90' : 'rotate-90'}`}
+                                        />
+                                    </button>
+                                    {(showFixed || !!query) && (
+                                        <div className="space-y-2">{foundFixed.map(taskCard)}</div>
+                                    )}
                                 </div>
                             )}
                         </>
@@ -1309,6 +1574,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             const identity = taskData.identity;
                             if (!isAuthIdentityScopeCurrent(identity)) return;
                             triggerHaptic('medium');
+                            // 'First due' is today as the sheet opens, not the day
+                            // the page did, and never an edited task's (131-B11).
+                            openForAdd();
                             setAddFormIdentity(identity);
                             setShowAddForm(true);
                         }}
@@ -1325,6 +1593,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         onNotesChange={setSheetNotes}
                         saving={sheetSaving}
                         onLog={handleLogService}
+                        onMarkFixed={handleMarkFixed}
                         onHistory={() => loadHistory(sheetTask.task.id, sheetTask.identity)}
                         onEdit={() => openEditForm(sheetTask.task, sheetTask.identity)}
                         onPause={() => void setTaskPaused(sheetTask.task, sheetTask.identity, true)}
@@ -1463,116 +1732,44 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         )}
                     </ModalSheet>
                 )}
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* EXPORT PDF MODAL */}
-                {/* ═══════════════════════════════════════════ */}
-                {showExportModal && (
-                    <ModalSheet
-                        isOpen={true}
-                        onClose={() => setShowExportModal(false)}
-                        title="Export PDF"
-                        maxWidth="max-w-sm"
-                    >
-                        <p className="text-xs text-gray-400 mb-5">Choose a report format:</p>
-
-                        {/* Option A: Blank Checklist */}
-                        <button
-                            type="button"
-                            // Starts with the visible words, as the menu item does.
-                            aria-label="Print blank checklist PDF"
-                            onClick={() => handleExport('checklist', taskData.identity)}
-                            disabled={exporting}
-                            className="w-full mb-3 p-4 bg-linear-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-sky-500/20 rounded-xl">
-                                    <svg
-                                        className="w-5 h-5 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-black text-white">Print blank checklist</p>
-                                    <p className="text-label text-gray-400 mt-0.5">
-                                        Printable clipboard for the engine room
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {/* Option B: Service History */}
-                        <button
-                            aria-label="Export service history PDF"
-                            onClick={() => handleExport('history', taskData.identity)}
-                            disabled={exporting}
-                            className="w-full p-4 bg-linear-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-amber-500/20 rounded-xl">
-                                    <svg
-                                        className="w-5 h-5 text-amber-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-black text-white">Export service history</p>
-                                    <p className="text-label text-gray-400 mt-0.5">
-                                        Formal ledger of all completed work
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {exporting && (
-                            <div className="flex items-center justify-center gap-2 mt-4">
-                                <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs text-sky-400 font-bold">Generating PDF…</span>
-                            </div>
-                        )}
-                    </ModalSheet>
-                )}
             </div>
 
             {/* Delete a task with service records? Pause is the gentler way
-                out, and the prominent one (126-B7a). A paused task is only
-                asked about its records. */}
+                out, and the prominent one (126-B7a). A repair is never paused
+                (132-B15): an open one is offered Mark fixed instead, which
+                keeps its records too. A paused task, or a fixed repair, is
+                only asked about its records, which stay once the server keeps
+                them (131-B7) and go with it until then. */}
             {deleteAsk && (
                 <ConfirmDialog
                     isOpen={true}
                     title={`Delete “${deleteAsk.task.title}”?`}
-                    message={`Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' goes' : 's go'} with it, on every device.`}
-                    confirmLabel="Delete task and records"
+                    message={
+                        historyKept
+                            ? `Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' stays' : 's stay'} in your service history.`
+                            : `Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' goes' : 's go'} with it, on every device.`
+                    }
+                    confirmLabel={historyKept ? 'Delete task' : 'Delete task and records'}
                     cancelLabel="Keep"
                     destructive
                     alternative={
-                        deleteAsk.task.is_active
-                            ? {
-                                  label: 'Pause instead',
-                                  onSelect: () => {
-                                      setDeleteAsk(null);
-                                      void setTaskPaused(deleteAsk.task, deleteAsk.identity, true);
-                                  },
-                              }
-                            : undefined
+                        !deleteAsk.task.is_active
+                            ? undefined
+                            : deleteAsk.task.category === 'Repair'
+                              ? {
+                                    label: 'Mark fixed instead',
+                                    onSelect: () => {
+                                        setDeleteAsk(null);
+                                        void markRepairFixed(deleteAsk.task, deleteAsk.identity, null);
+                                    },
+                                }
+                              : {
+                                    label: 'Pause instead',
+                                    onSelect: () => {
+                                        setDeleteAsk(null);
+                                        void setTaskPaused(deleteAsk.task, deleteAsk.identity, true);
+                                    },
+                                }
                     }
                     onConfirm={() => {
                         setDeleteAsk(null);

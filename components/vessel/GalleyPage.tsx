@@ -2,19 +2,27 @@
  * GalleyPage — Standalone galley view for solo sailors.
  *
  * Opened from the Boat Binder's Reference group on the Vessel hub.
- * Renders Chef's Plate cards for all active meals + recipe browser.
- * Works fully offline — recipes are persisted to LocalDatabase.
+ * Renders the active meals, Today and Next first under plain dates (132-B17,
+ * GAL-11), + recipe browser. Works fully offline — recipes are persisted to
+ * LocalDatabase. A read that fails shows the house LoadErrorState, never the
+ * empty galley, and offline the header says "Saved locally" (132-B17).
  *
  * Shared galley (Shane 2026-10-03, "can we share the galley as well with
  * invitees"): while a skipper shares their Galley with this sailor, the page
  * shows and uses the SKIPPER's galley (recipes, and the meals and grocery list
  * kept with no passage) in place of the sailor's own, live, with the
  * "Shared from <boat> — you're crew" line under the title.
+ *
+ * Saved recipes (132-B18, binder audit GAL-08): a card opens the recipe in a
+ * read-only sheet (RecipeSheet, loaded when first opened) with Cook/Plan,
+ * Edit and Delete, and the Favourite star works (the Captain's Table's list).
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
+import { LoadErrorState } from '../ui/LoadErrorState';
+import { OfflineBadge } from '../ui/OfflineBadge';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { SignInButton } from '../ui/SignInButton';
@@ -48,15 +56,38 @@ import { useBinderSource } from '../../hooks/useBinderSource';
 import { isGalleyShareLive } from '../../services/vessel/sharedBinders';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { createLogger, getErrorMessage } from '../../utils/createLogger';
+import { activeMealSections, mealWhenLine } from '../../services/galley/activeMeals';
+import { getFavouriteIds, toggleFavourite } from '../../services/galley/recipeFavourites';
+import { recipesOneStore, recipesOneStoreKnown } from '../../services/galley/recipeStoreColumn';
+import { flushCommunityCopies } from '../../services/galley/recipeCommunityCopy';
+import { savedRecipeRights } from '../../services/galley/recipeRights';
+import { supabase } from '../../services/supabase';
+import { lazyRetry } from '../../utils/lazyRetry';
 
 // A device-log trace (GAL-13): a reason and the error message, never an id.
 const log = createLogger('Galley');
+
+// The saved recipe sheet loads the first time a card is opened (132-B18).
+const RecipeSheet = lazyRetry(
+    () => import('../galley/RecipeSheet').then((module) => ({ default: module.RecipeSheet })),
+    'RecipeSheet',
+);
 
 interface GalleyPageProps {
     onBack: () => void;
 }
 
 const GALLEY_TABS = ['active', 'recipes'] as const;
+
+/** What this page reads from the phone, each of which can fail on its own (132-B17). */
+type GalleyLoad = 'meals' | 'recipes' | 'shopping';
+const NO_LOAD_ERRORS: Record<GalleyLoad, boolean> = { meals: false, recipes: false, shopping: false };
+
+/**
+ * The house load-error words for a read from this phone (132-B17): a failed
+ * read is not an empty galley, and connection advice would be wrong here.
+ */
+const LOCAL_LOAD_ERROR = 'This is a loading problem, not an empty list. Nothing has been removed. Try again.';
 
 /**
  * The galley kept with no passage: the sailor's own, or the skipper's while
@@ -92,8 +123,17 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [activeCookingMeal, setActiveCookingMeal] = useState<MealPlan | null>(null);
     const [editorRecipe, setEditorRecipe] = useState<StoredRecipe | 'new' | null>(null);
+    /** The saved recipe open in the sheet, by id: the sheet shows it as it is now. */
+    const [sheetRecipeId, setSheetRecipeId] = useState<string | null>(null);
+    const [favouriteIds, setFavouriteIds] = useState<Set<string>>(() => getFavouriteIds());
+    /** The one recipe store is on the server (recipeStoreColumn.ts): crew may edit. */
+    const [oneStore, setOneStore] = useState(recipesOneStoreKnown);
+    /** What the last recipe delete did, said under the library heading. */
+    const [recipeNotice, setRecipeNotice] = useState<string | null>(null);
     const [showGroceryList, setShowGroceryList] = useState(false);
     const [showSignIn, setShowSignIn] = useState(false);
+    /** Which reads failed, kept apart from an empty galley (132-B17). */
+    const [loadErrors, setLoadErrors] = useState<Record<GalleyLoad, boolean>>(NO_LOAD_ERRORS);
     const restoreShoppingFocusRef = useRef(false);
     const shoppingListButtonRef = useRef<HTMLButtonElement>(null);
     const reloadGalleyRef = useRef<() => void>(() => undefined);
@@ -112,6 +152,12 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const visibleActiveMeals = identityOwnsRenderedData ? activeMeals : [];
     const visibleSavedRecipes = identityOwnsRenderedData ? savedRecipes : [];
     const visibleShoppingSummary = identityOwnsRenderedData ? shoppingSummary : null;
+    const visibleLoadErrors = identityOwnsRenderedData ? loadErrors : NO_LOAD_ERRORS;
+    const loadFailed = useCallback(
+        (load: GalleyLoad, failed: boolean) =>
+            setLoadErrors((previous) => (previous[load] === failed ? previous : { ...previous, [load]: failed })),
+        [],
+    );
 
     useEffect(() => {
         let active = true;
@@ -129,7 +175,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         setShoppingSummary(null);
         setActiveCookingMeal(null);
         setEditorRecipe(null);
+        setSheetRecipeId(null);
+        setRecipeNotice(null);
+        setFavouriteIds(getFavouriteIds());
         setShowGroceryList(false);
+        setLoadErrors(NO_LOAD_ERRORS);
         // Mid Apple sign-in the account changes before its last steps run: the
         // sheet closes itself once they finish, or shows the failed step.
         if (!appleSignInHoldsSheet()) setShowSignIn(false);
@@ -205,32 +255,59 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         [],
     );
 
+    // Each read on its own (132-B17): one that fails says so in its own place,
+    // with a trace and its own reason, and never reads as an empty galley.
     const refreshSavedRecipes = useCallback(() => {
-        setSavedRecipes(getStoredRecipes());
-    }, []);
+        try {
+            setSavedRecipes(getStoredRecipes());
+            loadFailed('recipes', false);
+        } catch (error) {
+            log.warn('galley: load-recipes', getErrorMessage(error));
+            loadFailed('recipes', true);
+        }
+    }, [loadFailed]);
 
     const refreshActiveMeals = useCallback(() => {
         if (!visiblePassageAccessLoaded || !visiblePassageStatus.visible) {
             setActiveMeals([]);
+            loadFailed('meals', false);
             return;
         }
-        const reserved = getMealsByStatus('reserved', visiblePassageStatus.voyageId);
-        const cooking = getMealsByStatus('cooking', visiblePassageStatus.voyageId);
-        setActiveMeals([...cooking, ...reserved]);
-    }, [visiblePassageAccessLoaded, visiblePassageStatus.visible, visiblePassageStatus.voyageId]);
+        try {
+            const reserved = getMealsByStatus('reserved', visiblePassageStatus.voyageId);
+            const cooking = getMealsByStatus('cooking', visiblePassageStatus.voyageId);
+            setActiveMeals([...cooking, ...reserved]);
+            loadFailed('meals', false);
+        } catch (error) {
+            log.warn('galley: load-meals', getErrorMessage(error));
+            loadFailed('meals', true);
+        }
+    }, [loadFailed, visiblePassageAccessLoaded, visiblePassageStatus.visible, visiblePassageStatus.voyageId]);
 
     const refreshShoppingSummary = useCallback(() => {
         if (!visiblePassageAccessLoaded || !visiblePassageStatus.visible) {
             setShoppingSummary(null);
+            loadFailed('shopping', false);
             return;
         }
-        setShoppingSummary(getShoppingList(visiblePassageStatus.voyageId, visiblePassageStatus.ownerUserId));
+        try {
+            setShoppingSummary(getShoppingList(visiblePassageStatus.voyageId, visiblePassageStatus.ownerUserId));
+            loadFailed('shopping', false);
+        } catch (error) {
+            log.warn('galley: load-shopping', getErrorMessage(error));
+            setShoppingSummary(null);
+            loadFailed('shopping', true);
+        }
     }, [
+        loadFailed,
         visiblePassageAccessLoaded,
         visiblePassageStatus.ownerUserId,
         visiblePassageStatus.visible,
         visiblePassageStatus.voyageId,
     ]);
+
+    // Today and Next first, in the order the meals are eaten (GAL-11).
+    const mealSections = activeMealSections(visibleActiveMeals);
 
     useEffect(() => {
         refreshActiveMeals();
@@ -240,6 +317,27 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
 
     // Once per install, at idle: throwaway recipe photo copies go (126-B2a, GAL-12).
     useEffect(() => purgeOrphanRecipeImagesWhenIdle(), []);
+
+    // An edit saved offline sends its Captain's Table copy once the phone can
+    // (132-B18, GAL-04): nothing waits, nothing is sent.
+    useEffect(() => {
+        if (currentUserId) void flushCommunityCopies();
+    }, [currentUserId]);
+
+    // Crew may change a personal recipe in the skipper's galley once the one
+    // recipe store is on the server (132-B18). Asked only in a shared galley;
+    // it never throws, and offline it says no.
+    const galleyShared = galley.mode === 'shared';
+    useEffect(() => {
+        if (!galleyShared) return;
+        let live = true;
+        void recipesOneStore(supabase).then((present) => {
+            if (live) setOneStore(present);
+        });
+        return () => {
+            live = false;
+        };
+    }, [galleyShared]);
 
     // A sync that brought rows in, or the galley changing hands, reloads all three.
     reloadGalleyRef.current = () => {
@@ -257,6 +355,24 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const handleCookNow = useCallback((meal: MealPlan) => {
         triggerHaptic('medium');
         setActiveCookingMeal(meal);
+    }, []);
+
+    /** The meal and its ingredients to the share sheet, or the clipboard where there is none. */
+    const shareMeal = useCallback((meal: MealPlan) => {
+        const text = `${meal.title}\n${meal.ingredients.map((i) => `${i.amount} ${i.unit} ${i.name}`).join('\n')}`;
+        if (navigator.share) {
+            navigator.share({ title: meal.title, text }).catch((error: unknown) => {
+                // Closing the share sheet is not a failure.
+                if ((error as { name?: string } | null)?.name !== 'AbortError') {
+                    log.warn('galley: share-meal', getErrorMessage(error));
+                }
+            });
+        } else {
+            navigator.clipboard
+                .writeText(text)
+                .then(() => triggerHaptic('light'))
+                .catch((error: unknown) => log.warn('galley: copy-meal', getErrorMessage(error)));
+        }
     }, []);
 
     const closeCookingMode = useCallback(() => {
@@ -280,6 +396,28 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const storesAvail = getStoresAvailability(visiblePassageStatus.voyageId, visiblePassageStatus.ownerUserId);
     const reservedCount = storesAvail.filter((s) => s.reserved > 0).length;
 
+    // The saved recipe sheet (132-B18): the recipe as it is now (an edit or a
+    // sync changes it underneath), what this sailor may do with it, and where
+    // Cook/Plan puts the meal: the meals this page shows.
+    const sheetRecipe = sheetRecipeId
+        ? (visibleSavedRecipes.find((recipe) => recipe.id === sheetRecipeId) ?? null)
+        : null;
+    const sheetRights = sheetRecipe ? savedRecipeRights(sheetRecipe, currentUserId, galley, oneStore) : null;
+    const planTarget =
+        visiblePassageAccessLoaded &&
+        visiblePassageStatus.visible &&
+        visiblePassageStatus.canViewMeals &&
+        (galley.mode !== 'shared' || galley.canWrite || visiblePassageStatus.voyageId !== null)
+            ? { voyageId: visiblePassageStatus.voyageId, ownerUserId: visiblePassageStatus.ownerUserId }
+            : null;
+    const planNote = !currentUserId
+        ? 'Sign in to plan meals.'
+        : !visiblePassageAccessLoaded
+          ? 'Checking the passage…'
+          : galley.mode === 'shared' && !galley.canWrite && !visiblePassageStatus.voyageId
+            ? 'The galley is shared with you to look at, not change.'
+            : 'This passage does not share its meals with you.';
+
     if (identityOwnsRenderedData && showGroceryList) {
         const groceryList = (
             <GroceryListPage
@@ -299,7 +437,13 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     title="Galley"
                     // Same parent crumb as its binder siblings (Stores, Maintenance…).
                     breadcrumbs={['Boat Binder', 'Galley']}
-                    status={<SharedBinderLine register="galley" source={galley} />}
+                    // "Saved locally" offline, as its binder siblings say it (132-B17).
+                    status={
+                        <>
+                            <OfflineBadge />
+                            <SharedBinderLine register="galley" source={galley} />
+                        </>
+                    }
                     subtitle={
                         /* The bold tracked count its binder siblings wear (Stores,
                            Documents, Checklists, Diary); a regular-weight caption
@@ -308,7 +452,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                            count before it, so a wrap never starts a line with '·'.
                            The stores count says what it is ('0 stores held' was
                            opaque) and only shows when something is held back for a
-                           planned meal (UX scorecard run 7). */
+                           planned meal (UX scorecard run 7). It may wrap between
+                           its words, its number kept with 'reserved': whole on one
+                           line it ran off the screen beside '‹ BOAT BINDER' in wide
+                           fonts, by 74 px at 320 pt and 15 px at 390 (132-B17). */
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             <span className="whitespace-nowrap">
                                 {visibleActiveMeals.length} meal{visibleActiveMeals.length === 1 ? '' : 's'}
@@ -318,12 +465,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 {visibleSavedRecipes.length} recipe{visibleSavedRecipes.length === 1 ? '' : 's'}
                                 {reservedCount > 0 && <>&nbsp;·</>}
                             </span>
-                            {reservedCount > 0 && (
-                                <>
-                                    {' '}
-                                    <span className="whitespace-nowrap">{reservedCount} reserved from stores</span>
-                                </>
-                            )}
+                            {reservedCount > 0 && <> {reservedCount}&nbsp;reserved from stores</>}
                         </p>
                     }
                     onBack={onBack}
@@ -385,10 +527,16 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             {/* Content. Pads its own bottom clear of the tab bar that floats over
                 it, as its binder siblings do, and fades under the bar: with two
                 meals on a phone "Open shopping list" (the only way into the
-                grocery list) ended under the bar, untappable (audit GAL-01). */}
+                grocery list) ended under the bar, untappable (audit GAL-01).
+                The same band is scroll padding (132-B17): a button brought into
+                view, as a keyboard's Tab does, stops above the bar, not under
+                it, where Kedgeree's Share sat behind VESSEL at 375 x 667. */}
             <div
                 className="thalassa-scroll-fade thalassa-scroll-fade--nav flex-1 overflow-y-auto"
-                style={{ paddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)' }}
+                style={{
+                    paddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)',
+                    scrollPaddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)',
+                }}
             >
                 {tab === 'active' && (
                     <div
@@ -398,7 +546,14 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         tabIndex={0}
                         className="space-y-4 p-4"
                     >
-                        {visibleActiveMeals.length === 0 && fetchingSkipperGalley ? (
+                        {visibleLoadErrors.meals ? (
+                            // A failed read, not "No active meals" (132-B17).
+                            <LoadErrorState
+                                what="your planned meals"
+                                onRetry={refreshActiveMeals}
+                                description={LOCAL_LOAD_ERROR}
+                            />
+                        ) : visibleActiveMeals.length === 0 && fetchingSkipperGalley ? (
                             <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
                                 {bringingInCopy(galley, 'galley')}
                             </p>
@@ -462,70 +617,105 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 </section>
                             )
                         ) : (
-                            visibleActiveMeals.map((meal) => (
-                                <div
-                                    key={meal.id}
-                                    className="rounded-2xl bg-white/2 border border-white/6 overflow-hidden"
+                            // Today and Next first, then Later and Earlier, each in
+                            // the order the meals are eaten, under plain dates; the
+                            // card is Ship's Stores' card, without the 112 px
+                            // decorative gradient each meal wore (GAL-11).
+                            mealSections.map((section) => (
+                                <section
+                                    key={section.group}
+                                    aria-labelledby={`galley-meals-${section.group}`}
+                                    className="space-y-2"
                                 >
-                                    {/* Mini hero */}
-                                    <div className="relative h-28 bg-linear-to-br from-amber-900/60 via-orange-800/40 to-red-900/60">
-                                        <div className="absolute bottom-0 left-0 right-0 p-3 bg-linear-to-t from-black/70 to-transparent">
-                                            <p className="text-sm font-black text-white">{meal.title}</p>
-                                            <p className="text-[11px] text-amber-300/70">
-                                                {meal.planned_date} · {meal.meal_slot} · {meal.servings_planned} serves
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {/* Ingredients */}
-                                    <div className="p-3 space-y-1">
-                                        {meal.ingredients.slice(0, 5).map((ing, i) => (
-                                            <div key={i} className="flex items-center gap-2 text-xs">
-                                                <PackageIcon className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-                                                <span className="text-gray-300">
-                                                    {ing.amount} {ing.unit} {ing.name}
+                                    <h2
+                                        id={`galley-meals-${section.group}`}
+                                        className="flex items-center gap-2 text-label font-black uppercase tracking-widest text-gray-400"
+                                    >
+                                        {section.title}
+                                        <span className="text-micro font-bold tabular-nums">
+                                            ({section.meals.length})
+                                        </span>
+                                    </h2>
+                                    {section.group === 'earlier' && (
+                                        <p className="text-xs text-gray-400">
+                                            Planned for a day that has passed and not cooked yet, so their ingredients
+                                            are still set aside. Cook or skip them.
+                                        </p>
+                                    )}
+                                    {section.meals.map((meal) => (
+                                        <div
+                                            key={meal.id}
+                                            className="space-y-2 rounded-lg border border-white/5 bg-slate-800/40 p-3"
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <span
+                                                    aria-hidden="true"
+                                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-300"
+                                                >
+                                                    <FoodIcon className="h-5 w-5" />
                                                 </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <h3 className="text-sm font-bold text-white [overflow-wrap:anywhere]">
+                                                        {meal.title}
+                                                    </h3>
+                                                    <p className="text-label text-gray-400 tabular-nums">
+                                                        {mealWhenLine(meal)}
+                                                    </p>
+                                                    {meal.status === 'cooking' && (
+                                                        <p className="text-label font-bold text-amber-300">
+                                                            Cooking now
+                                                        </p>
+                                                    )}
+                                                </div>
                                             </div>
-                                        ))}
-                                        {meal.ingredients.length > 5 && (
-                                            <p className="text-[11px] text-gray-500 pl-6">
-                                                +{meal.ingredients.length - 5} more
-                                            </p>
-                                        )}
-                                    </div>
 
-                                    {/* Actions */}
-                                    <div className="p-3 pt-0 flex gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCookNow(meal)}
-                                            className="flex-1 min-h-[44px] py-2.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-sm font-bold text-amber-300 disabled:opacity-40 active:scale-[0.97]"
-                                        >
-                                            {meal.status === 'cooking' ? 'Resume cooking' : 'Cook now'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const text = `🍽️ ${meal.title}\n${meal.ingredients.map((i) => `${i.amount} ${i.unit} ${i.name}`).join('\n')}`;
-                                                if (navigator.share)
-                                                    navigator.share({ title: meal.title, text }).catch(() => {});
-                                                else
-                                                    navigator.clipboard
-                                                        .writeText(text)
-                                                        .then(() => triggerHaptic('light'));
-                                            }}
-                                            className="w-11 min-h-[44px] flex items-center justify-center border border-white/8 bg-white/3 rounded-xl text-gray-400"
-                                            aria-label={`Share ${meal.title}`}
-                                        >
-                                            <ShareIcon className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
+                                            {/* Ingredients */}
+                                            <ul className="space-y-1">
+                                                {meal.ingredients.slice(0, 5).map((ing, i) => (
+                                                    <li key={i} className="flex items-center gap-2 text-xs">
+                                                        <PackageIcon className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                                                        <span className="min-w-0 text-gray-300 [overflow-wrap:anywhere]">
+                                                            <span className="tabular-nums">
+                                                                {ing.amount} {ing.unit}
+                                                            </span>{' '}
+                                                            {ing.name}
+                                                        </span>
+                                                    </li>
+                                                ))}
+                                                {meal.ingredients.length > 5 && (
+                                                    <li className="pl-5.5 text-label text-gray-400">
+                                                        +{meal.ingredients.length - 5} more
+                                                    </li>
+                                                )}
+                                            </ul>
+
+                                            {/* Actions */}
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCookNow(meal)}
+                                                    className="flex-1 min-h-[44px] py-2.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-sm font-bold text-amber-300 disabled:opacity-40 active:scale-[0.97]"
+                                                >
+                                                    {meal.status === 'cooking' ? 'Resume cooking' : 'Cook now'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => shareMeal(meal)}
+                                                    className="w-11 min-h-[44px] flex items-center justify-center border border-white/8 bg-white/3 rounded-xl text-gray-400"
+                                                    aria-label={`Share ${meal.title}`}
+                                                >
+                                                    <ShareIcon className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </section>
                             ))
                         )}
 
-                        {/* Shopping status */}
-                        {visibleShoppingSummary && (
+                        {/* Shopping status. A list that could not be read here
+                            still opens: the grocery list has its own retry. */}
+                        {visibleLoadErrors.shopping ? (
                             <button
                                 ref={shoppingListButtonRef}
                                 type="button"
@@ -533,20 +723,8 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     triggerHaptic('light');
                                     setShowGroceryList(true);
                                 }}
-                                aria-label={
-                                    visibleShoppingSummary.remaining > 0
-                                        ? `Open shopping list, ${visibleShoppingSummary.remaining} item${visibleShoppingSummary.remaining === 1 ? '' : 's'} remaining`
-                                        : visibleShoppingSummary.total > 0
-                                          ? 'Open shopping list, all items purchased'
-                                          : 'Open empty shopping list'
-                                }
-                                className={`w-full p-3 rounded-xl border flex items-center gap-3 text-left transition-colors active:scale-[0.99] ${
-                                    visibleShoppingSummary.remaining > 0
-                                        ? 'bg-red-500/4 border-red-500/8 hover:bg-red-500/8'
-                                        : visibleShoppingSummary.total > 0
-                                          ? 'bg-emerald-500/4 border-emerald-500/10 hover:bg-emerald-500/8'
-                                          : 'bg-white/2 border-white/6 hover:bg-white/5'
-                                }`}
+                                aria-label="Open shopping list, which could not be read here"
+                                className="w-full min-h-[44px] p-3 rounded-xl border border-amber-500/15 bg-amber-500/5 flex items-center gap-3 text-left transition-colors hover:bg-amber-500/10 active:scale-[0.99]"
                             >
                                 <span
                                     aria-hidden="true"
@@ -554,33 +732,14 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 >
                                     <CartIcon className="h-5 w-5 text-gray-300" />
                                 </span>
-                                <div className="flex-1">
-                                    <p
-                                        className={`text-xs font-bold ${
-                                            visibleShoppingSummary.remaining > 0
-                                                ? 'text-red-300'
-                                                : visibleShoppingSummary.total > 0
-                                                  ? 'text-emerald-300'
-                                                  : 'text-gray-300'
-                                        }`}
-                                    >
-                                        {visibleShoppingSummary.remaining > 0
-                                            ? `${visibleShoppingSummary.remaining} item${visibleShoppingSummary.remaining === 1 ? '' : 's'} still needed`
-                                            : visibleShoppingSummary.total > 0
-                                              ? 'Shopping complete'
-                                              : 'Shopping list is empty'}
-                                    </p>
-                                    <p className="text-[11px] text-gray-500">
-                                        {visibleShoppingSummary.total > 0
-                                            ? `${visibleShoppingSummary.purchased}/${visibleShoppingSummary.total} purchased`
-                                            : 'Add groceries, supplies, or missing ingredients'}
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-bold text-amber-200">Grocery list</p>
+                                    <p className="text-label text-gray-400">
+                                        It could not be read here. Open it to try again.
                                     </p>
                                 </div>
-                                <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-400">
-                                    Open
-                                </span>
                                 <svg
-                                    className="h-4 w-4 shrink-0 text-gray-500"
+                                    className="h-4 w-4 shrink-0 text-gray-400"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
@@ -590,6 +749,73 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
                                 </svg>
                             </button>
+                        ) : (
+                            visibleShoppingSummary && (
+                                <button
+                                    ref={shoppingListButtonRef}
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setShowGroceryList(true);
+                                    }}
+                                    aria-label={
+                                        visibleShoppingSummary.remaining > 0
+                                            ? `Open shopping list, ${visibleShoppingSummary.remaining} item${visibleShoppingSummary.remaining === 1 ? '' : 's'} remaining`
+                                            : visibleShoppingSummary.total > 0
+                                              ? 'Open shopping list, all items purchased'
+                                              : 'Open empty shopping list'
+                                    }
+                                    className={`w-full min-h-[44px] p-3 rounded-xl border flex items-center gap-3 text-left transition-colors active:scale-[0.99] ${
+                                        visibleShoppingSummary.remaining > 0
+                                            ? 'bg-red-500/4 border-red-500/8 hover:bg-red-500/8'
+                                            : visibleShoppingSummary.total > 0
+                                              ? 'bg-emerald-500/4 border-emerald-500/10 hover:bg-emerald-500/8'
+                                              : 'bg-white/2 border-white/6 hover:bg-white/5'
+                                    }`}
+                                >
+                                    <span
+                                        aria-hidden="true"
+                                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5"
+                                    >
+                                        <CartIcon className="h-5 w-5 text-gray-300" />
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <p
+                                            className={`text-xs font-bold ${
+                                                visibleShoppingSummary.remaining > 0
+                                                    ? 'text-red-300'
+                                                    : visibleShoppingSummary.total > 0
+                                                      ? 'text-emerald-300'
+                                                      : 'text-gray-300'
+                                            }`}
+                                        >
+                                            {visibleShoppingSummary.remaining > 0
+                                                ? `${visibleShoppingSummary.remaining} item${visibleShoppingSummary.remaining === 1 ? '' : 's'} still needed`
+                                                : visibleShoppingSummary.total > 0
+                                                  ? 'Shopping complete'
+                                                  : 'Shopping list is empty'}
+                                        </p>
+                                        <p className="text-label text-gray-400 tabular-nums">
+                                            {visibleShoppingSummary.total > 0
+                                                ? `${visibleShoppingSummary.purchased}/${visibleShoppingSummary.total} purchased`
+                                                : 'Add groceries, supplies, or missing ingredients'}
+                                        </p>
+                                    </div>
+                                    <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-400">
+                                        Open
+                                    </span>
+                                    <svg
+                                        className="h-4 w-4 shrink-0 text-gray-400"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                        aria-hidden="true"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+                                    </svg>
+                                </button>
+                            )
                         )}
                     </div>
                 )}
@@ -607,7 +833,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 <p className="text-xs font-bold text-white">
                                     {galley.mode === 'shared' ? "The skipper's recipe library" : 'Your recipe library'}
                                 </p>
-                                <p className="text-xs text-gray-400">Saved recipes open offline</p>
+                                <p className="text-xs text-gray-400">
+                                    Saved recipes open offline. Tap one to{' '}
+                                    {galley.mode === 'shared' ? 'cook or plan it.' : 'cook, plan or change it.'}
+                                </p>
                             </div>
                             <Button
                                 variant="secondary"
@@ -631,7 +860,20 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             </Button>
                         </div>
 
-                        {visibleSavedRecipes.length === 0 && fetchingSkipperGalley ? (
+                        {recipeNotice && (
+                            <p role="status" className="text-xs text-emerald-300">
+                                {recipeNotice}
+                            </p>
+                        )}
+
+                        {visibleLoadErrors.recipes ? (
+                            // A failed read, not "No saved recipes" (132-B17).
+                            <LoadErrorState
+                                what="your saved recipes"
+                                onRetry={refreshSavedRecipes}
+                                description={LOCAL_LOAD_ERROR}
+                            />
+                        ) : visibleSavedRecipes.length === 0 && fetchingSkipperGalley ? (
                             <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
                                 {bringingInCopy(galley, 'galley')}
                             </p>
@@ -642,46 +884,44 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 subtitle="Create your own recipe or save one when you schedule a meal plan."
                             />
                         ) : (
+                            // Each card opens the recipe (132-B18, GAL-08): a saved
+                            // or imported recipe was a dead end before.
                             visibleSavedRecipes.map((recipe) => (
-                                <div
+                                <button
                                     key={recipe.id}
-                                    className="p-3 rounded-xl bg-white/3 border border-white/6 space-y-2"
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setRecipeNotice(null);
+                                        setSheetRecipeId(recipe.id);
+                                    }}
+                                    aria-label={`Open ${recipe.title}${favouriteIds.has(recipe.id) ? ', favourite' : ''}`}
+                                    className="block w-full space-y-2 rounded-xl border border-white/6 bg-white/3 p-3 text-left transition-colors hover:bg-white/5 active:scale-[0.99]"
                                 >
-                                    <div className="flex items-start gap-3">
-                                        <div className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0">
+                                    <span className="flex items-start gap-3">
+                                        <span className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0">
                                             <FoodIcon className="h-6 w-6 text-amber-300" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
-                                            <p className="text-[11px] text-gray-500">
+                                        </span>
+                                        <span className="block flex-1 min-w-0">
+                                            <span className="block text-xs font-bold text-white truncate">
+                                                {recipe.title}
+                                            </span>
+                                            <span className="block text-[11px] text-gray-500">
                                                 {recipe.ready_in_minutes} min · {recipe.servings} serves ·{' '}
                                                 {recipe.ingredients.length} ingredients
-                                            </p>
-                                            {recipe.is_favorite && (
+                                            </span>
+                                            {/* The Captain's Table's heart, one list (132-B18). */}
+                                            {favouriteIds.has(recipe.id) && (
                                                 <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
                                                     <StarIcon filled className="h-3 w-3" />
                                                     Favourite
                                                 </span>
                                             )}
-                                        </div>
-                                        {recipe.is_custom &&
-                                            (recipe.user_id === null || recipe.user_id === currentUserId) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        triggerHaptic('light');
-                                                        setEditorRecipe(recipe);
-                                                    }}
-                                                    aria-label={`Edit ${recipe.title}`}
-                                                    className="shrink-0 min-h-[44px] rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-[11px] font-bold text-gray-300 transition-colors hover:bg-white/8"
-                                                >
-                                                    Edit
-                                                </button>
-                                            )}
-                                    </div>
+                                        </span>
+                                    </span>
 
                                     {/* Ingredients preview */}
-                                    <div className="flex flex-wrap gap-1">
+                                    <span className="flex flex-wrap gap-1">
                                         {recipe.ingredients.slice(0, 4).map((ing, i) => (
                                             <span
                                                 key={i}
@@ -695,12 +935,14 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                 +{recipe.ingredients.length - 4}
                                             </span>
                                         )}
-                                    </div>
+                                    </span>
 
                                     {recipe.source_url && (
-                                        <p className="text-[11px] text-gray-500">Imported recipe · available offline</p>
+                                        <span className="block text-[11px] text-gray-500">
+                                            Imported recipe · available offline
+                                        </span>
                                     )}
-                                </div>
+                                </button>
                             ))
                         )}
                     </div>
@@ -712,6 +954,42 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 onClose={() => setShowSignIn(false)}
                 prompt="Sign in to plan meals for a passage on Crew & Float Plan."
             />
+
+            {identityOwnsRenderedData && sheetRecipe && sheetRights && (
+                // The editor opens over the sheet, and the sheet shows the
+                // saved change when it closes.
+                <Suspense fallback={null}>
+                    <RecipeSheet
+                        key={sheetRecipe.id}
+                        recipe={sheetRecipe}
+                        favourite={favouriteIds.has(sheetRecipe.id)}
+                        onToggleFavourite={() => {
+                            toggleFavourite(sheetRecipe.id);
+                            setFavouriteIds(getFavouriteIds());
+                        }}
+                        canEdit={sheetRights.edit}
+                        editNote={sheetRights.editNote}
+                        canDelete={sheetRights.delete}
+                        plan={planTarget}
+                        planNote={planNote}
+                        onEdit={() => setEditorRecipe(sheetRecipe)}
+                        onCook={(meal) => {
+                            setSheetRecipeId(null);
+                            handleCookNow(meal);
+                        }}
+                        onPlanned={() => {
+                            refreshActiveMeals();
+                            refreshShoppingSummary();
+                        }}
+                        onDeleted={(message) => {
+                            setSheetRecipeId(null);
+                            setRecipeNotice(message);
+                            refreshSavedRecipes();
+                        }}
+                        onClose={() => setSheetRecipeId(null)}
+                    />
+                </Suspense>
+            )}
 
             {identityOwnsRenderedData && editorRecipe && (
                 <RecipeEditor

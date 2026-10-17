@@ -59,6 +59,7 @@
  * matters.
  */
 import { AisGuardZone } from './AisGuardZone';
+import { startRadarWatch } from './radar/radarWatch';
 import { AisStore } from './AisStore';
 import { LocationStore } from '../stores/LocationStore';
 import { NmeaStore } from './NmeaStore';
@@ -98,6 +99,7 @@ const INTERNET_FEED_TTL_MS = 60_000;
 let timer: ReturnType<typeof setInterval> | null = null;
 let unsubscribeStore: (() => void) | null = null;
 let started = false;
+let stopRadar: (() => void) | null = null;
 
 let internetFeatures: GeoJSON.Feature[] = [];
 let internetFeaturesAt = 0;
@@ -178,6 +180,7 @@ export function gradeCollisionTargets(
         // A beacon's MMSI is the distress alarm's (125-02), never a collision target.
         if (distressKindOfMmsi(mmsi) !== null) continue;
         const source = typeof p.source === 'string' ? p.source : null;
+        if (p.informational === true && source !== 'local') continue;
         if (!collisionSourceCanAlarm(source)) continue;
         const age = reportAgeSec(p, nowMs);
         const sogKn = aisSogKn(p.sog);
@@ -274,6 +277,7 @@ export function runGuardCheck(nowMs: number = Date.now()): number {
         features.push(f);
     }
     for (const f of internetFresh) {
+        if (f.properties?.informational === true) continue;
         const mmsi = Number(f.properties?.mmsi);
         if (Number.isFinite(mmsi) && seen.has(mmsi)) continue;
         features.push(f);
@@ -376,6 +380,7 @@ export function publishInternetAisFeatures(features: GeoJSON.Feature[]): void {
 export function startAisGuardWatch(): () => void {
     if (started) return stopAisGuardWatch;
     started = true;
+    stopRadar = startRadarWatch();
 
     // Receiver updates drive it, so a target entering the ring is caught on
     // arrival rather than up to TICK_MS later.
@@ -394,6 +399,8 @@ export function startAisGuardWatch(): () => void {
 }
 
 export function stopAisGuardWatch(): void {
+    stopRadar?.();
+    stopRadar = null;
     if (timer) clearInterval(timer);
     timer = null;
     if (unsubscribeStore) unsubscribeStore();

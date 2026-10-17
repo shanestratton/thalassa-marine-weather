@@ -194,6 +194,7 @@ describe('buildCautionAreas — caution/info areas', () => {
     });
     it('EXCLUDES SBDARE (anchoring aid, not a crossing caution)', () => {
         expect(buildCautionAreas(blob({ SBDARE: fc([poly({ NATSUR: '4' })]) }))).toEqual([]);
+        expect(buildCautionAreas(blob({ WEDKLP: fc([poly({ CATWED: '1' })]) }))).toEqual([]);
     });
     it('skips non-polygon geometries', () => {
         expect(buildCautionAreas(blob({ RESARE: fc([pt({ RESTRN: '1' })]) }))).toEqual([]);

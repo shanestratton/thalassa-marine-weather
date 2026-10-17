@@ -65,22 +65,11 @@ describe('particle density ramp (the real layer)', () => {
 });
 
 describe('the ramp is actually wired into the renderer', () => {
-    it('is handed to every layer-creation path, not just one', () => {
-        // A multiplier computed and never passed is the failure mode this
-        // whole file exists to catch.
-        expect(overlay).not.toMatch(/particleMultiplier:\s*1\s*\/\s*150/);
-        expect(overlay).toContain('particleMultiplier,');
-        const creations = overlay.match(/createVelocityLayer\(/g) ?? [];
-        expect(creations.length).toBeGreaterThanOrEqual(3); // definition + 2 call sites
-    });
-
-    it('is re-applied on zoom alongside the speed scale', () => {
-        // start() re-reads particuleCount, so density must be handed over in
-        // the same breath as velocityScale or zooming thins the motion and
-        // leaves the swarm.
-        const sync = overlay.slice(overlay.indexOf('const syncFull'));
-        expect(sync).toContain('windy.velocityScale = zoomCompensatedVelocityScale(zRaw)');
-        expect(sync).toContain('windy.particleMultiplier = zoomScaledParticleMultiplier(zRaw)');
+    it('passes both ramps into the one native field creation path', () => {
+        expect(overlay).toContain('particleMultiplier: zoomScaledParticleMultiplier');
+        expect(overlay).toContain('velocityScale: zoomCompensatedVelocityScale');
+        expect(overlay.match(/new MapboxWindField\(/g)).toHaveLength(1);
+        // MapboxWindField.test exercises actual population changes and projection work at settled zooms.
     });
 
     it('slows apparent pixel speed at every zoom, including projection magnification', () => {

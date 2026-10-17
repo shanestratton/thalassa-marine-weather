@@ -81,18 +81,37 @@ describe('Marine Formatters', () => {
         });
     });
 
-    describe('waveToSeaState', () => {
-        it('should return 0 for glassy (< 0.1m)', () => {
-            expect(waveToSeaState(0)).toBe(0);
-            expect(waveToSeaState(0.05)).toBe(0);
+    describe('waveToSeaState: WMO code 3700 (130-04; it ran one band calm before build 130)', () => {
+        // Code: 0 calm (glassy) 0 m; 1 calm (rippled) 0–0.1; 2 smooth 0.1–0.5;
+        // 3 slight 0.5–1.25; 4 moderate 1.25–2.5; 5 rough 2.5–4; 6 very rough 4–6;
+        // 7 high 6–9; 8 very high 9–14; 9 phenomenal over 14. Lower bound inclusive.
+        it.each([
+            [0, 0],
+            [0.05, 1],
+            [0.1, 2],
+            [0.49, 2],
+            [0.5, 3],
+            [1.24, 3],
+            [1.25, 4],
+            [1.5, 4],
+            [2.4, 4],
+            [2.5, 5],
+            [3.99, 5],
+            [4, 6],
+            [5.99, 6],
+            [6, 7],
+            [9, 8],
+            [13.9, 8],
+            [14, 9],
+            [25, 9],
+        ])('%s m is code %s', (metres, code) => {
+            expect(waveToSeaState(metres)).toBe(code);
         });
-        it('should return 3 for slight (1.25-2.5m)', () => {
-            expect(waveToSeaState(1.5)).toBe(3);
-            expect(waveToSeaState(2.4)).toBe(3);
-        });
-        it('should return 9 for phenomenal (>= 20m)', () => {
-            expect(waveToSeaState(20)).toBe(9);
-            expect(waveToSeaState(25)).toBe(9);
+
+        it('1.5 m is Moderate, as WMO says (it read Slight)', () => {
+            expect(getSeaStateDescription(waveToSeaState(1.5))).toBe('Moderate');
+            expect(getSeaStateDescription(waveToSeaState(2.5))).toBe('Rough');
+            expect(getSeaStateDescription(waveToSeaState(0.3))).toBe('Smooth');
         });
     });
 

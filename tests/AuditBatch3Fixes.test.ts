@@ -46,7 +46,10 @@ describe('source-pinned fixes', () => {
     it('maintenance due dates use the local calendar day', () => {
         const src = read('components/vessel/MaintenanceHub.tsx');
         expect(src).not.toMatch(/toISOString\(\)\.split\('T'\)\[0\]/);
-        expect(src).toMatch(/toLocalDateString\(/);
+        // The form's days are worked out by the shared schedule rule since 132-B15.
+        const schedule = read('components/vessel/maintenance/taskSchedule.ts');
+        expect(schedule).not.toMatch(/toISOString\(\)\.split\('T'\)\[0\]/);
+        expect(schedule).toMatch(/toLocalDateString\(/);
     });
     it('the task date field says what it is', () => {
         expect(read('components/vessel/maintenance/TaskFormModal.tsx')).toMatch(/label="First due"/);
@@ -76,14 +79,16 @@ describe('source-pinned fixes', () => {
         for (const tab of src.match(/tab: '([^']+)'/g)!.map((m) => m.slice(6, -1)))
             expect(app).toContain(`label="${tab.toLowerCase()}"`);
     });
-    it('the four binders share one undo slot, with no commit inside a state updater (126-B10a)', () => {
+    it('the binders share one undo slot, with no commit inside a state updater (126-B10a; Checklists 126-B10b)', () => {
         // The behaviour (commit on a newer delete, on unmount, on background;
-        // a fresh five seconds each) is in tests/BinderUndoDelete.test.tsx.
+        // a fresh five seconds each) is in tests/BinderUndoDelete.test.tsx
+        // and, for Checklists, tests/ChecklistUndoDelete.test.tsx.
         for (const page of [
             'components/vessel/MaintenanceHub.tsx',
             'components/vessel/InventoryList.tsx',
             'components/vessel/DocumentsHub.tsx',
             'components/vessel/EquipmentList.tsx',
+            'components/vessel/ChecklistsPage.tsx',
         ]) {
             const src = read(page);
             expect(src).toMatch(/import \{ useUndoDelete \} from '\.\.\/\.\.\/hooks\/useUndoDelete';/);

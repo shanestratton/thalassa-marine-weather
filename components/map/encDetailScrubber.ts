@@ -86,6 +86,7 @@ export function browseDetailLevel(plotting: boolean, slider: number): number {
  */
 export const S52_STANDARD_NAVAID_LAYERS: readonly string[] = [
     ...S57_NAVAID_CLASSES.map((c) => ENC_VEC_LAYERS[c]),
+    ENC_VEC_LAYERS.MORFAC_GEOMETRY,
     ENC_VEC_LAYERS.LIGHTSEC_LEG,
     ENC_VEC_LAYERS.LIGHTSEC_ARC,
 ];

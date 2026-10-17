@@ -47,9 +47,12 @@ import {
     fakeTodayDeps,
     osmAnchorage,
     pointBlock,
+    routeForecast,
     routeSpread,
     type DayPlanScenario,
 } from './helpers/dayPlanFixtures';
+import type { RouteForecast } from '../services/routeForecastSampler';
+import type { Segment } from '../services/weather/shelter/shelterGeometry';
 import { routeStop, type StopRouteDeps, type StopRouteRequest } from '../services/dayPlanner/stopRoute';
 import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../types/autorouting';
 import { DraftConfirmModal } from '../components/vessel/DraftConfirmModal';
@@ -484,35 +487,112 @@ describe('Stay and day', () => {
     });
 });
 
+/** A list's rows, as they read. */
+const listed = (list: HTMLElement) =>
+    within(list)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent!);
+
+/**
+ * A phone's room for the stop page's picture (132-PYD-9): jsdom lays nothing out, so the picture is never
+ * drawn in these tests unless the room the card is given (800 px) and its column's width (360 px) are.
+ */
+function roomForPicture() {
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+        return this.classList.contains('today-overlay') ? 800 : 0;
+    });
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+        return this.classList.contains('today-plan') ? 360 : 0;
+    });
+}
+
+/** A fictional coast round the marina, about a mile off, anticlockwise: land inside it (132-PYD-9). */
+const MARINA_RING: Segment[] = Array.from({ length: 24 }, (_, i) => {
+    const at = (k: number): [number, number] => [
+        MARINA.lon + 0.02 * Math.cos((k * Math.PI) / 12),
+        MARINA.lat + 0.017 * Math.sin((k * Math.PI) / 12),
+    ];
+    return [at(i), at(i + 1)];
+});
+
+/**
+ * The trade filling in along every route (132-PYD-9): 2 kn under the fixture's at 06:00 and half a knot more each
+ * hour, so each leave has its own wind on the way out, where the fixture's is the same all day.
+ */
+const fillingIn = (f: RouteForecast): RouteForecast => ({
+    ...f,
+    stations: f.stations.map((s) => ({
+        ...s,
+        speedKts: s.speedKts.map((kts, hour) => (kts === null ? null : kts - 2 + hour / 2)),
+    })),
+});
+
 describe('Screen 2: a stop, and Plot by hand', () => {
-    it('says how each time was worked out, and Plot by hand sets the departure and sends two marks, never a line', async () => {
+    it('opens as a plan read at a glance, every row a tap away; Plot by hand sends two marks, never a line', async () => {
         const { dialog, onPlot } = open();
         const [first] = await stopRows(dialog);
         // Screen 1 shortens a reviewed stop's name to its place; the detail has it whole.
         const short = first.querySelector('.today-stop-name')!.textContent!;
+        const times = first.querySelector('.today-stop-l2')!.textContent!;
+        const shelter = first.querySelector('.today-stop-shelter')!.textContent!.replace(/^\s*· /, '');
         fireEvent.click(first);
         const detail = await screen.findByRole('dialog', { name: new RegExp(`^${short}`) });
         const name = within(detail).getByRole('heading', { level: 2 }).textContent!;
         expect(within(detail).getByText(/^Thu 8 Oct · times in AEST$/)).toBeTruthy();
-        const rows = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
-        const text = rows.map((r) => r.textContent);
-        // It opens on its verdict, with the reason (127-PYD-1): an ordinary-looking plan never hides a Near or a ✕.
-        expect(text[0]).toMatch(/^≈ Near your limits: SE \d+ kn on the way$/);
-        // Then why it is here (127-PYD-4).
-        expect(rows[1]).toHaveAttribute('data-why', 'true');
-        expect(text[1]).toMatch(/^In the lee of the SE breeze · /);
-        expect(text[2]).toMatch(
+        // 132-PYD-8: its level at the top, in its colour, with the reason (127-PYD-1): never an ordinary-looking plan.
+        const level = detail.querySelector('.today-level')!;
+        expect(level).toHaveTextContent(/^≈ Near your limits: SE \d+ kn on the way$/);
+        expect(level).toHaveAttribute('data-level', 'near');
+        // The way: the distance and how it was measured, and the marina she leaves.
+        expect(listed(within(detail).getByRole('list', { name: 'The way' }))).toEqual([
+            expect.stringMatching(/^About \d+ NM each way \(/),
+            'Leaving a marina: check its approach depth against the tide before you go.',
+        ]);
+        // The times big: the same as her row on screen 1, what each leg takes under them.
+        const cells = within(within(detail).getByRole('list', { name: 'Times' })).getAllByRole('listitem');
+        const at = cells.map((cell) => cell.querySelector('.today-times-at')!.textContent);
+        expect(`${at[0]} → ${at[1]} · back ${at[2]}`).toBe(times);
+        expect(cells[0]).toHaveTextContent(/^Leave \d\d:\d\d \d+ (h|min)( \d\d)? there$/);
+        expect(cells[1]).toHaveTextContent(/^Ashore \d\d:\d\d to \d\d:\d\d$/);
+        expect(cells[2]).toHaveTextContent(/^Home \d\d:\d\d \d+ (h|min)( \d\d)? back$/);
+        // Up to four facts: shelter (her row's word), the sea, the light to spare, and her local notes.
+        const facts = listed(within(detail).getByRole('list', { name: 'At a glance' }));
+        expect(facts.length).toBeLessThanOrEqual(4);
+        expect(facts.slice(0, 3)).toEqual([
+            shelter,
+            expect.stringMatching(/^(Sea [\d.–]+ m|Sea not checked|No sea reading)$/),
+            expect.stringMatching(/^☀ (\d+ h( \d\d)?|\d+ min) to spare$/),
+        ]);
+        // How each time was worked out: a tap away, closed as it opens, every row as it was.
+        const more = detail.querySelector('details.today-how') as HTMLDetailsElement;
+        expect(more.open).toBe(false);
+        expect(within(more).getByText('How each time was worked out').tagName).toBe('SUMMARY');
+        const rows = within(within(more).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
+        const text = rows.map((r) => r.textContent!);
+        // Why it is here first (127-PYD-4), then the rows, then the polar and wind the times were sailed on.
+        expect(rows[0]).toHaveAttribute('data-why', 'true');
+        expect(text[0]).toMatch(/^In the lee of the SE breeze · /);
+        expect(text[1]).toMatch(
             /^Leave \d\d:\d\d → there \d\d:\d\d \(.+, (sailing|beating|motoring|at cruising speed)/,
         );
-        expect(text.some((t) => /^Ashore \d\d:\d\d–\d\d:\d\d · /.test(t!))).toBe(true);
-        expect(text.some((t) => /^Home \d\d:\d\d → \d\d:\d\d/.test(t!))).toBe(true);
-        expect(text.some((t) => /^(Light: home .+ before last light|Home in the last of the light)/.test(t!))).toBe(
+        expect(text.some((t) => /^Ashore \d\d:\d\d–\d\d:\d\d · /.test(t))).toBe(true);
+        expect(text.some((t) => /^Home \d\d:\d\d → \d\d:\d\d/.test(t))).toBe(true);
+        expect(text.some((t) => /^(Light: home .+ before last light|Home in the last of the light)/.test(t))).toBe(
             true,
         );
-        expect(text.some((t) => /^About \d+ NM each way/.test(t!))).toBe(true);
-        expect(
-            within(detail).getByText(/Depth and tide over the route are not checked\. Not a clearance\.$/),
-        ).toBeTruthy();
+        expect(text.some((t) => /^Sea/.test(t))).toBe(true);
+        expect(text.at(-1)).toMatch(/^Times from .+ wind\.$/);
+        // Each thing once: the level, the distance and the marina line are not repeated in the details.
+        expect(text).not.toContain(level.textContent);
+        expect(detail.textContent!.match(/NM each way \(/g)).toHaveLength(1);
+        expect(detail.textContent!.match(/Leaving a marina/g)).toHaveLength(1);
+        // What is not checked stays on the page, with the details closed: the current too, as the times are big.
+        const footnote = detail.querySelector('.today-footnote')!;
+        expect(footnote).toHaveTextContent(
+            /^No current\. Depth and tide over the route are not checked\. Not a clearance\.$/,
+        );
+        expect(more.contains(footnote)).toBe(false);
+        expect(more.textContent).not.toMatch(/No current/);
 
         // The leave chips: the window's departures, the best one marked.
         const leave = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
@@ -579,10 +659,10 @@ describe('Screen 2: a stop, and Plot by hand', () => {
         const detail = await screen.findByRole('dialog', {
             name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent}`),
         });
-        expect(within(detail).getByText(/^Times from your polar's own figures in .+ wind\. No current\./)).toBeTruthy();
+        expect(within(detail).getByText(/^Times from your polar's own figures in .+ wind\.$/)).toBeTruthy();
     });
 
-    it("a reviewed stop keeps its own Parks notes, one per line under the stay: Cid Harbour's sharks", async () => {
+    it("a reviewed stop keeps its own Parks notes whole on the page, one per line, never folded away: Cid Harbour's sharks", async () => {
         const { dialog } = open();
         await stopRows(dialog);
         // Four hours ashore in this trade, Cid Harbour is the best fit (127-PYD-4 picks by the day).
@@ -591,16 +671,20 @@ describe('Screen 2: a stop, and Plot by hand', () => {
         const cid = rows.find((r) => r.querySelector('.today-stop-name')!.textContent === 'Cid Harbour')!;
         fireEvent.click(cid);
         const detail = await screen.findByRole('dialog', { name: /^Cid Harbour/ });
-        const items = within(within(detail).getByRole('list', { name: 'How the day goes' }))
-            .getAllByRole('listitem')
-            .map((li) => li.textContent!);
-        const ashore = items.findIndex((t) => t.startsWith('Ashore '));
-        const shark = items.findIndex((t) =>
-            /^Do not swim in Cid Harbour: Queensland Parks warns of dangerous sharks/.test(t),
-        );
-        expect(ashore).toBeGreaterThan(-1);
-        expect(shark).toBeGreaterThan(ashore);
+        // 132-PYD-8: "Local notes" among its facts, amber as on its row, and the notes themselves under them.
+        const facts = within(detail).getByRole('list', { name: 'At a glance' });
+        expect(within(facts).getByText('Local notes')).toHaveAttribute('data-notes');
+        const notes = within(detail).getByRole('list', { name: 'Local notes' });
+        const items = listed(notes);
+        expect(items[0]).toMatch(/^Do not swim in Cid Harbour: Queensland Parks warns of dangerous sharks/);
         expect(items.some((t) => /The harbour reference is not a beach landing/.test(t))).toBe(true);
+        for (const li of within(notes)
+            .getAllByRole('listitem')
+            .filter((li) => !li.textContent!.startsWith('Landing')))
+            expect(li).toHaveAttribute('data-parks');
+        // On the page, not in the details she has to open; and said once.
+        expect(notes.closest('details')).toBeNull();
+        expect(detail.textContent!.match(/Do not swim in Cid Harbour/g)).toHaveLength(1);
     });
 
     it("a stop whose route weather failed shows no times anywhere: it says the weather wasn't checked", async () => {
@@ -624,9 +708,14 @@ describe('Screen 2: a stop, and Plot by hand', () => {
                 `^${within(list).getAllByRole('button')[0].querySelector('.today-stop-name')!.textContent}`,
             ),
         });
-        expect(within(detail).getByText("Weather not checked: the forecast along the way didn't load.")).toBeTruthy();
+        // Where the times would be (132-PYD-8), and no times anywhere.
+        expect(within(detail).getByText("Weather not checked: the forecast along the way didn't load.")).toHaveClass(
+            'today-untimed',
+        );
+        expect(within(detail).queryByRole('list', { name: 'Times' })).toBeNull();
         expect(within(detail).queryByRole('group', { name: 'Leave at' })).toBeNull();
         expect(within(detail).queryByText(/^Leave \d\d:\d\d → /)).toBeNull();
+        expect(detail.querySelector('.today-footnote')).toHaveTextContent(/^No times without a forecast\./);
         // Plot by hand still works, but sets no departure from a walk in no wind.
         fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
         expect(onPlot).toHaveBeenCalledOnce();
@@ -653,13 +742,17 @@ describe('Screen 2: a stop, and Plot by hand', () => {
         const detail = await screen.findByRole('dialog', {
             name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent}`),
         });
-        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
-        expect(items[0]).toHaveTextContent(`✕ Over your limits: ${why}`);
-        expect(items[0]).toHaveAttribute('data-level', 'over');
+        const level = detail.querySelector('.today-level')!;
+        expect(level).toHaveTextContent(`✕ Over your limits: ${why}`);
+        expect(level).toHaveAttribute('data-level', 'over');
+        // Then why there are no times, where they would be.
+        expect(level.parentElement!.querySelector('.today-untimed')).toHaveTextContent(
+            "Weather not checked: the forecast along the way didn't load.",
+        );
         // Why it is here, from the area wind only (no sail, no times: the weather along the way failed).
-        expect(items[1]).toHaveAttribute('data-why', 'true');
-        expect(items[1].textContent).not.toMatch(/under way|both ways/);
-        expect(items[2]).toHaveTextContent("Weather not checked: the forecast along the way didn't load.");
+        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
+        expect(items[0]).toHaveAttribute('data-why', 'true');
+        expect(items[0].textContent).not.toMatch(/under way|both ways/);
         expect(within(detail).queryByText(/^Leave \d\d:\d\d → /)).toBeNull();
     });
 
@@ -672,16 +765,173 @@ describe('Screen 2: a stop, and Plot by hand', () => {
         });
         const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
         const other = chips.find((b) => b.getAttribute('aria-pressed') !== 'true');
-        if (other) {
-            const at = other.textContent!.slice(0, 5);
-            fireEvent.click(other);
-            expect(other).toHaveAttribute('aria-pressed', 'true');
-            // Under its verdict (127-PYD-1) and why (127-PYD-4).
-            expect(within(detail).getAllByRole('listitem')[2].textContent).toMatch(new RegExp(`^Leave ${at} → `));
-        }
+        expect(other).toBeTruthy();
+        const at = other!.textContent!.slice(0, 5);
+        fireEvent.click(other!);
+        expect(other).toHaveAttribute('aria-pressed', 'true');
+        // The big leave time (132-PYD-8), and its row a tap away.
+        expect(
+            within(within(detail).getByRole('list', { name: 'Times' })).getAllByRole('listitem')[0],
+        ).toHaveTextContent(new RegExp(`^Leave ${at} `));
+        expect(within(detail).getByText(/^Leave \d\d:\d\d → there /).textContent).toMatch(
+            new RegExp(`^Leave ${at} → `),
+        );
         fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
         await waitFor(() => expect(detail.isConnected).toBe(false));
         expect(screen.getByRole('dialog', { name: 'Plan Your Day' })).toBeTruthy();
+    });
+
+    it('overnight, its times are leave and at anchor until 09:00 tomorrow, with no home (132-PYD-8)', async () => {
+        const { dialog } = open();
+        await stopRows(dialog);
+        fireEvent.change(within(dialog).getByRole('combobox', { name: 'Stay' }), { target: { value: 'overnight' } });
+        const list = within(dialog).getByRole('list', { name: 'Stops' });
+        await waitFor(() =>
+            expect(within(list).getAllByRole('button')[0].querySelector('.today-stop-l2')).toHaveTextContent(
+                /^\d\d:\d\d → \d\d:\d\d · .+ NM$/,
+            ),
+        );
+        const first = within(list).getAllByRole('button')[0];
+        const times = first.querySelector('.today-stop-l2')!.textContent!.match(/\d\d:\d\d/g)!;
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        expect(listed(within(detail).getByRole('list', { name: 'Times' }))).toEqual([
+            expect.stringMatching(new RegExp(`^Leave ${times[0]} `)),
+            `At anchor ${times[1]} to 09:00 tomorrow`,
+        ]);
+        expect(
+            within(detail)
+                .getByText(/^At anchor \d\d:\d\d → 09:00 tomorrow · /)
+                .closest('details'),
+        ).not.toBeNull();
+    });
+
+    it('132-PYD-9: a rose by the shelter word, and a picture of the way in the room the plan leaves, with no line', async () => {
+        const { dialog } = open();
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        // The first fact is the shelter word; beside it, the atlas's land table as a rose, its words unchanged.
+        const [shelter] = within(within(detail).getByRole('list', { name: 'At a glance' })).getAllByRole('listitem');
+        expect(
+            await within(shelter).findByRole('img', {
+                name: /^Shelter rose: (land close to the [NESW]{1,2}(, [NESW]{1,2})*|no land close by)$/,
+            }),
+        ).toBeTruthy();
+        expect(shelter.textContent).toBe(
+            first.querySelector('.today-stop-shelter')!.textContent!.replace(/^\s*· /, ''),
+        );
+        // The plan first: with no room left for it (this DOM lays nothing out), no picture, and no gap for one.
+        expect(detail.querySelector('.today-pic')).toBeNull();
+        // A phone's room: the picture takes it, 2 : 1, as the page is measured again (a leave chip here).
+        roomForPicture();
+        const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
+        fireEvent.click(chips.find((b) => b.getAttribute('aria-pressed') !== 'true')!);
+        const map = await within(detail).findByRole('img', {
+            name: /^Map: your start \(dot\) and .+ \(pin\), wind [NESW]{1,2} \d+(–\d+)? kn\. Land not drawn: the coastline didn't load\.$/,
+        });
+        const box = detail.querySelector<HTMLElement>('.today-pic')!;
+        expect([box.style.width, box.style.height]).toEqual(['304px', '152px']);
+        // Under the facts and notes it draws, over the details.
+        expect(box.previousElementSibling?.matches('.today-glance, .today-rows')).toBe(true);
+        expect(box.nextElementSibling?.matches('details.today-how')).toBe(true);
+        // Not routed: no line of any kind. These sources have no coastline: said, never drawn as open sea.
+        expect(map.querySelector('polyline, line')).toBeNull();
+        expect(within(box).getByText('Land not loaded')).toBeTruthy();
+    });
+
+    it('132-PYD-9: land from the coastline Plan Your Day already read, and nothing new asked for it', async () => {
+        roomForPicture();
+        const { dialog, io: sources } = open({ sheetIo: io({ loader: { loadCoastline: async () => MARINA_RING } }) });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        // Maureen's Cove, north of Hook Island: its picture reaches past the coastline asked for, and says so.
+        await within(detail).findByRole('img', {
+            name: /^Map: .+\. Land © OpenStreetMap(, drawn to 27 NM from the start)?\.$/,
+        });
+        expect(detail.querySelector('.today-pic rect')).toHaveClass('today-pic-sea');
+        expect(detail.querySelector('.today-pic path.today-pic-land')!.getAttribute('d')).toMatch(/^M[\d.]+ \d+h/);
+        // The coastline was asked for once, by the place, never by the picture.
+        expect(sources.loader.loadCoastline).toHaveBeenCalledOnce();
+    });
+
+    it('132-PYD-9: with the atlas stops open before the coastline answers, it says loading, then draws the land', async () => {
+        roomForPicture();
+        // In Queensland the atlas's stops come at once; the coastline can take up to the 30 s deadline.
+        let answer: (coast: Segment[]) => void = () => {};
+        const coast = new Promise<Segment[]>((resolve) => (answer = resolve));
+        const { dialog } = open({ sheetIo: io({ loader: { loadCoastline: () => coast } }) });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        await within(detail).findByRole('img', {
+            name: /^Map: .+\. Land not drawn yet: the coastline is still loading\.$/,
+        });
+        // Grey, and never said as a failure the app doesn't know of yet.
+        expect(within(detail).getByText('Land loading…')).toBeTruthy();
+        expect(detail.querySelector('.today-pic rect')).toHaveClass('today-pic-none');
+        expect(detail.textContent).not.toMatch(/Land not loaded|didn't load/);
+        await act(async () => answer(MARINA_RING));
+        await within(detail).findByRole('img', {
+            name: /^Map: .+\. Land © OpenStreetMap(, drawn to 27 NM from the start)?\.$/,
+        });
+        expect(detail.querySelector('.today-pic rect')).toHaveClass('today-pic-sea');
+        expect(detail.querySelector('.today-pic path.today-pic-land')).not.toBeNull();
+    });
+
+    it("132-PYD-9: the picture's wind is the chosen leave's on the way out, chip by chip, never the best's", async () => {
+        roomForPicture();
+        const { dialog } = open({
+            sheetIo: io({
+                loader: {
+                    loadRouteSpread: async (coords) => {
+                        const spread = routeSpread(coords);
+                        const members = Object.entries(spread.members).map(([id, f]) => [id, fillingIn(f)]);
+                        return { ...spread, members: Object.fromEntries(members) };
+                    },
+                    loadRouteForecast: async (coords, model) => fillingIn(routeForecast(model, coords, 14)),
+                },
+            }),
+        });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        /** The way out's wind at the chosen leave, as "How each time was worked out" says it: "(…, SE 13–14 kn)". */
+        const outWind = () =>
+            within(detail)
+                .getByText(/^Leave \d\d:\d\d → there /)
+                .textContent!.match(/, ([NESW]{1,2} \d+(?:–\d+)?) kn\)$/)![1];
+        /** The picture's wind, as VoiceOver hears it and as its band shows it. */
+        const pictured = () => [
+            within(detail)
+                .getByRole('img', { name: /^Map: / })
+                .getAttribute('aria-label')!
+                .match(/, wind (.+?) kn\. /)?.[1],
+            detail.querySelector('.today-pic-band')!.textContent!.match(/([NESW]{1,2} \d+(?:–\d+)?) kn$/)?.[1],
+        ];
+        const best = outWind();
+        const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
+        const seen = new Set<string>();
+        for (const chip of chips) {
+            fireEvent.click(chip);
+            expect(chip).toHaveAttribute('aria-pressed', 'true');
+            const wind = outWind();
+            await waitFor(() => expect(pictured()).toEqual([wind, wind]));
+            seen.add(wind);
+        }
+        // The trade fills in through the morning: a leave whose wind is not the best's was drawn with its own.
+        expect([...seen].some((wind) => wind !== best)).toBe(true);
     });
 });
 
@@ -695,13 +945,11 @@ describe('The landing tide', () => {
         fireEvent.click(cove);
         const detail = await screen.findByRole('dialog', { name: /^Maureen/ });
         await waitFor(() => expect(sources.loader.loadTideCurve).toHaveBeenCalledTimes(1));
-        // Said once (127-PYD-1): the note names the tide, the row gives the window, or says there is none.
-        expect(await within(detail).findByText('Landing window: no tide prediction here.')).toBeTruthy();
-        const said = within(within(detail).getByRole('list', { name: 'How the day goes' }))
-            .getAllByRole('listitem')
-            .map((li) => li.textContent!)
-            .join(' ');
-        expect(said.match(/mid-? to high[- ]tide/g)).toHaveLength(1);
+        // Said once (127-PYD-1): the note names the tide, the row gives the window, or says there is none; both
+        // on the page with the notes (132-PYD-8).
+        const window = await within(detail).findByText('Landing window: no tide prediction here.');
+        expect(window.closest('ul')).toBe(within(detail).getByRole('list', { name: 'Local notes' }));
+        expect(detail.textContent!.match(/mid-? to high[- ]tide/g)).toHaveLength(1);
     });
 });
 
@@ -787,13 +1035,13 @@ describe('Every place opens (127-PYD-5)', () => {
         expect(within(detail).getByText('Checking the weather along the way…')).toBeTruthy();
         expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
         expect(within(detail).getByText('Sea: not checked on the area wind')).toBeTruthy();
-        expect(within(detail).getByText(/ on the area wind \(.+\)\. No current\./)).toBeTruthy();
+        expect(within(detail).getByText(/ on the area wind \(.+\)\.$/)).toBeTruthy();
         await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(6));
         expect(sheetIo.loader.loadRouteSea).toHaveBeenCalledTimes(6);
         await act(async () => release());
         await waitFor(() => expect(within(detail).queryByText('Checking the weather along the way…')).toBeNull());
         expect(within(detail).queryByText(/on the area wind/)).toBeNull();
-        expect(within(detail).getByText(/ in .+ wind\. No current\./)).toBeTruthy();
+        expect(within(detail).getByText(/^Times .+ in .+ wind\.$/)).toBeTruthy();
         // Back is the list she came from, focus on her place, now checked along the way.
         fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
         places = await screen.findByRole('dialog', { name: /^Places near / });
@@ -822,11 +1070,11 @@ describe('Every place opens (127-PYD-5)', () => {
         const detail = await screen.findByRole('dialog', {
             name: titled(row.querySelector('.today-stop-name')!.textContent!),
         });
-        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
+        const level = detail.querySelector('.today-level')!;
         // Its reason first: the area wind's, or by now the weather along the way's (asked as it opened).
         expect(why).toMatch(/^SE \d+ kn in the area$/);
-        expect(items[0]).toHaveTextContent(/^✕ Over your limits: SE \d+ kn (in the area|on the way)$/);
-        expect(items[0]).toHaveAttribute('data-level', 'over');
+        expect(level).toHaveTextContent(/^✕ Over your limits: SE \d+ kn (in the area|on the way)$/);
+        expect(level).toHaveAttribute('data-level', 'over');
         expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
         // Nara Inlet, closed whatever the weather, is still a plain line.
         fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
@@ -851,9 +1099,9 @@ describe('Every place opens (127-PYD-5)', () => {
         const detail = await screen.findByRole('dialog', {
             name: titled(bolt!.querySelector('.today-stop-name')!.textContent!),
         });
-        expect(
-            within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem')[0],
-        ).toHaveTextContent(/^✕ Over your limits: thunder in \d of 7 models on the way home$/);
+        expect(detail.querySelector('.today-level')).toHaveTextContent(
+            /^✕ Over your limits: thunder in \d of 7 models on the way home$/,
+        );
     });
 
     it('a place opened from the list stays open while the card changes behind it', async () => {
@@ -1001,10 +1249,13 @@ describe('Every place opens (127-PYD-5)', () => {
         fireEvent.click(placeRow(places, name)!);
         const detail = await screen.findByRole('dialog', { name: titled(name) });
         // Decision 4: its page leads with why it is not today, then the gap's times.
-        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
-        expect(items[0]).toHaveTextContent(/^✕ Over your limits most of the day \(a gap: leave \d\d:\d\d\)$/);
-        expect(items[0]).toHaveAttribute('data-level', 'over');
+        const level = detail.querySelector('.today-level')!;
+        expect(level).toHaveTextContent(/^✕ Over your limits most of the day \(a gap: leave \d\d:\d\d\)$/);
+        expect(level).toHaveAttribute('data-level', 'over');
+        expect(within(detail).getByRole('list', { name: 'Times' })).toHaveTextContent(/^Leave \d\d:\d\d /);
         expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
+        // Said once: the rows a tap away do not say it again.
+        expect(listed(within(detail).getByRole('list', { name: 'How the day goes' }))).not.toContain(level.textContent);
     });
 
     it('a page whose place leaves the list as OpenStreetMap answers goes back to All places', async () => {
@@ -1112,7 +1363,8 @@ describe('Sources and limits', () => {
             /^Forecast data: /,
             'Waves: Météo-France (MFWAM)',
             'Tides: WorldTides, Harbour Gauge, metres above LAT, approx. ±0.3 m',
-            'Places: © OpenStreetMap contributors (ODbL)',
+            // The coastline too: each stop's picture draws its land from it (132-PYD-9).
+            'Places and coastline: © OpenStreetMap contributors (ODbL)',
             'Queensland anchorage atlas (OpenStreetMap + GBRMPA)',
             'Queensland Parks notes, CC BY 4.0, © State of Queensland',
             'Light: worked out on this phone',
@@ -1463,6 +1715,29 @@ describe('Route round the land (127-PYD-2)', () => {
         const again = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
         expect(routeRow(again)).toHaveTextContent('Routed on your charts · 16.5 NM each way');
         expect(route.fn).toHaveBeenCalledOnce();
+    });
+
+    it('132-PYD-9: the picture draws the routed line once routed, every point of it, and no line before', async () => {
+        roomForPicture();
+        let release = () => {};
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const route = routes(async (req) => {
+            await held;
+            return routedProposal(req);
+        });
+        const { detail } = await openStop({ route });
+        const map = await within(detail).findByRole('img', { name: /^Map: / });
+        expect(map.querySelector('polyline, line')).toBeNull();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        // While it routes, still none: never a straight line standing in for the route.
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Finding the way round the land/));
+        expect(detail.querySelector('.today-pic polyline')).toBeNull();
+        release();
+        await waitFor(() =>
+            expect(within(detail).getByRole('img', { name: /^Map: .+ \(pin\), the routed line, wind / })).toBeTruthy(),
+        );
+        // The provider's three points, start, bend and stop: its line, not one of ours.
+        expect(detail.querySelector('.today-pic polyline')!.getAttribute('points')!.split(' ')).toHaveLength(3);
     });
 
     it('a tester sees no route row, no button and no timing line; nothing is routed', async () => {

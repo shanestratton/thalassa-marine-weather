@@ -1,6 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAisLayer } from '../components/map/useAisLayer';
+import { writeAisMapData } from '../components/map/aisPictureLayers';
 
 const mocks = vi.hoisted(() => ({
     subscribe: vi.fn(() => vi.fn()),
@@ -11,7 +12,13 @@ vi.mock('../services/AisStore', () => ({
 }));
 
 function makeMap() {
-    const sourceIds = ['ais-targets', 'ais-predicted-tracks', 'ais-guard-zone'] as const;
+    const sourceIds = [
+        'ais-targets',
+        'ais-predicted-tracks',
+        'ais-guard-zone',
+        'ais-dr-estimates',
+        'ais-target-trail',
+    ] as const;
     const sources = Object.fromEntries(sourceIds.map((id) => [id, { setData: vi.fn() }])) as Record<
         (typeof sourceIds)[number],
         { setData: ReturnType<typeof vi.fn> }
@@ -35,6 +42,14 @@ describe('useAisLayer visibility lifecycle', () => {
         const { rerender } = renderHook(({ visible }) => useAisLayer(mapRef, true, visible), {
             initialProps: { visible: true },
         });
+        // Populate each actual source, including the lazy DR and selected-trail sources.
+        for (const id of Object.keys(sources)) {
+            writeAisMapData(map as never, id, {
+                type: 'FeatureCollection',
+                features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [153, -27] } }],
+            });
+            sources[id as keyof typeof sources].setData.mockClear();
+        }
         map.setLayoutProperty.mockClear();
 
         rerender({ visible: false });
@@ -46,6 +61,11 @@ describe('useAisLayer visibility lifecycle', () => {
             ['ais-targets-sart', 'visibility', 'none'],
             ['ais-targets-heading', 'visibility', 'none'],
             ['ais-targets-label', 'visibility', 'none'],
+            ['ais-stale-badge', 'visibility', 'none'],
+            ['ais-dr-ring', 'visibility', 'none'],
+            ['ais-dr-link', 'visibility', 'none'],
+            ['ais-dr-ghost', 'visibility', 'none'],
+            ['ais-target-trail', 'visibility', 'none'],
             ['ais-predicted-tracks-line', 'visibility', 'none'],
             ['ais-predicted-tracks-dots', 'visibility', 'none'],
             ['ais-guard-zone-fill', 'visibility', 'none'],

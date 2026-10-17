@@ -193,6 +193,7 @@ describe('the passage planner refuses charted land, as Auto does', () => {
         expect(mocks.crossesLand.mock.calls[0][1]).toHaveProperty('chartVerdicts');
         expect(warnings().some((n) => /rejected/.test(n.title))).toBe(false);
         expect(result.current.routeAnalysis?.totalDistance).toBe(5.4);
+        expect(result.current.routeCaveats).toContain('This hop is under 15 NM and uses the inshore chart router.');
     });
 
     it("a satellite refusal's title follows what the charts say there", async () => {

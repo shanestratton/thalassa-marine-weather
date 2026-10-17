@@ -2117,7 +2117,7 @@ describe('isolated autorouting trial workspace', () => {
     it('keeps save explicit through its card, without direct persistence, activation, GPS or planner dependencies', () => {
         const source = readFileSync('components/autorouting/AutoroutingTrialWorkspace.tsx', 'utf8');
         expect(source).not.toMatch(
-            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|useVoyageForm|MapHub|GpsService|saveVoyagePlan)/,
+            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|savedTraceStore|useVoyageForm|MapHub|GpsService|saveVoyagePlan)/,
         );
         expect(source).toContain('<AutoroutingProposalSaveCard');
     });
@@ -2405,13 +2405,14 @@ describe('explicit routing mode choice', () => {
         fillRequest();
         fireEvent.click(calculateButton());
         const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
+        const statusCallsBeforeAccountChange = mocks.status.mock.calls.length;
         act(() => setAuthIdentityScope('another-account'));
         await act(async () => pending.resolve(route));
         expect(signal.aborted).toBe(true);
         expect(onClose).toHaveBeenCalledTimes(1);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
-        expect(mocks.status).toHaveBeenCalledTimes(2);
+        expect(mocks.status).toHaveBeenCalledTimes(statusCallsBeforeAccountChange);
     });
 
     it('closing Auto closes the entire flow and reopening takes fresh snapshots with no retained inputs or proposal', async () => {
@@ -2493,7 +2494,7 @@ describe('explicit routing mode choice', () => {
     it('does not import planner, persistence, live GPS or route handoff machinery', () => {
         const source = readFileSync('components/autorouting/RoutingModeDialog.tsx', 'utf8');
         expect(source).not.toMatch(
-            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|useVoyageForm|MapHub|GpsService|saveVoyagePlan|useWeather)/,
+            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|savedTraceStore|useVoyageForm|MapHub|GpsService|saveVoyagePlan|useWeather)/,
         );
     });
 });

@@ -100,7 +100,7 @@ export class GribRequestBuilder {
      *   latPoints = ceil(|north - south| / resolution)
      *   lonPoints = ceil(|east - west| / resolution)
      *   gridPoints = latPoints × lonPoints
-     *   timeSteps = forecastHours / timeStep
+     *   timeSteps = floor(forecastHours / timeStep) + 1 (includes lead0)
      *   bytesPerStep = sum(param.bytesPerPoint for each param) × gridPoints
      *   totalBytes = bytesPerStep × timeSteps + GRIB_OVERHEAD
      */
@@ -114,7 +114,7 @@ export class GribRequestBuilder {
         const lonPoints = Math.max(1, Math.ceil(lonSpan / resolution) + 1);
         const gridPoints = latPoints * lonPoints;
 
-        const timeSteps = Math.max(1, Math.ceil(forecastHours / timeStep));
+        const timeSteps = Math.max(1, Math.floor(forecastHours / timeStep) + 1);
 
         // Sum bytes per grid point across selected parameters
         let bytesPerPoint = 0;
@@ -155,15 +155,16 @@ export class GribRequestBuilder {
             latPoints,
             lonPoints,
             totalPoints: latPoints * lonPoints,
-            timeSteps: Math.max(1, Math.ceil(request.forecastHours / request.timeStep)),
+            timeSteps: Math.max(1, Math.floor(request.forecastHours / request.timeStep) + 1),
         };
     }
 
     /**
      * Format a Saildocs email request string.
      *
-     * Syntax: send GFS:south,north,west,east|resLat,resLon|0,forecastHours..timeStep|PARAMS
-     * Example: send GFS:-30,-10,150,175|1,1|0,72..12|WIND,PRESS,HTSGW
+     * Syntax: send GFS:south,north,west,east|resLat,resLon|0,timeStep..forecastHours|PARAMS
+     * Example: send GFS:-30,-10,150,175|1,1|0,12..72|WIND,PRESS,HTSGW
+     * App-initiated Saildocs requests remain held pending its written agreement.
      */
     static formatSaildocsRequest(request: GribRequest): string {
         const { bbox, parameters, resolution, timeStep, forecastHours, model } = request;
@@ -171,7 +172,7 @@ export class GribRequestBuilder {
         // Saildocs uses south,north,west,east
         const area = `${bbox.south},${bbox.north},${bbox.west},${bbox.east}`;
         const grid = `${resolution},${resolution}`;
-        const time = `0,${forecastHours}..${timeStep}`;
+        const time = `0,${timeStep}..${forecastHours}`;
 
         // Map parameters to Saildocs codes
         const paramCodes = parameters

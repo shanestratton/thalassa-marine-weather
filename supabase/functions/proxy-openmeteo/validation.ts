@@ -20,16 +20,22 @@ export const UPSTREAMS: Readonly<Record<Operation, string>> = {
 };
 
 export function isOperation(value: unknown): value is Operation {
-    return typeof value === 'string' && (OPERATIONS as readonly string[]).includes(value);
+    return typeof value === 'string' &&
+        (OPERATIONS as readonly string[]).includes(value);
 }
 
 /** The geocoder takes these four names and nothing else: no coordinates. */
 const GEOCODE_PARAMETERS = new Set(['name', 'count', 'language', 'format']);
 
 function validateGeocode(params: Record<string, unknown>): QueryRecord | null {
-    if (Object.keys(params).some((name) => !GEOCODE_PARAMETERS.has(name))) return null;
+    if (Object.keys(params).some((name) => !GEOCODE_PARAMETERS.has(name))) {
+        return null;
+    }
     const name = params.name;
-    if (typeof name !== 'string' || !name.trim() || name.length > 100 || /[\u0000-\u001f\u007f]/.test(name)) {
+    if (
+        typeof name !== 'string' || !name.trim() || name.length > 100 ||
+        /[\u0000-\u001f\u007f]/.test(name)
+    ) {
         return null;
     }
     const output: QueryRecord = { name };
@@ -39,7 +45,9 @@ function validateGeocode(params: Record<string, unknown>): QueryRecord | null {
         output.count = String(count);
     }
     if (params.language !== undefined) {
-        if (typeof params.language !== 'string' || !/^[a-z]{2}$/.test(params.language)) return null;
+        if (
+            typeof params.language !== 'string' || !/^[a-z]{2}$/.test(params.language)
+        ) return null;
         output.language = params.language;
     }
     if (params.format !== undefined) {
@@ -141,6 +149,8 @@ export const FORECAST_HOURLY = new Set([
     'visibility',
     'uv_index',
     'cape',
+    'lifted_index',
+    'convective_inhibition',
 ]);
 
 const FORECAST_DAILY = new Set([
@@ -172,7 +182,9 @@ const MARINE_CURRENT = new Set([
     'secondary_swell_wave_height',
     'secondary_swell_wave_direction',
     'secondary_swell_wave_period',
-    'secondary_swell_wave_peak_period',
+    'tertiary_swell_wave_height',
+    'tertiary_swell_wave_direction',
+    'tertiary_swell_wave_period',
     'ocean_current_velocity',
     'ocean_current_direction',
     'sea_surface_temperature',
@@ -196,36 +208,71 @@ const MARINE_DAILY = new Set([
 const FORECAST_MODELS = new Set([
     'best_match',
     'gfs_seamless',
+    'gfs_global',
     'ncep_gfs025',
     'ecmwf_ifs025',
+    'ecmwf_ifs',
     'ecmwf_aifs025_single',
     'icon_seamless',
     'dwd_icon',
     'bom_access_global',
     'gem_seamless',
+    'gem_global',
     'ukmo_global_deterministic_10km',
     'jma_gsm',
+    'meteofrance_arome_france_hd',
+    'meteofrance_arome_france',
+    'dwd_icon_d2',
+    'dwd_icon_eu',
+    'ukmo_uk_deterministic_2km',
+    'knmi_harmonie_arome_netherlands',
+    'knmi_harmonie_arome_europe',
+    'dmi_harmonie_arome_europe',
+    'metno_nordic',
+    'ncep_hrrr_conus',
+    'cmc_gem_hrdps',
+    'jma_msm',
 ]);
 
-const MARINE_MODELS = new Set(['best_match', 'ecmwf_wam025', 'dwd_gwam', 'meteofrance_wave', 'ncep_gfswave025']);
+const MARINE_MODELS = new Set([
+    'best_match',
+    'ecmwf_wam025',
+    'dwd_gwam',
+    'meteofrance_wave',
+    'ncep_gfswave025',
+]);
 
 function asString(value: unknown, maxLength = 2_000): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const result = String(value);
-    if (!result || result.length > maxLength || /[\u0000-\u001f\u007f]/.test(result)) return null;
+    if (
+        !result || result.length > maxLength || /[\u0000-\u001f\u007f]/.test(result)
+    ) return null;
     return result;
 }
 
-function parseCsv(value: unknown, allowed: ReadonlySet<string>, maxItems: number): string | null {
+function parseCsv(
+    value: unknown,
+    allowed: ReadonlySet<string>,
+    maxItems: number,
+): string | null {
     const raw = asString(value);
     if (!raw) return null;
     const items = raw.split(',');
-    if (items.length < 1 || items.length > maxItems || new Set(items).size !== items.length) return null;
-    if (items.some((item) => !item || item.trim() !== item || !allowed.has(item))) return null;
+    if (
+        items.length < 1 || items.length > maxItems ||
+        new Set(items).size !== items.length
+    ) return null;
+    if (
+        items.some((item) => !item || item.trim() !== item || !allowed.has(item))
+    ) return null;
     return items.join(',');
 }
 
-function parseCoordinates(value: unknown, axis: 'lat' | 'lon'): string[] | null {
+function parseCoordinates(
+    value: unknown,
+    axis: 'lat' | 'lon',
+): string[] | null {
     const raw = asString(value, 1_200);
     if (!raw) return null;
     const values = raw.split(',');
@@ -273,14 +320,23 @@ function validateTimezone(value: unknown): string | null {
     return /^[A-Za-z_]+(?:\/[A-Za-z0-9_+.-]+)+$/.test(timezone) ? timezone : null;
 }
 
-export function validateRequest(operation: Operation, params: Record<string, unknown>): QueryRecord | null {
+export function validateRequest(
+    operation: Operation,
+    params: Record<string, unknown>,
+): QueryRecord | null {
     if (operation === 'geocode') return validateGeocode(params);
-    if (Object.keys(params).length < 3 || Object.keys(params).length > 18) return null;
-    if (Object.keys(params).some((name) => !COMMON_PARAMETERS.has(name))) return null;
+    if (Object.keys(params).length < 3 || Object.keys(params).length > 18) {
+        return null;
+    }
+    if (Object.keys(params).some((name) => !COMMON_PARAMETERS.has(name))) {
+        return null;
+    }
 
     const latitude = parseCoordinates(params.latitude, 'lat');
     const longitude = parseCoordinates(params.longitude, 'lon');
-    if (!latitude || !longitude || latitude.length !== longitude.length) return null;
+    if (!latitude || !longitude || latitude.length !== longitude.length) {
+        return null;
+    }
 
     const currentAllowed = operation === 'forecast' ? FORECAST_CURRENT : MARINE_CURRENT;
     const hourlyAllowed = operation === 'forecast' ? FORECAST_HOURLY : MARINE_HOURLY;
@@ -307,7 +363,11 @@ export function validateRequest(operation: Operation, params: Record<string, unk
     if (selectorCount === 0) return null;
 
     if (params.models !== undefined) {
-        const models = parseCsv(params.models, operation === 'forecast' ? FORECAST_MODELS : MARINE_MODELS, 8);
+        const models = parseCsv(
+            params.models,
+            operation === 'forecast' ? FORECAST_MODELS : MARINE_MODELS,
+            8,
+        );
         if (!models) return null;
         output.models = models;
     }

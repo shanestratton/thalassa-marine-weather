@@ -54,10 +54,7 @@ interface LatLon {
     lon: number;
 }
 
-const num = (v: unknown): number | null => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-};
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** ETA schedule (cumulative distance + arrival time) for the waypoints. */
 function schedule(pins: LatLon[], departureMs: number, speedKts: number) {

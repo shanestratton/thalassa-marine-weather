@@ -39,7 +39,13 @@ import { useEffect, useRef, type MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
 import { subscribe as subscribeCells } from '../../services/enc/EncCellMetadata';
-import { leadGraphOverlayGeoJSON } from '../../services/routing/leadCompiler';
+import {
+    leadGraphOverlayGeoJSON,
+    leadGraphCurrent,
+    leadGraphHasGeometryOwner,
+    retainLeadGraph,
+    type LeadGraph,
+} from '../../services/routing/leadCompiler';
 import { leadGraphForView } from '../../services/routing/leadOverlayData';
 import { createLogger } from '../../utils/createLogger';
 import { ENC_VEC_LAYERS } from './encLayerIds';
@@ -226,6 +232,8 @@ export function useChartLeadsLayer(
 ): void {
     const compileTokenRef = useRef(0);
     const latestDataRef = useRef<GeoJSON.FeatureCollection>(EMPTY);
+    const latestGraphRef = useRef<LeadGraph | null>(null);
+    const displayReleaseRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         if (!mapReady) return;
@@ -236,18 +244,33 @@ export function useChartLeadsLayer(
         let moveTimer: ReturnType<typeof setTimeout> | null = null;
         let styleTimer: ReturnType<typeof setTimeout> | null = null;
 
-        const remove = (): void => {
+        const dropOwnership = (): void => {
+            latestDataRef.current = EMPTY;
+            latestGraphRef.current = null;
+            displayReleaseRef.current?.();
+            displayReleaseRef.current = null;
+        };
+        const remove = (): boolean => {
             try {
                 for (const id of ALL_LAYERS) if (map.getLayer(id)) map.removeLayer(id);
                 if (map.getSource(CHART_LEADS_SOURCE_ID)) map.removeSource(CHART_LEADS_SOURCE_ID);
+                if (map.getSource(CHART_LEADS_SOURCE_ID)) return false;
+                dropOwnership();
+                return true;
             } catch {
-                // A base-style swap can remove these between the calls.
+                // Uncertain detach keeps geometry charged until actual map
+                // removal. Never release a source that may still be mounted.
+                return false;
             }
         };
 
         const anchorId = (): string | undefined => MARK_ANCHORS.find((id) => !!map.getLayer(id));
 
         const ensureMounted = (): void => {
+            if (!leadGraphCurrent(latestGraphRef.current)) {
+                remove();
+                return;
+            }
             try {
                 if (!map.getSource(CHART_LEADS_SOURCE_ID)) {
                     map.addSource(CHART_LEADS_SOURCE_ID, { type: 'geojson', data: latestDataRef.current });
@@ -277,6 +300,9 @@ export function useChartLeadsLayer(
 
         const recompile = async (): Promise<void> => {
             const token = ++compileTokenRef.current;
+            // A new package window is admitted only after the displayed
+            // source/last-data borrower of the previous window detaches.
+            if (displayReleaseRef.current && !remove()) return;
             if (map.getZoom() < CHART_LEADS_MIN_ZOOM) {
                 setData(EMPTY);
                 return;
@@ -292,11 +318,28 @@ export function useChartLeadsLayer(
                     draftM,
                     draftAssumed,
                     airDraftM,
+                    () => {
+                        if (disposed || token !== compileTokenRef.current)
+                            throw new DOMException('Lead view changed', 'AbortError');
+                    },
                 );
                 if (disposed || token !== compileTokenRef.current) return;
-                setData(leadGraphOverlayGeoJSON(graph) as GeoJSON.FeatureCollection);
+                const release = retainLeadGraph(graph);
+                let transferred = false;
+                try {
+                    if (leadGraphHasGeometryOwner(graph)) {
+                        displayReleaseRef.current = release;
+                        transferred = true;
+                    }
+                    latestGraphRef.current = graph;
+                    ensureMounted();
+                    setData(leadGraphOverlayGeoJSON(graph) as GeoJSON.FeatureCollection);
+                } finally {
+                    if (!transferred) release();
+                }
             } catch (error) {
-                if (!disposed) {
+                if (!disposed && token === compileTokenRef.current) {
+                    if (displayReleaseRef.current) remove();
                     setData(EMPTY);
                     log.warn('lead compile failed', error);
                 }
@@ -315,11 +358,18 @@ export function useChartLeadsLayer(
                 if (!disposed) ensureMounted();
             }, 0);
         };
+        const onCells = (): void => {
+            compileTokenRef.current += 1;
+            if (displayReleaseRef.current) remove();
+            scheduleCompile();
+        };
+        const onMapRemove = (): void => dropOwnership();
 
         void recompile();
         map.on('moveend', scheduleCompile);
         map.on('styledata', onStyleData);
-        const unsubscribe = subscribeCells(scheduleCompile);
+        map.on('remove', onMapRemove);
+        const unsubscribe = subscribeCells(onCells);
 
         return () => {
             disposed = true;
@@ -329,7 +379,7 @@ export function useChartLeadsLayer(
             if (moveTimer) clearTimeout(moveTimer);
             if (styleTimer) clearTimeout(styleTimer);
             unsubscribe();
-            remove();
+            if (remove()) map.off('remove', onMapRemove);
         };
     }, [mapReady, mapRef, visible, draftM, draftAssumed, airDraftM]);
 }

@@ -1,44 +1,114 @@
 /**
- * InventoryScanner — smoke tests (893 LOC component)
+ * The Add item sheet and its Scan (131-B13; binder audit STORES-09, STORES-08,
+ * STORES-13).
+ *
+ * Scanning a barcode already in Stores made a second item: the "found it,
+ * change the count" view lived only in a full-screen camera nothing opened.
+ * Now a scanned code already in Stores opens that item, and its ± goes through
+ * the page's delta path; a new code fills the Barcode field; a refused camera
+ * or a missing scanner is said inside the sheet. Fictional stores.
  */
 import React from 'react';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Capacitor } from '@capacitor/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { InventoryItem } from '../../types';
+
+const scanner = vi.hoisted(() => ({
+    checkPermissions: vi.fn(),
+    requestPermissions: vi.fn(),
+    scan: vi.fn(),
+}));
 
 vi.mock('../../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
-vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../../services/vessel/LocalInventoryService', () => ({
     LocalInventoryService: {
-        getAll: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: '1' }),
-        update: vi.fn().mockResolvedValue({}),
-        findByBarcode: vi.fn().mockResolvedValue(null),
+        findByBarcode: vi.fn().mockReturnValue(null),
+    },
+}));
+vi.mock('../../services/native/dataScanner', () => ({
+    BarcodeScanner: scanner,
+    BarcodeFormat: {
+        Ean13: 'Ean13',
+        Ean8: 'Ean8',
+        UpcA: 'UpcA',
+        UpcE: 'UpcE',
+        Code128: 'Code128',
+        Code39: 'Code39',
+        QrCode: 'QrCode',
     },
 }));
 vi.mock('../../components/Toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { InventoryScanner } from '../../components/vessel/InventoryScanner';
 import { LocalInventoryService } from '../../services/vessel/LocalInventoryService';
+import { SCAN_DENIED, SCAN_UNAVAILABLE } from '../../services/native/scanBarcode';
 
-describe('InventoryScanner', () => {
-    beforeEach(() => vi.clearAllMocks());
+window.scrollBy = () => undefined;
 
-    it('renders without crashing', () => {
-        const { container } = render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
-        expect(container).toBeDefined();
+const CODE = '9300000000017';
+
+function flares(extra: Partial<InventoryItem> = {}): InventoryItem {
+    return {
+        id: 'item-flares',
+        user_id: 'skipper-1',
+        barcode: CODE,
+        item_name: 'Handheld flares',
+        description: null,
+        category: 'Safety',
+        quantity: 3,
+        min_quantity: 2,
+        unit: 'whole',
+        location_zone: 'Cockpit locker',
+        location_specific: 'Grab bag',
+        expiry_date: null,
+        created_at: '2026-10-01T00:00:00.000Z',
+        updated_at: '2026-10-01T00:00:00.000Z',
+        ...extra,
+    };
+}
+
+function sheet(onAdjust = vi.fn().mockResolvedValue(null), onClose = vi.fn(), units: 'metric' | 'imperial' = 'metric') {
+    render(<InventoryScanner onClose={onClose} onItemSaved={vi.fn()} onAdjust={onAdjust} units={units} />);
+    return { onAdjust, onClose, form: screen.getByRole('dialog', { name: 'Add item' }) };
+}
+
+/** The iPhone app, with its scanner reading `code` (or put away with none). */
+function onIphone(code: string | null) {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    scanner.checkPermissions.mockResolvedValue({ camera: 'granted' });
+    scanner.scan.mockResolvedValue({ barcodes: code ? [{ rawValue: code, format: 'Ean13' }] : [] });
+}
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(null);
+});
+
+afterEach(() => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    Reflect.deleteProperty(window, 'BarcodeDetector');
+    Reflect.deleteProperty(navigator, 'mediaDevices');
+});
+
+describe('the Add item sheet', () => {
+    it('opens on the form: there is no full-screen camera any more', () => {
+        const { form } = sheet();
+        expect(screen.queryByRole('dialog', { name: 'Inventory barcode scanner' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Close camera' })).not.toBeInTheDocument();
+        expect(within(form).getByRole('button', { name: 'Scan barcode' })).toBeInTheDocument();
     });
 
-    it('renders content', () => {
-        render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
-        expect(screen.getByRole('dialog', { name: 'Inventory barcode scanner' })).toBeInTheDocument();
-    });
-
-    it('shows the primary Add item category chooser as three columns of five categories', () => {
-        render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} startInManualMode />);
-        const dialog = screen.getByRole('dialog', { name: 'Add item' });
-        const grid = within(dialog).getByRole('group', { name: 'Store category' });
+    it('shows the category chooser as three columns of five categories', () => {
+        const { form } = sheet();
+        const grid = within(form).getByRole('group', { name: 'Store category' });
         expect(grid).toHaveClass('grid-cols-3');
         expect(within(grid).getAllByRole('button')).toHaveLength(15);
         fireEvent.click(within(grid).getByRole('button', { name: 'Electrical' }));
@@ -47,55 +117,277 @@ describe('InventoryScanner', () => {
         expect(LocalInventoryService.create).not.toHaveBeenCalled();
     });
 
-    it('focuses the camera close action and handles Escape', () => {
+    it('refuses a count or minimum below nothing: a typed −5 is saved as 0', async () => {
+        const { form } = sheet();
+        fireEvent.change(within(form).getByLabelText(/Item name/), { target: { value: 'Shackle pins' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '-5' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '-2' } });
+        fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+        await waitFor(() => expect(LocalInventoryService.create).toHaveBeenCalledTimes(1));
+        expect(LocalInventoryService.create).toHaveBeenCalledWith(
+            expect.objectContaining({ item_name: 'Shackle pins', quantity: 0, min_quantity: 0 }),
+        );
+    });
+});
+
+describe('Scan on the iPhone', () => {
+    it('a code already in Stores opens that item to change its count, and makes nothing new', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(flares());
+        const onAdjust = vi.fn().mockResolvedValue(flares({ quantity: 2 }));
+        const { form } = sheet(onAdjust);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+
+        const found = await screen.findByRole('dialog', { name: 'Handheld flares' });
+        expect(LocalInventoryService.findByBarcode).toHaveBeenCalledWith(CODE);
+        expect(found).toHaveTextContent("Already in Ship's Stores");
+        expect(found).toHaveTextContent('Cockpit locker — Grab bag');
+        expect(within(found).getByLabelText('Handheld flares: 3')).toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Add item' })).not.toBeInTheDocument();
+
+        // − on the page's delta path, and the sheet shows the count it left.
+        fireEvent.click(within(found).getByRole('button', { name: 'Take one Handheld flares' }));
+        await waitFor(() => expect(within(found).getByLabelText('Handheld flares: 2')).toBeInTheDocument());
+        expect(onAdjust).toHaveBeenCalledWith('item-flares', -1);
+        // At its minimum: Low, by the one rule.
+        expect(found).toHaveTextContent('Low stock');
+        expect(LocalInventoryService.create).not.toHaveBeenCalled();
+    });
+
+    it('+ adds one, and Done closes the sheet', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(flares());
+        const onAdjust = vi.fn().mockResolvedValue(flares({ quantity: 4 }));
         const onClose = vi.fn();
-        render(<InventoryScanner onClose={onClose} onItemSaved={vi.fn()} />);
-        const close = screen.getByRole('button', { name: 'Close camera' });
-        const dialog = screen.getByRole('dialog', { name: 'Inventory barcode scanner' });
-        expect(dialog).toContainElement(close);
-        expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
-        expect(close).toHaveFocus();
-        fireEvent.keyDown(close, { key: 'Escape' });
+        const { form } = sheet(onAdjust, onClose);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Handheld flares' });
+        fireEvent.click(within(found).getByRole('button', { name: 'Add one Handheld flares' }));
+        await waitFor(() => expect(within(found).getByLabelText('Handheld flares: 4')).toBeInTheDocument());
+        expect(onAdjust).toHaveBeenCalledWith('item-flares', 1);
+        fireEvent.click(within(found).getByRole('button', { name: 'Done' }));
         expect(onClose).toHaveBeenCalledOnce();
     });
 
-    it('claims the first barcode result so overlapping detector calls cannot process it twice', async () => {
-        vi.useFakeTimers();
-        const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    it('− is off when there is nothing left', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(flares({ quantity: 0 }));
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Handheld flares' });
+        expect(within(found).getByRole('button', { name: 'Take one Handheld flares' })).toBeDisabled();
+    });
+
+    it('a new code fills the Barcode field and stays on the form', async () => {
+        onIphone('5000000000012');
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        await waitFor(() => expect(within(form).getByDisplayValue('5000000000012')).toBeInTheDocument());
+        expect(screen.getByRole('dialog', { name: 'Add item' })).toBe(form);
+        expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('a camera Thalassa may not use is said in the sheet, in plain words', async () => {
+        onIphone(CODE);
+        scanner.checkPermissions.mockResolvedValue({ camera: 'prompt' });
+        scanner.requestPermissions.mockResolvedValue({ camera: 'denied' });
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        expect(await within(form).findByRole('alert')).toHaveTextContent(SCAN_DENIED);
+        expect(scanner.scan).not.toHaveBeenCalled();
+        expect(LocalInventoryService.findByBarcode).not.toHaveBeenCalled();
+    });
+
+    it('a scanner that fails is said in the sheet, and the next Scan clears it', async () => {
+        onIphone(CODE);
+        scanner.scan.mockRejectedValueOnce(new Error('VisionKit is not available'));
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        expect(await within(form).findByRole('alert')).toHaveTextContent(SCAN_UNAVAILABLE);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        await waitFor(() => expect(within(form).getByDisplayValue(CODE)).toBeInTheDocument());
+        expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('a scanner put away says nothing and fills nothing', async () => {
+        onIphone(null);
+        scanner.scan.mockRejectedValueOnce(new Error('User cancelled'));
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        await waitFor(() => expect(scanner.scan).toHaveBeenCalledTimes(1));
+        await act(async () => Promise.resolve());
+        expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+        expect(LocalInventoryService.findByBarcode).not.toHaveBeenCalled();
+    });
+});
+
+describe('units (131-B14)', () => {
+    const sugar = (extra: Partial<InventoryItem> = {}) =>
+        flares({
+            id: 'item-sugar',
+            item_name: 'Raw sugar',
+            category: 'Provisions',
+            quantity: 1000,
+            min_quantity: 500,
+            unit: 'g',
+            ...extra,
+        });
+
+    it('a scanned 1000 g of sugar reads 1 kg, and − takes 100 g on the delta path', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(sugar());
+        const onAdjust = vi.fn().mockResolvedValue(sugar({ quantity: 900 }));
+        const { form } = sheet(onAdjust);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Raw sugar' });
+        expect(within(found).getByLabelText('Raw sugar: 1 kg')).toBeInTheDocument();
+        expect(found).toHaveTextContent('Steps of 100 g');
+        fireEvent.click(within(found).getByRole('button', { name: 'Take 100 g Raw sugar' }));
+        await waitFor(() => expect(within(found).getByLabelText('Raw sugar: 900 g')).toBeInTheDocument());
+        expect(onAdjust).toHaveBeenCalledWith('item-sugar', -100);
+    });
+
+    it('the last 35 g is taken in 10 g steps, never more than is there', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(sugar({ quantity: 35, min_quantity: 0 }));
+        const onAdjust = vi.fn().mockResolvedValue(sugar({ quantity: 25, min_quantity: 0 }));
+        const { form } = sheet(onAdjust);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Raw sugar' });
+        fireEvent.click(within(found).getByRole('button', { name: 'Take 10 g Raw sugar' }));
+        await waitFor(() => expect(onAdjust).toHaveBeenCalledWith('item-sugar', -10));
+    });
+
+    it('in US units the same sugar reads 2.2 lb and steps a quarter pound; Low says its minimum in lb', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(sugar({ min_quantity: 1000 }));
+        const { form } = sheet(vi.fn().mockResolvedValue(null), vi.fn(), 'imperial');
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Raw sugar' });
+        expect(within(found).getByLabelText('Raw sugar: 2.2 lb')).toBeInTheDocument();
+        expect(found).toHaveTextContent('Steps of 0.25 lb');
+        expect(found).toHaveTextContent('Low stock: the minimum is 2.2 lb');
+    });
+
+    it('the Add form takes a unit and a decimal quantity: 2.5 kg of rice', async () => {
+        const { form } = sheet();
+        fireEvent.change(within(form).getByLabelText(/Item name/), { target: { value: 'Basmati rice' } });
+        fireEvent.change(within(form).getByRole('combobox', { name: 'Unit' }), { target: { value: 'kg' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '2.5' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '1' } });
+        fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+        await waitFor(() =>
+            expect(LocalInventoryService.create).toHaveBeenCalledWith(
+                expect.objectContaining({ item_name: 'Basmati rice', quantity: 2.5, min_quantity: 1, unit: 'kg' }),
+            ),
+        );
+    });
+
+    // The server keeps min_quantity as a whole number: a 0.5 would never sync.
+    it('the minimum is whole: a keypad with no point, and a pasted 0.5 kg saves as 1 kg', async () => {
+        const { form } = sheet();
+        expect(within(form).getByLabelText('Min alert')).toHaveAttribute('inputmode', 'numeric');
+        expect(within(form).getByLabelText('Quantity')).toHaveAttribute('inputmode', 'decimal');
+        fireEvent.change(within(form).getByLabelText(/Item name/), { target: { value: 'Basmati rice' } });
+        fireEvent.change(within(form).getByRole('combobox', { name: 'Unit' }), { target: { value: 'kg' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '0.5' } });
+        fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+        await waitFor(() =>
+            expect(LocalInventoryService.create).toHaveBeenCalledWith(
+                expect.objectContaining({ item_name: 'Basmati rice', min_quantity: 1, unit: 'kg' }),
+            ),
+        );
+    });
+
+    it('a 500 g minimum carried to kg is 1 kg, never 0.5', () => {
+        const { form } = sheet();
+        const unit = within(form).getByRole('combobox', { name: 'Unit' });
+        fireEvent.change(unit, { target: { value: 'g' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '1500' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '500' } });
+        fireEvent.change(unit, { target: { value: 'kg' } });
+        expect(within(form).getByLabelText('Quantity')).toHaveValue(1.5);
+        expect(within(form).getByLabelText('Min alert')).toHaveValue(1);
+    });
+
+    it('offers Count and the metric units; picking kg after g carries the number', () => {
+        const { form } = sheet();
+        const unit = within(form).getByRole('combobox', { name: 'Unit' });
+        expect(
+            within(unit)
+                .getAllByRole('option')
+                .map((option) => option.textContent),
+        ).toEqual(['Count', 'g', 'kg', 'ml', 'L']);
+        expect(unit).toHaveValue('whole');
+        fireEvent.change(unit, { target: { value: 'g' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '1500' } });
+        fireEvent.change(unit, { target: { value: 'kg' } });
+        expect(within(form).getByLabelText('Quantity')).toHaveValue(1.5);
+    });
+
+    it('in US units the picker offers oz, lb, fl oz and gal', () => {
+        const { form } = sheet(vi.fn(), vi.fn(), 'imperial');
+        const unit = within(form).getByRole('combobox', { name: 'Unit' });
+        expect(
+            within(unit)
+                .getAllByRole('option')
+                .map((option) => option.textContent),
+        ).toEqual(['Count', 'oz', 'lb', 'fl oz', 'gal']);
+    });
+});
+
+describe('Scan in a browser', () => {
+    function camera(detect: () => Promise<{ rawValue: string }[]>) {
+        const stopped = vi.fn();
+        vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
         Object.defineProperty(navigator, 'mediaDevices', {
             configurable: true,
-            value: {
-                getUserMedia: vi.fn().mockResolvedValue({
-                    getTracks: () => [],
-                }),
-            },
+            value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopped }] }) },
         });
-        const detect = vi.fn().mockResolvedValue([{ rawValue: '9312345678901' }]);
         Object.defineProperty(window, 'BarcodeDetector', {
             configurable: true,
             value: class {
                 detect = detect;
             },
         });
+        return { stopped };
+    }
 
+    it('reads the camera in the sheet, takes the first code once, and puts the camera out', async () => {
+        vi.useFakeTimers();
         try {
-            render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
+            const detect = vi.fn().mockResolvedValue([{ rawValue: CODE }]);
+            const { stopped } = camera(detect);
+            vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(flares());
+            const { form } = sheet();
+            fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+            expect(within(form).getByText('Scanning…')).toBeInTheDocument();
             await act(async () => {
-                await Promise.resolve();
-                await Promise.resolve();
-                await vi.advanceTimersByTimeAsync(1_100);
+                await vi.advanceTimersByTimeAsync(1_600);
             });
-
+            expect(screen.getByRole('dialog', { name: 'Handheld flares' })).toBeInTheDocument();
             expect(LocalInventoryService.findByBarcode).toHaveBeenCalledTimes(1);
-            expect(screen.getByRole('dialog', { name: 'Add new item' })).toBeInTheDocument();
-            const grid = screen.getByRole('group', { name: 'Store category' });
-            expect(grid).toHaveClass('grid-cols-3');
-            expect(within(grid).getAllByRole('button')).toHaveLength(15);
-            fireEvent.click(within(grid).getByRole('button', { name: 'Safety' }));
-            expect(within(grid).getByRole('button', { name: 'Safety' })).toHaveAttribute('aria-pressed', 'true');
+            expect(stopped).toHaveBeenCalled();
         } finally {
-            play.mockRestore();
             vi.useRealTimers();
         }
+    });
+
+    it('Close scanner puts the camera out and reads nothing', async () => {
+        const { stopped } = camera(vi.fn().mockResolvedValue([]));
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled());
+        fireEvent.click(within(form).getByRole('button', { name: 'Close scanner' }));
+        await waitFor(() => expect(stopped).toHaveBeenCalled());
+        expect(within(form).queryByText('Scanning…')).not.toBeInTheDocument();
+        expect(LocalInventoryService.findByBarcode).not.toHaveBeenCalled();
+    });
+
+    it('a browser with no barcode reader says so in the sheet', async () => {
+        const { form } = sheet();
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        expect(await within(form).findByRole('alert')).toHaveTextContent(SCAN_UNAVAILABLE);
+        expect(within(form).queryByText('Scanning…')).not.toBeInTheDocument();
     });
 });

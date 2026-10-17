@@ -6,39 +6,29 @@
 
 import React from 'react';
 import type { ShipDocument, DocumentCategory } from '../../../types';
+import type { DocUpload } from '../../../services/vessel/DocumentSyncService';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
-import { CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
+import { formatDisplayDate } from '../../../utils/displayDate';
+import { documentExpiryStatus, type ExpiryStatus } from '../../../services/vessel/binderDue';
+import { AlertTriangleIcon, CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
 import { CloudIcon } from '../../icons/WeatherIcons';
 import { CATEGORIES } from './DocumentForm';
 
 // ── Expiry logic ──
 
-export type ExpiryStatus = 'valid' | 'warning' | 'expired' | 'none';
+export type { ExpiryStatus };
 
 export function getExpiryStatus(expiryDate: string | null): ExpiryStatus {
-    if (!expiryDate) return 'none';
-    const now = Date.now();
     // A date-only string ("2026-09-02") parses as UTC MIDNIGHT, which is 10:00
     // that morning in Queensland — so a document read "Expired" while it was
     // still valid for the rest of the day, and the badge showed the previous
-    // day west of UTC (audit 2026-09-02). Treat a date-only expiry as valid
-    // through the end of that local day.
-    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.exec(expiryDate);
-    const expiry = dateOnly
-        ? new Date(
-              Number(expiryDate.slice(0, 4)),
-              Number(expiryDate.slice(5, 7)) - 1,
-              Number(expiryDate.slice(8, 10)),
-              23,
-              59,
-              59,
-              999,
-          ).getTime()
-        : new Date(expiryDate).getTime();
-    if (expiry < now) return 'expired';
-    if (expiry - now < 30 * 86400000) return 'warning';
-    return 'valid';
+    // day west of UTC (audit 2026-09-02). The synced form of the same day,
+    // "2026-09-02T00:00:00+00:00", did both still (131-B11, DOC-5). The expiry
+    // is the local day either names, valid through the end of it, amber for
+    // the 30 days before. One rule with the Boat Binder's Documents badge
+    // (services/vessel/binderDue, 131-B12), so the two never disagree.
+    return documentExpiryStatus(expiryDate);
 }
 
 const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: string; label: string }> = {
@@ -73,6 +63,12 @@ interface SwipeableDocCardProps {
     onToggleSelect: () => void;
     /** Where its file is; omitted for a paper with no file. */
     fileState?: keyof typeof FILE_STATE;
+    /** Its change still in the outbox (131-B9); omitted once it has uploaded. */
+    upload?: DocUpload;
+    /** Try refused uploads again now; shown only on a refused one. */
+    onRetryUpload?: () => void;
+    /** A retry is under way. */
+    retryingUpload?: boolean;
 }
 
 export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
@@ -83,6 +79,9 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
     selected,
     onToggleSelect,
     fileState,
+    upload,
+    onRetryUpload,
+    retryingUpload = false,
 }) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
@@ -192,7 +191,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                     <span
                                         className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}
                                     >
-                                        Exp {new Date(doc.expiry_date).toLocaleDateString()}
+                                        Exp {formatDisplayDate(doc.expiry_date, { weekday: false })}
                                     </span>
                                 )}
                             </div>
@@ -201,6 +200,38 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                     <file.Icon className="mt-px h-3 w-3 shrink-0" />
                                     {file.label}
                                 </p>
+                            )}
+                            {/* Saved here, not in the cloud yet, or refused and why
+                                (131-B9): from the outbox, until it really has gone. */}
+                            {upload && (
+                                <p
+                                    className={`mt-1 flex items-start gap-1 text-label font-bold ${upload.failed ? 'text-red-400' : 'text-sky-400'}`}
+                                >
+                                    {upload.failed ? (
+                                        <AlertTriangleIcon className="mt-px h-3 w-3 shrink-0" />
+                                    ) : (
+                                        <CloudIcon className="mt-px h-3 w-3 shrink-0" />
+                                    )}
+                                    {upload.failed ? `Upload failed: ${upload.reason}` : 'Not uploaded yet'}
+                                </p>
+                            )}
+                            {upload?.failed && onRetryUpload && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRetryUpload();
+                                    }}
+                                    disabled={retryingUpload}
+                                    aria-label={
+                                        retryingUpload
+                                            ? `Trying again to upload ${doc.document_name}`
+                                            : `Retry uploading ${doc.document_name}`
+                                    }
+                                    className="hit-target-44 mt-1.5 rounded-lg bg-red-500/20 px-3 py-1 text-label font-bold text-red-400 disabled:opacity-60"
+                                >
+                                    {retryingUpload ? 'Trying again…' : 'Retry'}
+                                </button>
                             )}
                         </div>
 

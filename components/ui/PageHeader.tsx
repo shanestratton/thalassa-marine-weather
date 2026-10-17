@@ -17,7 +17,7 @@
  * subtitle, optional status pills UNDER the title, and at most one 44 px
  * control in the action slot.
  */
-import React from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BackButton } from './BackButton';
 
 interface PageHeaderProps {
@@ -35,6 +35,13 @@ interface PageHeaderProps {
      * the parent crumb when there is one, else "Go back".
      */
     backLabel?: string;
+    /**
+     * The title takes every line it needs instead of two (132-B20): for a page
+     * named by something the skipper typed, where the whole name is the point.
+     * 'Watermaker, high-pressure pump and pre-filters' lost two of its lines
+     * as the Equipment page's h1.
+     */
+    wrapTitle?: boolean;
 }
 
 /** Characters in the title's longest word — the one that must fit on a line. */
@@ -49,6 +56,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     status,
     breadcrumbs,
     backLabel,
+    wrapTitle,
 }) => {
     const lastCrumb = breadcrumbs ? breadcrumbs.length - 1 : -1;
     // The chevron is named by its destination, and the parent crumb that goes
@@ -68,7 +76,13 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     // Inter ExtraBold capitals with tracking-wider. Without this, MAINTENANCE
     // rendered as 'MAINTENAN' at 393 pt. Browsers without container units
     // drop the declaration and keep the stylesheet's 20 px.
-    const titleFontSize = `clamp(14px, calc(100cqi / ${(longestWordLength(title) * 0.8).toFixed(1)}), 20px)`;
+    const wordFits = `calc(100cqi / ${(longestWordLength(title) * 0.8).toFixed(1)})`;
+    // A wrapping title also steps down until the whole of it would sit on
+    // about two lines (132-B20): 'Autopilot drive, below-deck hydraulic ram'
+    // took six lines of 18 px type beside '‹ EQUIPMENT' at 375 pt.
+    const titleFontSize = wrapTitle
+        ? `clamp(14px, min(${wordFits}, calc(200cqi / ${(title.length * 0.8).toFixed(1)})), 20px)`
+        : `clamp(14px, ${wordFits}, 20px)`;
     // A trail that is only 'parent (= Back) › this page (= the h1)' tells a
     // screen reader nothing the chevron and the heading have not; hide it whole.
     const trailIsRedundant =
@@ -80,9 +94,85 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     const inlineParent =
         onBack && breadcrumbs && lastCrumb === 1 && isTitleCrumb(breadcrumbs[1], 1) ? breadcrumbs[0] : undefined;
 
+    // The title comes before the parent's name (132-B20): where the name beside
+    // the chevron leaves the title's column narrower than its longest word at
+    // the 14 px floor ('MAINTENANCE' read 'MAINTENA' beside '‹ BOAT BINDER' at
+    // 320 pt), the name gives way and the chevron goes back alone. Its spoken
+    // name still says where ('Back to Boat Binder'). A wrapping title is never
+    // cut, but past two lines beside the name the name gives way too: 'AUTOPILOT
+    // DRIVE, BELOW-DECK HYDRAULIC RAM' took six lines at 320 pt.
+    //
+    // Only where that helps: if the title is still cut without the name, or no
+    // shorter, the name comes back, and a wrapping title breaks a word too wide
+    // for any column rather than lose part of it. Measured, not guessed: the
+    // room depends on the face, the words, the width and the action beside the
+    // title, so a new width, title or action, the title changing width, or the
+    // app's font arriving tries again. The ⋮ that Checklists and Equipment show
+    // once there is something in them narrowed the title with nothing watching
+    // it: 'CHECKLISTS' was cut by 18 px at 320 pt. Layout effects, so no try is
+    // ever painted.
+    const headerRef = useRef<HTMLDivElement>(null);
+    const titleRef = useRef<HTMLHeadingElement>(null);
+    const hasAction = !!action;
+    /** Bumped when the header's or the title's width changes: measure again. */
+    const [remeasure, setRemeasure] = useState(0);
+    /**
+     * Where the parent's name gave way: the width, action and title it gave way
+     * at; the title's height then, when it gave way for length alone; and
+     * whether that helped (unknown until measured without it). null while the
+     * name shows.
+     */
+    const [gaveWay, setGaveWay] = useState<{ at: string; height?: number; helped?: boolean } | null>(null);
+    useEffect(() => {
+        const header = headerRef.current;
+        const h1 = titleRef.current;
+        if (!inlineParent || !header || !h1) return;
+        let live = true;
+        // The app's face drawn: every word has a new width, so start again with the name.
+        void document.fonts?.ready.then(() => live && setGaveWay(null));
+        const widths = () => `${header.clientWidth}:${h1.clientWidth}`;
+        let seen = widths();
+        const observer =
+            typeof ResizeObserver === 'undefined'
+                ? null
+                : new ResizeObserver(() => {
+                      if (widths() === seen) return;
+                      seen = widths();
+                      if (live) setRemeasure((n) => n + 1);
+                  });
+        observer?.observe(header);
+        observer?.observe(h1);
+        return () => {
+            live = false;
+            observer?.disconnect();
+        };
+    }, [inlineParent]);
+    useLayoutEffect(() => {
+        const header = headerRef.current;
+        const h1 = titleRef.current;
+        if (!inlineParent || !header || !h1) return;
+        const at = `${header.clientWidth}:${hasAction}:${title}`;
+        if (gaveWay && gaveWay.at !== at) {
+            setGaveWay(null);
+            return;
+        }
+        // Cut across (a word wider than the column) or down (a name past the clamp's two lines).
+        const cut = h1.scrollWidth > h1.clientWidth + 1 || h1.scrollHeight > h1.clientHeight + 1;
+        const height = h1.clientHeight;
+        const long = !!wrapTitle && height > 2 * parseFloat(window.getComputedStyle(h1).lineHeight) + 1;
+        if (!gaveWay) {
+            if (cut) setGaveWay({ at });
+            else if (long) setGaveWay({ at, height });
+        } else if (gaveWay.helped === undefined) {
+            setGaveWay({ ...gaveWay, helped: !cut && (gaveWay.height === undefined || height < gaveWay.height - 1) });
+        }
+    }, [inlineParent, title, hasAction, wrapTitle, gaveWay, remeasure]);
+    const parentBeside = !gaveWay || gaveWay.helped === false ? inlineParent : undefined;
+    const breakWords = wrapTitle && gaveWay?.helped === false;
+
     return (
         // data-page-header: toasts anchor below it (components/Toast.tsx).
-        <div data-page-header className="shrink-0 px-4 pt-4 pb-3">
+        <div ref={headerRef} data-page-header className="shrink-0 px-4 pt-4 pb-3">
             {/* Breadcrumb trail */}
             {breadcrumbs && breadcrumbs.length > 0 && !inlineParent && (
                 // The gap under the trail is the crumb's reach below its line
@@ -156,13 +246,17 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                     `contents` keeps the button itself the flex item. */}
                 {onBack && (
                     <span data-page-back className="contents">
-                        <BackButton onClick={onBack} label={chevronLabel} text={inlineParent} />
+                        <BackButton onClick={onBack} label={chevronLabel} text={parentBeside} />
                     </span>
                 )}
 
                 <div className="flex min-h-11 min-w-0 flex-1 flex-col justify-center [container-type:inline-size]">
+                    {/* A wrapping title still hides what runs past its column, so
+                        a word too wide for it is measured, never drawn under the
+                        action. */}
                     <h1
-                        className="ui-page-title line-clamp-2 text-xl font-extrabold leading-tight text-white uppercase tracking-wider [overflow-wrap:normal] [word-break:normal] [hyphens:manual]"
+                        ref={titleRef}
+                        className={`ui-page-title ${wrapTitle ? 'overflow-hidden' : 'line-clamp-2'} text-xl font-extrabold leading-tight text-white uppercase tracking-wider ${breakWords ? '[overflow-wrap:anywhere]' : '[overflow-wrap:normal]'} [word-break:normal] [hyphens:manual]`}
                         style={{ fontSize: titleFontSize }}
                     >
                         {title}

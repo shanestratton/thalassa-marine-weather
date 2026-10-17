@@ -16,7 +16,8 @@
  *      VITE_APP_BUILD (optional), SENTRY_URL (optional, default sentry.io).
  */
 import { readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const DIST = 'dist';
 const token = process.env.SENTRY_AUTH_TOKEN?.trim();
@@ -111,7 +112,8 @@ async function main() {
     }
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, as scripts/verify-web-release.mjs does: `file://${argv[1]}` never matches a Windows path.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     main().catch((err) => {
         console.error('[sourcemaps]', err.message);
         // A failed upload must not fail the build — but the maps are gone

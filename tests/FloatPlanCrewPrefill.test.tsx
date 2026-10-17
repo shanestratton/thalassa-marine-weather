@@ -37,12 +37,16 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: (selector: (state: { settings: { vessel: typeof mocks.vessel } }) => unknown) =>
-        selector({ settings: { vessel: mocks.vessel } }),
-}));
+vi.mock('../stores/settingsStore', () => {
+    const state = () => ({ settings: { vessel: mocks.vessel }, activeVesselId: null });
+    return {
+        useSettingsStore: Object.assign((select: (snapshot: ReturnType<typeof state>) => unknown) => select(state()), {
+            getState: state,
+        }),
+    };
+});
 
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 
 vi.mock('../services/floatPlanCrew', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/floatPlanCrew')>()),
@@ -115,7 +119,8 @@ describe('FloatPlanSheet crew prefill', () => {
     it('seeds the roster with names and roles and sets people aboard to the crew count', async () => {
         await renderSeeded();
 
-        expect(load).toHaveBeenCalledWith(null);
+        // With the plan's departure day, which its ages are for (129-14).
+        expect(load).toHaveBeenCalledWith(null, { onDay: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
         const names = nameInputs().map((input) => input.value);
         expect(names).toEqual(['Capt. Shane Stratton', 'Marta "M" Kowalski', 'Lee Chen']);
         expect((screen.getByLabelText('Person 1 role') as HTMLSelectElement).value).toBe('Skipper');
@@ -142,7 +147,9 @@ describe('FloatPlanSheet crew prefill', () => {
                 onClose={vi.fn()}
             />,
         );
-        await waitFor(() => expect(load).toHaveBeenCalledWith('v-1'));
+        await waitFor(() =>
+            expect(load).toHaveBeenCalledWith('v-1', { onDay: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }),
+        );
     });
 
     it('still deletes a seeded row and still adds a blank person', async () => {

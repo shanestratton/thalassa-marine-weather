@@ -7,16 +7,18 @@
  * (components/map/UnderwayAlarmCards.tsx) load lazily. The watch writes here;
  * the cards' buttons act here, and the watch hears them at once.
  *
- * Order is fixed: shoal water first, then off route (the danger under the
- * keel is now; the line can wait a minute), then (126-02b) the watch check.
+ * Order is fixed: (129-08) the boat's instruments gone silent first (every
+ * other alarm here reads them), then shoal water, then off route (the danger
+ * under the keel is now; the line can wait a minute), then (126-02b) the
+ * watch check.
  * All sit under the collision cards. The under-way watch and the watch check
  * (./watchCheck.ts) each publish their own part; neither can clear the other's.
  */
 
-/** The under-way watch's two alarms. */
-export type UnderwayAlarmKind = 'shoal' | 'off-route';
+/** The under-way watch's alarms: (129-08) the aboard instruments-silent one, shoal and off route. */
+export type UnderwayAlarmKind = 'instruments' | 'shoal' | 'off-route';
 /** A card in the stack: the under-way watch's two, and the watch check (126-02b). */
-export type UnderwayCardKind = UnderwayAlarmKind | 'watch-check';
+export type UnderwayCardKind = UnderwayAlarmKind | 'watch-check' | 'chart-ahead';
 
 export interface UnderwayAlarmCard {
     kind: UnderwayCardKind;
@@ -37,11 +39,18 @@ export interface UnderwayAlarmAction {
     nowMs: number;
 }
 
-const ORDER: Record<UnderwayCardKind, number> = { shoal: 0, 'off-route': 1, 'watch-check': 2 };
+const ORDER: Record<UnderwayCardKind, number> = {
+    instruments: 0,
+    shoal: 1,
+    'chart-ahead': 2,
+    'off-route': 3,
+    'watch-check': 4,
+};
 const MUTE_MS = 30 * 60_000;
 
 /** What the under-way watch last published, and what the watch check last published. */
 let own: { cards: UnderwayAlarmCard[]; notices: string[] } = { cards: [], notices: [] };
+let ahead: { cards: UnderwayAlarmCard[]; notices: string[] } = { cards: [], notices: [] };
 let check: { cards: UnderwayAlarmCard[]; notices: string[] } = { cards: [], notices: [] };
 let cards: UnderwayAlarmCard[] = [];
 let notices: string[] = [];
@@ -59,8 +68,8 @@ function emit(): void {
 
 /** Both parts as one stack. Re-renders only when something changed. */
 function merge(): void {
-    const sorted = [...own.cards, ...check.cards].sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
-    const nextNotices = [...own.notices, ...check.notices];
+    const sorted = [...own.cards, ...ahead.cards, ...check.cards].sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+    const nextNotices = [...own.notices, ...ahead.notices, ...check.notices];
     const next = signatureOf(sorted, nextNotices);
     if (next === signature) return;
     signature = next;
@@ -98,7 +107,16 @@ export const UnderwayAlarmStore = {
 
     /** The under-way watch's whole word for this pass. Re-renders only when something changed. */
     set(nextCards: UnderwayAlarmCard[], nextNotices: string[]): void {
-        own = { cards: nextCards.filter((c) => c.kind !== 'watch-check'), notices: [...nextNotices] };
+        own = {
+            cards: nextCards.filter((c) => c.kind !== 'watch-check' && c.kind !== 'chart-ahead'),
+            notices: [...nextNotices],
+        };
+        merge();
+    },
+
+    /** Independent chart-ahead result; never clears a live sounder/XTE alarm. */
+    setLookahead(card: UnderwayAlarmCard | null, nextNotices: string[]): void {
+        ahead = { cards: card ? [{ ...card, kind: 'chart-ahead' }] : [], notices: [...nextNotices] };
         merge();
     },
 
@@ -123,8 +141,15 @@ export const UnderwayAlarmStore = {
         act({ kind, nowMs });
     },
 
-    /** Shoal's Acknowledge: silent, and the card stands aside until the water deepens and it re-arms. */
-    acknowledge(kind: 'shoal', nowMs = Date.now()): void {
+    /**
+     * Acknowledge: silent, and the card stands aside until it re-arms: shoal
+     * once the water deepens, instruments (129-08) once the data is back.
+     */
+    acknowledge(kind: 'shoal' | 'instruments' | 'chart-ahead', nowMs = Date.now()): void {
+        if (kind === 'chart-ahead') {
+            ahead = { ...ahead, cards: [] };
+            merge();
+        }
         UnderwayAlarmStore.set(
             own.cards.filter((c) => c.kind !== kind),
             own.notices,
@@ -150,6 +175,7 @@ export const UnderwayAlarmStore = {
     clear(): void {
         own = { cards: [], notices: [] };
         check = { cards: [], notices: [] };
+        ahead = { cards: [], notices: [] };
         cards = [];
         notices = [];
         signature = signatureOf([], []);

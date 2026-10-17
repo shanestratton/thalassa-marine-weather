@@ -23,7 +23,7 @@
  * acknowledgement once its seed lapses.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
     CURATED_LAPSE_ACKNOWLEDGEMENTS,
@@ -174,7 +174,9 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
         if (name === 'node_modules' || name.startsWith('.')) continue;
         const path = join(dir, name);
         if (statSync(path).isDirectory()) sourceFiles(path, out);
-        else if (/\.(ts|tsx|js|mjs|json)$/.test(name) && !/\.(test|spec)\./.test(name)) out.push(path);
+        // Deno's tests are named *_test.ts; like *.test.ts they are never deployed (a
+        // function bundles only what its index.ts imports), so they are not shipped source.
+        else if (/\.(ts|tsx|js|mjs|json)$/.test(name) && !/\.(test|spec)\.|_test\.ts$/.test(name)) out.push(path);
     }
     return out;
 }
@@ -219,7 +221,7 @@ describe('curated routing data on the REAL clock', () => {
     it('no past expiry date in shipped source or data escapes the registries above', () => {
         const sources = SCAN_ROOTS.flatMap((root) =>
             sourceFiles(join(ROOT, root)).map((path) => ({
-                file: relative(ROOT, path),
+                file: relative(ROOT, path).split(sep).join('/'),
                 text: readFileSync(path, 'utf8'),
             })),
         );

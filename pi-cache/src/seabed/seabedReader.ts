@@ -238,6 +238,7 @@ export function sounderProduct(sources: unknown, label: string | null): string |
 }
 
 type FetchLike = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
+export type SeabedDocumentPath = 'vessels/self' | 'sources';
 
 /**
  * Signal K's REST API with the discovery answer cached: one loopback request
@@ -252,6 +253,8 @@ export class SignalkSelfReader {
         private readonly fetchImpl: FetchLike,
         private readonly origin: string,
         private readonly now: () => number = Date.now,
+        /** Optional authenticated cache. Its failure/absence never downgrades to discovery. */
+        private readonly documents?: (path: SeabedDocumentPath) => Promise<unknown | null>,
     ) {}
 
     private async discover(): Promise<string | null> {
@@ -270,7 +273,15 @@ export class SignalkSelfReader {
         }
     }
 
-    async read(path: 'vessels/self' | 'sources' = 'vessels/self'): Promise<unknown | null> {
+    async read(path: SeabedDocumentPath = 'vessels/self'): Promise<unknown | null> {
+        if (path !== 'vessels/self' && path !== 'sources') return null;
+        if (this.documents) {
+            try {
+                return (await this.documents(path)) ?? null;
+            } catch {
+                return null;
+            }
+        }
         if (!this.base || this.now() - this.baseAt > DISCOVERY_TTL_MS) {
             this.base = await this.discover();
             this.baseAt = this.now();

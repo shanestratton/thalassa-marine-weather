@@ -77,6 +77,7 @@ export const ENC_VEC_LAYERS = {
      *  popup and cluttered z11 (audit). The click handler queries this layer
      *  at a DEPARE tap and folds "Seabed: Sand" into the depth popup. */
     SBDARE_FILL: 'enc-vec-sbdare-fill',
+    SBDARE_POINT: 'enc-vec-sbdare-point',
     /** TSS lane-direction arrows (⇧ rotated by ORIENT) — a directionless
      *  lane wash told the helmsman nothing about which WAY the lane runs
      *  (audit). Map-aligned so the arrow points the lane's true bearing. */
@@ -103,6 +104,14 @@ export const ENC_VEC_LAYERS = {
     BCNSAW: 'enc-vec-bcnsaw-symbol',
     BOYISD: 'enc-vec-boyisd-symbol',
     BCNISD: 'enc-vec-bcnisd-symbol',
+    LITFLT: 'enc-vec-litflt-symbol',
+    LITVES: 'enc-vec-litves-symbol',
+    BOYINB: 'enc-vec-boyinb-symbol',
+    MORFAC: 'enc-vec-morfac-symbol',
+    FOGSIG: 'enc-vec-fogsig-symbol',
+    TOPMAR: 'enc-vec-topmar-symbol',
+    DAYMAR: 'enc-vec-daymar-symbol',
+    MORFAC_GEOMETRY: 'enc-vec-morfac-line',
     LIGHTS: 'enc-vec-lights-symbol',
     RECTRC: 'enc-vec-rectrc-line',
     RECTRC_LABEL: 'enc-vec-rectrc-label',
@@ -208,6 +217,7 @@ export const ALL_LAYER_IDS: readonly string[] = [
     // so numbers + navaids always read on top of a restricted/cable wash.
     // SBDARE's subtle fill sits lowest of the three (pure background info).
     ENC_VEC_LAYERS.SBDARE_FILL,
+    ENC_VEC_LAYERS.SBDARE_POINT,
     ENC_VEC_LAYERS.CAUTION_AREA_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_LINE,
     ENC_VEC_LAYERS.TSSLPT_ARROW,
@@ -232,6 +242,14 @@ export const ALL_LAYER_IDS: readonly string[] = [
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.LIGHTSEC_LEG, // sector limit legs under the arcs
     ENC_VEC_LAYERS.LIGHTSEC_ARC, // coloured sector arcs under the light glyph
+    ENC_VEC_LAYERS.LITFLT,
+    ENC_VEC_LAYERS.LITVES,
+    ENC_VEC_LAYERS.BOYINB,
+    ENC_VEC_LAYERS.MORFAC,
+    ENC_VEC_LAYERS.FOGSIG,
+    ENC_VEC_LAYERS.TOPMAR,
+    ENC_VEC_LAYERS.DAYMAR,
+    ENC_VEC_LAYERS.MORFAC_GEOMETRY,
     ENC_VEC_LAYERS.BOYLAT,
     ENC_VEC_LAYERS.BCNLAT,
     ENC_VEC_LAYERS.BOYCAR,
@@ -313,6 +331,7 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         // steal the DEPARE depth popup (its info folds into that popup instead).
         id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE &&
         id !== ENC_VEC_LAYERS.SBDARE_FILL &&
+        id !== ENC_VEC_LAYERS.SBDARE_POINT &&
         id !== ENC_VEC_LAYERS.TSSLPT_ARROW &&
         id !== ENC_VEC_LAYERS.FAIRWY_LINE,
 );

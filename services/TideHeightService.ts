@@ -40,11 +40,14 @@
  *     degrade to the static tideOffsetM in HazardQueryOptions.
  */
 
+import { readChartDatumForBounds } from './enc/readChartDatum';
+import type { ChartBounds } from './enc/chartDatum';
 import { createLogger } from '../utils/createLogger';
 import { pruneMap } from '../utils/boundedMap';
 import { fetchWorldTides } from './weather/api/worldtides';
 import { buildExtremesLookup, TideExtremePoint } from './tides/extremesInterp';
 import type { WorldTidesHeight, WorldTidesResponse } from '../types/api';
+import { navigationTideSourceAvailable } from './tides/navigationUse';
 
 const log = createLogger('TideHeightService');
 
@@ -64,6 +67,8 @@ export interface TideCurve {
      * (±0.3 m-ish) — Phase 7 uses this to label tide windows "approx".
      */
     provenance: TideCurveProvenance;
+    /** Source datum, never relabelled to match a chart. */
+    datum?: 'LAT';
     /**
      * Synchronous lookup. Returns metres above LAT at `timeMs`.
      * Returns `null` when the time is outside the curve's range (the
@@ -180,6 +185,7 @@ export function buildTideCurve(response: WorldTidesResponse): TideCurve | null {
         return {
             heights,
             provenance: 'STATION_HEIGHTS',
+            datum: 'LAT',
             heightAt: buildHeightsLookup(heights),
             rangeMs: [heights[0].dt * 1000, heights[heights.length - 1].dt * 1000],
             maxHeightM: heights.reduce((m, h) => Math.max(m, h.height), -Infinity),
@@ -195,6 +201,7 @@ export function buildTideCurve(response: WorldTidesResponse): TideCurve | null {
         return {
             heights: [],
             provenance: 'EXTREMES_INTERP',
+            datum: 'LAT',
             heightAt: buildExtremesLookup(points),
             rangeMs: [points[0].timeMs, points[points.length - 1].timeMs],
             maxHeightM: points.reduce((m, p) => Math.max(m, p.heightM), -Infinity),
@@ -236,10 +243,28 @@ export async function fetchTideCurve(
     lon: number,
     startMs: number,
     endMs: number,
-    opts: { days?: number } = {},
+    opts: { days?: number; chartBounds?: ChartBounds } = {},
 ): Promise<TideCurve | null> {
+    // Provider permission is independent of datum proof. The current source
+    // is WorldTides; cached LAT curves must not bypass its informational-only
+    // use. Null means unknown tidal clearance, not a zero-height prediction.
+    if (!navigationTideSourceAvailable()) return null;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+    // All routing/live-depth consumers share this gate, BEFORE cache hits.
+    // A bucket can cross a datum boundary: prove the whole bucket, not its
+    // rounded request centre. Unknown/mixed charts get no tide credit.
+    const [bucketLat, bucketLon] = tideCurveBucket(lat, lon).split(',').map(Number);
+    const bucketBounds: ChartBounds = [bucketLon - 0.125, bucketLat - 0.125, bucketLon + 0.125, bucketLat + 0.125];
+    const bounds: ChartBounds = opts.chartBounds
+        ? [
+              Math.min(bucketBounds[0], opts.chartBounds[0]),
+              Math.min(bucketBounds[1], opts.chartBounds[1]),
+              Math.max(bucketBounds[2], opts.chartBounds[2]),
+              Math.max(bucketBounds[3], opts.chartBounds[3]),
+          ]
+        : bucketBounds;
+    if ((await readChartDatumForBounds(bounds)) !== 'LAT') return null;
     const daysAsked =
         typeof opts.days === 'number' && Number.isFinite(opts.days)
             ? Math.min(TIDE_CURVE_MAX_DAYS, Math.max(1, Math.round(opts.days)))
@@ -271,10 +296,14 @@ export async function fetchTideCurve(
     // in one render burst (one per sub-keel leg) — share one upstream fetch
     // instead of racing the rate-limited WorldTides proxy.
     const pending = inflight.get(key);
-    if (pending) return pending;
+    if (pending) {
+        const curve = await pending;
+        return (await readChartDatumForBounds(bounds)) === 'LAT' ? curve : null;
+    }
     const p = fetchTideCurveUpstream(lat, lon, key, endMs, daysAsked).finally(() => inflight.delete(key));
     inflight.set(key, p);
-    return p;
+    const curve = await p;
+    return (await readChartDatumForBounds(bounds)) === 'LAT' ? curve : null;
 }
 
 const inflight = new Map<string, Promise<TideCurve | null>>();
@@ -336,4 +365,5 @@ async function fetchTideCurveUpstream(
  */
 export function clearTideCache(): void {
     cache.clear();
+    failedUpstreamAt.clear();
 }

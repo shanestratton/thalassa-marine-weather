@@ -20,7 +20,7 @@
  * explains.
  */
 import React from 'react';
-import { displayRouteLabel, ordinalLegLabel, type SavedTrace } from '../../../services/routeTracer';
+import { displayRouteLabel, ordinalLegLabel, type SavedTrace } from '../../../services/savedTraceStore';
 import type { ReturnTripProgress } from '../useReturnTripFlow';
 
 export interface TracerReturnStripProps {

@@ -1,0 +1,212 @@
+import { NOAA_AGREEMENT_SHA256, NOAA_AGREEMENT_URL } from './noaaAgreement';
+
+export type NoaaBounds = [number, number, number, number];
+export interface NoaaObject {
+    key: string;
+    bytes: number;
+    sha256: string;
+}
+export interface NoaaCatalogueCell {
+    id: string;
+    title: string;
+    bbox: NoaaBounds;
+    edition: number;
+    update: number;
+    issued: string;
+    baseIssued: string;
+    scale: number;
+    sourceUrl: string;
+    zip: NoaaObject | null;
+    chart: NoaaObject | null;
+    /** Old clients keep chart/zip null and honestly show unavailable. */
+    package?: { manifest: NoaaObject; zip: NoaaObject; bytes: number };
+}
+export interface NoaaCatalogueIndex {
+    schema: 1;
+    generation: string;
+    checkedAt: string;
+    sourceAt: string;
+    sourceSha256: string;
+    agreementSha256: string;
+    sourceUrl: string;
+    agreementUrl: string;
+    activeCells: number;
+    attribution: string;
+    withdrawn: string[];
+    shards: Array<NoaaObject & { id: string; bbox: NoaaBounds }>;
+}
+const ID = /^US[1-6][A-Z0-9]{5}$/;
+const SHA = /^[a-f0-9]{64}$/;
+const GENERATION = /^[a-f0-9]{24}$/;
+const object = (v: unknown): Record<string, unknown> => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw Error('Invalid NOAA catalogue object.');
+    return v as Record<string, unknown>;
+};
+const integer = (v: unknown, minimum: number, maximum: number): v is number =>
+    typeof v === 'number' && Number.isSafeInteger(v) && v >= minimum && v <= maximum;
+function date(v: unknown): v is string {
+    return (
+        typeof v === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+        Number.isFinite(Date.parse(`${v}T00:00:00Z`)) &&
+        new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v
+    );
+}
+function timestamp(v: unknown): v is string {
+    return (
+        typeof v === 'string' &&
+        /Z$/.test(v) &&
+        Number.isFinite(Date.parse(v)) &&
+        Date.parse(v) > 0 &&
+        Date.parse(v) <= Date.now() + 300_000
+    );
+}
+export function noaaBounds(v: unknown): v is NoaaBounds {
+    return (
+        Array.isArray(v) &&
+        v.length === 4 &&
+        v.every((n) => typeof n === 'number' && Number.isFinite(n)) &&
+        v[0] >= -180 &&
+        v[0] <= 180 &&
+        v[2] >= -180 &&
+        v[2] <= 180 &&
+        v[0] !== v[2] &&
+        v[1] >= -90 &&
+        v[3] <= 90 &&
+        v[1] < v[3]
+    );
+}
+function segments(b: NoaaBounds): NoaaBounds[] {
+    return b[0] < b[2]
+        ? [b]
+        : [
+              [b[0], b[1], 180, b[3]],
+              [-180, b[1], b[2], b[3]],
+          ];
+}
+export function noaaIntersects(a: NoaaBounds, b: NoaaBounds): boolean {
+    return segments(a).some((x) => segments(b).some((y) => x[0] < y[2] && x[2] > y[0] && x[1] < y[3] && x[3] > y[1]));
+}
+function resource(v: unknown, extension: 'zip' | 'json', maximum?: number): NoaaObject {
+    const r = object(v);
+    if (
+        typeof r.sha256 !== 'string' ||
+        !SHA.test(r.sha256) ||
+        r.key !== `objects/${r.sha256}.${extension}` ||
+        !integer(r.bytes, 1, maximum ?? (extension === 'zip' ? 32 : 16) * 1024 * 1024)
+    )
+        throw Error('Invalid NOAA chart object.');
+    return { key: r.key as string, bytes: r.bytes, sha256: r.sha256 };
+}
+export function parseNoaaIndex(value: unknown): NoaaCatalogueIndex {
+    const r = object(value);
+    if (
+        r.schema !== 1 ||
+        typeof r.generation !== 'string' ||
+        !GENERATION.test(r.generation) ||
+        !timestamp(r.checkedAt) ||
+        !timestamp(r.sourceAt) ||
+        Date.parse(r.sourceAt) > Date.parse(r.checkedAt) + 300_000 ||
+        typeof r.sourceSha256 !== 'string' ||
+        !SHA.test(r.sourceSha256) ||
+        r.agreementSha256 !== NOAA_AGREEMENT_SHA256 ||
+        r.sourceUrl !== 'https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml' ||
+        r.agreementUrl !== NOAA_AGREEMENT_URL ||
+        !integer(r.activeCells, 1, 10000) ||
+        typeof r.attribution !== 'string' ||
+        r.attribution.length > 512 ||
+        !Array.isArray(r.withdrawn) ||
+        r.withdrawn.length > 10000 ||
+        r.withdrawn.some((id) => typeof id !== 'string' || !ID.test(id)) ||
+        new Set(r.withdrawn).size !== r.withdrawn.length ||
+        !Array.isArray(r.shards) ||
+        r.shards.length > 648
+    )
+        throw Error('Invalid NOAA catalogue.');
+    const seen = new Set<string>();
+    const shards = r.shards.map((raw) => {
+        const s = object(raw);
+        if (
+            typeof s.id !== 'string' ||
+            !/^x(?:0\d|[12]\d|3[0-5])y(?:0\d|1[0-7])$/.test(s.id) ||
+            seen.has(s.id) ||
+            !noaaBounds(s.bbox) ||
+            s.key !== `generations/${r.generation}/shards/${s.id}.json` ||
+            typeof s.sha256 !== 'string' ||
+            !SHA.test(s.sha256) ||
+            !integer(s.bytes, 1, 2 * 1024 * 1024)
+        )
+            throw Error('Invalid NOAA region.');
+        seen.add(s.id);
+        return { id: s.id, key: s.key as string, sha256: s.sha256, bytes: s.bytes, bbox: s.bbox };
+    });
+    return {
+        schema: 1,
+        generation: r.generation,
+        checkedAt: r.checkedAt,
+        sourceAt: r.sourceAt,
+        sourceSha256: r.sourceSha256,
+        agreementSha256: NOAA_AGREEMENT_SHA256,
+        sourceUrl: r.sourceUrl as string,
+        agreementUrl: NOAA_AGREEMENT_URL,
+        activeCells: r.activeCells,
+        attribution: r.attribution,
+        withdrawn: r.withdrawn as string[],
+        shards,
+    };
+}
+export function parseNoaaShard(value: unknown, index: NoaaCatalogueIndex): NoaaCatalogueCell[] {
+    const r = object(value);
+    if (r.schema !== 1 || r.generation !== index.generation || !Array.isArray(r.cells) || r.cells.length > 4096)
+        throw Error('Invalid NOAA regional catalogue.');
+    const seen = new Set<string>();
+    return r.cells.map((raw) => {
+        const c = object(raw);
+        if (
+            typeof c.id !== 'string' ||
+            !ID.test(c.id) ||
+            seen.has(c.id) ||
+            index.withdrawn.includes(c.id) ||
+            typeof c.title !== 'string' ||
+            !c.title ||
+            c.title.length > 512 ||
+            !noaaBounds(c.bbox) ||
+            !integer(c.edition, 1, 9999) ||
+            !integer(c.update, 0, 9999) ||
+            !date(c.issued) ||
+            !date(c.baseIssued) ||
+            !integer(c.scale, 1, 10000000) ||
+            c.sourceUrl !== `https://www.charts.noaa.gov/ENCs/${c.id}.zip` ||
+            (c.zip === null) !== (c.chart === null)
+        )
+            throw Error('Invalid NOAA cell identity/revision.');
+        seen.add(c.id);
+        let pack: NoaaCatalogueCell['package'];
+        if (c.package !== undefined) {
+            const p = object(c.package);
+            if (c.chart !== null || c.zip !== null || !integer(p.bytes, 1, 128 * 1024 * 1024))
+                throw Error('Invalid NOAA package resource.');
+            pack = { manifest: resource(p.manifest, 'json', 128 * 1024), zip: resource(p.zip, 'zip'), bytes: p.bytes };
+        }
+        return {
+            id: c.id,
+            title: c.title,
+            bbox: c.bbox,
+            edition: c.edition,
+            update: c.update,
+            issued: c.issued,
+            baseIssued: c.baseIssued,
+            scale: c.scale,
+            sourceUrl: c.sourceUrl as string,
+            zip: c.zip === null ? null : resource(c.zip, 'zip'),
+            chart: c.chart === null ? null : resource(c.chart, 'json'),
+            ...(pack ? { package: pack } : {}),
+        };
+    });
+}
+export function noaaRevisionNewer(
+    cell: Pick<NoaaCatalogueCell, 'edition' | 'update'>,
+    held: { edition: number; updateNumber?: number },
+): boolean {
+    return cell.edition > held.edition || (cell.edition === held.edition && cell.update > (held.updateNumber ?? -1));
+}

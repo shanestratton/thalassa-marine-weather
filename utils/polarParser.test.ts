@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { parsePolarFile, validatePolarData, createEmptyPolar } from './polarParser';
 
 describe('parsePolarFile', () => {
-    it('parses Expedition .pol format (tab-separated)', () => {
+    it('parses a TWA × TWS table .pol (tab-separated)', () => {
         const content = `TWA\t6\t8\t10\t12\t15\t20\t25
 45\t5.2\t6.1\t6.8\t7.2\t7.5\t7.6\t7.4
 90\t6.0\t7.0\t7.8\t8.2\t8.5\t8.6\t8.3

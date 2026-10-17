@@ -2,16 +2,34 @@
  * SwipeableInventoryCard — Swipeable inventory item card with quantity controls.
  *
  * Extracted from InventoryList to reduce component size.
+ *
+ * 131-B14: the count reads in units ('1 kg', not '1000'), − and + step a
+ * sensible amount of a weight or a volume, and a row the Grocery List made
+ * carries a small chip instead of its machine line in the notes.
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 import type { InventoryItem } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { formatDisplayDate } from '../../../utils/displayDate';
+import { localDaysUntil } from '../../../utils/localDate';
 import { AlertTriangleIcon, ClockIcon, MapPinIcon } from '../../Icons';
+import {
+    hasStock,
+    storesAmount,
+    storesStep,
+    storesStepDelta,
+    type StoresUnitSystem,
+} from '../../../services/vessel/storesUnits';
+import { groceryProvenance, storesNotes } from '../../../services/vessel/storesProvenance';
+import { isLowStock } from '../../../services/vessel/inventoryStats';
+import { GroceryChip } from './GroceryChip';
 
 interface SwipeableInventoryCardProps {
     item: InventoryItem;
+    /** The skipper's unit system: amounts and steps read in it. */
+    units: StoresUnitSystem;
     isExpanded: boolean;
     onTap: () => void;
     /** Omitted on a skipper's shared binder: no swipe-to-delete at all. */
@@ -24,6 +42,7 @@ interface SwipeableInventoryCardProps {
 
 export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     item,
+    units,
     isExpanded,
     onTap,
     onDelete,
@@ -33,11 +52,13 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
+    const detailId = useId();
 
-    const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
-    const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
-    const now = Date.now();
-    const daysUntilExpiry = expiryMs ? Math.ceil((expiryMs - now) / 86_400_000) : null;
+    // The one low-stock rule the header, the box page and the PDF ask (131-B14).
+    const isLow = isLowStock(item);
+    // Whole local days to the expiry day, as the Stores PDF counts them: the
+    // day itself, not its UTC midnight (a day early in the Americas; 131-B11).
+    const daysUntilExpiry = localDaysUntil(item.expiry_date);
     const isExpired = daysUntilExpiry !== null && daysUntilExpiry <= 0;
     const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry > 0 && daysUntilExpiry <= 90;
     const revealed = swipeOffset > 0;
@@ -45,6 +66,11 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
         resetSwipe();
         onDelete?.();
     };
+    // In units, and stepped to suit them (131-B14).
+    const amount = storesAmount(item.quantity, item.unit, units);
+    const step = storesStep(item.quantity, item.unit, units);
+    const bought = groceryProvenance(item);
+    const notes = storesNotes(item);
 
     return (
         <div className="relative overflow-hidden rounded-lg">
@@ -90,36 +116,53 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                 {/* Main row */}
                 <div className="px-3 py-3">
                     <div className="flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
+                        {/* The card opens from the keyboard and VoiceOver too
+                            (132-B20): its words are a button that shows and
+                            hides the detail, and says which. A tap anywhere
+                            on the card still does the same; the tap here
+                            stops at the button, so it toggles once. */}
+                        <button
+                            type="button"
+                            aria-expanded={isExpanded}
+                            aria-controls={isExpanded ? detailId : undefined}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (swipeOffset === 0) onTap();
+                            }}
+                            className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-center text-left"
+                        >
+                            <span className="block w-full text-sm font-bold text-white truncate">{item.item_name}</span>
                             {item.location_zone && (
-                                <p className="flex items-center gap-1 text-label text-gray-400">
+                                <span className="flex w-full items-center gap-1 text-label text-gray-400">
                                     <MapPinIcon className="h-3 w-3 shrink-0" />
                                     <span className="truncate">
                                         {item.location_zone}
                                         {item.location_specific ? ` — ${item.location_specific}` : ''}
                                     </span>
-                                </p>
+                                </span>
                             )}
+                            {bought && <GroceryChip kind={bought} className="mt-0.5" />}
                             {/* Line icons, not ⚠️ ⏳ (UX scorecard run 7). */}
                             {isExpired && (
-                                <p className="flex items-center gap-1 text-label font-bold text-red-400 mt-0.5">
+                                <span className="flex items-center gap-1 text-label font-bold text-red-400 mt-0.5">
                                     <AlertTriangleIcon className="h-3 w-3 shrink-0" />
                                     Expired
-                                </p>
+                                </span>
                             )}
                             {isExpiringSoon && (
-                                <p className="flex items-center gap-1 text-label font-bold text-amber-400 mt-0.5">
+                                <span className="flex items-center gap-1 text-label font-bold text-amber-400 mt-0.5">
                                     <ClockIcon className="h-3 w-3 shrink-0" />
                                     Expires in {daysUntilExpiry} {daysUntilExpiry === 1 ? 'day' : 'days'}
-                                </p>
+                                </span>
                             )}
-                        </div>
+                        </button>
                         <div
                             className={`px-2.5 py-1 rounded-lg text-center min-w-12 ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}
                         >
-                            <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
-                                {item.quantity}
+                            <p
+                                className={`text-sm font-black tabular-nums whitespace-nowrap ${isLow ? 'text-amber-400' : 'text-white'}`}
+                            >
+                                {amount}
                             </p>
                             {isLow && <p className="text-[11px] font-bold text-amber-400 leading-none mt-0.5">Low</p>}
                         </div>
@@ -154,7 +197,10 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
 
                 {/* Expanded detail */}
                 {isExpanded && (
-                    <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
+                    <div
+                        id={detailId}
+                        className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200"
+                    >
                         <div className="grid grid-cols-2 gap-2 text-label mb-3">
                             <div>
                                 <span className="text-gray-400">Category</span>
@@ -166,10 +212,10 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                     <p className="text-white font-mono">{item.barcode}</p>
                                 </div>
                             )}
-                            {item.description && (
+                            {notes && (
                                 <div className="col-span-2">
                                     <span className="text-gray-400">Notes</span>
-                                    <p className="text-gray-300">{item.description}</p>
+                                    <p className="text-gray-300">{notes}</p>
                                 </div>
                             )}
                             {item.expiry_date && (
@@ -178,36 +224,43 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                     <p
                                         className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}
                                     >
-                                        {new Date(item.expiry_date).toLocaleDateString()}
+                                        {formatDisplayDate(item.expiry_date, { weekday: false })}
                                     </p>
                                 </div>
                             )}
                         </div>
 
-                        {/* Quantity controls only */}
+                        {/* Quantity controls only: a weight or a volume steps a
+                            sensible amount, said under the count (131-B14).
+                            44 px at every root size (132-B20): w-11 was 36. */}
                         {onQuantityAdjust && (
                             <div className="flex items-center justify-center gap-4 py-2 bg-white/3 border border-white/6 rounded-xl">
                                 <button
                                     aria-label="Decrease quantity"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onQuantityAdjust(item.id, -1);
+                                        onQuantityAdjust(item.id, storesStepDelta(item.quantity, item.unit, -1, units));
                                     }}
-                                    disabled={item.quantity <= 0}
-                                    className="w-11 h-11 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
+                                    disabled={!hasStock(item.quantity)}
+                                    className="w-[44px] h-[44px] rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
                                 >
                                     −
                                 </button>
-                                <span className="text-white font-black text-lg w-8 text-center tabular-nums">
-                                    {item.quantity}
+                                <span className="min-w-16 text-center">
+                                    <span className="block text-white font-black text-lg tabular-nums whitespace-nowrap">
+                                        {amount}
+                                    </span>
+                                    {step.label && (
+                                        <span className="block text-micro text-gray-400">Steps of {step.label}</span>
+                                    )}
                                 </span>
                                 <button
                                     aria-label="Increase quantity"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onQuantityAdjust(item.id, 1);
+                                        onQuantityAdjust(item.id, storesStepDelta(item.quantity, item.unit, 1, units));
                                     }}
-                                    className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
+                                    className="w-[44px] h-[44px] rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
                                 >
                                     +
                                 </button>
@@ -217,7 +270,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         {isLow && (
                             <p className="flex items-center gap-1 text-label text-amber-400 font-bold mt-2">
                                 <AlertTriangleIcon className="h-3 w-3 shrink-0" />
-                                Below minimum ({item.min_quantity})
+                                Below minimum ({storesAmount(item.min_quantity, item.unit, units)})
                             </p>
                         )}
                     </div>

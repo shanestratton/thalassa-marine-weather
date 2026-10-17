@@ -1098,22 +1098,26 @@ const HeroSlideComponent = ({
                                                         headingColor: 'text-amber-400',
                                                         labelColor: 'text-amber-300',
                                                     },
-                                                    // No arrow on SWELL 2 or PER. 2: the one they drew was
-                                                    // swellDirection, the TOTAL sea's, and this feed has no
-                                                    // secondary-swell direction (W1-07; W1-13 brings one).
+                                                    // Each sea cell draws only its own arrow: never
+                                                    // swellDirection, the TOTAL sea's (W1-07). PER. 2
+                                                    // became WIND SEA (130-04); both read '--', with no
+                                                    // arrow, until 130-06 fills the parts.
                                                     {
                                                         id: 'secondarySwellHeight',
                                                         label: 'SWELL 2',
                                                         icon: <WaveIcon className="w-3 h-3" />,
                                                         headingColor: 'text-cyan-400',
                                                         labelColor: 'text-cyan-300',
+                                                        dirDeg: cardDisplayValues.secondarySwellDirDeg,
                                                     },
                                                     {
-                                                        id: 'secondarySwellPeriod',
-                                                        label: 'PER. 2',
-                                                        icon: <GaugeIcon className="w-3 h-3" />,
+                                                        id: 'windWaveHeight',
+                                                        label: 'WIND SEA',
+                                                        icon: <WaveIcon className="w-3 h-3" />,
                                                         headingColor: 'text-cyan-400',
                                                         labelColor: 'text-cyan-300',
+                                                        dirDeg: cardDisplayValues.windWaveDirDeg,
+                                                        compactLabel: true,
                                                     },
                                                 ];
                                                 const INLAND_WIDGETS = [
@@ -1200,8 +1204,8 @@ const HeroSlideComponent = ({
                                                             return cardDisplayValues.cape;
                                                         case 'secondarySwellHeight':
                                                             return cardDisplayValues.secondarySwellHeight;
-                                                        case 'secondarySwellPeriod':
-                                                            return cardDisplayValues.secondarySwellPeriod;
+                                                        case 'windWaveHeight':
+                                                            return cardDisplayValues.windWaveHeight;
                                                         default:
                                                             return '--';
                                                     }
@@ -1221,9 +1225,8 @@ const HeroSlideComponent = ({
                                                         case 'currentSpeed':
                                                             return 'kts';
                                                         case 'secondarySwellHeight':
+                                                        case 'windWaveHeight':
                                                             return cardDisplayValues.secondarySwellUnit;
-                                                        case 'secondarySwellPeriod':
-                                                            return 's';
                                                         default:
                                                             return '';
                                                     }

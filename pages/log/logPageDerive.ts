@@ -27,7 +27,7 @@ import {
     loadSavedTraces,
     stripLegBadge,
     type SavedTrace,
-} from '../../services/routeTracer';
+} from '../../services/savedTraceStore';
 import {
     NO_ENTRIES,
     type FollowPromptOrderedRow,

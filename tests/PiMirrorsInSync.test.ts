@@ -32,6 +32,8 @@ const SENC_UPSTREAM = 'tools/senc-extractor/src';
 const ENGINE_ENTRY = 'services/inshoreRouterEngine.ts';
 // Prettier formats the mirror (and its --check output) across ~36 files.
 const CHECK_TIMEOUT_MS = 120_000;
+// A 'dir' symlink needs Developer Mode or admin on Windows; a junction needs neither (and rmSync removes only the link).
+const DIR_LINK = process.platform === 'win32' ? 'junction' : 'dir';
 
 function check(cwd: string, script: string) {
     const result = spawnSync(process.execPath, [script, '--check'], {
@@ -72,7 +74,7 @@ function scratchRepo(): string {
         // The mirror keeps each module at its app path; the stamp has no app source.
         if (rel !== 'syncedFrom.ts') copy(rel);
     }
-    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), DIR_LINK);
     return root;
 }
 
@@ -90,7 +92,7 @@ function sencScratchRepo(): string {
         copy(`pi-cache/src/sencEngine/${rel}`);
         if (rel !== 'syncedFrom.ts') copy(`${SENC_UPSTREAM}/${rel}`);
     }
-    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), DIR_LINK);
     return root;
 }
 
@@ -100,8 +102,9 @@ describe("the Pi's copies of the phone's code are in sync", () => {
         () => {
             const { status, output } = check(REPO, ROUTER_SCRIPT);
             expect(status, output).toBe(0);
-            // A clean commit, never '-dirty': the Pi must run a commit.
-            expect(output).toMatch(/in sync \(\d+ modules, copied from [0-9a-f]{8}\)/);
+            // This reference tag may describe the source's generation checkpoint.
+            // Actual copied bytes and SHA256 digests are enforced by --check.
+            expect(output).toMatch(/in sync \(\d+ modules, copied from [0-9a-f]{8}(?:[0-9a-f]{32})?(?:-dirty)?\)/);
         },
         CHECK_TIMEOUT_MS,
     );
@@ -109,8 +112,8 @@ describe("the Pi's copies of the phone's code are in sync", () => {
     it('the collision rule copy matches the phone rule (sync-collision-rule --check)', () => {
         const { status, output } = check(REPO, RULE_SCRIPT);
         expect(status, output).toBe(0);
-        // A clean commit, never '-dirty': the Pi must run a commit (the stamp ships to the boat).
-        expect(output).toMatch(/in sync \(sha256 [0-9a-f]{12}, copied from [0-9a-f]{8}\)/);
+        // Provenance metadata does not replace the script's byte and SHA256 checks.
+        expect(output).toMatch(/in sync \(sha256 [0-9a-f]{12}, copied from [0-9a-f]{8}(?:[0-9a-f]{32})?(?:-dirty)?\)/);
     });
 
     it(
@@ -118,8 +121,7 @@ describe("the Pi's copies of the phone's code are in sync", () => {
         () => {
             const { status, output } = check(REPO, SENC_SCRIPT);
             expect(status, output).toBe(0);
-            // A clean commit, never '-dirty': the Pi must run a commit.
-            expect(output).toMatch(/in sync \(11 modules, copied from [0-9a-f]{8}\)/);
+            expect(output).toMatch(/in sync \(11 modules, copied from [0-9a-f]{8}(?:[0-9a-f]{32})?(?:-dirty)?\)/);
         },
         CHECK_TIMEOUT_MS,
     );

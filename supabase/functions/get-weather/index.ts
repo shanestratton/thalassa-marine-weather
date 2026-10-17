@@ -1,3 +1,4 @@
+import { minifyWeather } from '../../../utils/compactWeather.ts';
 // deno-lint-ignore-file
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -82,12 +83,12 @@ interface StandardNowcast {
 
 interface StandardHourly {
     time: string; // ISO
-    temperature: number;
-    windSpeed: number; // kts
+    temperature: number | null;
+    windSpeed: number | null; // kts
     windDirection: number | null; // deg
     windGust: number | null;
     precipitation: number | null; // mm
-    precipProbability: number; // %
+    precipProbability: number | null; // %
     condition: string;
     pressure: number | null;
     cloudCover: number | null;
@@ -96,9 +97,9 @@ interface StandardHourly {
 
 interface StandardDaily {
     date: string; // YYYY-MM-DD
-    tempMax: number;
-    tempMin: number;
-    windSpeedMax: number; // kts
+    tempMax: number | null;
+    tempMin: number | null;
+    windSpeedMax: number | null; // kts
     windGustMax: number | null;
     condition: string;
     precipSum: number | null; // mm
@@ -118,32 +119,6 @@ interface StandardWeatherResponse {
     nowcast?: StandardNowcast; // Premium only
     hourly: StandardHourly[];
     daily: StandardDaily[];
-}
-
-/** Iridium GO! minified response — absolute bare essentials */
-interface MinifiedWeatherResponse {
-    p: string; // provider shorthand
-    ts: number; // unix seconds
-    lat: number;
-    lon: number;
-    c: {
-        // current
-        t: number | null; // temp °C
-        w: number | null; // wind kts
-        wd: number | null; // wind dir
-        g: number | null; // gust kts
-        pr: number | null; // pressure hPa
-        r: number | null; // precip mm/hr
-        cnd: string; // condition
-    };
-    n?: { m: number; i: number; pt?: string }[]; // nowcast: minutes-from-now + intensity + precipType
-    h: {
-        // hourly (next 24h only)
-        t: number; // hours from now
-        w: number; // wind kts
-        wd: number | null; // wind dir — null when the model had none
-        r: number | null; // precip mm — null when the model had none
-    }[];
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -577,7 +552,7 @@ function parseWeatherKitPayload(value: Record<string, unknown>): WeatherKitPaylo
  * Rainbow gives us 1km precipitation at 10-min resolution out to 4 hours.
  * Open-Meteo commercial gives us wind, temp, pressure, clouds, etc.
  */
-async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherResponse> {
+async function fetchPremium(lat: number, lon: number, compact = false): Promise<StandardWeatherResponse> {
     const rainbowKey = Deno.env.get('RAINBOW_API_KEY') || '';
     const omKey = Deno.env.get('OPEN_METEO_API_KEY') || '';
 
@@ -587,7 +562,7 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
         `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m` +
         `&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,pressure_msl,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max` +
-        `&wind_speed_unit=kn&timezone=auto&forecast_days=7` +
+        `&wind_speed_unit=kn&timezone=${compact ? 'UTC' : 'auto'}&forecast_days=${compact ? 5 : 7}` +
         (omKey ? `&apikey=${omKey}` : '');
 
     const [omRes, nowcast] = await Promise.all([
@@ -606,7 +581,7 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
     // ── Map Open-Meteo to standard schema ──
     const om = omRes;
     const cur = om.current;
-    const wmoCode = cur?.weather_code ?? 0;
+    const wmoCode = cur?.weather_code;
 
     const current: StandardCurrent = {
         temperature: cur?.temperature_2m ?? null,
@@ -616,7 +591,7 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
         windSpeed: cur?.wind_speed_10m ?? null, // Already in kts
         windDirection: cur?.wind_direction_10m ?? null,
         windGust: cur?.wind_gusts_10m ?? null,
-        condition: wmoToCondition(wmoCode),
+        condition: wmoCode == null ? 'Unknown' : wmoToCondition(wmoCode),
         cloudCover: cur?.cloud_cover ?? null,
         visibility: null, // Not in this OM request
         uvIndex: null,
@@ -627,14 +602,14 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
 
     // Hourly (up to 168h = 7 days)
     const hourly: StandardHourly[] = (om.hourly?.time ?? []).map((t: string, i: number) => ({
-        time: t,
-        temperature: om.hourly.temperature_2m?.[i] ?? 0,
-        windSpeed: om.hourly.wind_speed_10m?.[i] ?? 0,
+        time: compact && !/Z$|[+-]\d\d:\d\d$/.test(t) ? t + 'Z' : t,
+        temperature: om.hourly.temperature_2m?.[i] ?? null,
+        windSpeed: om.hourly.wind_speed_10m?.[i] ?? null,
         windDirection: om.hourly.wind_direction_10m?.[i] ?? null,
         windGust: om.hourly.wind_gusts_10m?.[i] ?? null,
         precipitation: om.hourly.precipitation?.[i] ?? null,
-        precipProbability: om.hourly.precipitation_probability?.[i] ?? 0,
-        condition: wmoToCondition(om.hourly.weather_code?.[i] ?? 0),
+        precipProbability: om.hourly.precipitation_probability?.[i] ?? null,
+        condition: om.hourly.weather_code?.[i] == null ? 'Unknown' : wmoToCondition(om.hourly.weather_code[i]!),
         pressure: om.hourly.pressure_msl?.[i] ?? null,
         cloudCover: om.hourly.cloud_cover?.[i] ?? null,
         humidity: om.hourly.relative_humidity_2m?.[i] ?? null,
@@ -643,15 +618,19 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
     // Daily
     const daily: StandardDaily[] = (om.daily?.time ?? []).map((t: string, i: number) => ({
         date: t,
-        tempMax: om.daily.temperature_2m_max?.[i] ?? 0,
-        tempMin: om.daily.temperature_2m_min?.[i] ?? 0,
-        windSpeedMax: om.daily.wind_speed_10m_max?.[i] ?? 0,
+        tempMax: om.daily.temperature_2m_max?.[i] ?? null,
+        tempMin: om.daily.temperature_2m_min?.[i] ?? null,
+        windSpeedMax: om.daily.wind_speed_10m_max?.[i] ?? null,
         windGustMax: om.daily.wind_gusts_10m_max?.[i] ?? null,
-        condition: wmoToCondition(om.daily.weather_code?.[i] ?? 0),
+        condition: om.daily.weather_code?.[i] == null ? 'Unknown' : wmoToCondition(om.daily.weather_code[i]!),
         precipSum: om.daily.precipitation_sum?.[i] ?? null,
         precipProbability: om.daily.precipitation_probability_max?.[i] ?? null,
-        sunrise: om.daily.sunrise?.[i] ?? '',
-        sunset: om.daily.sunset?.[i] ?? '',
+        sunrise: compact && om.daily.sunrise?.[i] && !/Z$|[+-]\d\d:\d\d$/.test(om.daily.sunrise[i])
+            ? om.daily.sunrise[i] + 'Z'
+            : om.daily.sunrise?.[i] ?? '',
+        sunset: compact && om.daily.sunset?.[i] && !/Z$|[+-]\d\d:\d\d$/.test(om.daily.sunset[i])
+            ? om.daily.sunset[i] + 'Z'
+            : om.daily.sunset?.[i] ?? '',
         uvIndexMax: om.daily.uv_index_max?.[i] ?? null,
     }));
 
@@ -842,12 +821,12 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
     // Hourly forecast
     const hourly: StandardHourly[] = (wk.forecastHourly?.hours ?? []).map((h: Record<string, unknown>) => ({
         time: (h.forecastStart as string) || '',
-        temperature: (h.temperature as number) ?? 0,
-        windSpeed: kmhToKts(h.windSpeed as number) ?? 0,
+        temperature: (h.temperature as number) ?? null,
+        windSpeed: kmhToKts(h.windSpeed as number),
         windDirection: (h.windDirection as number) ?? null,
         windGust: kmhToKts(h.windGust as number),
         precipitation: (h.precipitationAmount as number) ?? null,
-        precipProbability: h.precipitationChance != null ? Math.round((h.precipitationChance as number) * 100) : 0,
+        precipProbability: h.precipitationChance != null ? Math.round((h.precipitationChance as number) * 100) : null,
         condition: APPLE_CONDITIONS[h.conditionCode as string] || (h.conditionCode as string) || 'Unknown',
         pressure: (h.pressure as number) ?? null,
         cloudCover: frac(h.cloudCover as number),
@@ -857,9 +836,9 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
     // Daily forecast
     const daily: StandardDaily[] = (wk.forecastDaily?.days ?? []).map((d: Record<string, unknown>) => ({
         date: ((d.forecastStart as string) || '').slice(0, 10),
-        tempMax: (d.temperatureMax as number) ?? 0,
-        tempMin: (d.temperatureMin as number) ?? 0,
-        windSpeedMax: kmhToKts(d.windSpeedMax as number) ?? 0,
+        tempMax: (d.temperatureMax as number) ?? null,
+        tempMin: (d.temperatureMin as number) ?? null,
+        windSpeedMax: kmhToKts(d.windSpeedMax as number),
         windGustMax: kmhToKts(d.windGustSpeedMax as number),
         condition: APPLE_CONDITIONS[d.conditionCode as string] || (d.conditionCode as string) || 'Unknown',
         precipSum: (d.precipitationAmount as number) ?? null,
@@ -915,48 +894,6 @@ function wmoToCondition(code: number): string {
 // ════════════════════════════════════════════════════════════════
 // MINIFICATION (Iridium GO! mode)
 // ════════════════════════════════════════════════════════════════
-
-function minify(full: StandardWeatherResponse): MinifiedWeatherResponse {
-    const c = full.current;
-    const result: MinifiedWeatherResponse = {
-        p: full.provider === 'weatherkit' ? 'wk' : 'rb',
-        ts: Math.floor(Date.now() / 1000),
-        lat: full.coordinates.lat,
-        lon: full.coordinates.lon,
-        c: {
-            t: c.temperature != null ? Math.round(c.temperature) : null,
-            w: c.windSpeed != null ? Math.round(c.windSpeed) : null,
-            wd: c.windDirection != null ? Math.round(c.windDirection) : null,
-            g: c.windGust != null ? Math.round(c.windGust) : null,
-            pr: c.pressure != null ? Math.round(c.pressure) : null,
-            r: c.precipitation != null ? Math.round(c.precipitation * 10) / 10 : null,
-            cnd: c.condition.substring(0, 12), // Truncate condition
-        },
-        h: full.hourly.slice(0, 24).map((h, i) => ({
-            t: i,
-            w: Math.round(h.windSpeed),
-            // null stays null: Math.round(null) is 0, which is the invented reading
-            // the full response stopped sending.
-            wd: h.windDirection != null ? Math.round(h.windDirection) : null,
-            r: h.precipitation != null ? Math.round(h.precipitation * 10) / 10 : null,
-        })),
-    };
-
-    // Include nowcast in minified form (only non-zero entries, every 10 min)
-    if (full.nowcast?.minutes?.length) {
-        result.n = full.nowcast.minutes
-            .filter((_, i) => i % 10 === 0) // Every 10 minutes
-            .filter((m) => m.intensity > 0.05) // Only actual precip
-            .map((m) => ({
-                m: Math.round((new Date(m.time).getTime() - Date.now()) / 60000),
-                i: Math.round(m.intensity * 10) / 10,
-                ...(m.precipType && m.precipType !== 'rain' ? { pt: m.precipType } : {}),
-            }));
-        if (result.n.length === 0) delete result.n;
-    }
-
-    return result;
-}
 
 // ════════════════════════════════════════════════════════════════
 // MAIN HANDLER
@@ -1057,7 +994,7 @@ Deno.serve(async (req: Request) => {
         console.info(`[get-weather] lat=${lat} lon=${lon} premium=${isPremium} minified=${minified}`);
 
         // ── Route to provider ──
-        const weather = isPremium ? await fetchPremium(lat, lon) : await fetchFree(lat, lon);
+        const weather = isPremium ? await fetchPremium(lat, lon, minified) : await fetchFree(lat, lon);
 
         // ── Return response ──
         const cacheHeaders = {
@@ -1065,7 +1002,7 @@ Deno.serve(async (req: Request) => {
             Vary: 'Authorization',
         };
         if (minified) {
-            return json(minify(weather), 200, cacheHeaders);
+            return json(minifyWeather(weather), 200, cacheHeaders);
         }
 
         return json(weather, 200, cacheHeaders);

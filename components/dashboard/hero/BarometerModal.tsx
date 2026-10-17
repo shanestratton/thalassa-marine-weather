@@ -1,35 +1,10 @@
-/**
- * BarometerModal — the barometer, given a whole screen.
- *
- * This grew out of BarometerPlus, which lived INSIDE the Glass 5×2 metric
- * grid: 163 px tall, 18 px buttons, 8.5 px labels — an instrument face read
- * through a keyhole ("way too small to be of use" — Shane, 2026-08-21).
- * Tapping HPA now opens this ModalSheet instead. Same brains, full scale:
- *
- *  - TENDENCY leads, absolute reading is secondary. The iPhone barometer's
- *    absolute value is worth about ±1 hPa; its 3-hour delta is worth 0.05.
- *    1013 hPa says almost nothing — 1013 after 1019 three hours ago says a
- *    lot. When the record is too short the panel says "collecting" with a
- *    countdown, never banding sensor noise into a gale warning.
- *  - The source is always named: iPHONE (the actual air in the actual
- *    cockpit — the only observation on the Glass that isn't someone else's)
- *    or FORECAST (a model's opinion about a grid cell).
- *  - STATION until anchored: the reading is never silently corrected. SET
- *    anchors it to the forecast MSLP; after that the sensor carries the
- *    trend and the number is comparable to a chart.
- *  - Trace: solid = measured by this phone (last 6 h), dotted = forecast
- *    (next 12 h), one shared scale so the seam at "now" reads as a
- *    continuation. Divergence is the point — a sensor falling while the
- *    model holds steady is the most useful thing this screen can show.
- *
- * Every control is a real button now: 48 px minimum height, full-width rows.
- */
+/** Full-size pressure history and tendency. The 163 px Glass cell is unchanged. */
 import React from 'react';
 import { ModalSheet } from '../../ui/ModalSheet';
 import { GaugeIcon } from '../../Icons';
 import type { HourlyForecast } from '../../../types';
 import {
-    observedTendency,
+    marineTendency,
     timeUntilTendency,
     hpaToInHg,
     type PressureSample,
@@ -38,9 +13,10 @@ import {
 } from '../../../utils/barometerTendency';
 import * as barometer from '../../../services/native/barometer';
 import { useBarometerSource } from '../../../hooks/useBarometerSource';
+import { enablePressureNotifications } from '../../../services/PressureNotificationService';
 
 /** Chart span: what the sensor measured, then what the model expects. */
-const PAST_MS = 6 * 3_600_000;
+const HISTORY_HOURS = [6, 12, 24, 48] as const;
 const FWD_MS = 12 * 3_600_000;
 
 const SEVERITY_UI: Record<TendencySeverity, { pill: string; dot: string; line: string }> = {
@@ -80,7 +56,7 @@ interface TracePoint {
 }
 
 /**
- * The instrument trace: measured behind, forecast ahead, one shared vertical
+ * The instrument trace: measured behind, forecast MSL, one shared vertical
  * scale. Identical geometry to the old grid panel — the SVG scales to
  * whatever box it is given, and here it is given a real one.
  */
@@ -89,7 +65,8 @@ const Trace: React.FC<{
     forecast: TracePoint[];
     nowT: number;
     accent: string;
-}> = ({ measured, forecast, nowT, accent }) => {
+    pastHours: number;
+}> = ({ measured, forecast, nowT, accent, pastHours }) => {
     const W = 240;
     const H = 74;
     const PAD_Y = 7;
@@ -103,7 +80,7 @@ const Trace: React.FC<{
         );
     }
 
-    const minT = nowT - PAST_MS;
+    const minT = nowT - pastHours * 3_600_000;
     const maxT = nowT + FWD_MS;
     const vs = all.map((p) => p.v);
     let minV = Math.min(...vs);
@@ -119,22 +96,32 @@ const Trace: React.FC<{
 
     const x = (t: number) => ((t - minT) / (maxT - minT)) * W;
     const y = (v: number) => PAD_Y + (1 - (v - minV) / (maxV - minV)) * (H - 2 * PAD_Y);
-    const path = (pts: TracePoint[]) =>
-        pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+    const path = (pts: TracePoint[], maxGapMs = 45 * 60_000) =>
+        pts
+            .map(
+                (p, i) => `${i && p.t - pts[i - 1].t <= maxGapMs ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`,
+            )
+            .join(' ');
 
     const nowX = x(nowT);
     const measuredPath = path(measured);
-    const forecastPath = path(forecast);
+    const forecastPath = path(forecast, 3 * 3_600_000);
     const lastMeasured = measured[measured.length - 1];
 
     // Fill under the measured trace only — it's the part that happened.
     const fill =
-        measured.length > 1
+        measured.length > 1 && !measured.some((p, i) => i > 0 && p.t - measured[i - 1].t > 45 * 60_000)
             ? `${measuredPath} L${x(lastMeasured.t).toFixed(1)},${H} L${x(measured[0].t).toFixed(1)},${H} Z`
             : '';
 
     return (
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
+        <svg
+            role="img"
+            aria-label={`${pastHours} hours of pressure history and 12 hours of forecast MSL pressure`}
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full h-full"
+            preserveAspectRatio="none"
+        >
             <defs>
                 <linearGradient id="baro-modal-fill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={accent} stopOpacity="0.34" />
@@ -143,7 +130,7 @@ const Trace: React.FC<{
             </defs>
 
             {/* Hour gridlines every 3 h — the tendency window, drawn. */}
-            {[-6, -3, 3, 6, 9, 12].map((h) => (
+            {[-pastHours, -pastHours / 2, 3, 6, 9, 12].map((h) => (
                 <line
                     key={h}
                     x1={x(nowT + h * 3_600_000)}
@@ -160,6 +147,7 @@ const Trace: React.FC<{
 
             {forecast.length > 1 && (
                 <path
+                    data-testid="barometer-forecast-trace"
                     d={forecastPath}
                     fill="none"
                     stroke="var(--day-ui-guide, #ffffff)"
@@ -172,6 +160,7 @@ const Trace: React.FC<{
 
             {measured.length > 1 && (
                 <path
+                    data-testid="barometer-measured-trace"
                     d={measuredPath}
                     fill="none"
                     stroke={accent}
@@ -203,11 +192,11 @@ const Trace: React.FC<{
 // ── Explainer ────────────────────────────────────────────────────────
 
 const BAND_ROWS: [string, string][] = [
-    ['under 0.1', 'Steady — nothing signalled'],
-    ['0.1 – 1.5', 'Slowly — a change is possible, not imminent'],
-    ['1.6 – 3.5', 'Moving — a front within the day'],
-    ['3.6 – 6.0', 'Quickly — gale signature on a fall'],
-    ['over 6.0', 'Very rapidly — serious weather, now'],
+    ['under 0.1', 'Steady'],
+    ['0.1 – 1.5', 'Rising or falling slowly'],
+    ['1.6 – 3.5', 'Rising or falling'],
+    ['3.6 – 6.0', 'Rising or falling quickly'],
+    ['over 6.0', 'Rising or falling very rapidly'],
 ];
 
 /** The full explainer, inline. In a real-sized screen it can simply be a
@@ -215,8 +204,9 @@ const BAND_ROWS: [string, string][] = [
 const Explainer: React.FC = () => (
     <div className="space-y-3 text-[13px] leading-relaxed text-white/75">
         <p>
-            A barometer forecasts through <strong className="text-white">change over three hours</strong>, not through
-            its absolute reading. 1013 hPa tells you almost nothing; 1013 after 1019 three hours ago tells you a lot.
+            The tendency describes <strong className="text-white">change over three hours</strong>. These marine
+            pressure bands do not predict a front, gale or arrival time on their own. Compare pressure with the wind,
+            official warnings and the forecast.
         </p>
         <div className="rounded-xl border border-white/10 overflow-hidden">
             {BAND_ROWS.map(([range, meaning], i) => (
@@ -230,24 +220,25 @@ const Explainer: React.FC = () => (
             ))}
         </div>
         <p>
-            Falls matter more than rises. A fast fall is a low deepening onto you and the wind arrives with it; a fast
-            rise is usually a cold front already gone through — squally, clearing, less dangerous.
+            BOAT uses the Pi&apos;s BMP390, with fresh Signal K environment.outside.pressure as fallback. The Pi retains
+            ten days across restarts. iPHONE uses this device&apos;s observed record; height changes and carrying it
+            ashore can create false trends. A stale sensor cannot supply an alarm.
         </p>
         <p>
-            <strong className="text-white">Where the low is:</strong> in the Southern Hemisphere, stand with the wind at
-            your back and the low pressure is on your <em>right</em>. (Buys Ballot&apos;s law — reverse it north of the
-            equator.)
+            STATION is pressure at the sensor. SET anchors only this phone&apos;s absolute value to forecast MSL
+            pressure; it is a model reference, not an independently measured sea-level correction. It never calibrates
+            the boat&apos;s sensor or changes its tendency.
         </p>
         <p>
-            <strong className="text-white">Why STATION and not MSL:</strong> your iPhone&apos;s barometer measures the
-            air where it is sitting, and its absolute calibration is only good to about a hPa. Its <em>movement</em> is
-            good to a hundredth of one. Tap <span className="text-emerald-300 font-semibold">SET</span> to anchor the
-            reading to the current forecast MSL pressure — after that the sensor carries the trend and the number is
-            comparable to a chart.
+            The tropical daily pressure tide can mimic a weather fall. Correction needs five agreeing prior days from a
+            nearby sensor position. Until that record exists, or when it disagrees, raw change is shown with the reason.
+            A very rapid raw fall still alerts. The alarm operates while this app is alive; it cannot provide an
+            owner-away watch.
         </p>
         <p className="text-white/50">
-            Solid line: measured by this phone, last 6 hours. Dotted: forecast, next 12. When they diverge, believe the
-            solid one about now and the dotted one about later.
+            Solid line: observed pressure over your selected window. Dotted line: forecast MSL pressure, including the
+            next 12 hours. An uncalibrated station trace may have an absolute offset from MSL. Neither line is moved to
+            disguise that difference.
         </p>
     </div>
 );
@@ -287,6 +278,8 @@ const ControlButton: React.FC<{
 
 export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose, hourly, forecastPressure }) => {
     const [showInfo, setShowInfo] = React.useState(false);
+    const [pastHours, setPastHours] = React.useState<number>(6);
+    const [notificationStatus, setNotificationStatus] = React.useState('');
     const [, forceRender] = React.useReducer((n: number) => n + 1, 0);
     const [availability, setAvailability] = React.useState<barometer.BarometerAvailability | null>(null);
 
@@ -332,7 +325,8 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
        ashore or while the Pi reboots. It is simply no longer preferred when
        something better is bolted to the vessel. */
     const boat = useBarometerSource(isOpen);
-    const usingBoat = boat.source === 'boat';
+    const usingGateway = boat.source === 'gateway';
+    const usingBoat = boat.source === 'boat' || usingGateway;
 
     const phoneSamples: PressureSample[] = barometer.getStationSamples();
     const phoneLatest = barometer.getLatestSample();
@@ -349,12 +343,12 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
             const t = new Date(h.time).getTime();
             const v = h.pressure;
             if (!Number.isFinite(t) || typeof v !== 'number' || !Number.isFinite(v)) continue;
-            if (t < nowT - 3_600_000 || t > nowT + FWD_MS) continue;
+            if (t < nowT - pastHours * 3_600_000 || t > nowT + FWD_MS) continue;
             out.push({ t, v });
         }
         return out.sort((a, b) => a.t - b.t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hourly, clockMin]);
+    }, [hourly, clockMin, pastHours]);
 
     // The reference MSLP for calibration: the forecast value nearest now.
     const reference = React.useMemo(() => {
@@ -366,16 +360,18 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
 
     // Measured trace, offset-corrected so it sits on the same scale as the forecast.
     const measuredPts: TracePoint[] = React.useMemo(() => {
-        const off = offsetHpa ?? 0;
-        return stationSamples.filter((s) => s.t >= nowT - PAST_MS).map((s) => ({ t: s.t, v: s.hpa + off }));
+        const off = usingBoat ? 0 : (offsetHpa ?? 0);
+        return stationSamples
+            .filter((s) => s.t >= nowT - pastHours * 3_600_000 && s.t <= nowT && Number.isFinite(s.hpa))
+            .map((s) => ({ t: s.t, v: s.hpa + off }));
         // stationSamples is derived from module state; forceRender drives updates.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [offsetHpa, stationSamples.length, latest?.t, clockMin]);
+    }, [offsetHpa, usingBoat, stationSamples.length, latest?.t, clockMin, pastHours]);
 
     // Tendency comes off the RAW station record — the calibration offset is a
     // constant and cancels in a delta, so a re-calibration must never move it.
     const tendency: TendencyReading | null = React.useMemo(
-        () => (hasSensor ? observedTendency(stationSamples, nowT) : null),
+        () => (hasSensor ? marineTendency(stationSamples, nowT) : null),
         // clockMin keeps a STALLED sensor honest: with no new samples,
         // latest?.t stops advancing and the verdict would otherwise freeze.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -392,19 +388,23 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
     const sev = tendency ? SEVERITY_UI[tendency.severity] : SEVERITY_UI.calm;
     const accent = tendency ? sev.dot : 'var(--day-ui-success, #6ee7b7)';
 
-    const sourceChip = usingBoat
-        ? { text: 'BOAT', cls: 'bg-teal-400/15 text-teal-300' }
-        : hasSensor
-          ? { text: 'iPHONE', cls: 'bg-emerald-400/15 text-emerald-300' }
-          : { text: 'FORECAST', cls: 'bg-sky-400/15 text-sky-300' };
+    const sourceChip = usingGateway
+        ? { text: 'GATEWAY', cls: 'bg-teal-400/15 text-teal-300' }
+        : usingBoat
+          ? { text: 'BOAT', cls: 'bg-teal-400/15 text-teal-300' }
+          : hasSensor
+            ? { text: 'iPHONE', cls: 'bg-emerald-400/15 text-emerald-300' }
+            : { text: 'FORECAST', cls: 'bg-sky-400/15 text-sky-300' };
 
-    const subLabel = usingBoat
-        ? 'BOAT SENSOR · continuous'
-        : hasSensor
-          ? calibrated
-              ? 'MSL · calibrated'
-              : 'STATION · uncalibrated'
-          : 'Model MSL pressure';
+    const subLabel = usingGateway
+        ? 'SENSOR · reference not declared'
+        : usingBoat
+          ? 'BOAT SENSOR · continuous'
+          : hasSensor
+            ? calibrated
+                ? 'MSL · calibrated'
+                : 'STATION · uncalibrated'
+            : 'Model MSL pressure';
 
     const statusRead = (() => {
         if (tendency) return tendency.read;
@@ -464,24 +464,80 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
                     line-clamped this to 2 lines of 9.5 px). */}
                 <p className={`text-[13px] leading-relaxed ${tendency ? sev.line : 'text-white/55'}`}>{statusRead}</p>
 
+                {tendency?.diurnal && (
+                    <p className="text-xs text-white/55">
+                        {tendency.diurnal.reason}
+                        {tendency.diurnal.applied
+                            ? ` Raw change ${(tendency.rawDelta3h ?? 0).toFixed(1)} hPa/3 h.`
+                            : ''}
+                    </p>
+                )}
+
                 {/* Trace */}
                 <div>
-                    <div className="h-44 rounded-xl bg-white/3 border border-white/6 p-2">
-                        <Trace measured={measuredPts} forecast={forecastPts} nowT={nowT} accent={accent} />
+                    <div className="flex gap-2 mb-2" role="group" aria-label="Pressure history window">
+                        {HISTORY_HOURS.map((hours) => (
+                            <button
+                                key={hours}
+                                type="button"
+                                aria-pressed={pastHours === hours}
+                                onClick={() => setPastHours(hours)}
+                                className={`flex-1 min-h-12 rounded-xl text-sm font-semibold ${pastHours === hours ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/[0.07] text-white/80'}`}
+                            >
+                                {hours} h
+                            </button>
+                        ))}
                     </div>
-                    <div className="mt-1.5 flex justify-between text-[11px] text-white/35 tracking-wide">
-                        <span>−6 h</span>
-                        <span>now</span>
-                        <span>+12 h</span>
+                    <div className="h-44 rounded-xl bg-white/3 border border-white/6 p-2">
+                        <Trace
+                            measured={measuredPts}
+                            forecast={forecastPts}
+                            nowT={nowT}
+                            accent={accent}
+                            pastHours={pastHours}
+                        />
+                    </div>
+                    <div className="mt-1.5 relative h-4 text-[11px] text-white/35 tracking-wide">
+                        <span className="absolute left-0">−{pastHours} h</span>
+                        <span
+                            className="absolute -translate-x-1/2"
+                            style={{ left: (pastHours / (pastHours + 12)) * 100 + '%' }}
+                        >
+                            now
+                        </span>
+                        <span className="absolute right-0">+12 h</span>
                     </div>
                     <div className="mt-1 text-[11px] text-white/40">
-                        <span className="text-white/70">━</span> measured on this phone&ensp;
+                        <span className="text-white/70">━</span> measured{' '}
+                        {usingGateway ? 'from the gateway' : usingBoat ? 'on the boat' : 'on this phone'}
+                        &ensp;
                         <span className="text-white/50">┄</span> forecast ahead
                     </div>
                 </div>
 
                 {/* Controls — the easy-click row */}
+                {notificationStatus && (
+                    <p role="status" className="text-xs text-white/60">
+                        {notificationStatus}
+                    </p>
+                )}
                 <div className="flex gap-2">
+                    <ControlButton
+                        onClick={() => {
+                            void enablePressureNotifications()
+                                .then((ok) =>
+                                    setNotificationStatus(
+                                        ok
+                                            ? 'Pressure notifications enabled while the app is alive.'
+                                            : 'Notifications are off in device settings; in-app pressure warnings remain available.',
+                                    ),
+                                )
+                                .catch(() => setNotificationStatus('Could not enable device notifications.'));
+                        }}
+                        label="ALERTS"
+                        sub="while app alive"
+                        ariaLabel="Enable pressure fall notifications"
+                    />
                     {hasSensor && !usingBoat && reference != null && (
                         <ControlButton
                             onClick={() =>

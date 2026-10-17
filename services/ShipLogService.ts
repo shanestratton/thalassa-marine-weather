@@ -35,6 +35,16 @@ import { getPlottingProfile, type LoggingZone, type PlottingProfile } from './sh
 import { GpsTrackBuffer } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { departureCaptureState } from './shiplog/voyageLifecycle';
+import { requestEngineHoursReview } from './shiplog/engineHoursOffer';
+import {
+    advanceEngineRunCounter,
+    declareEngineRunning,
+    endEngineRunCounter,
+    newEngineRunCounter,
+    observeEngineEvidence,
+    suspendEngineRunCounter,
+    validEngineRunCounter,
+} from './shiplog/engineRunCounter';
 import {
     loadTrackingState,
     saveTrackingState as _saveTrackingState,
@@ -333,6 +343,43 @@ class ShipLogServiceClass {
     private initialization: { scope: AuthIdentityScope; promise: Promise<void> } | null = null;
     private lifecycleHandlersRegistered = false;
     private initializeWasRequested = false;
+    private engineMonitorRequested = false;
+    private engineCounterPersistedAt = 0;
+
+    /** Existing instrument updates only: no extra socket, polling or network request. */
+    private monitorEngineRpm(): void {
+        if (this.engineMonitorRequested) return;
+        this.engineMonitorRequested = true;
+        void import('./NmeaStore')
+            .then(({ NmeaStore }) => {
+                NmeaStore.subscribe((snapshot) => {
+                    const scope = this.trackingOwnerScope;
+                    const state = this.trackingState;
+                    const id = state.currentVoyageId;
+                    if (
+                        !scope ||
+                        !this.ownerIsCurrent(scope, state) ||
+                        !state.isTracking ||
+                        state.isPaused ||
+                        !id ||
+                        !validEngineRunCounter(state.engineRun, id)
+                    )
+                        return;
+                    const now = Date.now();
+                    state.engineRun = observeEngineEvidence(state.engineRun, snapshot.instrumentEvidence, now);
+                    if (now - this.engineCounterPersistedAt >= 30_000) {
+                        this.engineCounterPersistedAt = now;
+                        void this.saveTrackingState(scope).catch((error) =>
+                            log.warn('engine time checkpoint deferred:', error),
+                        );
+                    }
+                });
+            })
+            .catch((error) => {
+                this.engineMonitorRequested = false;
+                log.warn('engine instrument monitor unavailable:', error);
+            });
+    }
 
     constructor() {
         subscribeAuthIdentityScope((next, previous) => {
@@ -1537,6 +1584,12 @@ class ShipLogServiceClass {
                           ? new Date().toISOString()
                           : undefined,
                 voyageStartCapture: departureCaptureState(previousState, voyageId, isFreshDeparture),
+                engineRunning: previousState.currentVoyageId === voyageId ? previousState.engineRunning : undefined,
+                engineRun:
+                    previousState.currentVoyageId === voyageId &&
+                    validEngineRunCounter(previousState.engineRun, voyageId)
+                        ? advanceEngineRunCounter(previousState.engineRun, Date.now())
+                        : newEngineRunCounter(voyageId, Date.now()),
                 lastMovementTime: new Date().toISOString(),
                 // The plan travels with the voyage (a reload resumes it;
                 // build 123, package VL).
@@ -1546,6 +1599,7 @@ class ShipLogServiceClass {
                 ...(this.isNative && !keepAliveLease ? { keepAliveLease: false } : {}),
             };
             const sessionState = this.trackingState;
+            this.monitorEngineRpm();
             this.trackSourcePlan = sourcePlan;
             // A hold belongs to the session that saw it: the new manager
             // session reports its own.
@@ -2084,6 +2138,13 @@ class ShipLogServiceClass {
 
         this.trackingState.isTracking = false;
         this.trackingState.isPaused = true;
+        if (
+            this.trackingState.currentVoyageId &&
+            validEngineRunCounter(this.trackingState.engineRun, this.trackingState.currentVoyageId)
+        ) {
+            this.trackingState.engineRun = suspendEngineRunCounter(this.trackingState.engineRun, Date.now());
+        }
+        this.trackingState.engineRunning = undefined;
         await this.saveTrackingState(scope);
         if (!pauseIsCurrent()) return;
         await stopLiveTrickle(false, scope);
@@ -2122,6 +2183,10 @@ class ShipLogServiceClass {
             voyageStartTime: activeState.voyageStartTime,
             voyageStartCapture: activeState.voyageStartCapture,
             voyageEndTime: new Date().toISOString(),
+            ...(activeState.boatId ? { boatId: activeState.boatId } : {}),
+            ...(previousVoyageId && validEngineRunCounter(activeState.engineRun, previousVoyageId)
+                ? { engineRun: endEngineRunCounter(activeState.engineRun, Date.now()) }
+                : {}),
         };
         this.trackingState = stoppedState;
         await this.saveTrackingState(scope);
@@ -2160,6 +2225,10 @@ class ShipLogServiceClass {
         this.notifyTrackingChanged();
 
         void stopLiveTrickle(true, scope).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
+        if (stoppedState.engineRun) {
+            if (isAuthIdentityScopeCurrent(scope))
+                requestEngineHoursReview(stoppedState.engineRun, stoppedState.boatId);
+        }
         setCaptureLocalOnly(false);
         void this.syncOfflineQueueForScope(scope)
             .then((n) => {
@@ -2738,6 +2807,13 @@ class ShipLogServiceClass {
         if (!scope || !this.ownerIsCurrent(scope, state)) return;
         if (!state.isTracking) return;
         if (state.engineRunning === running) return;
+        const id = state.currentVoyageId;
+        if (id) {
+            const counter = validEngineRunCounter(state.engineRun, id)
+                ? state.engineRun
+                : newEngineRunCounter(id, Date.now());
+            state.engineRun = declareEngineRunning(counter, running, Date.now());
+        }
         state.engineRunning = running;
         await this.saveTrackingState(scope);
         if (!this.ownerIsCurrent(scope, state)) return;

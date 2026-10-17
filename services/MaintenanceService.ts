@@ -9,6 +9,7 @@ import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '.
 import { DATA_EVENTS, dispatchDataChange } from '../utils/dataChangeEvents';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { getBinderSource } from './vessel/sharedBinders';
+import { addLocalDays, localDaysUntil, toLocalDateString } from '../utils/localDate';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
@@ -83,28 +84,34 @@ export interface TaskWithStatus extends MaintenanceTask {
      * figure; never overdue, never grey.
      */
     hoursUnanchored?: boolean;
+    /** A pre-trip check (132-B15): due before the next trip, never by date. */
+    beforeTrip?: boolean;
+    /** An open repair (132-B15): it needs fixing, and has no schedule to be due on. */
+    toFix?: boolean;
 }
 
-/** A bare 'YYYY-MM-DD' names a calendar day, not an instant. */
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * A repair marked fixed (132-B15): it leaves the list (is_active false) with
+ * the day it was fixed in last_completed. A repair paused before 132, never
+ * logged, is still just paused.
+ */
+export function isFixedRepair(task: Pick<MaintenanceTask, 'category' | 'is_active' | 'last_completed'>): boolean {
+    return task.category === 'Repair' && !task.is_active && !!task.last_completed;
+}
 
 /**
  * Whole LOCAL calendar days from today to the due date: 0 today, 1 tomorrow,
  * -1 yesterday. The same local day the card prints beside the status
- * (utils/displayDate formatDisplayDate): a bare 'YYYY-MM-DD' is that local
- * day, a timestamp is the local day it falls on.
+ * (utils/displayDate formatDisplayDate): a stored day, bare 'YYYY-MM-DD' or
+ * synced as its UTC midnight, is that local day (utils/localDate, 131-B11);
+ * any other timestamp is the local day it falls on.
  *
  * It used to be Math.ceil((due - now) / 1 day) on instants, so a task due
  * later today read "Due in 1 day" beside today's date (UX scorecard run 10,
- * maint-due-today). Math.round absorbs a daylight-saving 23- or 25-hour day.
- * Null for an unreadable date.
+ * maint-due-today). Null for an unreadable date.
  */
 export function calendarDaysUntil(dueDate: string, now: Date = new Date()): number | null {
-    const due = DATE_ONLY.test(dueDate) ? new Date(`${dueDate}T00:00:00`) : new Date(dueDate);
-    if (Number.isNaN(due.getTime())) return null;
-    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    return Math.round((dueDay - today) / (1000 * 60 * 60 * 24));
+    return localDaysUntil(dueDate, now);
 }
 
 /** Is this date or timestamp on today's LOCAL calendar day? */
@@ -194,6 +201,35 @@ export function calculateStatus(
     currentEngineHours: number,
     now: Date = new Date(),
 ): TaskWithStatus {
+    const unscheduled = { daysRemaining: null, hoursRemaining: null, doneToday: false, hoursUnanchored: false };
+
+    // A repair (132-B15, MAINT-04) is not on a schedule: logging one rolled it
+    // on to tomorrow for ever. Open, it needs fixing: amber, and counted on its
+    // own, never "overdue" by a date nobody set. Marked fixed, it is done.
+    if (task.category === 'Repair') {
+        if (task.is_active)
+            return { ...task, ...unscheduled, status: 'yellow', statusLabel: 'Needs fixing', toFix: true };
+        return { ...task, ...unscheduled, status: 'grey', statusLabel: isFixedRepair(task) ? 'Fixed' : 'Paused' };
+    }
+
+    // A pre-trip check (trigger 'daily', 132-B15, MAINT-06) is done before each
+    // trip. Its due was tomorrow, so a boat in port saw it red the day after,
+    // and the Vessel page's overdue badge lit for a boat that had not moved. It
+    // waits for a trip instead: never due by date, never overdue.
+    if (task.trigger_type === 'daily') {
+        if (!task.is_active)
+            return { ...task, ...unscheduled, status: 'grey', statusLabel: 'Paused', beforeTrip: true };
+        const doneToday = isLocalToday(task.last_completed, now);
+        return {
+            ...task,
+            ...unscheduled,
+            status: 'green',
+            statusLabel: doneToday ? 'Done today · due again next trip' : 'Due before your next trip',
+            doneToday,
+            beforeTrip: true,
+        };
+    }
+
     let status: TrafficLight = 'green';
     let statusLabel = 'OK';
     let daysRemaining: number | null = null;
@@ -268,6 +304,33 @@ export function calculateStatus(
     }
 
     return { ...task, status, statusLabel, daysRemaining, hoursRemaining, doneToday, hoursUnanchored: unanchored };
+}
+
+/**
+ * A task's status as R&M shows it, from the R&M binder's engine-hours reading
+ * (null: none entered yet). With no reading a task is judged on its date
+ * alone, never on hours counted from an invented zero, and an hour task with
+ * nothing else to go on asks for engine hours. One rule for R&M, the Vessel
+ * page's overdue badge and the checklist PDF, so the three agree (132-B15):
+ * each kept its own copy of it.
+ */
+export function statusWithReading(
+    task: MaintenanceTask,
+    engineHours: number | null,
+    now: Date = new Date(),
+): TaskWithStatus {
+    const hasHours = task.next_due_hours !== null && task.next_due_hours !== undefined;
+    if (engineHours !== null || (!hasHours && task.trigger_type !== 'engine_hours')) {
+        return calculateStatus(task, engineHours ?? 0, now);
+    }
+    // An hour task with no hours due yet (the suggested engine service is
+    // seeded so since 126-B1) waits for the same first reading.
+    const byDate = calculateStatus({ ...task, next_due_hours: null }, 0, now);
+    return {
+        ...byDate,
+        next_due_hours: task.next_due_hours,
+        statusLabel: byDate.status === 'grey' && task.is_active ? 'Enter engine hours' : byDate.statusLabel,
+    };
 }
 
 /**
@@ -697,9 +760,9 @@ export class MaintenanceService {
         const now = new Date();
         const rows = DEFAULT_MAINTENANCE_TASKS.map((t) => {
             const isEngineHours = t.trigger_type === 'engine_hours';
-            const dueDate = isEngineHours
-                ? null
-                : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
+            // The local day, not the UTC one: before 10:00 in Queensland that
+            // was a day early (131-B11, MAINT-07).
+            const dueDate = isEngineHours ? null : toLocalDateString(addLocalDays(now, t.interval_value));
             const dueHours = isEngineHours && engineHours !== null ? engineHours + t.interval_value : null;
 
             return {

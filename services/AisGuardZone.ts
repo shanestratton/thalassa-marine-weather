@@ -37,6 +37,8 @@ export interface GuardAlert {
 
 /** The collision alarm's card (build 125, 125-01): one card per vessel, on the guard's own alert path. */
 export interface CollisionAlertDetail {
+    positionBasis?: 'report' | 'dead-reckoned';
+    uncertaintyNm?: number;
     cpaNm: number;
     tcpaMin: number;
     closeQuarters: boolean;

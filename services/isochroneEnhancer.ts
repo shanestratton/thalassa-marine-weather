@@ -30,7 +30,14 @@ import { maxOf, minOf } from '../utils/extremes';
 
 import type { VoyagePlan, VesselProfile } from '../types';
 import { createLogger } from '../utils/createLogger';
-import { vesselDraftMetres, vesselMaxWaveHeightMetres, vesselDraftIsAssumed } from './units';
+import { vesselDraftMetres, vesselDraftIsAssumed } from './units';
+import { loadIsochroneEnvironment, type IsochroneEnvironment } from './routing/isochroneEnvironment';
+import { vesselIsochroneConfig, isochroneRoutingContext } from './routing/isochronePolicy';
+import { useSettingsStore } from '../stores/settingsStore';
+import { routingComfortConfig } from './routing/isochronePolicy';
+import { estimateRouteFuel } from './isochrone/routeStats';
+import { verifiedIsochroneRoute } from './routing/verifiedIsochroneRoute';
+import { inspectRouteEnvironment } from './isochrone/routeComfort';
 
 const log = createLogger('IsoEnhancer');
 
@@ -147,12 +154,16 @@ export async function enhanceVoyagePlanWithIsochrone(
         const { resolveRoutingPolar } = await import('./routingPolar');
         const routingPolar = await resolveRoutingPolar({ vessel });
         const { getPrecomputedRoute } = await import('./IsochronePrecomputeCache');
+        const routingSettings = useSettingsStore.getState().settings;
+        let routingEnvironment: IsochroneEnvironment | null = null;
         let isoResult = getPrecomputedRoute(
             origin.lat,
             origin.lon,
             destination.lat,
             destination.lon,
             routingPolar.signature,
+            undefined,
+            isochroneRoutingContext(departureTime, { ...routingSettings, vessel }),
         );
 
         if (isoResult) {
@@ -168,7 +179,7 @@ export async function enhanceVoyagePlanWithIsochrone(
             const { WindStore } = await import('../stores/WindStore');
             const { createWindFieldFromGrid } = await import('./weather/WindFieldAdapter');
             const { preloadBathymetry } = await import('./BathymetryCache');
-            const { computeIsochrones } = await import('./IsochroneRouter');
+            const { computeComfortIsochrones: computeIsochrones } = await import('./routing/comfortRoute');
 
             const windGrid = WindStore.getState().grid;
             if (!windGrid) {
@@ -204,165 +215,16 @@ export async function enhanceVoyagePlanWithIsochrone(
                 return null;
             }
 
-            // ── 4a. Tropical cyclone exclusion zones ──
-            // Active hurricanes/typhoons/cyclones become hard no-go areas
-            // along their NHC-forecast tracks, with safety radii scaled
-            // to Saffir-Simpson intensity (50 NM for TD up to 250 NM for
-            // Cat 5). The isochrone engine drops candidates inside these
-            // zones, forcing the route to detour around the storm.
-            //
-            // Non-blocking on failure — if ATCF/NHC is down we route
-            // without exclusion zones (the user is presumably checking
-            // weather separately and wouldn't depart blind into a
-            // hurricane anyway). Better to have a route that doesn't
-            // know about a storm than to refuse to give a route.
-            let exclusionField = null;
-            try {
-                const { buildCycloneExclusionField } = await import('./cycloneAvoidance');
-                exclusionField = await buildCycloneExclusionField(departureTime, {
-                    north: Math.max(origin.lat, destination.lat),
-                    south: Math.min(origin.lat, destination.lat),
-                    east: Math.max(origin.lon, destination.lon),
-                    west: Math.min(origin.lon, destination.lon),
-                });
-                if (exclusionField) {
-                    log.info('cyclone exclusion zones loaded — wavefront will avoid storms');
-                }
-            } catch (e) {
-                log.warn('cyclone exclusion build failed — routing without storm avoidance:', e);
-            }
-
-            // ── 4c. Wave field via Open-Meteo Marine ──
-            // Sparse 5×5 grid of wave height + direction + period over
-            // the route bbox. The IsochroneRouter applies a polar-with-
-            // waves slowdown factor at each candidate based on the
-            // wave height/period and relative angle to the boat heading.
-            //
-            // Non-blocking on failure — engine routes without wave
-            // penalty if Open-Meteo Marine is down (raw polar speed,
-            // matches behaviour before this upgrade).
-            let waveField = null;
-            try {
-                const { fetchWaveField } = await import('./weather/waveField');
-                const { createWaveFieldFromSamples } = await import('./weather/WaveFieldAdapter');
-                const data = await fetchWaveField(
-                    {
-                        north: Math.max(origin.lat, destination.lat) + 1,
-                        south: Math.min(origin.lat, destination.lat) - 1,
-                        east: Math.max(origin.lon, destination.lon) + 1,
-                        west: Math.min(origin.lon, destination.lon) - 1,
-                    },
-                    departureTime,
-                );
-                waveField = createWaveFieldFromSamples(data);
-                if (waveField) {
-                    log.info('wave field loaded — polar-with-waves slowdown active');
-                }
-            } catch (e) {
-                log.warn('wave field fetch failed — routing on raw polar:', e);
-            }
-
-            // ── 4b. Ocean currents via NOAA CoastWatch ──
-            // For ocean passages currents shift ETA by ±20% on routes
-            // aligned with major systems (Gulf Stream, Agulhas, Kuroshio,
-            // East Australian Current, Antarctic Circumpolar). Fetching
-            // a sparse provider field lets the engine advect each candidate
-            // by set/drift, producing a true SOG-based wavefront.
-            //
-            // Non-blocking on failure — if CoastWatch ERDDAP is down, the
-            // engine routes on STW alone (same behaviour as before this
-            // upgrade). Better to ship a route without currents than no
-            // route at all.
-            let currentField = null;
-            try {
-                const { OceanCurrentService } = await import('./OceanCurrentService');
-                const { createCurrentFieldFromVectors } = await import('./weather/CurrentFieldAdapter');
-                const courseBearing =
-                    (Math.atan2(
-                        Math.sin(dLon) * Math.cos(φ2),
-                        Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon),
-                    ) *
-                        180) /
-                    Math.PI;
-                // Read the user's NRT preference from settingsStore (loaded
-                // separately from the React settings context here because
-                // we're outside React). The provider and exact dataset are
-                // carried on the returned briefing rather than inferred here.
-                let useNrt = false;
-                try {
-                    const { useSettingsStore } = await import('../stores/settingsStore');
-                    useNrt = useSettingsStore.getState().settings.currentNrtEnabled === true;
-                } catch (_) {
-                    /* settings unreadable: the standard (non-NRT) current request */
-                }
-                const briefing = await OceanCurrentService.fetchCurrents(
-                    {
-                        north: Math.max(origin.lat, destination.lat) + 1,
-                        south: Math.min(origin.lat, destination.lat) - 1,
-                        east: Math.max(origin.lon, destination.lon) + 1,
-                        west: Math.min(origin.lon, destination.lon) - 1,
-                    },
-                    ((courseBearing % 360) + 360) % 360,
-                    straightNM,
-                    vessel.cruisingSpeed || 6,
-                    useNrt,
-                );
-                currentField =
-                    briefing.availability === 'available' ? createCurrentFieldFromVectors(briefing.vectors) : null;
-                if (currentField && briefing.availability === 'available') {
-                    log.info(
-                        `NOAA CoastWatch currents loaded: ${briefing.vectors.length} vectors, max ${briefing.maxSpeedKts} kts, dataset=${briefing.providerDataset ?? 'unknown'}`,
-                    );
-                } else if (briefing.availability === 'unavailable') {
-                    log.warn(`current provider unavailable — routing on STW only: ${briefing.errorMessage}`);
-                }
-            } catch (e) {
-                log.warn('current fetch failed — routing on STW only:', e);
-            }
-
-            // ── 5. Comfort params: blend vessel hard limits with user prefs ──
-            // The vessel profile carries the boat's HARD MECHANICAL caps
-            // (maxWindSpeed/maxWaveHeight) — what the boat can survive.
-            // settings.comfortParams carries the user's CHOSEN comfort
-            // ceiling — what the user is willing to put up with on this
-            // particular trip. We pass both into the engine; whichever
-            // is tighter wins per metric (Math.min on the caps).
-            //
-            // preferredAngles comes only from settings.comfortParams —
-            // it's purely a user preference, not a hardware property.
-            let comfortParams: import('./isochrone/types').IsochroneConfig['comfortParams'] | undefined;
-            try {
-                const { useSettingsStore } = await import('../stores/settingsStore');
-                const userComfort = useSettingsStore.getState().settings.comfortParams ?? {};
-                const vMaxWind = vessel.maxWindSpeed;
-                // Converted BEFORE the Math.min below: userComfort.maxWaveM is
-                // metres, so comparing it against the profile's feet was not a
-                // comparison of anything.
-                const vMaxWave = vessel.maxWaveHeight != null ? vesselMaxWaveHeightMetres(vessel) : undefined;
-                const uMaxWind = userComfort.maxWindKts;
-                const uMaxWave = userComfort.maxWaveM;
-                const uMaxGust = userComfort.maxGustKts;
-                const tightestWind =
-                    vMaxWind != null && uMaxWind != null ? Math.min(vMaxWind, uMaxWind) : (vMaxWind ?? uMaxWind);
-                const tightestWave =
-                    vMaxWave != null && uMaxWave != null ? Math.min(vMaxWave, uMaxWave) : (vMaxWave ?? uMaxWave);
-                if (tightestWind != null || tightestWave != null || uMaxGust != null || userComfort.preferredAngles) {
-                    comfortParams = {
-                        maxWindKts: tightestWind,
-                        maxWaveM: tightestWave,
-                        maxGustKts: uMaxGust,
-                        preferredAngles: userComfort.preferredAngles,
-                    };
-                }
-            } catch (_) {
-                // Fall back to vessel-only caps if settings store unavailable
-                if (vessel.maxWindSpeed || vessel.maxWaveHeight) {
-                    comfortParams = {
-                        maxWindKts: vessel.maxWindSpeed,
-                        maxWaveM: vesselMaxWaveHeightMetres(vessel),
-                    };
-                }
-            }
+            const environment = await loadIsochroneEnvironment({
+                origin,
+                destination,
+                departureTime,
+                speedKts: vesselIsochroneConfig(vessel, straightNM).motoringSpeed,
+                currentNrtEnabled: routingSettings.currentNrtEnabled,
+                satelliteMode: routingSettings.satelliteMode,
+            });
+            routingEnvironment = environment;
+            const { currentField, exclusionField, waveField } = environment;
 
             // ── 6. Run the isochrone engine ──
             isoResult = await computeIsochrones(
@@ -375,17 +237,18 @@ export async function enhanceVoyagePlanWithIsochrone(
                     // Isochrone options take METRES; vessel.draft is FEET
                     // (see services/units.ts).
                     vesselDraft: vesselDraftMetres(vessel),
-                    motoringSpeed: vessel.cruisingSpeed || 6,
+                    ...vesselIsochroneConfig(vessel, straightNM),
                     // No minDepthM for ocean passages — the engine still
                     // checks reef rejection and isLand from the bathy grid.
                     minDepthM: null,
-                    comfortParams,
+                    ...routingComfortConfig(vessel, routingSettings.comfortParams),
                 },
                 bathyGrid,
                 currentField,
                 exclusionField,
                 waveField,
             );
+            if (isoResult) isoResult.environmentNotes = environment.notes;
         }
 
         if (!isoResult || isoResult.routeCoordinates.length < 2) {
@@ -442,14 +305,32 @@ export async function enhanceVoyagePlanWithIsochrone(
                 const { publishRouteNotValidated } = await import('./enc/EncHazardReportService');
                 publishRouteNotValidated('depth validation timed out (15 s)');
             }
-            if (validated && validated.length !== isoResult.route.length) {
-                const added = validated.length - isoResult.route.length;
-                log.info(`Route hazard validation: inserted ${added} detour waypoint(s)`);
-                isoResult = {
-                    ...isoResult,
-                    route: validated,
-                    routeCoordinates: validated.map((n) => [n.lon, n.lat] as [number, number]),
-                };
+            if (validated) {
+                const checked = verifiedIsochroneRoute(
+                    isoResult,
+                    validated,
+                    departureTime,
+                    vesselIsochroneConfig(vessel, isoResult.totalDistanceNM).motoringSpeed,
+                );
+                if (checked.routeCoordinates !== isoResult.routeCoordinates && !routingEnvironment) return null;
+                if (routingEnvironment) {
+                    const checkedEnvironment = inspectRouteEnvironment(
+                        checked.route,
+                        routingEnvironment.waveField,
+                        routingEnvironment.exclusionField,
+                        isoResult.comfort?.usedLimitM ??
+                            routingComfortConfig(vessel, routingSettings.comfortParams).comfortParams?.maxWaveM,
+                        routingComfortConfig(vessel, routingSettings.comfortParams).comfortVessel,
+                    );
+                    if (checkedEnvironment.rejected) return null;
+                    checked.comfort = {
+                        ...checkedEnvironment.comfort,
+                        ...(isoResult.comfort?.relaxedFromM !== undefined
+                            ? { relaxedFromM: isoResult.comfort.relaxedFromM, usedLimitM: isoResult.comfort.usedLimitM }
+                            : {}),
+                    };
+                }
+                isoResult = checked;
             }
         } catch (e) {
             log.warn('Route hazard validation failed — using local-grid-only route:', e);
@@ -489,10 +370,14 @@ export async function enhanceVoyagePlanWithIsochrone(
             windSpeed: Math.round(t.tws),
         }));
 
+        merged.sailingStats = isoResult.sailingStats;
+        merged.routeComfort = isoResult.comfort;
+        merged.routeFuel = estimateRouteFuel(isoResult.motorHours, isoResult.totalDurationHours, vessel);
         merged.routeReasoning =
             (merged.routeReasoning ? merged.routeReasoning + ' ' : '') +
             `Isochrone-optimised: ${Math.round(isoResult.totalDistanceNM)} NM in ${merged.durationApprox} ` +
-            `via ${turns.length} turn waypoints. Wavefront propagation through GFS wind field with vessel polar performance.`;
+            `via ${turns.length} turn waypoints. Wavefront propagation through GFS wind field with vessel polar performance. ` +
+            (isoResult.environmentNotes ?? []).join(' ');
 
         // ── 8. Build a spatiotemporal payload from the isochrone result ──
         // The 4D Passage Canvas expects __spatiotemporalPayload to render.

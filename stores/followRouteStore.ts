@@ -378,8 +378,40 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
 
 // ── 3-hour auto-refresh timer ────────────────────────────────────
 let _refreshTimer: ReturnType<typeof setInterval> | null = null;
+let observedFollowScope = getAuthIdentityScope();
 
-useFollowRouteStore.subscribe((state) => {
+useFollowRouteStore.subscribe((state, previous) => {
+    const sameIdentity = isAuthIdentityScopeCurrent(observedFollowScope);
+    observedFollowScope = getAuthIdentityScope();
+    if (
+        sameIdentity &&
+        previous.isFollowing &&
+        (state.startedAt !== previous.startedAt ||
+            state.voyageId !== previous.voyageId ||
+            !state.isFollowing ||
+            JSON.stringify(state.routeCoords) !== JSON.stringify(previous.routeCoords))
+    ) {
+        const scope = getAuthIdentityScope();
+        // Clearing uses only this account/Pi's retained send receipt, never a
+        // guessed destination. The Pi reconciles a send already in flight.
+        const oldFollow = {
+            ...previous,
+            routeCoords:
+                previous.routeCoords.length <= 1000
+                    ? previous.routeCoords.map((point) => ({ lat: point.lat, lon: point.lon }))
+                    : [],
+        };
+        void import('../services/piCourse')
+            .then(({ clearUnfollowedCourse }) => clearUnfollowedCourse(oldFollow, scope))
+            .catch(async () => {
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                const { toast } = await import('../components/Toast');
+                if (isAuthIdentityScopeCurrent(scope))
+                    toast.persistentError(
+                        'Follow stopped or changed. The plotter clear is unconfirmed; check it at the helm.',
+                    );
+            });
+    }
     if (_refreshTimer) {
         clearInterval(_refreshTimer);
         _refreshTimer = null;

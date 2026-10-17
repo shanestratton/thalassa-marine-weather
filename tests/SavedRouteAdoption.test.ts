@@ -19,7 +19,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 vi.mock('../services/supabase', () => ({ supabase: null, isSupabaseConfigured: () => false }));
 
 import { decodeSavedRoutePoints, fetchSavedRoutePoints } from '../services/savedRoutePoints';
-import { adoptServerRoute, loadSavedTraces } from '../services/routeTracer';
+import { adoptServerRoute, loadSavedTraces } from '../services/savedTraceStore';
 
 beforeEach(() => {
     localStorage.clear();

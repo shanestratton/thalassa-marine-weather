@@ -34,6 +34,10 @@ export const OPEN_BOX_EVENT = 'thalassa:open-box';
 
 let pending: { id: string; identity: AuthIdentityScope } | null = null;
 let installed = false;
+let lastFile: { url: string; scope: AuthIdentityScope; at: number } | null = null;
+let gribModule: Promise<typeof import('./weather/localGribImport')> | undefined;
+let gpxModule: Promise<typeof import('./nativeOpenedGpx')> | undefined;
+const loadGribImports = () => (gribModule ??= import('./weather/localGribImport'));
 /**
  * The last box link taken on this phone. iOS keeps reporting it from
  * getLaunchUrl for the life of the app process, so a web view reloaded after
@@ -43,6 +47,49 @@ const OPENED_KEY = 'thalassa.boxLinkOpened';
 
 /** A link from iOS: its box opens, or a /box/ link that is not one says so. Anything else is not ours. */
 function take(url: string): void {
+    if (url.startsWith('file:')) {
+        const scope = getAuthIdentityScope();
+        if (url.length > 8192) {
+            toast.error('The attachment URL is too long.');
+            return;
+        }
+        const now = Date.now();
+        if (
+            lastFile &&
+            lastFile.url === url &&
+            isAuthIdentityScopeCurrent(lastFile.scope) &&
+            now >= lastFile.at &&
+            now - lastFile.at < 1500
+        )
+            return;
+        lastFile = { url, scope, at: now };
+        if (/\.gpx$/i.test(url)) {
+            void (gpxModule ??= import('./nativeOpenedGpx'))
+                .then(async (gpx) => {
+                    await gpx.openNativeGpx(url, scope);
+                    if (isAuthIdentityScopeCurrent(scope)) useUIStore.getState().setPage('gpx-import');
+                })
+                .catch((error: unknown) => {
+                    if (isAuthIdentityScopeCurrent(scope))
+                        toast.error(error instanceof Error ? error.message : 'GPX import failed.');
+                });
+            return;
+        }
+        void loadGribImports()
+            .then(async (grib) => {
+                if (!grib.isLocalGribUrl(url)) return;
+                await grib.importLocalGribUrl(url, scope);
+                if (isAuthIdentityScopeCurrent(scope)) {
+                    useUIStore.getState().setPage('map');
+                    toast.success('Imported GRIB weather. Source run and valid times are retained.');
+                }
+            })
+            .catch((error: unknown) => {
+                if (isAuthIdentityScopeCurrent(scope))
+                    toast.error(error instanceof Error ? error.message : 'GRIB import failed.');
+            });
+        return;
+    }
     const opened = openBoxLink(url);
     if (!opened && !url.startsWith(BOX_LINK_PREFIX)) return;
     if (!opened) toast.error(NOT_A_BOX_TAG);
@@ -77,6 +124,7 @@ export function consumePendingBox(): string | null {
 // A box id is private to its boat: drop the request the moment the account changes.
 subscribeAuthIdentityScope(() => {
     pending = null;
+    lastFile = null;
 });
 
 /**
@@ -90,6 +138,9 @@ subscribeAuthIdentityScope(() => {
 export function installBoxLinks(): void {
     if (installed) return;
     installed = true;
+    void loadGribImports()
+        .then((grib) => grib.installLocalGribImports())
+        .catch(() => undefined);
     /** The first appUrlOpen, and the launch link once taken: the cold start's pair. */
     let first: string | undefined;
     let launched: string | undefined;

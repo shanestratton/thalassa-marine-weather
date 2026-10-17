@@ -9,7 +9,7 @@
  * to count.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { packagedFetch } from './helpers/packagedFetch';
 
@@ -102,5 +102,161 @@ describe('CustomsClearanceCard loads its JSON', () => {
         const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
         render(<CustomsClearanceCard voyagePlan={plan('Marmaris, Türkiye', 'Rhodes, Greece')} />);
         expect(await screen.findByText(/clearance guide could not be loaded/i)).toBeInTheDocument();
+    });
+});
+
+describe('130-09: the card picks the right country for a port, and says when it cannot', () => {
+    const CANNOT_TELL = "Can't Tell If This Passage Crosses a Border";
+
+    it('names Russell, NZ as New Zealand, and a port of entry on its own by its country', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Sydney', 'Russell, NZ')} />);
+        expect(screen.getByRole('button', { name: 'Departing Australia' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Arriving New Zealand' })).toBeInTheDocument();
+        // Sydney is one of Australia's ports of entry: no warning.
+        expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+        expect(
+            await screen.findByText('Clear out with Australian Border Force (ABF) — book appointment'),
+        ).toBeVisible();
+    });
+
+    it('checks the port of entry by whole words, accents folded: Noumea is Nouméa', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Noumea', 'Newport, QLD')} />);
+        expect(screen.getByRole('button', { name: 'Departing New Caledonia' })).toBeInTheDocument();
+        expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving Australia' }));
+        expect(screen.getByText('Newport, QLD is not a designated port of entry')).toBeInTheDocument();
+    });
+
+    it('says it cannot tell when neither port is one it knows, with one check to tick', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        const onCheckedChange = vi.fn();
+        render(
+            <CustomsClearanceCard
+                voyageId="voyage-b"
+                voyagePlan={plan('Santa Cruz, CA', 'Santa Cruz, Galápagos')}
+                onCheckedChange={onCheckedChange}
+            />,
+        );
+        // Named as the skipper typed them, never as some other country.
+        expect(screen.getByRole('button', { name: 'Departing Santa Cruz, CA' })).toBeInTheDocument();
+        expect(screen.queryByText(/Australia/)).not.toBeInTheDocument();
+        expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
+        expect(screen.getByText(/We don't recognise Santa Cruz, CA or Santa Cruz, Galápagos/)).toBeInTheDocument();
+        expect(screen.queryByText('Limited Data Available')).not.toBeInTheDocument();
+
+        // The check is the one item: nothing ticked, so Cast Off waits on it.
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(1, 0));
+        const check = screen.getByRole('button', { name: /I've checked whether this passage crosses a border/ });
+        expect(check).toHaveAttribute('aria-pressed', 'false');
+        fireEvent.click(check);
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(1, 1));
+        expect(check).toHaveAttribute('aria-pressed', 'true');
+
+        // The arrival tab says the same.
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving Santa Cruz, Galápagos' }));
+        expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
+    });
+
+    it("never names St George's, Bermuda as Grenada: the Bermuda run is a border check", async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        const onCheckedChange = vi.fn();
+        render(
+            <CustomsClearanceCard
+                voyagePlan={plan('Newport, RI', "St George's, Bermuda")}
+                onCheckedChange={onCheckedChange}
+            />,
+        );
+        expect(screen.getByRole('button', { name: "Arriving St George's, Bermuda" })).toBeInTheDocument();
+        expect(screen.queryByText(/Grenada/)).not.toBeInTheDocument();
+        expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(1, 0));
+        fireEvent.click(screen.getByRole('button', { name: "Arriving St George's, Bermuda" }));
+        expect(screen.queryByText(/Grenada/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+    });
+
+    it('names a US port by its state’s full name as the United States, not a border check (132)', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Newport, Rhode Island', "St George's, Bermuda")} />);
+        expect(screen.getByRole('button', { name: 'Departing United States' })).toBeInTheDocument();
+        expect(screen.queryByText(CANNOT_TELL)).not.toBeInTheDocument();
+    });
+
+    it('keeps the document list when one port is known, and no border check', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        const onCheckedChange = vi.fn();
+        render(<CustomsClearanceCard voyagePlan={plan('Opua, NZ', 'Phuket')} onCheckedChange={onCheckedChange} />);
+        expect(screen.queryByText(CANNOT_TELL)).not.toBeInTheDocument();
+        expect(await screen.findByText('Complete Customs Departure form (NZCS 5)')).toBeInTheDocument();
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(expect.any(Number), 0));
+        expect(onCheckedChange.mock.calls.at(-1)![0]).toBeGreaterThan(1);
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving Phuket' }));
+        expect(screen.getByText('Limited Data Available')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /crosses a border/ })).not.toBeInTheDocument();
+    });
+});
+
+describe('132-B23 review: a US port the guide does not list is not sent elsewhere to clear', () => {
+    // The guide lists seven of CBP's ports of entry, not all of them, and its
+    // own US departure steps say a US boat needs no formal clearance out. So a
+    // port missing from the list may still be one: the card says it can't
+    // tell and to check with CBP, and lists no ports to go to instead.
+    const NOT_DESIGNATED = /is not a designated port of entry/;
+
+    it('departing: says the guide cannot tell, before and after the guide loads', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Fort Lauderdale, Florida', 'Nassau')} />);
+        expect(screen.getByRole('button', { name: 'Departing United States' })).toBeInTheDocument();
+        expect(
+            screen.getByText("Fort Lauderdale, Florida isn't one of the ports this guide lists"),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                "This guide lists only some of this country's ports of entry, so Fort Lauderdale, Florida may still be one. Check with CBP before you leave.",
+            ),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(NOT_DESIGNATED)).not.toBeInTheDocument();
+        expect(screen.queryByText(/clear out at one of/)).not.toBeInTheDocument();
+        // No ports to detour to: before the guide loads, Key West is nowhere on the card.
+        expect(screen.queryByText('Key West')).not.toBeInTheDocument();
+
+        // The guide's own steps, and the banner still says the same.
+        expect(
+            await screen.findByText('No formal export clearance required for US vessels on temporary voyages'),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText("Fort Lauderdale, Florida isn't one of the ports this guide lists"),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(NOT_DESIGNATED)).not.toBeInTheDocument();
+    });
+
+    it('arriving: says whom to ask where to report', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan("St George's, Bermuda", 'Newport, Rhode Island')} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving United States' }));
+        expect(screen.getByText("Newport, Rhode Island isn't one of the ports this guide lists")).toBeInTheDocument();
+        expect(
+            screen.getByText(/may still be one\. Check with CBP where to report when you arrive\.$/),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(NOT_DESIGNATED)).not.toBeInTheDocument();
+        expect(screen.queryByText(/clear in at one of/)).not.toBeInTheDocument();
+    });
+
+    it('a US port the guide lists has no banner at all', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Miami, Florida', 'Nassau')} />);
+        expect(screen.getByRole('button', { name: 'Departing United States' })).toBeInTheDocument();
+        expect(screen.queryByText(/isn't one of the ports this guide lists/)).not.toBeInTheDocument();
+        expect(screen.queryByText(NOT_DESIGNATED)).not.toBeInTheDocument();
+    });
+
+    it('changes nothing for a country the guide does not mark: Newport, QLD still goes to a port of entry', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Newport, QLD', 'Noumea')} />);
+        expect(screen.getByText('Newport, QLD is not a designated port of entry')).toBeInTheDocument();
+        expect(screen.getByText(/one of Australia's designated ports of entry before departing/)).toBeInTheDocument();
+        expect(screen.queryByText(/isn't one of the ports this guide lists/)).not.toBeInTheDocument();
     });
 });

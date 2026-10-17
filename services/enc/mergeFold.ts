@@ -37,6 +37,7 @@ import {
 import { buildCellGlaze } from './glazeBuild';
 import { reduceNamedAreas } from './seaareLabels';
 import { explodeSoundings } from './encHazardParse';
+import { chartBottomNature } from './seabed';
 import { buildSectorFeatures, readSectorBearings } from './lightSectors';
 import type { GlazeUpgradeItem } from './geometryUpgrades';
 import {
@@ -383,7 +384,14 @@ export async function accumulateCellLayers(
                 target === 'BOYSAW' ||
                 target === 'BCNSAW' ||
                 target === 'BOYISD' ||
-                target === 'BCNISD'
+                target === 'BCNISD' ||
+                target === 'LITFLT' ||
+                target === 'LITVES' ||
+                target === 'BOYINB' ||
+                target === 'MORFAC' ||
+                target === 'FOGSIG' ||
+                target === 'TOPMAR' ||
+                target === 'DAYMAR'
             ) {
                 const featProps = (feat.properties ?? {}) as Record<string, unknown>;
                 props._icon = encNavaidIconId(target, featProps, ialaRegion);
@@ -521,7 +529,9 @@ export async function accumulateCellLayers(
             // tagAndPush yield and the next cell. Counter spans all classes.
             if ((++cautionSeen & 63) === 0) await yieldIfNeeded();
             if (!feat || !feat.geometry) continue;
-            if (cullDeg > 0 && featureDiagDeg(feat) < cullDeg) continue;
+            const isBottom = cls === 'SBDARE' || cls === 'WEDKLP';
+            if (cullDeg > 0 && !(isBottom && feat.geometry.type === 'Point') && featureDiagDeg(feat) < cullDeg)
+                continue;
             merged.CAUTION_AREAS.features.push({
                 type: 'Feature',
                 geometry: feat.geometry,
@@ -530,6 +540,12 @@ export async function accumulateCellLayers(
                     _caution: cls,
                     _cellId: cell.id,
                     _sourceHO: cell.sourceHO,
+                    ...(isBottom
+                        ? (() => {
+                              const bottom = chartBottomNature({ ...feat.properties, _caution: cls });
+                              return { _seabedAbbr: bottom.abbreviation, _seabedTint: bottom.tint };
+                          })()
+                        : {}),
                     ...(cell.usage === 'reference' ? { _reference: true } : {}),
                 },
             });

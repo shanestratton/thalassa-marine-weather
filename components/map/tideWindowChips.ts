@@ -66,6 +66,7 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { fetchTideCurve, TIDE_CURVE_MAX_DAYS, tideCurveBucket, type TideCurve } from '../../services/TideHeightService';
+import { shallowRunBounds } from '../../services/routing/inshoreTideSpots';
 import { tideFieldFromCurve } from '../../services/routing/env/EnvFields';
 import { computeTidalWindows, DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import { AMBER_SURVEY_REASONS, type ShallowRunInfo, type SurveyRunInfo } from '../../services/engine/types';
@@ -758,13 +759,20 @@ export async function annotateTideWindows(opts: TideChipOptions): Promise<void> 
                     ),
             );
         const fetches = tideFetchPlan(tideRuns, liftable ?? []);
+        const chartBounds = shallowRunBounds(
+            tideRuns,
+            liftable?.flatMap((piece) => piece.coordinates),
+        );
         const byBucket = new Map<string, TideCurve>();
         if (fetches.length > 0) {
             const untilMs = departureMs + HORIZON_MS;
             const got = await Promise.all(
                 fetches.map((f) =>
                     withTimeout(
-                        fetchTideCurve(f.lat, f.lon, departureMs, untilMs, { days: TIDE_CURVE_MAX_DAYS }),
+                        fetchTideCurve(f.lat, f.lon, departureMs, untilMs, {
+                            days: TIDE_CURVE_MAX_DAYS,
+                            chartBounds: chartBounds ?? undefined,
+                        }),
                         null,
                         CURVE_FETCH_TIMEOUT_MS,
                     ),
