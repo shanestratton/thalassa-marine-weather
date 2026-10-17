@@ -393,6 +393,9 @@ class WorldResume:
             raise ValueError("World transfer reservation changed")
         for attempt in attempts:
             build.source_time(attempt["startedAt"])
+        job = self.read("job.json")
+        if job is None or job.get("transportReservations") != [a["index"] for a in attempts]:
+            raise ValueError("World transport reservation lost its job checkpoint")
         return value
 
     def matches(self, path, expected, maximum):
@@ -414,6 +417,8 @@ class WorldResume:
             if path == incoming:
                 os.replace(incoming, target); sync_directory(self.root)
             return receipt, target
+        if any((self.root / name).exists() or (self.root / name).is_symlink() for name in (f"marine-{index}.osm.pbf", f"sequence-{index}.geojsonseq", f"public-{index}.jsonl")):
+            raise ValueError("Orphaned extraction bytes need their original receipt")
         transfers = self.transfers()
         attempts = transfers["attempts"]
         attempt = next((a for a in attempts if a["index"] == index), None)
@@ -443,6 +448,11 @@ class WorldResume:
                 if sum(a["maxBytes"] for a in attempts) + source["maxBytes"] > acquire.TRANSPORT_LIMIT:
                     raise ValueError("Durable world transport reservation cap")
                 attempt = {"index": index, "maxBytes": source["maxBytes"], "startedAt": now(), "headers": None}
+                job = self.read("job.json")
+                job["transportReservations"].append(index)
+                # A separate durable checkpoint precedes the ledger and any
+                # HTTP request. Losing either metadata file cannot reset quota.
+                self.checkpoint("job.json", job)
                 attempts.append(attempt); self.checkpoint("transfers.json", transfers)
                 def headers(value):
                     attempt["headers"] = value; self.checkpoint("transfers.json", transfers)
@@ -511,10 +521,15 @@ class WorldResume:
                         "selectors": list(world_policy.SELECTORS), "plan": self.plan,
                         "controllerSources": self.source_files, "recoveryIdentitySha256": digest(self.recoveries)}
             old = self.read("job.json")
-            if old is not None and old != identity:
-                raise ValueError("Resume job plan/runtime/selector identity changed")
             if old is None:
-                self.checkpoint("job.json", identity)
+                if any(path.name != "job.json.pending" for path in self.root.iterdir()):
+                    raise ValueError("Missing job identity with historical world artifacts")
+                self.checkpoint("job.json", {**identity, "transportReservations": []})
+            else:
+                reservations = old.get("transportReservations")
+                if not isinstance(reservations, list) or len(reservations) > 8 or any(type(i) is not int or not 0 <= i < 8 for i in reservations) or len(set(reservations)) != len(reservations) or old != {**identity, "transportReservations": reservations}:
+                    raise ValueError("Resume job plan/runtime/selector identity changed")
+            self.transfers()
             target = self.inputs / self.name
             promoted = self.read("promoted.json")
             if promoted:
