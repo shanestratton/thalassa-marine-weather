@@ -43,6 +43,10 @@ import {
     fahrenheitToCelsius,
 } from '../../utils/units';
 const WeatherWatchSection = React.lazy(() => import('./WeatherWatchSection'));
+const LightningWatchSection =
+    import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
+        ? React.lazy(() => import('./LightningWatchSection'))
+        : null;
 const ShoreContactsSection = React.lazy(() => import('./ShoreContactsSection'));
 
 type ThresholdKey = Exclude<keyof NotificationPreferences, 'precipitation'>;
@@ -803,6 +807,7 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
             />
             <React.Suspense fallback={null}>
                 <WeatherWatchSection />
+                {LightningWatchSection && <LightningWatchSection />}
                 <ShoreContactsSection />
             </React.Suspense>
         </div>

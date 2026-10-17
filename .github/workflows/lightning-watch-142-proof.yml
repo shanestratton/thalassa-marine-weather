@@ -25,7 +25,7 @@ jobs:
                 ports: ['5432:5432']
                 options: >-
                     --memory=512m --memory-swap=512m --cpus=1 --pids-limit=96
-                    --health-cmd='pg_isready -U postgres'
+                    --health-cmd="pg_isready -U postgres"
                     --health-interval=5s --health-timeout=5s --health-retries=10
         env:
             SOURCE_SHA: ${{ inputs.source_sha }}
