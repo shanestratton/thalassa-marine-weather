@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 test('separate Sea toggles, colour filter, official popup and style restoration', async ({ page }) => {
     const errors: string[] = [];
+    let ownedRequests = 0;
+    let publicMirrorRequests = 0;
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/functions/v1/proxy-openmeteo', (route) => {
         const { operation, params } = route.request().postDataJSON();
@@ -30,11 +32,37 @@ test('separate Sea toggles, colour filter, official popup and style restoration'
         }));
         return route.fulfill({ json: data.length === 1 ? data[0] : data });
     });
-    // Deterministic worldwide supplement; official QPWS snapshot is the actual
-    // committed data. No account, GPS, paid API or live-weather request.
-    await page.route('**/api/interpreter*', (route) =>
-        route.fulfill({
+    // Exercise the actual owned transport with a fictional qualified cohort;
+    // the official QPWS snapshot remains the actual committed data. A missing
+    // optional catalogue must use this bounded operation, never a public mirror.
+    await page.route('**/marine-catalogue/v1/osm/**', (route) =>
+        route.fulfill({ status: 404, json: { error: 'No fictional published catalogue' } }),
+    );
+    await page.route('**/api/interpreter*', (route) => {
+        publicMirrorRequests++;
+        return route.abort();
+    });
+    await page.route('**/functions/v1/owned-overpass', (route) => {
+        const operation = route.request().postDataJSON();
+        expect(route.request().method()).toBe('POST');
+        expect(operation).toMatchObject({ schema: 1, kind: 'references' });
+        expect(operation.bbox).toHaveLength(4);
+        const [south, west, north, east] = operation.bbox;
+        expect([south, west, north, east].every(Number.isInteger)).toBe(true);
+        expect(north - south).toBe(1);
+        expect(east - west).toBe(1);
+        ownedRequests++;
+        const sourceAt = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000).toISOString();
+        return route.fulfill({
             json: {
+                osm3s: { timestamp_osm_base: sourceAt },
+                thalassaSource: {
+                    schema: 1,
+                    complete: true,
+                    cohortSha256: 'c'.repeat(64),
+                    licence: 'ODbL-1.0',
+                    sourceAt,
+                },
                 elements: [
                     {
                         type: 'node',
@@ -52,8 +80,8 @@ test('separate Sea toggles, colour filter, official popup and style restoration'
                     },
                 ],
             },
-        }),
-    );
+        });
+    });
     await page.goto('/e2e/fixtures/cruising-layers.html');
     await expect(page.getByTestId('status')).toContainText('coverage varies', { timeout: 25_000 });
     await expect
@@ -110,4 +138,6 @@ test('separate Sea toggles, colour filter, official popup and style restoration'
         )
         .toBeGreaterThan(1);
     expect(errors).toEqual([]);
+    expect(ownedRequests).toBeGreaterThan(0);
+    expect(publicMirrorRequests).toBe(0);
 });

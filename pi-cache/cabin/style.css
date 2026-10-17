@@ -1,0 +1,143 @@
+:root {
+    font-family: system-ui, sans-serif;
+    color: #e2e8f0;
+    background: #020617;
+    color-scheme: dark;
+}
+* {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+}
+.cabin {
+    min-height: 100dvh;
+    padding: clamp(12px, 3vw, 32px);
+    max-width: 1100px;
+    margin: auto;
+}
+.night {
+    filter: sepia(0.2);
+    --accent: #fda4af;
+}
+header {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+}
+header strong {
+    letter-spacing: 0.15em;
+}
+header span {
+    display: block;
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin-top: 6px;
+}
+button,
+input {
+    font: inherit;
+    min-height: 44px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 8px 12px;
+    background: #0f172a;
+    color: inherit;
+}
+button:focus-visible,
+input:focus-visible {
+    outline: 3px solid #22d3ee;
+    outline-offset: 3px;
+}
+button:disabled {
+    opacity: 0.5;
+}
+form {
+    max-width: 420px;
+    margin: 50px auto;
+    display: grid;
+    gap: 14px;
+}
+input {
+    width: 100%;
+}
+.dials {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 760px;
+    margin: auto;
+}
+.numbers {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+.numbers > div,
+.alarm-mirror {
+    background: #0b1220;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 14px;
+}
+.numbers span {
+    display: block;
+    color: #94a3b8;
+}
+.numbers strong {
+    font-size: clamp(1.2rem, 4vw, 2rem);
+}
+small {
+    font-size: 0.7em;
+}
+.alarm-mirror {
+    margin-top: 20px;
+}
+h2 {
+    font-size: 1.1rem;
+}
+ul {
+    padding-left: 20px;
+}
+.sounding {
+    color: #fda4af;
+    font-weight: 600;
+}
+.small,
+.status {
+    font-size: 0.9rem;
+    color: #94a3b8;
+}
+.w-full {
+    width: 100%;
+}
+.h-full {
+    height: 100%;
+}
+.mx-auto {
+    margin-inline: auto;
+}
+.relative {
+    position: relative;
+}
+.nmea-instrument {
+    min-width: 0;
+}
+@media (max-width: 340px) {
+    header {
+        align-items: start;
+    }
+    .numbers {
+        gap: 6px;
+    }
+    .numbers > div {
+        padding: 10px 7px;
+    }
+    .dials {
+        gap: 0;
+    }
+    .alarm-mirror {
+        padding: 12px;
+    }
+}

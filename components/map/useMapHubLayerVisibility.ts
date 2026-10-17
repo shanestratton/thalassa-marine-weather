@@ -28,10 +28,16 @@ export function useMapHubLayerVisibility({
     // Never restore yesterday's overlays from device storage.
     const [aisVisible, setAisVisible] = useState(false);
     const [receiverCoverageVisible, setReceiverCoverageVisible] = useState(false);
+    const [crowdSoundingsVisible, setCrowdSoundingsVisible] = useState(false);
     const [measuredBuoysVisible, setMeasuredBuoysVisible] = useState(false);
     const [measuredBuoysLoaded, setMeasuredBuoysLoaded] = useState(false);
     const [ascatVisible, setAscatVisible] = useState(false);
     const [ascatLoaded, setAscatLoaded] = useState(false);
+    const [opticalLightningVisible, setOpticalLightningVisible] = useState(false);
+    const [opticalLightningLoaded, setOpticalLightningLoaded] = useState(false);
+    useEffect(() => {
+        if (opticalLightningVisible) setOpticalLightningLoaded(true);
+    }, [opticalLightningVisible]);
     useEffect(() => {
         if (ascatVisible) setAscatLoaded(true);
     }, [ascatVisible]);
@@ -100,8 +106,10 @@ export function useMapHubLayerVisibility({
 
     const browseAisVisible = aisVisible && !planningSurface;
     const browseReceiverCoverageVisible = receiverCoverageVisible && !planningSurface;
+    const browseCrowdSoundingsVisible = crowdSoundingsVisible && !planningSurface;
     const browseMeasuredBuoysVisible = measuredBuoysVisible && !planningSurface;
     const browseAscatVisible = ascatVisible && !planningSurface;
+    const browseOpticalLightningVisible = opticalLightningVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
@@ -119,6 +127,9 @@ export function useMapHubLayerVisibility({
         aisVisible,
         setAisVisible,
         receiverCoverageVisible,
+        crowdSoundingsVisible,
+        setCrowdSoundingsVisible,
+        browseCrowdSoundingsVisible,
         setReceiverCoverageVisible,
         browseReceiverCoverageVisible,
         measuredBuoysVisible,
@@ -129,6 +140,10 @@ export function useMapHubLayerVisibility({
         setAscatVisible,
         ascatLoaded,
         browseAscatVisible,
+        opticalLightningVisible,
+        setOpticalLightningVisible,
+        opticalLightningLoaded,
+        browseOpticalLightningVisible,
         chokepointVisible,
         setChokepointVisible,
         cycloneVisible,

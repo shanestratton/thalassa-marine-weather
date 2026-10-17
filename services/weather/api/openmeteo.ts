@@ -1,8 +1,7 @@
-import { CapacitorHttp } from '@capacitor/core';
 import { pruneMap } from '../../../utils/boundedMap';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
-import { isConcreteModel } from '../forecastModels';
+import { BEST_LOCAL_MODEL, isConcreteModel } from '../forecastModels';
 import { isSeaCellForecast } from '../coastalProvenance';
 import { markModelUnavailable } from '../modelLiveness';
 import { ECMWF_9KM } from '../regionalModels';
@@ -174,6 +173,9 @@ export const fetchOpenMeteo = async (
     isFast: boolean,
     model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
+    // Direct/legacy callers cannot send the local preference sentinel to a
+    // paid provider. The full orchestrator owns qualified regional adoption.
+    if (model === BEST_LOCAL_MODEL) model = 'dwd_icon';
     // Key presence is enforced in doFetchOpenMeteo once the host is known —
     // the self-hosted wx server path needs no key at all.
 

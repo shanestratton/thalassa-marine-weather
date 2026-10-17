@@ -37,6 +37,7 @@ let installed = false;
 let lastFile: { url: string; scope: AuthIdentityScope; at: number } | null = null;
 let gribModule: Promise<typeof import('./weather/localGribImport')> | undefined;
 let gpxModule: Promise<typeof import('./nativeOpenedGpx')> | undefined;
+let chartModule: Promise<typeof import('./charts/openedChartQueue')> | undefined;
 const loadGribImports = () => (gribModule ??= import('./weather/localGribImport'));
 /**
  * The last box link taken on this phone. iOS keeps reporting it from
@@ -63,6 +64,18 @@ function take(url: string): void {
         )
             return;
         lastFile = { url, scope, at: now };
+        if (/\.(?:mbtiles|kap|bsb|tiff?)$/i.test(url)) {
+            void (chartModule ??= import('./charts/openedChartQueue'))
+                .then((charts) => {
+                    charts.stageOpenedChart(url, scope);
+                    if (isAuthIdentityScopeCurrent(scope)) useUIStore.getState().setPage('map');
+                })
+                .catch((error: unknown) => {
+                    if (isAuthIdentityScopeCurrent(scope))
+                        toast.error(error instanceof Error ? error.message : 'Chart attachment failed.');
+                });
+            return;
+        }
         if (/\.gpx$/i.test(url)) {
             void (gpxModule ??= import('./nativeOpenedGpx'))
                 .then(async (gpx) => {

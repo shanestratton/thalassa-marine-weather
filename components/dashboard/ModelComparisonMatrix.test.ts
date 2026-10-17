@@ -6,7 +6,12 @@ vi.mock('../../services/weather/ModelSpreadService', () => ({ queryModelSpread: 
 vi.mock('../../stores/LocationStore', () => ({ useLocationCoords: () => ({ lat: 51.5, lon: -0.1 }) }));
 
 import { queryModelSpread, type ModelSpreadResult } from '../../services/weather/ModelSpreadService';
-import { COMPARE_MODELS, ECCC_LICENCE_URL, WAVE_SPREAD_MODELS } from '../../services/weather/forecastModels';
+import {
+    AROME_LICENCE_URL,
+    COMPARE_MODELS,
+    ECCC_LICENCE_URL,
+    WAVE_SPREAD_MODELS,
+} from '../../services/weather/forecastModels';
 import {
     ModelComparisonMatrix,
     sampleAt,
@@ -619,5 +624,24 @@ describe('ModelComparisonMatrix — the ten-day sheet', () => {
         expect(credit()).toBe('Data via Open-Meteo: UK Met Office (CC BY-SA 4.0); NOAA (public domain)');
         fireEvent.click(screen.getByRole('button', { name: 'WAVE' }));
         expect(credit()).toBe('Data via Open-Meteo: ECMWF, DWD, Météo-France (CC BY 4.0); NOAA (public domain)');
+    });
+
+    it('credits the original AROME member under Etalab without claiming it came through Open-Meteo', async () => {
+        const spread = fixtureSpread();
+        spread.atmos!.models[0] = {
+            ...spread.atmos!.models[0],
+            id: 'thalassa_arome_om_ncaled_025',
+            label: 'AROME 2.5 km',
+            provider: 'Météo-France AROME-OM',
+            horizonHours: 48,
+        };
+        vi.mocked(queryModelSpread).mockResolvedValueOnce(spread);
+        await open();
+        expect(screen.getByTestId('matrix-credit')).toHaveTextContent(/^Forecast data:/);
+        expect(screen.getByTestId('matrix-credit')).toHaveTextContent('Météo-France AROME-OM (Etalab-2.0)');
+        expect(screen.getByRole('link', { name: 'AROME-OM · Etalab-2.0' })).toHaveAttribute('href', AROME_LICENCE_URL);
+        fireEvent.click(screen.getByRole('button', { name: 'WAVE' }));
+        expect(screen.getByTestId('matrix-credit')).toHaveTextContent(/^Data via Open-Meteo:/);
+        expect(screen.queryByRole('link', { name: 'AROME-OM · Etalab-2.0' })).toBeNull();
     });
 });

@@ -50,6 +50,7 @@
 
 import { parseWeatherWatchNotice } from '../../../utils/weatherWatch.ts';
 import { parseOverdueNotice } from '../../../utils/overdueWatch.ts';
+import { isCurrentLightningNotice } from '../../../utils/licensedLightningPush.ts';
 import { RADAR_RELAY_CONTACT, RADAR_RELAY_EPISODE, RADAR_RELAY_KEY } from '../../../utils/radarRelayContract.ts';
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
 export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
@@ -100,6 +101,7 @@ export function getThreadId(type: string): string {
         case 'anchor_alarm':
             return 'thalassa-anchor';
         case 'weather_alert':
+        case 'lightning_nearby':
             return 'thalassa-weather';
         case 'buddy_notice':
             return 'thalassa-buddy';
@@ -215,7 +217,7 @@ export function getApnsExpiration(
 ): string {
     const nowSeconds = Math.floor(nowMs / 1000);
     // Informational source facts must not wait at APNs and arrive as fresh news.
-    if (type === 'buddy_notice') return '0';
+    if (type === 'buddy_notice' || type === 'lightning_nearby') return '0';
     if (type === 'overdue_notice') {
         const notice = parseOverdueNotice(data, nowMs);
         return notice ? String(Math.floor(notice.expiresAt / 1000)) : '0';
@@ -262,6 +264,11 @@ export function isStaleForDelivery(
     nowMs = Date.now(),
     data?: Record<string, unknown>,
 ): boolean {
+    if (type === 'lightning_nearby') {
+        const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+        return !Number.isFinite(created) || created > nowMs || nowMs - created >= 60000 ||
+            !isCurrentLightningNotice(data, nowMs);
+    }
     if (type === 'overdue_notice') {
         const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
         return !Number.isFinite(created) || created > nowMs || nowMs - created >= 600_000 ||

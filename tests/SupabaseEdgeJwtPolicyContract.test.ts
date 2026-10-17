@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publisher/handler';
+import { handleCrowdExport } from '../supabase/functions/crowd-sounding-export/handler';
 
 /**
  * verify_jwt = false, matching production, because the function guards itself —
@@ -23,6 +24,10 @@ import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publ
  * legacy-secret gateway check. The rationale names the guard.
  */
 const FUNCTION_GUARDED_OFF = {
+    'owned-overpass':
+        'requireAuthenticatedOrPublicQuota before fixed owned OSM operations and original-clock validation',
+    'regional-arome':
+        'requireAuthenticatedOrPublicQuota bounds public weather; fixed owned origin and original sea-cell contract',
     'elevenlabs-tts': 'requireAuthenticatedQuota verifies the signed-in session',
     'fetch-wind-grid': 'per-client public quota; app and Pi-cache callers',
     'fetch-wind-velocity': 'per-client public quota; no client caller remains',
@@ -43,6 +48,11 @@ const FUNCTION_GUARDED_OFF = {
 
 /** Already true on both sides; kept explicit with a caller rationale. */
 const EXISTING_PROTECTED_FUNCTIONS = {
+    'licensed-lightning-watch': 'gateway JWT and exact service-role POST; current owner leases and shared paid budget',
+    'ensemble-forecast': 'gateway JWT plus signed-in quota before paid fixed-point ensemble access',
+    'licensed-lightning':
+        'gateway JWT plus signed-in quota, current licence and shared atomic paid-request reservations',
+    'pi-internet-ais': 'gateway anon JWT plus current scoped Pi relay, owner quota and deletion/revocation rechecks',
     'morning-briefing': 'held weather work requires gateway JWT and exact service-role POST',
     'nowcast-watch': 'held weather work requires gateway JWT and exact service-role POST',
     'convective-watch': 'held weather work requires gateway JWT and exact service-role POST',
@@ -60,6 +70,8 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 
 /** Callers that cannot present a Supabase JWT at all. Each function guards itself. */
 const CREDENTIALLESS_ALLOWLIST = {
+    'crowd-sounding-export':
+        'held private worker; dedicated 256-bit token SHA verifier precedes privileged reads, no browser/public quota path',
     'satellite-view': 'fixed display-only provider imagery with bounded queries and a mandatory HMAC public quota',
     'forecast-assets':
         'bare public fixed-dataset reads, HMAC per-client quota before bounded public GitHub release access',
@@ -153,7 +165,37 @@ describe('Supabase Edge gateway JWT policy', () => {
     const config = readFileSync(resolve(process.cwd(), 'supabase/config.toml'), 'utf8');
     const policies = parseVerifyJwtPolicies(config);
 
-    it('keeps the gateway check only on the reviewed irreversible / credential-issuing paths', () => {
+    it('requires the dedicated crowd worker credential before parsing or privileged access', async () => {
+        const network = vi.fn();
+        const options = {
+            enabled: true,
+            tokenHash: await tokenHash('a'.repeat(64)),
+            origin: 'https://fixture.supabase.co',
+            serviceKey: 'synthetic-service-only',
+            fetch: network,
+        };
+        const callers: Record<string, string>[] = [
+            {},
+            { authorization: 'Bearer fake-user-jwt' },
+            { apikey: 'synthetic-service-only' },
+        ];
+        for (const headers of callers) {
+            const request = new Request('https://fixture.supabase.co/functions/v1/crowd-sounding-export', {
+                method: 'POST',
+                headers,
+                body: 'invalid-json-that-must-not-be-parsed',
+            });
+            expect((await handleCrowdExport(request, options)).status).toBe(401);
+        }
+        expect(network).not.toHaveBeenCalled();
+        expect(
+            (await handleCrowdExport(new Request('https://fixture.supabase.co'), { ...options, enabled: false }))
+                .status,
+        ).toBe(503);
+        expect(network).not.toHaveBeenCalled();
+    });
+
+    it('keeps the gateway check on exactly the reviewed protected paths', () => {
         for (const [name, rationale] of Object.entries(EXISTING_PROTECTED_FUNCTIONS)) {
             expect(rationale, `${name} must retain a reviewed caller rationale`).not.toHaveLength(0);
             expect(policies[name], `${name} must declare verify_jwt = true`).toBe(true);
@@ -196,8 +238,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         }
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
         // 16 original function-guarded drifts; the authenticated SevenCs trial
-        // that made it 17 was deleted on 2026-10-09.
-        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(16);
+        // was deleted on 2026-10-09. New regional-arome uses the same bounded
+        // public-weather quota shape; owned-overpass adds fixed OSM operations.
+        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(18);
         // The six credentialless drifts, the eight already allowlisted,
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).
@@ -213,8 +256,10 @@ describe('Supabase Edge gateway JWT policy', () => {
         // wx-publisher (134) is a separate producer identity: its exact 256-bit
         // token is verified inside the handler, never a credentialless DB path.
         // forecast-assets (141) serves only three fixed public release datasets after an HMAC client quota.
+        // crowd-sounding-export (142) has its own private worker token; the
+        // gateway policy does not grant a browser access to private soundings.
         // satellite-view (141) adds only fixed display imagery after its HMAC client quota.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(25);
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(26);
     });
 
     it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {

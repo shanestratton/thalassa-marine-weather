@@ -4,9 +4,12 @@
  * {meteofrance,dwd,ukmo,knmi,dmi,metno,gfs,gem,jma}-api.
  *
  * Boxes are conservative selection hints inside the documented region maps,
- * not a coverage guarantee. A model appears only after the commercial proxy
- * returns finite wind here; nulls and hours beyond its run remain missing.
+ * not a coverage guarantee. Existing domains require finite wind from the
+ * commercial proxy; own AROME-OM requires its original sea-cell cohort.
+ * Nulls and hours beyond the original run remain missing.
  */
+import { AROME_DOMAINS, AROME_HORIZON_HOURS } from './aromeDomains';
+
 export const ECMWF_9KM = 'ecmwf_ifs' as const;
 export interface RegionalModel {
     id: string;
@@ -17,8 +20,19 @@ export interface RegionalModel {
     /** South, north, west, east; conventional longitudes. */
     region: readonly [number, number, number, number];
     displayOnly?: boolean;
+    /** Omitted for existing paid-proxy domains. Own IDs never enter &models=. */
+    transport?: 'wx-arome';
 }
 export const REGIONAL_MODELS: readonly RegionalModel[] = [
+    ...AROME_DOMAINS.map((domain) => ({
+        id: domain.id,
+        name: domain.name,
+        provider: 'Météo-France AROME-OM',
+        resolutionKm: 2.5,
+        horizonHours: AROME_HORIZON_HOURS,
+        region: domain.region,
+        transport: 'wx-arome' as const,
+    })),
     {
         id: 'metno_nordic',
         name: 'MET Nordic',

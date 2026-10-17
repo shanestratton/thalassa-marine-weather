@@ -119,7 +119,12 @@ export function rewritePreloadHelper(code, fileName, parse, sourcemap) {
     if (!calls || identifiers !== calls + 2 || aliases.size !== 1)
         throw Error('Unfamiliar or escaped Vite preload helper');
     const alias = [...aliases][0];
-    const next = `const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=${alias}(${JSON.stringify(record.id)},${record.text.length},${record.count},${record.checksum}))))=>i.map(i=>d[i]);`;
+    // The minifier may assign the imported reader one of Vite's helper
+    // parameter names. Keep that import free inside default initializers;
+    // otherwise i calls the indices array, m calls the helper itself, or d
+    // reads its own uninitialised parameter. Parsed names also cover escapes.
+    const [indices, cache, dependencies] = ['i', 'm', 'd'].map((name) => (name === alias ? `${name}_` : name));
+    const next = `const __vite__mapDeps=(${indices},${cache}=__vite__mapDeps,${dependencies}=(${cache}.f||(${cache}.f=${alias}(${JSON.stringify(record.id)},${record.text.length},${record.count},${record.checksum}))))=>${indices}.map(${indices}=>${dependencies}[${indices}]);`;
     return { code: next + code.slice(end), record, saved: Buffer.byteLength(helper) - Buffer.byteLength(next), calls };
 }
 

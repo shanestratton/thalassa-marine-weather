@@ -97,6 +97,32 @@ afterEach(() => {
 });
 
 describe('a box link from iOS', () => {
+    it('routes a chart launch/event pair once to the rights-gated URI queue without GRIB or GPX copying', async () => {
+        const { links, ui } = await load();
+        const charts = await import('../services/charts/openedChartQueue');
+        const opened = vi.fn();
+        window.addEventListener(charts.OPEN_CHART_EVENT, opened);
+        const url = 'file:///private/Inbox/Own%20chart.mbtiles';
+        app.launchUrl = url;
+        links.installBoxLinks();
+        await settle();
+        app.listeners.forEach((listener) => listener({ url }));
+        await vi.waitFor(() => expect(charts.peekOpenedChart()?.name).toBe('Own chart.mbtiles'));
+        expect(opened).toHaveBeenCalledOnce();
+        expect(ui.useUIStore.getState().currentView).toBe('map');
+        expect(grib.import).not.toHaveBeenCalled();
+        expect(gpx.open).not.toHaveBeenCalled();
+        window.removeEventListener(charts.OPEN_CHART_EVENT, opened);
+    });
+    it('reports a BSB catalogue and never treats it as a KAP image or GRIB', async () => {
+        const { links } = await load();
+        links.installBoxLinks();
+        await settle();
+        app.listeners.forEach((listener) => listener({ url: 'file:///private/Inbox/chart.bsb' }));
+        await vi.waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringContaining('KAP image')));
+        expect(grib.import).not.toHaveBeenCalled();
+        expect(gpx.open).not.toHaveBeenCalled();
+    });
     it('hands a GRIB launch/event pair to the existing listener once, and coalesces immediate duplicate file events', async () => {
         const { links, ui } = await load();
         const url = 'file:///private/Inbox/fictional.grb';

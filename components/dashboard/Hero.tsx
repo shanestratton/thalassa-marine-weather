@@ -58,6 +58,7 @@ export const HeroSection = ({
     forecastModelLabel = null,
     compact = false,
     onShownDayChange,
+    nativeHourlyRows = false,
 }: {
     current: WeatherMetrics;
     forecasts: ForecastDay[];
@@ -96,6 +97,9 @@ export const HeroSection = ({
      *  has any hours to page through, and — past the pinned model's range —
      *  the caption that explains its empty grid. */
     onShownDayChange?: (day: ShownGlassDay) => void;
+    /** Original regional runs can end partway through a local day. Keep those
+     * actual hours accessible without fabricating a complete daily forecast. */
+    nativeHourlyRows?: boolean;
 }) => {
     const { settings, updateSettings } = useSettings();
     const daysHintId = useId();
@@ -260,11 +264,38 @@ export const HeroSection = ({
                 });
             });
         }
+        if (nativeHourlyRows) {
+            const seen = new Set(rows.map((row) => row.data.isoDate));
+            for (const [day, hours] of hourlyByDay) {
+                if (day <= todayISO || seen.has(day) || !hours.length) continue;
+                // No current/global metric is copied into this partial day.
+                // Its individual cards own the actual native hourly readings;
+                // whole-day extrema and summary weather remain unknown.
+                rows.push({
+                    data: {
+                        isoDate: day,
+                        date: day,
+                        airTemperature: null,
+                        windSpeed: null,
+                        windDirection: '',
+                        waveHeight: null,
+                        swellPeriod: null,
+                        uvIndex: null,
+                        condition: '',
+                        description: 'Partial original forecast day',
+                    },
+                    hourly: hours,
+                    customTime: undefined,
+                    hasWeather: true,
+                });
+            }
+            rows.sort((a, b) => String(a.data.isoDate).localeCompare(String(b.data.isoDate)));
+        }
         // Cap at 11 rows total (Today + up to 10 future days). WeatherKit's
         // daily forecast returns 10 days; the weather service extends the tail
         // with Open-Meteo (up to 16) so a full 10 days in advance are available.
         return rows.slice(0, 11);
-    }, [current, forecasts, hourly, timeZone]);
+    }, [current, forecasts, hourly, timeZone, nativeHourlyRows]);
 
     const handleScroll = useCallback(
         (e: React.UIEvent<HTMLDivElement>) => {

@@ -17,6 +17,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const cap = vi.hoisted(() => ({
     native: true,
     getUri: vi.fn(),
+    stat: vi.fn(),
+    initialize: vi.fn(),
+    prepare: vi.fn(),
+    tile: null as Uint8Array | null,
 }));
 
 vi.mock('@capacitor/core', () => ({
@@ -30,28 +34,135 @@ vi.mock('@capacitor/core', () => ({
     },
 }));
 vi.mock('@capacitor/filesystem', () => ({
-    Filesystem: { getUri: cap.getUri },
+    Filesystem: { getUri: cap.getUri, stat: cap.stat },
     Directory: { Cache: 'CACHE' },
 }));
 vi.mock('sql.js', () => ({
-    default: async () => ({
-        Database: class {
-            prepare() {
-                return { step: () => false, getAsObject: () => ({}), free: () => undefined };
-            }
-            close() {}
-        },
-    }),
+    default: async () => {
+        cap.initialize();
+        return {
+            Database: class {
+                prepare(sql: string) {
+                    cap.prepare(sql);
+                    if (sql.includes('tile_data'))
+                        return {
+                            bind: () => undefined,
+                            step: () => cap.tile !== null,
+                            get: () => [cap.tile],
+                            free: () => undefined,
+                        };
+                    return { step: () => false, getAsObject: () => ({}), free: () => undefined };
+                }
+                close() {}
+            },
+        };
+    },
 }));
 
-const fetchSpy = vi.fn(
-    async (_input: RequestInfo | URL) => new Response(new Uint8Array([0x53, 0x51, 0x4c]), { status: 200 }),
-);
+function sqlitePage(): Uint8Array<ArrayBuffer> {
+    const page = new Uint8Array(512);
+    page.set(new TextEncoder().encode('SQLite format 3\0'));
+    new DataView(page.buffer).setUint16(16, 512, false);
+    return page;
+}
+
+const fetchSpy = vi.fn(async (_input: RequestInfo | URL) => new Response(sqlitePage(), { status: 200 }));
 
 beforeEach(() => {
     vi.resetModules();
     fetchSpy.mockClear();
+    cap.stat.mockResolvedValue({ size: 512, type: 'file' });
+    cap.initialize.mockClear();
+    cap.prepare.mockClear();
+    cap.tile = null;
     vi.stubGlobal('fetch', fetchSpy);
+});
+
+describe('MBTiles whole-file resource ownership', () => {
+    it('refuses an oversized file before a URI, fetch or SQLite initialization', async () => {
+        cap.stat.mockResolvedValue({ size: 32 * 1024 * 1024 + 1, type: 'file' });
+        cap.getUri.mockClear();
+        const { MBTilesService } = await import('../services/MBTilesService');
+        await expect(MBTilesService.open('too-large.mbtiles')).rejects.toThrow('32 MiB');
+        expect(cap.getUri).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(cap.initialize).not.toHaveBeenCalled();
+    });
+    it('refuses path traversal before touching the filesystem', async () => {
+        cap.stat.mockClear();
+        const { MBTilesService } = await import('../services/MBTilesService');
+        expect(() => MBTilesService.open('../other.mbtiles')).toThrow();
+        expect(cap.stat).not.toHaveBeenCalled();
+        expect(cap.initialize).not.toHaveBeenCalled();
+    });
+    it('retiring a chart during its read prevents a late database installation', async () => {
+        let finish: ((response: Response) => void) | undefined;
+        fetchSpy.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        cap.getUri.mockResolvedValue({ uri: '/CACHE/chart_downloads/late.mbtiles' });
+        const { MBTilesService } = await import('../services/MBTilesService');
+        const pending = MBTilesService.open('late.mbtiles');
+        await vi.waitFor(() => expect(finish).toBeDefined());
+        MBTilesService.close('late.mbtiles');
+        finish!(new Response(sqlitePage()));
+        await expect(pending).rejects.toThrow('cancelled');
+        expect(cap.initialize).not.toHaveBeenCalled();
+        expect(MBTilesService.getOpenCharts()).toEqual([]);
+    });
+    it('closeAll fences queued opens as well as the active read', async () => {
+        let finish: ((response: Response) => void) | undefined;
+        fetchSpy.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        cap.getUri.mockResolvedValue({ uri: '/CACHE/chart_downloads/first.mbtiles' });
+        const { MBTilesService } = await import('../services/MBTilesService');
+        const first = MBTilesService.open('first.mbtiles'),
+            second = MBTilesService.open('second.mbtiles');
+        await vi.waitFor(() => expect(finish).toBeDefined());
+        MBTilesService.closeAll();
+        finish!(new Response(sqlitePage()));
+        await expect(first).rejects.toThrow('cancelled');
+        await expect(second).rejects.toThrow('cancelled');
+        expect(fetchSpy).toHaveBeenCalledOnce();
+    });
+    it('does not query invalid tile coordinates or hand an oversized tile to the decoder', async () => {
+        await openChart('/CACHE/chart_downloads/fictional-harbour.mbtiles', false);
+        const { MBTilesService } = await import('../services/MBTilesService');
+        cap.prepare.mockClear();
+        expect(MBTilesService.getTile('fictional-harbour.mbtiles', 3, 8, 0)).toBeNull();
+        expect(cap.prepare).not.toHaveBeenCalled();
+        cap.tile = new Uint8Array(1024 * 1024 + 1);
+        expect(MBTilesService.getTileBlobUrl('fictional-harbour.mbtiles', 3, 0, 0)).toBeNull();
+    });
+    it('copies only a tile view and revokes its owned URL when that chart closes', async () => {
+        await openChart('/CACHE/chart_downloads/fictional-harbour.mbtiles', false);
+        const { MBTilesService, TRANSPARENT_TILE_DATA_URL } = await import('../services/MBTilesService');
+        const png = new Uint8Array(Buffer.from(TRANSPARENT_TILE_DATA_URL.split(',')[1], 'base64'));
+        const surrounding = new Uint8Array(png.length + 100);
+        surrounding.set(png, 30);
+        cap.tile = surrounding.subarray(30, 30 + png.length);
+        const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:owned-tile');
+        const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+        try {
+            expect(MBTilesService.getTileBlobUrl('fictional-harbour.mbtiles', 3, 0, 0)).toBe('blob:owned-tile');
+            const blob = create.mock.calls[0][0];
+            expect(blob).toBeInstanceOf(Blob);
+            if (!(blob instanceof Blob)) throw new Error('Expected the chart tile Blob.');
+            expect(blob.size).toBe(png.length);
+            MBTilesService.close('fictional-harbour.mbtiles');
+            expect(revoke).toHaveBeenCalledWith('blob:owned-tile');
+        } finally {
+            create.mockRestore();
+            revoke.mockRestore();
+        }
+    });
 });
 
 async function openChart(uri: string, native: boolean) {

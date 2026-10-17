@@ -17,10 +17,14 @@ export interface BuildTacticalStateDeps {
     setAisVisible: Dispatch<SetStateAction<boolean>>;
     receiverCoverageVisible?: boolean;
     setReceiverCoverageVisible?: Dispatch<SetStateAction<boolean>>;
+    crowdSoundingsVisible?: boolean;
+    setCrowdSoundingsVisible?: Dispatch<SetStateAction<boolean>>;
     measuredBuoysVisible?: boolean;
     setMeasuredBuoysVisible?: Dispatch<SetStateAction<boolean>>;
     ascatVisible?: boolean;
     setAscatVisible?: Dispatch<SetStateAction<boolean>>;
+    opticalLightningVisible?: boolean;
+    setOpticalLightningVisible?: Dispatch<SetStateAction<boolean>>;
     cycloneVisible: boolean;
     setCycloneVisible: Dispatch<SetStateAction<boolean>>;
     squallVisible: boolean;
@@ -66,10 +70,14 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setAisVisible,
         receiverCoverageVisible,
         setReceiverCoverageVisible,
+        crowdSoundingsVisible,
+        setCrowdSoundingsVisible,
         measuredBuoysVisible,
         setMeasuredBuoysVisible,
         ascatVisible,
         setAscatVisible,
+        opticalLightningVisible,
+        setOpticalLightningVisible,
         cycloneVisible,
         setCycloneVisible,
         squallVisible,
@@ -114,10 +122,14 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         aisVisible,
         receiverCoverageVisible,
         onToggleReceiverCoverage: setReceiverCoverageVisible ? () => setReceiverCoverageVisible((v) => !v) : undefined,
+        crowdSoundingsVisible,
+        onToggleCrowdSoundings: setCrowdSoundingsVisible ? () => setCrowdSoundingsVisible((v) => !v) : undefined,
         measuredBuoysVisible,
         onToggleMeasuredBuoys: setMeasuredBuoysVisible ? () => setMeasuredBuoysVisible((v) => !v) : undefined,
         ascatVisible,
         onToggleAscat: setAscatVisible ? () => setAscatVisible((v) => !v) : undefined,
+        opticalLightningVisible,
+        onToggleOpticalLightning: setOpticalLightningVisible ? () => setOpticalLightningVisible((v) => !v) : undefined,
         onToggleAis: () => {
             setAisVisible((v) => {
                 if (!v) {
@@ -207,7 +219,7 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         // Lightning is offered only behind the Blitzortung licence flag (off
         // by default since build 123): like protected areas below, no flag,
         // no menu item — never a toggle for a layer that cannot draw.
-        ...(isBlitzortungEnabled()
+        ...(isBlitzortungEnabled() || import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
             ? {
                   lightningVisible,
                   onToggleLightning: () => {

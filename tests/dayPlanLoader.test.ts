@@ -340,7 +340,7 @@ describe('loadToday: everything about the place, as it arrives', () => {
         expect(deps.loadReferenceTile.mock.calls.length).toBeGreaterThanOrEqual(1);
         expect(deps.loadReferenceTile.mock.calls.length).toBeLessThanOrEqual(4);
         expect(deps.loadCoastline).toHaveBeenCalledTimes(1);
-        // 131-PYD-10: the atlas holds Queensland's bays; public Overpass is not asked for names here.
+        // The atlas already names these places; owned OSM names fill gaps only.
         expect(deps.loadNamedPlaces).not.toHaveBeenCalled();
         expect(deps.loadTides).toHaveBeenCalledWith(MARINA.lat, MARINA.lon);
         expect(deps.loadCyclones).toHaveBeenCalledTimes(1);
@@ -381,6 +381,14 @@ describe('loadToday: everything about the place, as it arrives', () => {
         const base = await loadToday(
             { start: NOUMEA, cruiseKts: 5, label: 'Port Moselle' },
             { signal: new AbortController().signal, deps },
+        );
+        // Without an atlas, names use the same bounded, nonduplicated cells and
+        // cancellation signal as the reference request.
+        expect(deps.loadNamedPlaces.mock.calls.length).toBeGreaterThanOrEqual(1);
+        expect(deps.loadNamedPlaces.mock.calls.length).toBeLessThanOrEqual(4);
+        expect(deps.loadNamedPlaces.mock.calls).toEqual(deps.loadReferenceTile.mock.calls);
+        expect(new Set(deps.loadNamedPlaces.mock.calls.map(([tile]) => tile.key)).size).toBe(
+            deps.loadNamedPlaces.mock.calls.length,
         );
         expect(base.zone).toBe('Pacific/Noumea');
         expect(base.start.name).toBe('Port Moselle');

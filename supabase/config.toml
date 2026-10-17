@@ -184,6 +184,14 @@ verify_jwt = false
 # per platform guidance.
 verify_jwt = false
 
+[functions.ensemble-forecast]
+  # Genuine members, fixed products and per-account quota; key remains server-side.
+  verify_jwt = true
+
+[functions.licensed-lightning]
+  # Held until current display and push rights are verified; no historical-key inference.
+  verify_jwt = true
+
 [functions.proxy-spoonacular]
 # Server-disabled provider (SPOONACULAR_ENABLED) plus a public quota inside
 # the function; the client uses credentialed functions.invoke. OFF.
@@ -324,9 +332,34 @@ verify_jwt = false
 # Overdue work is service-only and retains both gateway JWT and exact service auth.
 verify_jwt = true
 
+[functions.pi-internet-ais]
+# Gateway anon JWT plus the current scoped Pi relay; no service key on the Pi.
+# New export remains disabled until separately reviewed and explicitly enabled.
+verify_jwt = true
+
+[functions.regional-arome]
+# Public weather uses requireAuthenticatedOrPublicQuota inside the function;
+# requests reach only the fixed owned origin and original sea-cell projection.
+verify_jwt = false
+
+[functions.owned-overpass]
+# Fixed operation families and per-client public quota precede the owned gateway.
+# Original database clocks, bounded bodies and missing admission fail closed.
+verify_jwt = false
+
+[functions.licensed-lightning-watch]
+# Held service-only polling requires gateway JWT and exact service-role POST.
+# No cron or provider entitlement is enabled by this declaration.
+verify_jwt = true
+
 [functions.forecast-assets]
 # Bare read-only app fetches: fixed public GitHub datasets only, with an HMAC
 # per-client public quota before upstream access; no user credential is required.
+verify_jwt = false
+
+[functions.crowd-sounding-export]
+# Held private worker export: dedicated 256-bit token SHA verifier before any
+# service-only read. No service key leaves Edge. No browser/public quota path.
 verify_jwt = false
 
 [functions.satellite-view]

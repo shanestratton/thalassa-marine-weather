@@ -88,10 +88,14 @@ export interface RadialHelmMenuProps {
         onToggleAis?: () => void;
         receiverCoverageVisible?: boolean;
         onToggleReceiverCoverage?: () => void;
+        crowdSoundingsVisible?: boolean;
+        onToggleCrowdSoundings?: () => void;
         measuredBuoysVisible?: boolean;
         onToggleMeasuredBuoys?: () => void;
         ascatVisible?: boolean;
         onToggleAscat?: () => void;
+        opticalLightningVisible?: boolean;
+        onToggleOpticalLightning?: () => void;
         cycloneVisible?: boolean;
         onToggleCyclones?: () => void;
         squallVisible?: boolean;
@@ -530,6 +534,16 @@ function buildCategories(
                               },
                           ]
                         : []),
+                    ...(tacticalState?.onToggleCrowdSoundings
+                        ? [
+                              {
+                                  id: 'crowd-soundings',
+                                  label: 'Crowd soundings',
+                                  icon: <TideIcon />,
+                                  action: tacticalState.onToggleCrowdSoundings,
+                              },
+                          ]
+                        : []),
                     ...(tacticalState?.onToggleTideStations
                         ? [
                               {
@@ -637,6 +651,16 @@ function buildCategories(
                               label: 'Satellite wind',
                               icon: <WindIcon />,
                               action: tacticalState.onToggleAscat,
+                          },
+                      ]
+                    : []),
+                ...(tacticalState?.onToggleOpticalLightning
+                    ? [
+                          {
+                              id: 'optical-lightning',
+                              label: 'Satellite flashes',
+                              icon: <LightningIcon />,
+                              action: tacticalState.onToggleOpticalLightning,
                           },
                       ]
                     : []),
@@ -990,8 +1014,10 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             toggleLayer('none');
             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
             if (tacticalState?.receiverCoverageVisible) tacticalState.onToggleReceiverCoverage?.();
+            if (tacticalState?.crowdSoundingsVisible) tacticalState.onToggleCrowdSoundings?.();
             if (tacticalState?.measuredBuoysVisible) tacticalState.onToggleMeasuredBuoys?.();
             if (tacticalState?.ascatVisible) tacticalState.onToggleAscat?.();
+            if (tacticalState?.opticalLightningVisible) tacticalState.onToggleOpticalLightning?.();
             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
             if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
@@ -1137,8 +1163,10 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             // directly for its pulse.
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
             if (item.id === 'receiver-coverage') return tacticalState?.receiverCoverageVisible ?? false;
+            if (item.id === 'crowd-soundings') return tacticalState?.crowdSoundingsVisible ?? false;
             if (item.id === 'measured-buoys') return tacticalState?.measuredBuoysVisible ?? false;
             if (item.id === 'ascat') return tacticalState?.ascatVisible ?? false;
+            if (item.id === 'optical-lightning') return tacticalState?.opticalLightningVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
             if (item.id === 'lightning') return tacticalState?.lightningVisible ?? false;
@@ -1169,8 +1197,10 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         let count = activeLayers.size;
         if (tacticalState?.aisVisible) count++;
         if (tacticalState?.receiverCoverageVisible) count++;
+        if (tacticalState?.crowdSoundingsVisible) count++;
         if (tacticalState?.measuredBuoysVisible) count++;
         if (tacticalState?.ascatVisible) count++;
+        if (tacticalState?.opticalLightningVisible) count++;
         if (tacticalState?.cycloneVisible) count++;
         if (tacticalState?.squallVisible) count++;
         if (tacticalState?.lightningVisible) count++;

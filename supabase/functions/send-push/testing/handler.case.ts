@@ -24,6 +24,8 @@ async function run(
         httpStatus?: number;
         networkError?: boolean;
         malformed?: boolean;
+        lightning?: boolean;
+        currentChecks?: Array<boolean | null>;
     } = {},
 ) {
     proof.handler = undefined;
@@ -31,6 +33,7 @@ async function run(
     proof.updates = [];
     proof.initiated = 0;
     proof.current = options.current === undefined ? true : options.current;
+    proof.currentChecks = [...(options.currentChecks ?? [])];
     proof.attempt = options.attempt === undefined ? true : options.attempt;
     proof.tokens = Array.from(
         { length: options.tokens ?? 1 },
@@ -53,6 +56,17 @@ async function run(
             ...(options.malformed ? { extra: 'must be rejected' } : {}),
         },
     };
+    if (options.lightning) {
+        proof.record.notification_type = 'lightning_nearby';
+        proof.record.title = 'Lightning within 20 NM';
+        proof.record.data = {
+            type: 'lightning_nearby',
+            provider: options.malformed ? 'unknown' : 'xweather',
+            source_at: now - 1000,
+            expires_at: now + 59000,
+            pulse_id: 'original-fixture-pulse',
+        };
+    }
     const environment = {
         SUPABASE_URL: 'https://fixture.invalid',
         SUPABASE_SERVICE_ROLE_KEY: 'fixture-service-role',
@@ -67,6 +81,7 @@ async function run(
     const originalFetch = globalThis.fetch;
     let httpCalls = 0;
     let sentAps: Record<string, unknown> | undefined;
+    let expiration: string | null = null;
     try {
         for (const [name, value] of Object.entries(environment)) Deno.env.set(name, value);
         globalThis.fetch = (input, init) => {
@@ -75,13 +90,20 @@ async function run(
                 !/^https:\/\/api\.push\.apple\.com\/3\/device\/fixture-device-\d+$/.test(input)
             ) throw Error('Non-fixture transport rejected');
             if (init?.method !== 'POST' || typeof init.body !== 'string') throw Error('Expected prepared HTTP request');
-            if (proof.events.filter((event) => event === 'overdue_owner_attempt').length < httpCalls + 1) {
+            if (
+                !options.lightning &&
+                proof.events.filter((event) => event === 'overdue_owner_attempt').length < httpCalls + 1
+            ) {
                 throw Error('Missing HTTP attempt receipt');
+            }
+            if (options.lightning && proof.events.at(-1) !== 'lightning_watch_delivery_current') {
+                throw Error('Missing immediate lightning delivery authority');
             }
             if (!new Headers(init.headers).get('authorization')?.startsWith('bearer ey')) {
                 throw Error('Expected prepared synthetic JWT');
             }
             sentAps = JSON.parse(init.body).aps;
+            expiration = new Headers(init.headers).get('apns-expiration');
             httpCalls++;
             proof.events.push('synthetic-apns-http');
             return options.networkError
@@ -98,7 +120,14 @@ async function run(
                 body: JSON.stringify({ record: { id: queueId } }),
             }),
         );
-        return { status: response.status, httpCalls, initiated: proof.initiated, events: [...proof.events], sentAps };
+        return {
+            status: response.status,
+            httpCalls,
+            initiated: proof.initiated,
+            events: [...proof.events],
+            sentAps,
+            expiration,
+        };
     } finally {
         globalThis.fetch = originalFetch;
         for (const [name, value] of Object.entries(previous)) {
@@ -149,4 +178,31 @@ Deno.test('actual sender: retry and multiple tokens retain one initiated logical
 Deno.test('actual sender: uncertain HTTP outcome is attempted and never reported as delivered', async () => {
     const result = await run({ networkError: true });
     equal([result.status, result.httpCalls, result.initiated], [502, 3, 1]);
+});
+Deno.test('actual lightning sender: current ordinary event expires immediately at APNs', async () => {
+    const result = await run({ lightning: true });
+    equal([result.status, result.httpCalls, result.expiration], [200, 1, '0']);
+    equal(result.sentAps?.['interruption-level'], 'active');
+    equal(result.sentAps?.sound, 'default');
+    equal(result.sentAps?.['thread-id'], 'thalassa-weather');
+});
+Deno.test('actual lightning sender: revoked owner and unknown permission stop before token lookup', async () => {
+    for (const current of [false, null]) {
+        const result = await run({ lightning: true, current });
+        equal(result.httpCalls, 0);
+        equal(result.events.includes('token-lookup'), false);
+    }
+});
+Deno.test('actual lightning sender: revocation after JWT/body preparation stops before HTTP', async () => {
+    const result = await run({ lightning: true, currentChecks: [true, true, false] });
+    equal(result.httpCalls, 0);
+    equal(result.events.filter((event) => event === 'lightning_watch_delivery_current').length, 3);
+});
+Deno.test('actual lightning sender: every retry rechecks current opt-in', async () => {
+    const result = await run({ lightning: true, httpStatus: 503, currentChecks: [true, true, true, false] });
+    equal(result.httpCalls, 1);
+});
+Deno.test('actual lightning sender: malformed original provider identity never sends', async () => {
+    const result = await run({ lightning: true, malformed: true });
+    equal(result.httpCalls, 0);
 });

@@ -23,6 +23,11 @@ import fs from 'fs';
 import http from 'http';
 import https from 'https';
 import path from 'path';
+import { startCabinRuntime } from './cabin/runtime.js';
+import { refuseCabinViewerOnMainApi } from './cabin/server.js';
+import { cabinOwnerBinding } from './cabin/access.js';
+import { startInternetAisRuntime } from './internetAis/runtime.js';
+import { internetAisAuthority, internetAisFix } from './internetAis/publisher.js';
 import { Cache } from './cache.js';
 import { Barometer } from './barometer.js';
 import { WindHistory } from './windHistory.js';
@@ -38,6 +43,8 @@ import { PiPolarLearner } from './polarLearner.js';
 import { createPolarRoutes } from './routes/polars.js';
 import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
 import { createOsmRoutes } from './routes/osm.js';
+import { getOsmOverlay } from './services/osm.js';
+import { fetchOwnedOverlayReply } from './ownedOsm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
 import { createTrackRoutes } from './routes/track.js';
 import { attachSeabed } from './seabed/attach.js';
@@ -633,6 +640,9 @@ let vaultLink: VaultLink | null = null;
 /** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
 const ANCHOR_SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const app = express();
+// This credential has a separate listener and no command/enrolment authority,
+// even while the historical main command lock is in observe mode.
+app.use(refuseCabinViewerOnMainApi);
 
 app.use(
     cors({
@@ -862,6 +872,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
     radarSession.retire();
     const priorFleetAuthority = diaryRelayOutbox.lendFleetCredentials();
     diaryRelayOutbox.configure(input);
+    internetAisRuntime?.refresh();
     fleetKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     ownSkillKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
@@ -1390,7 +1401,14 @@ if (APP_API_ENABLED) {
         }),
     );
     app.use('/api/enc', createEncRoutes(identity, { vault: chartVault, devices: chartDevices }));
-    app.use('/api/osm', createOsmRoutes());
+    app.use(
+        '/api/osm',
+        createOsmRoutes((bbox, options) =>
+            getOsmOverlay(bbox, options, {
+                fetchOverpass: (request) => fetchOwnedOverlayReply(proxyConfig, request),
+            }),
+        ),
+    );
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox, diaryVideoRelay));
     app.use('/api/track', createTrackRoutes(trackStore, trackRecorder));
@@ -1455,6 +1473,55 @@ if (UNSAFE_ADMIN_API_ENABLED && fs.existsSync(path.join(APP_DIST, 'index.html'))
 }
 
 // ── Start ──
+
+const cabinRuntime = startCabinRuntime({
+    enabled: process.env.THALASSA_CABIN_ENABLED === '1',
+    host: BIND_HOST,
+    port: Number(process.env.THALASSA_CABIN_PORT || 3002),
+    mainPort: PORT,
+    cacheDirectory: CACHE_DIR,
+    assets: path.join(process.cwd(), 'cabin-dist'),
+    anchor: () => ({ running: anchorWatch.isRunning(), dragging: anchorWatch.isDragging() }),
+    context: () => {
+        const generation = diaryRelayOutbox.readOwnerGeneration(),
+            config = diaryRelayOutbox.getConfiguration();
+        return generation !== null && config.configured && config.ownerId && config.relayId
+            ? `${identity.deviceId}|${config.ownerId}|${config.relayId}|${generation}`
+            : null;
+    },
+    binding: () => cabinOwnerBinding(diaryRelayOutbox.lendFleetCredentials()),
+    read: () =>
+        readLanTelemetry({
+            fetchImpl: fetch,
+            signalkOrigin: SIGNALK_ORIGIN,
+            selfDocument,
+            deviceLabel: os.hostname(),
+            supplement: onboardSupplement,
+            documents: () => signalkDocuments.read(),
+            aisWatch: () => aisWatch.describe(),
+        }),
+});
+
+const internetAisRuntime = startInternetAisRuntime({
+    enabled: process.env.THALASSA_INTERNET_AIS_ENABLED === '1',
+    reviewed: process.env.THALASSA_INTERNET_AIS_SOURCE_REVIEWED === '1',
+    port: Number(process.env.THALASSA_INTERNET_AIS_TCP_PORT || 10112),
+    blockedPorts: [PORT, PORT + 1, Number(process.env.THALASSA_CABIN_PORT || 3002)],
+    supabaseOrigin: SUPABASE_ORIGIN,
+    authority: () =>
+        internetAisAuthority({
+            enabled: process.env.THALASSA_INTERNET_AIS_ENABLED === '1',
+            reviewed: process.env.THALASSA_INTERNET_AIS_SOURCE_REVIEWED === '1',
+            allowInternet: diaryRelayOutbox.getConfiguration().allowInternet,
+            generation: diaryRelayOutbox.readAuthorityGeneration(),
+            credentials: diaryRelayOutbox.lendFleetCredentials(),
+            anonKey: SUPABASE_ANON_KEY,
+        }),
+    fix: async (signal) => {
+        const { selfDoc } = await signalkDocuments.read();
+        return signal.aborted ? null : internetAisFix(selfDoc, Date.now());
+    },
+});
 
 const server = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.2' }, app);
 server.listen(PORT, BIND_HOST, () => {
@@ -1590,6 +1657,8 @@ function shutdown() {
     stopScheduler();
     void stopEncWatcher();
     plaintextSignpost.close();
+    cabinRuntime?.close();
+    internetAisRuntime?.close();
     server.close(() => {
         void reconvertStopped.finally(() => {
             diaryRelayOutbox.close();

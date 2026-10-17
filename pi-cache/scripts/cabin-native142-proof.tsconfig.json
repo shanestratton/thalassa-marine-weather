@@ -1,0 +1,6 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": { "rootDir": "..", "noEmit": true },
+    "include": ["cabin-native142-proof.mts"],
+    "exclude": ["../node_modules", "../dist"]
+}

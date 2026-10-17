@@ -18,6 +18,8 @@
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
 import { pruneMap } from '../../utils/boundedMap';
 import { ECMWF_9KM, REGIONAL_MODELS } from './regionalModels';
+import { isAromeModel, AROME_MAX_SOURCE_AGE_MS } from './aromeDomains';
+import { fetchOwnAromePoint } from './aromeSource';
 
 export type ModelLiveness = 'live' | 'dead' | 'unknown';
 
@@ -32,6 +34,8 @@ export interface ModelLivenessRecord {
     checkedAt: number;
     lat: number;
     lon: number;
+    /** Original own-source run expiry; a new check cannot extend it. */
+    validUntilMs?: number;
 }
 
 export const LIVENESS_PROBE_HOURS = 24;
@@ -54,8 +58,10 @@ const regionalIds = new Set(REGIONAL_MODELS.map((m) => m.id));
 function verdictKey(model: string, point?: Point): string {
     // New coastal capabilities require a sea-cell probe. Regional verdicts
     // are local: a finite London response never unlocks a different domain.
-    if (regionalIds.has(model))
-        return `sea:${model}:${point ? `${point.lat.toFixed(1)},${point.lon.toFixed(1)}` : 'unknown'}`;
+    if (regionalIds.has(model)) {
+        const precision = isAromeModel(model) ? 4 : 1;
+        return `sea:${model}:${point ? `${point.lat.toFixed(precision)},${point.lon.toFixed(precision)}` : 'unknown'}`;
+    }
     return model === ECMWF_9KM ? `sea:${model}` : model;
 }
 
@@ -112,7 +118,15 @@ function save(record: ModelLivenessRecord, key = record.model): void {
 export function modelLiveness(model: string, point?: Point): ModelLiveness {
     const r = store().get(verdictKey(model, point));
     const age = r ? ageOf(r.checkedAt) : null;
-    if (!r || age === null || age > LIVENESS_TTL_MS) return 'unknown';
+    if (
+        !r ||
+        age === null ||
+        age > LIVENESS_TTL_MS ||
+        (isAromeModel(model) &&
+            r.live &&
+            (typeof r.validUntilMs !== 'number' || !Number.isFinite(r.validUntilMs) || Date.now() > r.validUntilMs))
+    )
+        return 'unknown';
     return r.live ? 'live' : 'dead';
 }
 
@@ -137,6 +151,25 @@ export function probeModelLiveness(model: string, point: Point): Promise<ModelLi
         return Promise.resolve(null);
     const run = (async () => {
         try {
+            if (isAromeModel(model)) {
+                const own = await fetchOwnAromePoint(model, point);
+                if (!own) throw new Error('Original AROME sea-cell cohort unavailable');
+                const values = own.hourly.wind_speed_10m;
+                const nonNull = countNonNullValues(values);
+                const record: ModelLivenessRecord = {
+                    model,
+                    live: nonNull >= Math.ceil(values.length * LIVENESS_MIN_FRACTION),
+                    nonNull,
+                    total: values.length,
+                    checkedAt: Date.now(),
+                    lat: point.lat,
+                    lon: point.lon,
+                    validUntilMs: Date.parse(own.runUtc) + AROME_MAX_SOURCE_AGE_MS,
+                };
+                failedAt.delete(key);
+                save(record, key);
+                return record;
+            }
             const reply = await fetchOpenMeteoProxy<ProbeReply>(
                 'forecast',
                 {

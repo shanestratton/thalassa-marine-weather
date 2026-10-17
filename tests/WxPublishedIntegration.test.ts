@@ -6,7 +6,16 @@ const mocks = vi.hoisted(() => ({
     proxy: vi.fn(),
     marine: vi.fn(),
 }));
-vi.mock('@capacitor/core', () => ({ CapacitorHttp: {}, Capacitor: { isNativePlatform: () => false } }));
+vi.mock('@capacitor/core', async (importOriginal) => {
+    // Keep the real web plugin registration/capability contract. Forecast
+    // model admission now imports the Pi boundary, even for a published row.
+    const actual = await importOriginal<typeof import('@capacitor/core')>();
+    return {
+        ...actual,
+        CapacitorHttp: {},
+        Capacitor: { ...actual.Capacitor, isNativePlatform: () => false },
+    };
+});
 vi.mock('../services/supabase', () => ({
     supabase: {
         from: () => ({

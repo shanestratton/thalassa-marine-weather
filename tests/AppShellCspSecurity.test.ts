@@ -40,27 +40,19 @@ describe('application shell CSP', () => {
     });
 });
 
-describe('the coastline mirrors are allowed, and only those two', () => {
-    // Shane 2026-08-23, seeing red in the console: the shelter lookup calls
-    // two public OSM Overpass mirrors, and CSP blocked them on web — while
-    // CapacitorHttp bypasses CSP on iOS, so the phone was already making the
-    // request. The policy was not protecting anything; it was just
-    // inconsistent with the platform that actually goes to sea.
-    //
-    // Allowed deliberately, on his call, with the trade understood: the query
-    // carries the boat's position at ~11 m to a third party. That is why the
-    // Russian-operated mirror was REMOVED the same day — the objection was
-    // jurisdiction, not Overpass.
+describe('public Overpass retirement in both shell policies', () => {
+    // The historical browser wall is retired together with every actual public
+    // caller. Both policies now permit only existing app/owned boundaries.
     const files = ['index.html', 'vercel.json'];
 
-    it('allows the two mirrors in BOTH policies', () => {
+    it('removes public mirrors from BOTH policies after all callers use the owned boundary', () => {
         // Two policies exist and they are not identical: index.html ships in
         // the native bundle, vercel.json serves the web app. A host added to
         // one only is a bug that shows up on exactly one platform.
         for (const f of files) {
             const src = readFileSync(f, 'utf8');
-            expect(src).toContain('https://overpass-api.de');
-            expect(src).toContain('https://overpass.kumi.systems');
+            expect(src).not.toContain('https://overpass-api.de');
+            expect(src).not.toContain('https://overpass.kumi.systems');
         }
     });
 

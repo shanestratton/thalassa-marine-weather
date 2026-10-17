@@ -29,6 +29,7 @@ export const PUBLIC_BETA_FEATURE_FLAG_KEYS = Object.freeze([
     // Blitzortung lightning: OFF since build 123 — their terms forbid our use
     // (services/weather/api/lightningLicence.ts).
     'VITE_BLITZORTUNG_ENABLED',
+    'VITE_LICENSED_LIGHTNING_ENABLED',
 ]);
 
 export const PUBLIC_BETA_ENDPOINT_KEYS = Object.freeze(['VITE_DEEPGRAM_PROXY_URL', 'VITE_NATIVE_API_BASE']);

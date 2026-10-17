@@ -1424,6 +1424,7 @@ const intendedPublicBetaFeatureFlags = {
     VITE_ENABLE_ENC_DEMO_SAMPLES: false,
     // Off since build 123: Blitzortung's terms forbid our use of their feed.
     VITE_BLITZORTUNG_ENABLED: false,
+    VITE_LICENSED_LIGHTNING_ENABLED: false,
 };
 const releaseOwnedEnvironmentKeys = [
     ...PUBLIC_BETA_FEATURE_FLAG_KEYS,

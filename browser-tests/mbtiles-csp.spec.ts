@@ -21,12 +21,12 @@ import initSqlJs from 'sql.js';
  * a third refusal (file:// under connect-src): MBTilesService now reads it
  * through Capacitor.convertFileSrc (tests/MBTilesService.test.ts).
  *
- * This proves the service and policy path only. No skipper reaches it today:
- * the chart picker that would open a local chart is parked behind
- * CHARTS_FAB_CATEGORY_VISIBLE (components/map/mapHubHelpers.ts), and even
- * shown it lists only charts that are already open (useLocalCharts), so
- * nothing can be switched on. Reviving it needs a size gate first: open()
- * reads the whole file into the web view's memory.
+ * This retains coverage of the bounded legacy Cache reader. Build142's
+ * separate private Directory.Data library has its own import/owner tests.
+ * The fixture saves/readbacks a real base64 Cache entry. A test-only native
+ * stat facade for this sole fictional path verifies those bytes and returns
+ * their raw length; the real web adapter's encoded size is recorded separately.
+ * Native file I/O is simulated; actual production reader/CSP gates run unchanged.
  */
 
 const ROOT = process.cwd();
@@ -106,6 +106,10 @@ function webAppCsp(): string {
 type Report = {
     ready: boolean;
     open: string;
+    savedFile: { bytes: number; type: string } | null;
+    savedBytesMatch: boolean;
+    nativeFile: { bytes: number; type: string } | null;
+    tokenMode: 'pending' | 'configured' | 'synthetic-offline';
     blobUrlsHanded: number;
     violations: Array<{ directive: string; blockedURI: string }>;
     mapErrors: string[];
@@ -117,11 +121,25 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
     test(`an offline MBTiles chart opens and its tile draws under the ${policy} CSP`, async ({ page }, testInfo) => {
         const mbtiles = await fictionalMbtiles();
         const refusals: string[] = [];
+        const blockedSdk: string[] = [];
+        const unexpectedExternal: string[] = [];
+        // Keep this fictional render entirely offline, including Mapbox's
+        // session/telemetry boundary. No successful authentication is claimed.
+        await page.route('**/*', (route) => {
+            const url = new URL(route.request().url());
+            if (!/^https?:$/.test(url.protocol) || url.hostname === '127.0.0.1' || url.hostname === 'localhost')
+                return route.continue();
+            const target = `${url.origin}${url.pathname}`;
+            if (url.hostname === 'mapbox.com' || url.hostname.endsWith('.mapbox.com')) blockedSdk.push(target);
+            else unexpectedExternal.push(target);
+            return route.abort();
+        });
         page.on('console', (m) => {
             if (/refused|violates|content security policy/i.test(m.text())) refusals.push(m.text());
         });
 
-        // The chart read: Filesystem.getUri on the web answers /CACHE/chart_downloads/<file>.
+        // Seed and legacy chart read use the same fictional bytes. Filesystem
+        // metadata comes from its real IndexedDB-backed Directory.Cache entry.
         await page.route('**/CACHE/chart_downloads/**', (route) =>
             route.fulfill({ body: mbtiles, contentType: 'application/octet-stream' }),
         );
@@ -151,13 +169,44 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
         // background, which says whether the canvas painted at all.
         const seaPx = await page.evaluate(() => (window as unknown as Fixture).__mbtilesCsp.probe(-48, -11));
         testInfo.annotations.push({ type: 'report', description: JSON.stringify({ report, tilePx, seaPx }) });
+        const paintContext = await page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.mapboxgl-canvas');
+            return {
+                dpr: devicePixelRatio,
+                width: canvas?.width,
+                height: canvas?.height,
+                clientWidth: canvas?.clientWidth,
+                clientHeight: canvas?.clientHeight,
+            };
+        });
+        testInfo.annotations.push({
+            type: 'offline-paint-context',
+            description: JSON.stringify({ ...paintContext, blockedSdk, unexpectedExternal }),
+        });
 
         expect(refusals, 'nothing in the chain is refused by the CSP').toEqual([]);
         expect(report.violations).toEqual([]);
+        expect(report.savedFile, 'the real web adapter reports its conservative base64 storage length').toEqual({
+            bytes: mbtiles.toString('base64').length,
+            type: 'file',
+        });
+        expect(report.savedBytesMatch, 'the real browser file contains every original fictional SQLite byte').toBe(
+            true,
+        );
+        expect(report.nativeFile, 'the sole fictional native path reports its verified raw-byte length').toEqual({
+            bytes: mbtiles.byteLength,
+            type: 'file',
+        });
         expect(report.open, 'the chart opens (sql.js compiled)').toMatch(/^ok png z4-4$/);
         expect(report.blobUrlsHanded, 'transformRequest handed Mapbox a blob: tile').toBeGreaterThan(0);
         expect(report.mapErrors).toEqual([]);
         expect(report.tileStates, 'Mapbox loaded the chart tile').toContain('loaded');
+        expect(unexpectedExternal, 'no external chart/provider requests are made').toEqual([]);
+        expect(seaPx, 'the offline map actually painted its background').toEqual([8, 36, 59, 255]);
+        expect(tilePx, 'the offline map actually painted the original fictional chart tile').toEqual([
+            ...TILE_RGB,
+            255,
+        ]);
 
         // And the pixels, when this map is allowed to paint (the dev server's token).
         const painted = seaPx[3] > 0;

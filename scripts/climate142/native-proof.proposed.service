@@ -1,0 +1,41 @@
+[Unit]
+Description=Thalassa climate142 isolated offline native proof (uninstalled proposal)
+
+[Service]
+Type=exec
+DynamicUser=yes
+StateDirectory=thalassa-climate142
+StateDirectoryMode=0700
+WorkingDirectory=/work/output
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/work/output PYTHONNOUSERSITE=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 /opt/thalassa-climate142-v1/venv/bin/python -I -B /opt/thalassa-climate142-v1/source/native_entry.py
+MemoryAccounting=yes
+MemoryMax=2G
+MemorySwapMax=0
+TasksAccounting=yes
+TasksMax=16
+CPUAccounting=yes
+CPUQuota=50%
+LimitCPU=3600
+LimitFSIZE=2147483648
+RuntimeMaxSec=7200
+TimeoutStopSec=5
+KillMode=control-group
+SendSIGKILL=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateNetwork=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+TemporaryFileSystem=/work:ro /tmp:ro /var/tmp:ro
+BindReadOnlyPaths=/srv/thalassa-climate142/admitted/input:/work/input
+BindPaths=/var/lib/thalassa-climate142:/work/output
+
+# No Install section or timer. Runtime, input, fixture and hashes need review first.

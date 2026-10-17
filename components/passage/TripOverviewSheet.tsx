@@ -35,6 +35,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 
 /** Cyclone season along the route (W1-12): the card and its IBTrACS JSON load only when the sheet opens. */
 const SeasonRiskCard = lazy(() => import('./SeasonRiskCard'));
+const ClimateRoseCard = lazy(() => import('./ClimateRoseCard'));
 /** The card is optional: if its chunk 404s after a web deploy, show nothing rather than
  *  crash the Route Planner. (ErrorBoundary treats a null fallback as "show the crash card".) */
 const RENDER_NOTHING = <></>;
@@ -429,6 +430,11 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                     <ErrorBoundary boundaryName="SeasonRiskCard" fallback={RENDER_NOTHING}>
                         <Suspense fallback={null}>
                             <SeasonRiskCard legs={stableLegs} />
+                        </Suspense>
+                    </ErrorBoundary>
+                    <ErrorBoundary boundaryName="ClimateRoseCard" fallback={RENDER_NOTHING}>
+                        <Suspense fallback={null}>
+                            <ClimateRoseCard legs={stableLegs} />
                         </Suspense>
                     </ErrorBoundary>
 

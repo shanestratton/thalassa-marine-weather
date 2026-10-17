@@ -1,12 +1,8 @@
-import { readResponseTextLimited } from './http-security.ts';
+import { ownedOperationForQuery } from '../../../services/osm/ownedOverpassContract.ts';
+import { fetchOwnedOsmFromWx, OWN_OSM_ORIGIN } from './owned-osm-upstream.ts';
 
-// Independent OSM instances. Private.coffee is the current canonical endpoint
-// of the Kumi service already used by Thalassa. Do not forward a user's bearer,
-// change identity headers to evade rejection, or retry one host in a loop.
-export const OVERPASS_ENDPOINTS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.private.coffee/api/interpreter',
-] as const;
+/** Private owned service only. No public mirror rotation or source fallback. */
+export const OVERPASS_ENDPOINTS = [OWN_OSM_ORIGIN + '/osm/query'] as const;
 export const OVERPASS_ATTEMPT_MS = 20_000;
 export const OVERPASS_MAX_BYTES = 20_000_000;
 export const OVERPASS_MAX_ELEMENTS = 25_000;
@@ -36,88 +32,23 @@ export function parseOverpassDocument(text: string): OverpassDocument {
     return { elements: value.elements };
 }
 
-const cancelled = () => new DOMException('Overlay request cancelled.', 'AbortError');
-
-/** At most two attempts, with a deadline covering headers AND body. Only the
- * exact same query is retried; missing data is never replaced by empty data. */
+/** Existing server-generated recipe; arbitrary caller QL cannot cross the Edge.
+ * Byte/body/cancel deadline remains20s and no failed result becomes empty data. */
 export async function fetchOverpassDocument(
     query: string,
     signal?: AbortSignal,
     fetcher: typeof fetch = fetch,
-): Promise<OverpassDocument> {
-    const failures: string[] = [];
-    for (const endpoint of OVERPASS_ENDPOINTS) {
-        if (signal?.aborted) throw cancelled();
-        const controller = new AbortController();
-        let rejectAttempt!: (e: Error) => void;
-        let response: Response | undefined;
-        let timedOut = false;
-        const interrupted = new Promise<never>((_, reject) => {
-            rejectAttempt = reject;
-        });
-        const cancel = () => {
-            controller.abort();
-            rejectAttempt(cancelled());
-        };
-        signal?.addEventListener('abort', cancel, { once: true });
-        const timer = setTimeout(() => {
-            timedOut = true;
-            controller.abort();
-            rejectAttempt(new Error('timeout'));
-        }, OVERPASS_ATTEMPT_MS);
-        try {
-            return await Promise.race([
-                (async () => {
-                    response = await fetcher(endpoint, {
-                        method: 'POST',
-                        redirect: 'error',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            Accept: 'application/json',
-                            'User-Agent': 'thalassa-osm-overlay/1.0 (https://thalassawx.app)',
-                        },
-                        body: 'data=' + encodeURIComponent(query),
-                        signal: controller.signal,
-                    });
-                    if (controller.signal.aborted) {
-                        void response.body?.cancel().catch(() => undefined);
-                        throw cancelled();
-                    }
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const text = await readResponseTextLimited(response, OVERPASS_MAX_BYTES);
-                    if (controller.signal.aborted) throw cancelled();
-                    if (text === null) throw new Error('response too large');
-                    return parseOverpassDocument(text);
-                })(),
-                interrupted,
-            ]);
-        } catch {
-            if (signal?.aborted) throw cancelled();
-            // Logs contain status/reason only, never the bbox, query, bearer or
-            // upstream HTML (which may echo the user's requested location).
-            const reason = timedOut
-                ? 'timeout'
-                : response
-                ? response.ok ? 'incomplete or invalid response' : `HTTP ${response.status}`
-                : 'network error';
-            failures.push(reason);
-            console.warn(`[osm-overlay] ${new URL(endpoint).hostname}: ${reason}`);
-            // A malformed query will be malformed on the other instance too.
-            if (response?.status === 400) throw new Error('Overpass rejected the query');
-        } finally {
-            clearTimeout(timer);
-            signal?.removeEventListener('abort', cancel);
-            controller.abort();
-            if (response?.body && !response.body.locked) void response.body.cancel().catch(() => undefined);
-        }
-    }
-    throw new Error(`Overpass unavailable (${failures.join('; ')})`);
+    env: (name: string) => string | undefined = (name) =>
+        (globalThis as { Deno?: { env: { get: (key: string) => string | undefined } } }).Deno?.env.get(name),
+): Promise<OverpassDocument & { sourceAt: string }> {
+    const document = await fetchOwnedOsmFromWx(ownedOperationForQuery(query), env, signal, fetcher);
+    return { ...parseOverpassDocument(JSON.stringify(document)), sourceAt: document.thalassaSource.sourceAt };
 }
 
 /** Do not reuse a nearby rounded bbox: it may omit the next berth/obstacle.
  * v6 also excludes old HTTP-200 partial/error results from the cache. */
 export function overlayCacheKey(bbox: [number, number, number, number]): string {
-    return `v6_${bbox.join('_')}`;
+    return `v7_owned_${bbox.join('_')}`;
 }
 
 export const OVERLAY_FIELDS = [

@@ -6,7 +6,8 @@ import path from 'node:path';
 import ts from 'typescript';
 import MagicString from 'magic-string';
 import { bindingCounts } from './strip-noop-logs.mjs';
-import { packClassNames } from './share-class-names.mjs';
+import { packClassNames, packCompactStringData } from './share-class-names.mjs';
+import { collectUiLiteralCounts, uiSourceFiles } from './static-ui-literals.mjs';
 
 const MODULE = 'virtual:thalassa-svg-paths';
 const RESOLVED = '\0' + MODULE;
@@ -20,7 +21,7 @@ function walk(node, visit) {
 }
 
 /** Only literal path attributes in application JSX; no remote or boat data. */
-export function collectSvgPaths(root) {
+export function collectLegacySvgPaths(root) {
     const counts = new Map();
     const files = ['App.tsx', ...fs.globSync(['components/**/*.tsx', 'pages/**/*.tsx'], { cwd: root })].sort();
     for (const name of files) {
@@ -56,6 +57,66 @@ export function collectSvgPaths(root) {
     const referenceBytes = selected.reduce((sum, [, count]) => sum + 7 * count, 0);
     // Reserve decoder/import overhead too. A small pool stays ordinary source.
     return packed.code.length + referenceBytes + 2000 < originalBytes ? values : [];
+}
+
+/** Keep every original repeated path. Additional literal paths occupy the
+ * existing SVG tuple, freeing UI capacity only when all source occurrences
+ * are explained by plain, unique-prop JSX path attributes. No normalization. */
+export function collectSvgPaths(root, { uiCounts = collectUiLiteralCounts(root) } = {}) {
+    const legacy = collectLegacySvgPaths(root),
+        strict = new Map();
+    for (const file of uiSourceFiles(root)) {
+        const source = ts.createSourceFile(
+            file,
+            fs.readFileSync(path.join(root, file), 'utf8'),
+            ts.ScriptTarget.Latest,
+            true,
+            ts.ScriptKind.TSX,
+        );
+        function visit(node) {
+            if (
+                (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+                node.tagName.getText(source) === 'path' &&
+                node.attributes.properties.every((attribute) => ts.isJsxAttribute(attribute))
+            ) {
+                const attributes = node.attributes.properties;
+                const names = attributes.map((attribute) => attribute.name.getText(source));
+                if (new Set(names).size === names.length) {
+                    const attribute = attributes.find((value) => value.name.getText(source) === 'd');
+                    if (attribute?.initializer && ts.isStringLiteral(attribute.initializer)) {
+                        const value = attribute.initializer.text;
+                        if (
+                            value.length >= 20 &&
+                            value.length <= 8192 &&
+                            !value.split(' ').some((word) => word.length > 4096)
+                        )
+                            strict.set(value, (strict.get(value) ?? 0) + 1);
+                    }
+                }
+            }
+            ts.forEachChild(node, visit);
+        }
+        visit(source);
+    }
+    const old = new Set(legacy);
+    const additional = [...strict]
+        .filter(([value, count]) => uiCounts.get(value) === count && !old.has(value))
+        .map(([value]) => value)
+        .sort();
+    for (;;) {
+        const values = [...legacy, ...additional].sort();
+        try {
+            packCompactStringData(values);
+            return values;
+        } catch (error) {
+            if (
+                !additional.length ||
+                !/^Embedded class (?:table|encoding) exceeds reviewed bounds$/.test(error.message)
+            )
+                throw error;
+            additional.length = Math.floor(additional.length * 0.95);
+        }
+    }
 }
 
 /** @param {string} code @param {string} id
@@ -149,7 +210,7 @@ export function shareSvgPaths(root, { data, standalone = false } = {}) {
         },
         load(id) {
             if (id !== RESOLVED) return null;
-            const packed = packClassNames(values);
+            const packed = packCompactStringData(values);
             if (data) return data.moduleSource(RESOLVED, [packed]);
             return `import {decodeClassNames} from ${JSON.stringify(path.resolve(root, 'utils/decodeClassNames.ts'))};export const values=decodeClassNames(${JSON.stringify(packed.encoded)},${packed.bytes},${packed.count},${packed.checksum});`;
         },

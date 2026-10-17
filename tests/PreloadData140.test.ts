@@ -104,6 +104,28 @@ describe('proven Vite helper grammar', () => {
         expect(result.calls).toBe(1);
     });
     it.each([
+        ['i', 'i'],
+        ['m', 'm'],
+        ['d', 'd'],
+        ['p', 'p'],
+        ['\\u0069', 'i'],
+        ['\\u006d', 'm'],
+        ['\\u0064', 'd'],
+    ])('executes the actual bounded reader without capturing imported alias %s', (spelling, name) => {
+        const originalTail = `import{r as ${spelling}}from"./preload-data-hash.js";${spelling}(__vite__mapDeps([0,1]));`;
+        const result = rewritePreloadHelper(prefix + originalTail, 'assets/alias-hash.js', parseAst)!;
+        const end = result.code.indexOf('\n');
+        expect(result.code.slice(end + 1)).toBe(originalTail);
+        const element = insert(result.record);
+        // Execute precisely the emitted unmapped helper, using the real DOM
+        // reader and original bounded metadata. No generated body is replaced.
+        const helper = new Function(name, `${result.code.slice(0, end)}return __vite__mapDeps;`)(readPreloadData);
+        expect(helper([1, 0, 1])).toEqual([paths[1], paths[0], paths[1]]);
+        expect(element.isConnected).toBe(false);
+        expect(helper([0])).toEqual([paths[0]]);
+        expect(document.getElementById(result.record.id)).toBeNull();
+    });
+    it.each([
         prefix.replace('i.map(i=>d[i])', 'i.map(i=>d[i]||"fallback")') + tail,
         prefix + '__vite__mapDeps([0,1]);',
         prefix + tail.replace('[0,1]', '[0,2]'),

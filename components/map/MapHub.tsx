@@ -112,6 +112,7 @@ import { useChartCatalog } from './useChartCatalog';
 import { applyEncOnlyBase } from './encOnlyBase';
 import { CATEGORY_DETAIL, type ChartDisplayCategory } from './chartDisplayCategory';
 import { useLocalCharts } from './useLocalCharts';
+import { OPEN_CHART_EVENT, peekOpenedChart } from '../../services/charts/openedChartQueue';
 import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
@@ -347,6 +348,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const LocalChartLibrarySurface = React.lazy(() => import('./LocalChartLibrarySurface'));
 const CommunityChartNotesLayer = React.lazy(() => import('./CommunityChartNotesLayer'));
 const PlaceReviewsHost = React.lazy(() => import('../community/PlaceReviewsHost'));
 const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
@@ -364,7 +366,13 @@ const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
 const MeasuredBuoysLayer = React.lazy(() => import('./MeasuredBuoysLayer'));
+const CrowdSoundingLayer = React.lazy(() => import('./CrowdSoundingLayer'));
+const LicensedLightningLayer =
+    import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
+        ? React.lazy(() => import('./LicensedLightningLayer'))
+        : null;
 const AscatObservedLayer = React.lazy(() => import('./AscatObservedLayer'));
+const OpticalLightningLayer = React.lazy(() => import('./OpticalLightningLayer'));
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
 const SshObservedLayer =
@@ -408,11 +416,19 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
     const [sshMode, setSshMode] = useState<SshMode>('off');
     const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
+    const [licensedLightningCredit, setLicensedLightningCredit] = useState<AtmosCredit | null>(null);
     const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
+    const [crowdSoundingCredit, setCrowdSoundingCredit] = useState<AtmosCredit | null>(null);
     const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
     const [ascatCredit, setAscatCredit] = useState<AtmosCredit | null>(null);
+    const [opticalLightningCredit, setOpticalLightningCredit] = useState<AtmosCredit | null>(null);
     const [ascatCardOwnsChart, setAscatCardOwnsChart] = useState(false);
     const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
+    const [localLibraryCredit, setLocalLibraryCredit] = useState<AtmosCredit | null>(null);
+    const [localLibraryRequested, setLocalLibraryRequested] = useState(false);
+    const [localLibraryOpen, setLocalLibraryOpen] = useState(false);
+    const [localLibraryActive, setLocalLibraryActive] = useState(false);
+    const [localLibraryClear, setLocalLibraryClear] = useState(0);
     const [sharperControls, setSharperControls] = useState<React.ReactNode | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
@@ -2282,6 +2298,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         receiverCoverageVisible,
         setReceiverCoverageVisible,
         browseReceiverCoverageVisible,
+        crowdSoundingsVisible,
+        setCrowdSoundingsVisible,
+        browseCrowdSoundingsVisible,
         measuredBuoysVisible,
         setMeasuredBuoysVisible,
         measuredBuoysLoaded,
@@ -2290,6 +2309,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAscatVisible,
         ascatLoaded,
         browseAscatVisible,
+        opticalLightningVisible,
+        setOpticalLightningVisible,
+        opticalLightningLoaded,
+        browseOpticalLightningVisible,
         setChokepointVisible,
         cycloneVisible,
         setCycloneVisible,
@@ -2431,6 +2454,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
     const closeNoaaCatalogue = useCallback(() => setNoaaCatalogueOpen(false), []);
     const closePaperCharts = useCallback(() => setPaperChartsOpen(false), []);
+    const closeLocalLibrary = useCallback(() => setLocalLibraryOpen(false), []);
+    const openLocalLibrary = useCallback(() => {
+        setPaperChartsOpen(false);
+        setLocalLibraryRequested(true);
+        setLocalLibraryOpen(true);
+    }, []);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page"). The browsing chart and the plotting
     // surface are the SAME map. The planner maps show the planner's own pick
@@ -3428,6 +3457,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     // known one, or the broad view, with one message (obsCentre). After Plan,
     // the picker or a shared pin had the map, Obs centres again (build 124).
     const obsShowing = ownshipStartup && currentView === 'map';
+    useEffect(() => {
+        if (!obsShowing) return;
+        const opened = () => {
+            if (peekOpenedChart()) openLocalLibrary();
+        };
+        window.addEventListener(OPEN_CHART_EVENT, opened);
+        opened();
+        return () => window.removeEventListener(OPEN_CHART_EVENT, opened);
+    }, [obsShowing, openLocalLibrary]);
     const chartDrawingAvailable =
         obsShowing && mapReady && !mobActive && !coordCaptureMode && !browseWeatherInspectMode && !passage.settingPoint;
     // The drawing tool's own gesture lease is deliberately excluded: including
@@ -4415,10 +4453,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setAisVisible,
                             receiverCoverageVisible,
                             setReceiverCoverageVisible,
+                            crowdSoundingsVisible,
+                            setCrowdSoundingsVisible,
                             measuredBuoysVisible,
                             setMeasuredBuoysVisible,
                             ascatVisible,
                             setAscatVisible,
+                            opticalLightningVisible,
+                            setOpticalLightningVisible,
                             cycloneVisible,
                             setCycloneVisible,
                             squallVisible,
@@ -4505,6 +4547,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                                           },
                                       ]
                                     : []),
+                                {
+                                    id: 'local-library',
+                                    label: 'Your charts',
+                                    iconKind: 'local' as const,
+                                    enabled: localLibraryActive,
+                                    onToggle: openLocalLibrary,
+                                    onClear: () => setLocalLibraryClear((value) => value + 1),
+                                    opensSheet: true,
+                                },
                                 // Routes — picker for saved planned passages from
                                 // the ships log. Tap opens a sheet listing them;
                                 // selection draws the route as a solid purple line
@@ -5733,6 +5784,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseBoatPresenceVisible ? 1 : 0) +
                             (browseMeasuredBuoysVisible ? 1 : 0) +
                             (browseAscatVisible ? 1 : 0) +
+                            (browseCrowdSoundingsVisible ? 1 : 0) +
+                            (browseOpticalLightningVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5833,6 +5886,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {crowdSoundingsVisible && (
+                    <Suspense fallback={null}>
+                        <CrowdSoundingLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseCrowdSoundingsVisible}
+                            onCredit={setCrowdSoundingCredit}
+                        />
+                    </Suspense>
+                )}
                 {measuredBuoysLoaded && (
                     <Suspense fallback={null}>
                         <MeasuredBuoysLayer
@@ -5873,6 +5936,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {opticalLightningLoaded && (
+                    <Suspense fallback={null}>
+                        <OpticalLightningLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseOpticalLightningVisible}
+                            onCredit={setOpticalLightningCredit}
+                        />
+                    </Suspense>
+                )}
                 {receiverCoverageVisible && (
                     <Suspense fallback={null}>
                         <ReceiverCoverageLayer
@@ -5900,11 +5973,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                         atmosphere={[
                             ...atmosPresentation.credits,
                             ...(sshCredit ? [sshCredit] : []),
+                            ...(licensedLightningCredit ? [licensedLightningCredit] : []),
+                            ...(opticalLightningCredit ? [opticalLightningCredit] : []),
                             ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
                             ...(ascatCredit ? [ascatCredit] : []),
+                            ...(crowdSoundingCredit ? [crowdSoundingCredit] : []),
                             ...(sharperCredit ? [sharperCredit] : []),
+                            ...(localLibraryCredit ? [localLibraryCredit] : []),
                         ]}
-                        lightning={browseLightningVisible}
+                        lightning={browseLightningVisible && import.meta.env.VITE_BLITZORTUNG_ENABLED === 'true'}
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
                         ais={browseAisVisible}
@@ -6405,6 +6482,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onFallback={satellitePicture.useHourly}
                         />
                     )}
+                    {LicensedLightningLayer && !embedded && !pickerMode && (
+                        <LicensedLightningLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={
+                                obsShowing &&
+                                !isPinView &&
+                                !planningSurface &&
+                                !mobActive &&
+                                obsCreditsVisible &&
+                                browseLightningVisible
+                            }
+                            onCredit={setLicensedLightningCredit}
+                        />
+                    )}
                     {SshObservedLayer && !embedded && !pickerMode && (
                         <SshObservedLayer
                             mapRef={mapRef}
@@ -6534,6 +6626,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         satelliteMode={settings.satelliteMode === true}
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
                         onFindChart={() => setChartFindOpen(true)}
+                        onLocalCharts={obsShowing ? openLocalLibrary : undefined}
                         onUserOverlays={obsShowing ? () => setUserOverlaysOpen(true) : undefined}
                         onDrawingTools={
                             obsShowing
@@ -6555,6 +6648,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                             unit: settings.units.length,
                             onChange: (value) => updateSettings({ chartContours: value }),
                         }}
+                    />
+                )}
+                {obsShowing && localLibraryRequested && (
+                    <LocalChartLibrarySurface
+                        mapRef={mapRef}
+                        mapReady={mapReady}
+                        open={localLibraryOpen}
+                        onClose={closeLocalLibrary}
+                        clearRevision={localLibraryClear}
+                        onCredit={setLocalLibraryCredit}
+                        onActive={setLocalLibraryActive}
                     />
                 )}
                 {obsShowing && userOverlaysOpen && <UserOverlaysSheet onClose={closeUserOverlays} />}

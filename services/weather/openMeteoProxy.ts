@@ -83,6 +83,18 @@ export async function fetchOpenMeteoProxy<T>(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     signal?: AbortSignal,
 ): Promise<T> {
+    return fetchWeatherFunction<T>('proxy-openmeteo', { operation, params }, timeoutMs, signal);
+}
+
+/** Fixed weather functions share the existing credential-free client boundary. */
+export async function fetchWeatherFunction<T>(
+    name: 'proxy-openmeteo' | 'ensemble-forecast' | 'licensed-lightning',
+    body: unknown,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal?: AbortSignal,
+): Promise<T> {
+    if (name !== 'proxy-openmeteo' && name !== 'ensemble-forecast' && name !== 'licensed-lightning')
+        throw new Error('Invalid weather function');
     if (!supabaseUrl) throw new Error('Weather service is not configured');
 
     const controller = new AbortController();
@@ -91,10 +103,10 @@ export async function fetchOpenMeteoProxy<T>(
     if (signal?.aborted) controller.abort();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(`${supabaseUrl}/functions/v1/proxy-openmeteo`, {
+        const response = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
             method: 'POST',
             headers: await functionHeaders(),
-            body: JSON.stringify({ operation, params }),
+            body: JSON.stringify(body),
             signal: controller.signal,
         });
         const text = await readTextLimited(response);

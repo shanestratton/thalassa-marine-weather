@@ -6,13 +6,15 @@
  * UK Met Office's CC BY-SA 4.0, NOAA's public domain.
  */
 import { readFileSync } from 'node:fs';
-import { fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deskWindToggle, windCreditLine, windModelLabel } from '../components/map/deskWind';
 import { DeskMapStrip } from '../components/map/DeskMapStrip';
 import { DESK_MAP_BASE_OPTIONS, MapBaseSelector } from '../components/map/MapBaseSelector';
 import { useDeviceMode } from '../hooks/useDeviceMode';
 import { WIND_OVERLAY_MODELS } from '../services/weather/MultiModelWeatherService';
+import ObsCreditsRollup from '../components/map/ObsCreditsRollup';
+import { SAT_IR_FULL_COVERAGE } from '../components/map/satelliteImagery';
 
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
@@ -184,12 +186,71 @@ describe('the credit is in the strip wherever wind draws', () => {
     });
     it('lightning and wind share the fixed-height rollup rather than independent stacked chips', () => {
         const rollup = source('components/map/ObsCreditsRollup.tsx');
-        expect(hub).toContain('lightning={browseLightningVisible}');
+        const mountedRollup = hub.match(/<ObsCreditsRollup[\s\S]*?\/>/);
+        expect(mountedRollup).not.toBeNull();
+        expect(mountedRollup![0]).toContain(
+            "lightning={browseLightningVisible && import.meta.env.VITE_BLITZORTUNG_ENABLED === 'true'}",
+        );
+        expect(mountedRollup![0]).toContain('...(licensedLightningCredit ? [licensedLightningCredit] : [])');
+        expect(mountedRollup![0]).toContain('...(opticalLightningCredit ? [opticalLightningCredit] : [])');
         expect(rollup).toContain('data-testid="obs-credits-rollup"');
         expect(rollup).toContain('flex h-[44px]');
         expect(rollup).toContain('<BlitzortungAttribution visible />');
         expect(rollup).toContain('{wind}');
         expect(hub).not.toContain('data-testid="wind-credit"');
         expect(hub).not.toContain('data-testid="lightning-credit"');
+
+        render(
+            <ObsCreditsRollup
+                rain={null}
+                wind={windCreditLine('ukmo')}
+                cmems={[]}
+                lightning={false}
+                ais={false}
+                satellite={{
+                    status: 'off',
+                    frameTimeMs: null,
+                    frameCount: 0,
+                    coverage: SAT_IR_FULL_COVERAGE,
+                    playing: false,
+                    following: false,
+                }}
+                onToggleSatellite={vi.fn()}
+                atmosphere={[
+                    {
+                        key: 'licensed-lightning',
+                        title: 'Licensed lightning fixture',
+                        text: 'Licensed source fixture; permissions required.',
+                        warning: true,
+                    },
+                    {
+                        key: 'optical-lightning',
+                        title: 'Optical lightning fixture',
+                        text: 'Optical source fixture; coverage remains limited.',
+                        warning: true,
+                    },
+                ]}
+            />,
+        );
+        const row = screen.getByTestId('obs-credits-rollup');
+        expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+        expect(row.className).toContain('h-[44px]');
+        expect(row.className).toContain('max-w-[calc(100%-152px)]');
+        expect(row.className).toContain('overflow-hidden');
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.queryByText('Licensed source fixture; permissions required.')).toBeNull();
+        expect(screen.queryByText('Optical source fixture; coverage remains limited.')).toBeNull();
+        fireEvent.click(within(row).getByRole('button', { name: /^Credits/ }));
+        const details = screen.getByRole('dialog', { name: 'Map credits & source status' });
+        expect(details).toHaveTextContent(windCreditLine('ukmo'));
+        expect(within(details).getByRole('region', { name: 'Licensed lightning fixture' })).toHaveTextContent(
+            'Licensed source fixture; permissions required.',
+        );
+        expect(within(details).getByRole('region', { name: 'Optical lightning fixture' })).toHaveTextContent(
+            'Optical source fixture; coverage remains limited.',
+        );
+        fireEvent.click(within(details).getByRole('button', { name: /^Close$/ }));
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
     });
 });

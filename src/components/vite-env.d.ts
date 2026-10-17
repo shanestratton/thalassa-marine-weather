@@ -45,6 +45,7 @@ interface ImportMetaEnv {
     /** Blitzortung lightning feed: 'true' only with their written permission
      *  (services/weather/api/lightningLicence.ts). Owned by the release profile. */
     readonly VITE_BLITZORTUNG_ENABLED?: string;
+    readonly VITE_LICENSED_LIGHTNING_ENABLED?: string;
     /** Compile-time release gate for native Sign in with Apple. Keep unset or
      *  false until the complete server-side token lifecycle is live. */
     readonly VITE_APPLE_SIGN_IN_ENABLED?: string;

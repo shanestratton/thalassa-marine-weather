@@ -60,6 +60,21 @@
             <key>public.filename-extension</key><array><string>gpx</string></array>
             <key>public.mime-type</key><array><string>application/gpx+xml</string></array>
         </dict>
+    </dict><dict>
+        <key>UTTypeIdentifier</key><string>com.thalassawx.mbtiles</string>
+        <key>UTTypeDescription</key><string>Local MBTiles chart</string>
+        <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+        <key>UTTypeTagSpecification</key><dict>
+            <key>public.filename-extension</key><array><string>mbtiles</string></array>
+            <key>public.mime-type</key><array><string>application/x-sqlite3</string></array>
+        </dict>
+    </dict><dict>
+        <key>UTTypeIdentifier</key><string>com.thalassawx.kap</string>
+        <key>UTTypeDescription</key><string>Local KAP chart image</string>
+        <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+        <key>UTTypeTagSpecification</key><dict>
+            <key>public.filename-extension</key><array><string>kap</string></array>
+        </dict>
     </dict></array>
     <key>CFBundleDocumentTypes</key>
     <array><dict>
@@ -72,6 +87,11 @@
         <key>CFBundleTypeRole</key><string>Viewer</string>
         <key>LSHandlerRank</key><string>Alternate</string>
         <key>LSItemContentTypes</key><array><string>com.topografix.gpx</string></array>
+    </dict><dict>
+        <key>CFBundleTypeName</key><string>Own or open local chart</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>Alternate</string>
+        <key>LSItemContentTypes</key><array><string>com.thalassawx.mbtiles</string><string>com.thalassawx.kap</string><string>public.tiff</string></array>
     </dict></array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>

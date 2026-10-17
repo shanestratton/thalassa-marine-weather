@@ -410,8 +410,8 @@ export async function loadToday(
                     /* cancelled: the sheet closed or the account changed */
                 },
             );
-            // The map's names for the same cells (131-PYD-10), only where the atlas has no places: in
-            // Queensland its bays and marinas are the atlas's own, and public Overpass is spared the ask.
+            // Names complement places where the atlas has none. Keep its own
+            // Queensland names and avoid redundant owned OSM requests there.
             const namesPart = atlasPart.then((atlas) =>
                 atlas?.length
                     ? []
@@ -435,7 +435,10 @@ export async function loadToday(
             f.check();
             const answered = cells.filter((cell): cell is ReferenceResult => !!cell);
             const named = names.filter((cell): cell is NamedPlacesResult => !!cell);
-            const cellsFailed = answered.length < cells.length || named.length < names.length;
+            const cellsFailed =
+                answered.length < cells.length ||
+                named.length < names.length ||
+                named.some((cell) => cell.partial === true);
             // (Merged afresh: the coastline turns the atlas's ×1.3 guesses into
             // ×1.15 or ×1.4, and OpenStreetMap adds what the atlas lacks.)
             const gathered = gatherPlaces({

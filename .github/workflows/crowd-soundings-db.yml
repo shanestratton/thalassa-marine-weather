@@ -1,0 +1,112 @@
+name: Build142 isolated crowd sounding consent database proof
+on:
+    push:
+        branches: ['codex/build-142-crowd-db']
+        paths:
+            - '.github/workflows/crowd-soundings-db.yml'
+            - 'supabase/tests/crowd-*142.mjs'
+            - 'supabase/migrations/20261017120000_crowd_soundings_publication.sql'
+            - 'tests/sql/crowd*142.*'
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source commit (40 lowercase hex characters)
+                required: true
+                type: string
+permissions:
+    contents: read
+concurrency:
+    group: crowd142-isolated-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    postgres:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        services:
+            postgres:
+                image: postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3
+                env:
+                    POSTGRES_PASSWORD: fixture-only-password
+                    POSTGRES_DB: postgres
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd pg_isready --health-interval 5s
+                    --health-timeout 5s --health-retries 10
+                    --memory 512m --memory-swap 512m --pids-limit 96 --cpus 1
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+            THALASSA_DISPOSABLE_CROWD_TEST: '1'
+            CROWD_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/crowd_soundings142_test
+        steps:
+            - name: Require exact reviewed source
+              shell: bash
+              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha || github.sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+            - name: Record immutable source and actual PostgreSQL image
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/crowd142-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/crowd142-proof/SOURCE_SHA.txt"
+                  node --version > "$RUNNER_TEMP/crowd142-proof/NODE_VERSION.txt"
+                  docker image inspect postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3 --format '{{.Id}}' > "$RUNNER_TEMP/crowd142-proof/POSTGRES_IMAGE_ID.txt"
+                  sha256sum supabase/tests/crowd-*142.mjs tests/sql/crowd*142.* supabase/migrations/20261017120000_crowd_soundings_publication.sql supabase/migrations/20261005130000_seabed_mapping.sql supabase/migrations/20260806120000_account_deletion_durability.sql supabase/migrations/20261017030921_boat_presence.sql supabase/migrations/20261017050550_private_passage_comfort.sql supabase/migrations/20260516120000_voyage_log_boats.sql > "$RUNNER_TEMP/crowd142-proof/SHA256SUMS"
+            - name: Verify actual own PostgreSQL container cgroup limits
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  timeout --signal=TERM --kill-after=2s 10s docker exec '${{ job.services.postgres.id }}' sh -ec '
+                    printf "{\"selfCgroup\":\"%s\",\"memoryMax\":\"%s\",\"swapMax\":\"%s\",\"pidsMax\":\"%s\",\"cpuMax\":\"%s\"}\n" \
+                      "$(cat /proc/self/cgroup)" "$(cat /sys/fs/cgroup/memory.max)" "$(cat /sys/fs/cgroup/memory.swap.max)" \
+                      "$(cat /sys/fs/cgroup/pids.max)" "$(cat /sys/fs/cgroup/cpu.max)"
+                  ' > "$RUNNER_TEMP/crowd142-proof/POSTGRES_CGROUP.json"
+                  node --input-type=module - "$RUNNER_TEMP/crowd142-proof/POSTGRES_CGROUP.json" <<'NODE'
+                  import fs from 'node:fs';
+                  import {assertCrowdContainerCaps} from './supabase/tests/crowd-disposable142.mjs';
+                  assertCrowdContainerCaps(JSON.parse(fs.readFileSync(process.argv[2],'utf8')));
+                  NODE
+            - name: Install only pinned isolated PostgreSQL client
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  npm install --prefix "$RUNNER_TEMP/crowd142-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+                  test "$(node -p "require('$RUNNER_TEMP/crowd142-pg/node_modules/pg/package.json').version")" = 8.16.3
+                  sha256sum "$RUNNER_TEMP/crowd142-pg/package-lock.json" > "$RUNNER_TEMP/crowd142-proof/CLIENT_LOCK_SHA256.txt"
+            - name: Create only the empty disposable fixture
+              env:
+                  PGPASSWORD: fixture-only-password
+              shell: bash
+              run: createdb -h 127.0.0.1 -p 5432 -U postgres --maintenance-db=postgres --template=template0 crowd_soundings142_test
+            - name: Execute actual private migration and consent retirement races
+              env:
+                  PG_MODULE_PATH: ${{ runner.temp }}/crowd142-pg/node_modules/pg/lib/index.js
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  ulimit -f 1024
+                  node tests/sql/crowdRetirement142.mjs --check
+                  node --test tests/CrowdDisposable142.test.mjs
+                  timeout --signal=TERM --kill-after=5s 120s node supabase/tests/crowd-postgres142.mjs 2>&1 | tee "$RUNNER_TEMP/crowd142-proof/POSTGRES.txt"
+            - name: Preserve bounded success or failure evidence
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test -d "$RUNNER_TEMP/crowd142-proof"
+                  test "$(du -sb "$RUNNER_TEMP/crowd142-proof" | cut -f1)" -le 1048576
+            - name: Upload text proof only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build142-crowd-sounding-database-proof
+                  path: ${{ runner.temp }}/crowd142-proof/
+                  retention-days: 7
+                  if-no-files-found: error

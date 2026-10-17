@@ -5,6 +5,7 @@ export const proof = {
     tokens: [] as Array<{ id: string; device_token: string; platform: string }>,
     events: [] as string[],
     current: true as boolean | null,
+    currentChecks: [] as Array<boolean | null>,
     attempt: true as boolean | null,
     initiated: 0,
     updates: [] as Array<Record<string, unknown>>,
@@ -31,6 +32,12 @@ export function createClient(url: string, key: string) {
             proof.events.push(name);
             if (name === 'claim_push_notification') return Promise.resolve({ data: proof.record, error: null });
             if (name === 'overdue_owner_current') return Promise.resolve({ data: proof.current, error: null });
+            if (name === 'lightning_watch_delivery_current') {
+                return Promise.resolve({
+                    data: proof.currentChecks.length ? proof.currentChecks.shift() : proof.current,
+                    error: null,
+                });
+            }
             if (name === 'overdue_owner_attempt') {
                 if (proof.attempt === true) proof.initiated ||= 1;
                 return Promise.resolve({ data: proof.attempt, error: null });

@@ -13,8 +13,8 @@
  * safe to keep.
  */
 import { describe, expect, it } from 'vitest';
-import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const css = readFileSync('index.css', 'utf8');
 
@@ -66,12 +66,20 @@ function textUtilitiesInUse(): Map<string, number> {
     // scanned only components/pages/src/modules, so App.tsx's own
     // text-white/45 sat outside it — and a probe file dropped in hooks/ with
     // an uncovered utility left the suite green.
-    const out = execSync(
-        `grep -rohE "text-(${FAMILIES})(/[0-9]+|-[0-9]{2,3}(/[0-9]+)?)?" ${ROOTS} ./*.tsx 2>/dev/null || true`,
-        { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-    )
-        .split('\n')
-        .filter(Boolean);
+    const files: string[] = [];
+    const collect = (directory: string): void => {
+        if (!existsSync(directory)) return;
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            const file = join(directory, entry.name);
+            if (entry.isDirectory()) collect(file);
+            else if (entry.isFile()) files.push(file);
+        }
+    };
+    for (const root of ROOTS.split(' ')) collect(root);
+    for (const entry of readdirSync('.', { withFileTypes: true }))
+        if (entry.isFile() && entry.name.endsWith('.tsx')) files.push(entry.name);
+    const pattern = new RegExp(`text-(${FAMILIES})(/[0-9]+|-[0-9]{2,3}(/[0-9]+)?)?`, 'g');
+    const out = files.flatMap((file) => readFileSync(file, 'utf8').match(pattern) ?? []);
     const counts = new Map<string, number>();
     for (const cls of out) counts.set(cls, (counts.get(cls) ?? 0) + 1);
     return counts;

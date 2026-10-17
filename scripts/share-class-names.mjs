@@ -160,6 +160,68 @@ export function packClassNames(values) {
     };
 }
 
+/** Alternative representations of the SAME bounded tuple grammar. The class
+ * collector retains its original packer; UI/SVG can use shorter dictionaries.
+ * Frequent words receive short indexes, with lexical order inside each index
+ * width. Whole strings are admitted only as already-supported dictionary words. */
+export function packCompactStringData(values) {
+    if (
+        !Array.isArray(values) ||
+        values.length > 4096 ||
+        values.some((value) => typeof value !== 'string' || value.length > 8192) ||
+        values.reduce((sum, value) => sum + value.length, 0) > 256000
+    )
+        throw Error('Embedded class table exceeds reviewed bounds');
+    const frequency = new Map();
+    for (const value of values)
+        for (const word of value.split(' ')) frequency.set(word, (frequency.get(word) ?? 0) + 1);
+    const lexical = [...frequency.keys()].sort();
+    const frequent = [...frequency.keys()].sort(
+        (a, b) => frequency.get(b) - frequency.get(a) || (a < b ? -1 : a > b ? 1 : 0),
+    );
+    const bucketed = [
+        ...frequent.slice(0, 36).sort(),
+        ...frequent.slice(36, 1296).sort(),
+        ...frequent.slice(1296).sort(),
+    ];
+    const candidates = [lexical, bucketed].map((words) => {
+        const indexes = new Map(words.map((word, index) => [word, index.toString(36)]));
+        return [
+            words,
+            values.map((value) =>
+                value
+                    .split(' ')
+                    .map((word) => indexes.get(word))
+                    .join(' '),
+            ),
+        ];
+    });
+    if (values.every((value) => value.length <= 4096))
+        candidates.push([values, values.map((_, index) => index.toString(36))]);
+    let best;
+    for (const [words, rows] of candidates) {
+        if (words.length > 8192 || words.some((word) => word.length > 4096) || rows.some((row) => row.length > 16384))
+            continue;
+        const raw = Buffer.from(JSON.stringify([words, rows]));
+        if (raw.length > 128000) continue;
+        const zipped = deflateSync(raw, { level: 9 });
+        const encoded = zipped.toString('base64');
+        if (encoded.length > 64000) continue;
+        if (!best || encoded.length < best.encoded.length) {
+            const checksum = zipped.readUInt32BE(zipped.length - 4);
+            best = {
+                encoded,
+                bytes: raw.length,
+                count: values.length,
+                checksum,
+                code: `import {decodeClassNames} from '${DECODER}';export const values=decodeClassNames(${JSON.stringify(encoded)},${raw.length},${values.length},${checksum});`,
+            };
+        }
+    }
+    if (!best) throw Error('Embedded class table exceeds reviewed bounds');
+    return best;
+}
+
 /** @param {string} code @param {string} id
  * @param {{root:string, values:readonly string[], parse:(source:string)=>any}} options */
 export function shareLiteralClassNames(code, id, { root, values, parse }) {
