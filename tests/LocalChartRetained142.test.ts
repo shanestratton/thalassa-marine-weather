@@ -6,6 +6,8 @@ const mock = vi.hoisted(() => ({
     ordinary: true,
     hidden: 0,
     tile: null as Uint8Array | null,
+    tileFailure: null as 'bind' | 'step' | 'get' | null,
+    tileFreed: vi.fn(),
     rows: [
         { name: 'format', value: 'png' },
         { name: 'bounds', value: '-45,-22,-22.5,0' },
@@ -35,11 +37,19 @@ function sql() {
                 let row = -1;
                 if (query.includes('substr(tile_data'))
                     return {
-                        bind: () => {},
-                        step: () => ++row === 0 && mock.tile !== null,
-                        get: () => [mock.tile],
+                        bind: () => {
+                            if (mock.tileFailure === 'bind') throw new Error('Malformed binding');
+                        },
+                        step: () => {
+                            if (mock.tileFailure === 'step') throw new Error('Malformed tile table');
+                            return ++row === 0 && mock.tile !== null;
+                        },
+                        get: () => {
+                            if (mock.tileFailure === 'get') throw new Error('Malformed tile row');
+                            return [mock.tile];
+                        },
                         getAsObject: () => ({}),
-                        free: () => {},
+                        free: mock.tileFreed,
                     };
                 const rows = query.includes('sqlite_master')
                     ? [{ type: mock.ordinary ? 'table' : 'view', rootpage: mock.ordinary ? 2 : 0 }]
@@ -65,6 +75,7 @@ beforeEach(() => {
     mock.ordinary = true;
     mock.hidden = 0;
     mock.tile = null;
+    mock.tileFailure = null;
     mock.rows = [
         { name: 'format', value: 'png' },
         { name: 'bounds', value: '-45,-22,-22.5,0' },
@@ -75,6 +86,18 @@ afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
 });
+it.each(['bind', 'step', 'get'] as const)(
+    'frees every tile statement when %s throws and does not cache the failure',
+    async (phase) => {
+        const { MBTilesService } = await import('../services/MBTilesService');
+        await MBTilesService.openRetained({ fileName: name, name: 'Own', bytes: bytes(), isCurrent: () => true });
+        mock.tile = new Uint8Array([1, 2, 3]);
+        mock.tileFailure = phase;
+        expect(MBTilesService.getTile(name, 4, 6, 8)).toBeNull();
+        expect(MBTilesService.getTile(name, 4, 6, 8)).toBeNull();
+        expect(mock.tileFreed).toHaveBeenCalledTimes(2);
+    },
+);
 it('does not hand a disguised vector/gzip tile to the retained raster image decoder', async () => {
     const { MBTilesService } = await import('../services/MBTilesService');
     await MBTilesService.openRetained({ fileName: name, name: 'Own', bytes: bytes(), isCurrent: () => true });

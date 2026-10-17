@@ -172,3 +172,14 @@ that property exists and includes a foreign custom-layer regression. The
 missing/size-changed entry recovery has real storage/UI tests and is added to
 the final actual browser replay. The parent owns the next combined compiler;
 this packet does not claim a whole-app type pass or production budget pass.
+
+The exact clean `ee90f2c1a` phone replay passed 8/8 (no skips/retries), including
+actual missing-file recovery, from 06:43:09 to 06:45:40 UTC. A final narrow child
+frees every tile statement in `finally`, including throwing bind/step/get;
+46 affected cases pass, with three new failure-cleanup cases. Render/decode
+inputs and the successful tile selection/encoding stay unchanged. Visual review
+also corrected the pinned Done label's inherited dark text with one explicit
+light text class. The affected 300 px WebKit/native-CSP case passes an actual
+foreground/background contrast measurement as well as the original full pixel,
+storage, ownership and extent assertions. The frozen proof distinguishes this
+small child from the earlier eight-case render source.

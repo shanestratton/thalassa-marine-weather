@@ -89,6 +89,13 @@ async function pixel(page: Page, lon: number, lat: number, expected: number[]) {
         )
         .toEqual(expected);
 }
+function luminance(color: readonly number[]) {
+    const rgb = color
+        .slice(0, 3)
+        .map((value) => value / 255)
+        .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+}
 for (const width of [300, 375])
     for (const csp of ['native', 'web'] as const) {
         test(`retained local chart import, original pixels, ownership and closed reload ${width}px ${csp}`, async ({
@@ -222,22 +229,41 @@ for (const width of [300, 375])
             await expect(missingRow.getByRole('button', { name: 'Display', exact: true })).toBeDisabled();
             await expect(missingRow).toContainText('Saved copy is missing.');
             const modal = page.getByRole('dialog');
-            const geometry = await modal.evaluate((element) => ({
-                rect: element.getBoundingClientRect().toJSON(),
-                body: document.body.scrollHeight,
-                width: document.documentElement.scrollWidth,
-                height: innerHeight,
-                viewport: innerWidth,
-                done: (element.querySelector('[data-modal-sheet-footer] button') as HTMLElement)
-                    .getBoundingClientRect()
-                    .toJSON(),
-            }));
+            const geometry = await modal.evaluate((element) => {
+                const done = element.querySelector('[data-modal-sheet-footer] button') as HTMLElement;
+                const panel = element.querySelector('[data-modal-sheet]') as HTMLElement;
+                const color = (css: string) => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = canvas.height = 1;
+                    const context = canvas.getContext('2d');
+                    if (!context) throw new Error('Colour measurement unavailable');
+                    context.fillStyle = css;
+                    context.fillRect(0, 0, 1, 1);
+                    return Array.from(context.getImageData(0, 0, 1, 1).data);
+                };
+                return {
+                    rect: element.getBoundingClientRect().toJSON(),
+                    body: document.body.scrollHeight,
+                    width: document.documentElement.scrollWidth,
+                    height: innerHeight,
+                    viewport: innerWidth,
+                    done: done.getBoundingClientRect().toJSON(),
+                    foreground: color(getComputedStyle(done).color),
+                    background: color(getComputedStyle(panel).backgroundColor),
+                };
+            });
             expect(geometry.width).toBeLessThanOrEqual(width);
             expect(geometry.body).toBeLessThanOrEqual(780);
             expect(geometry.rect.top).toBeGreaterThanOrEqual(0);
             expect(geometry.rect.bottom).toBeLessThanOrEqual(780);
             expect(geometry.done.height).toBeGreaterThanOrEqual(44);
             expect(geometry.done.bottom).toBeLessThanOrEqual(780);
+            const light = luminance(geometry.foreground),
+                dark = luminance(geometry.background);
+            expect(
+                (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05),
+                'the pinned Done label stays readable outside the scrolling content',
+            ).toBeGreaterThanOrEqual(4.5);
             await page.screenshot({ path: info.outputPath('actual-private-library.png') });
             await page
                 .getByRole('article')

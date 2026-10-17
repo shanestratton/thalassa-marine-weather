@@ -127,7 +127,7 @@ export default function LocalChartLibrarySheet({
             maxWidth="max-w-lg"
             zIndex="z-10060"
             footer={
-                <button className={`${button} w-full`} onClick={close}>
+                <button className={`${button} w-full text-slate-100`} onClick={close}>
                     Done
                 </button>
             }

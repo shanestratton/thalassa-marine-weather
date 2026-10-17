@@ -375,8 +375,9 @@ class MBTilesServiceImpl {
         // MBTiles uses TMS tiling scheme — y-axis is flipped vs XYZ (Slippy Map)
         const tmsY = (1 << z) - 1 - y;
 
+        let stmt: ReturnType<Database['prepare']> | undefined;
         try {
-            const stmt = db.prepare(
+            stmt = db.prepare(
                 'SELECT substr(tile_data, 1, ?) FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ? LIMIT 1',
             );
             stmt.bind([LOCAL_CHART_TILE_BYTES + 1, z, x, tmsY]);
@@ -387,7 +388,6 @@ class MBTilesServiceImpl {
                 const value = row[0];
                 if (value instanceof Uint8Array && value.byteLength <= LOCAL_CHART_TILE_BYTES) result = value;
             }
-            stmt.free();
 
             // Cache the result (including null for missing tiles — avoids repeated lookups)
             this.tileCache.set(cacheKey, result);
@@ -403,6 +403,8 @@ class MBTilesServiceImpl {
             return result;
         } catch {
             return null;
+        } finally {
+            stmt?.free();
         }
     }
 
