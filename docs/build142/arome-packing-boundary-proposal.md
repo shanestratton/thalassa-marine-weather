@@ -1,0 +1,13 @@
+# NCALED relative-humidity boundary proposal
+
+This proposal changes no scientific decoder or admission rule. The captured original and original refusal remain authoritative.
+
+The actual retained-only diagnostic found eight of 255,811 relative-humidity values at lead6 equal to 100.00163650512695%. All values are finite, and the admitted original field is WMO0/1/1 at2m, centre85, units%, on the exact521×491 grid. Its original CCSDS5.42 header has referenceR=42.00163650512695, binary scaleE=-6, decimal scaleD=0 and12bits. All eight values correspond to integer code3712.
+
+ECMWF's [GRIB2 template5.42](https://codes.ecmwf.int/grib/format/grib2/templates/5/42/) applies the original reference/scaling reconstruction in [regulation92.9.4](https://codes.ecmwf.int/grib/format/grib2/regulations/). Its [ecCodes2.50 packing-error implementation](https://github.com/ecmwf/eccodes/blob/2.50.0/src/eccodes/accessor/SimplePackingError.cc) combines the binary quantum with the reference's floating-point uncertainty. Here the quantum is0.015625%, reference spacing is0.000003814697265625%, and the derived packing error is0.007814407348632812%. The [ECMWF packing documentation](https://confluence.ecmwf.int/plugins/viewsource/viewpagesrc.action?pageId=208501579) describes an open lower and closed upper uncertainty interval.
+
+The resulting possible pre-packing interval for each offending value is(99.99382209777832,100.00945091247559]. It includes100, so boundary rounding is compatible with the evidence. It does not prove an original value of100. Replacing these values with100 would therefore assert a value the retained original cannot establish.
+
+The conservative candidate is to keep the physical range0–100 unchanged and mark only finite RH boundary-uncertain values as explicit unknown/NaN, preserving raw-original hashes and recording discarded counts and actual packing precision. Values beyond their actual precision interval, nonfinite present values, other fields, unsupported precision or metadata would retain the existing refusal. No interpolation or clamp is proposed. This candidate is held until a complete retained49-lead survey establishes actual extrema/counts/precision; any future implementation needs separate review, generated-codec tests and actual retained-only qualification.
+
+`retained_range_survey.py` prepares that diagnosis. It records scalar-admitted original packing for all245 selected headers, continues to the next lead after recording each unchanged physical refusal, and records at most16 offending samples across the whole survey. It then re-raises the first original `AdmissionError`. Its result cannot admit a cohort or renew the earlier qualification clock or18:00UTC expiry. No provider request or publication is included.
