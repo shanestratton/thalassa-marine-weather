@@ -10,7 +10,7 @@ const BOUNDS = [
     [24, 48],
     [48, 72],
 ] as const;
-interface ModelScore {
+export interface ModelScore {
     pairs: number;
     effectiveN: number;
     spanHours: number;
