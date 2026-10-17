@@ -212,27 +212,34 @@ describe('production service worker', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('lets the explicit relief downloader validate a fresh response rather than an old viewed tile', async () => {
-        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
-        getCache(names.runtimeTiles).match.mockResolvedValue(new Response('stale viewed tile'));
-        let result: Promise<Response> | undefined;
-        const request = new Request('https://tiles.thalassatiles.com/v1/relief-global/idx/0/0/0.png', {
-            cache: 'reload',
-            redirect: 'error',
-            credentials: 'omit',
-        });
-        listeners.get('fetch')?.({
-            request,
-            respondWith: (r) => {
-                result = r;
-            },
-            waitUntil: vi.fn(),
-        });
-        expect(await (await result)!.text()).toBe('network');
-        expect(fetchMock).toHaveBeenCalledWith(request);
-        expect(getCache(names.runtimeTiles).match).not.toHaveBeenCalled();
-        expect(getCache(names.offlineTiles).put).not.toHaveBeenCalled();
-    });
+    it.each([
+        'v1/relief-global/idx/0/0/0.png',
+        'v2/relief-au250/idx/8/193/133.png',
+        'v2/relief-nz/dem/14/15825/10578.webp',
+    ])(
+        'lets the explicit relief downloader validate a fresh response for %s rather than an old viewed tile',
+        async (path) => {
+            const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+            getCache(names.runtimeTiles).match.mockResolvedValue(new Response('stale viewed tile'));
+            let result: Promise<Response> | undefined;
+            const request = new Request(`https://tiles.thalassatiles.com/${path}`, {
+                cache: 'no-store',
+                redirect: 'error',
+                credentials: 'omit',
+            });
+            listeners.get('fetch')?.({
+                request,
+                respondWith: (r) => {
+                    result = r;
+                },
+                waitUntil: vi.fn(),
+            });
+            expect(await (await result)!.text()).toBe('network');
+            expect(fetchMock).toHaveBeenCalledWith(request);
+            expect(getCache(names.runtimeTiles).match).not.toHaveBeenCalled();
+            expect(getCache(names.offlineTiles).put).not.toHaveBeenCalled();
+        },
+    );
 
     it('prunes only the ordinary browsing tile cache to its fixed limit', async () => {
         const { listeners, getCache, names } = loadServiceWorker();
@@ -260,6 +267,50 @@ describe('production service worker', () => {
         expect(runtimeCache.delete).toHaveBeenCalledTimes(2);
         expect(offlineCache.keys).not.toHaveBeenCalled();
         expect(offlineCache.delete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'v1/relief-global/idx/0/0/0.png',
+        'v2/relief-au250/idx/8/193/133.png',
+        'v2/relief-nz/idx/14/15825/10578.png',
+    ])('hard reload may use only saved exact bytes after network rejection: %s', async (path) => {
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+        fetchMock.mockRejectedValue(new TypeError('WAN offline'));
+        getCache(names.runtimeTiles).match.mockResolvedValue(new Response('unvalidated viewed bytes'));
+        getCache(names.offlineTiles).match.mockResolvedValue(new Response('saved exact URL'));
+        let result: Promise<Response> | undefined;
+        listeners.get('fetch')?.({
+            request: new Request(`https://tiles.thalassatiles.com/${path}`, { cache: 'reload' }),
+            respondWith: (r) => {
+                result = r;
+            },
+            waitUntil: vi.fn(),
+        });
+        expect(await (await result)!.text()).toBe('saved exact URL');
+        expect(getCache(names.runtimeTiles).match).not.toHaveBeenCalled();
+    });
+    it('does not turn HTTP errors, unsaved reload misses or current explicit downloads into saved success', async () => {
+        for (const mode of ['http-error', 'missing', 'explicit'] as const) {
+            const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+            getCache(names.runtimeTiles).match.mockResolvedValue(new Response('viewed'));
+            if (mode !== 'missing') getCache(names.offlineTiles).match.mockResolvedValue(new Response('saved'));
+            if (mode === 'http-error') fetchMock.mockResolvedValue(new Response('provider failure', { status: 503 }));
+            else fetchMock.mockRejectedValue(new TypeError('WAN offline'));
+            let result: Promise<Response> | undefined;
+            listeners.get('fetch')?.({
+                request: new Request('https://tiles.thalassatiles.com/v2/relief-nz/idx/14/15825/10578.png', {
+                    cache: mode === 'explicit' ? 'no-store' : 'reload',
+                }),
+                respondWith: (r) => {
+                    result = r;
+                },
+                waitUntil: vi.fn(),
+            });
+            if (mode === 'http-error') expect((await result)!.status).toBe(503);
+            else await expect(result).rejects.toThrow('WAN offline');
+            expect(getCache(names.runtimeTiles).match).not.toHaveBeenCalled();
+            if (mode !== 'missing') expect(getCache(names.offlineTiles).match).not.toHaveBeenCalled();
+        }
     });
 });
 

@@ -193,6 +193,11 @@ describe('The big Log track map on Relief + Sat', () => {
         expect(map.options.style).toBe('mapbox://styles/mapbox/dark-v11');
         map.loadStyle();
         for (const [id, visible] of seaBaseLayers('reliefSat')) {
+            // This UK/no-viewport fixture cannot admit either new sparse cohort.
+            if (/^relief-(au250|nz)-/.test(id)) {
+                expect(map.getLayer(id)).toBeUndefined();
+                continue;
+            }
             expect(map.visibility(id), id).toBe(visible ? 'visible' : 'none');
         }
         expect(map.visibility(LAND_IMAGERY_LAYER)).toBe('visible');

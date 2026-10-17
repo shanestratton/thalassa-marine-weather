@@ -8,6 +8,8 @@
  *    the world (z0-9; its shading fades out over z10-11, its colour with the
  *    30 m grid's) and Geoscience Australia's GBR 30 m grid covers Queensland
  *    inshore (z8-13, fading out over z13.5-14.5).
+ *    Published AU250 and sparse LINZ coastal patches use their own registry
+ *    bounds, native datums and viewport lifetimes; GBR stays above AU250.
  *    The colour is a raster-color ramp over an 8-bit depth index; the shape is
  *    a hillshade. Both are water only.
  *  - Relief + Sat: the same sea, with satellite imagery on land only. The
@@ -32,7 +34,12 @@
  */
 import type mapboxgl from 'mapbox-gl';
 import type { MapBaseKind } from './MapBaseSelector';
-import { RELIEF_DISPLAY_REGIONS, reliefRegionBase } from '../../services/reliefDisplayRegions';
+import {
+    RELIEF_DISPLAY_REGIONS,
+    reliefRegionBase,
+    type ReliefDisplayRegion,
+} from '../../services/reliefDisplayRegions';
+import { installSparseReliefOwner, ownsSparseRelief, SPARSE_RELIEF_OWNER } from './sparseReliefOwner';
 export { RELIEF_AU_BOUNDS } from '../../services/reliefDisplayRegions';
 
 /**
@@ -66,8 +73,8 @@ export const RELIEF_TILE_BASE = String(import.meta.env.VITE_RELIEF_TILE_BASE || 
  * confirmed CC BY 4.0 covers these commercial tiles, 2026-10-07; the AHS
  * lineage notice is attribution only): "Based on [title + link] by Geoscience
  * Australia", © Commonwealth of Australia, the licence named with a link, and
- * its section 5 disclaimer of warranties. There is no in-app credits page, so
- * the map's credit carries all of it.
+ * its section 5 disclaimer of warranties. Native map attribution retains the
+ * complete notice alongside the capped Obs Credits sheet.
  */
 export const GBR30_DATASET_URL = 'https://pid.geoscience.gov.au/dataset/ga/115066';
 /** eCat 115066's catalogue title (checked 2026-10-10; the record was renamed
@@ -336,67 +343,75 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
             },
             above,
         );
-    if (base) {
-        for (const region of SETS) {
-            const {
-                    id: set,
+    const addRegion = (region: ReliefDisplayRegion, owner?: string) => {
+        // A late viewport mount retains the catalogue's bottom-to-top
+        // order, including AU250 below the existing GBR30m terrain.
+        const before =
+            SETS.slice(SETS.indexOf(region) + 1)
+                .map((r) => `relief-${r.id}-tint`)
+                .find((id) => map.getLayer(id)) ?? (map.getLayer(SEA_BASE_COAST) ? SEA_BASE_COAST : above);
+        const metadata = owner ? { [SPARSE_RELIEF_OWNER]: owner } : undefined;
+        const {
+                id: set,
+                minzoom,
+                maxzoom,
+                tintFade: [t0, t1],
+                shadeFade: [s0, s1],
+            } = region,
+            tileBase = reliefRegionBase(base, region);
+        for (const kind of ['idx', 'dem'] as const) {
+            const id = `relief-${set}-${kind}`;
+            if (!map.getSource(id))
+                map.addSource(id, {
+                    type: kind === 'dem' ? 'raster-dem' : 'raster',
+                    tiles: [`${tileBase}/relief-${set}/${kind}/{z}/{x}/{y}.${kind === 'dem' ? 'webp' : 'png'}`],
+                    tileSize: 256,
                     minzoom,
                     maxzoom,
-                    tintFade: [t0, t1],
-                    shadeFade: [s0, s1],
-                } = region,
-                tileBase = reliefRegionBase(base, region);
-            for (const kind of ['idx', 'dem'] as const) {
-                const id = `relief-${set}-${kind}`;
-                if (!map.getSource(id))
-                    map.addSource(id, {
-                        type: kind === 'dem' ? 'raster-dem' : 'raster',
-                        tiles: [`${tileBase}/relief-${set}/${kind}/{z}/{x}/{y}.${kind === 'dem' ? 'webp' : 'png'}`],
-                        tileSize: 256,
-                        minzoom,
-                        maxzoom,
-                        ...(kind === 'dem' ? { encoding: 'terrarium' } : {}),
-                        ...(region.bounds ? { bounds: [...region.bounds] } : {}),
-                        attribution: region.attribution ?? RELIEF_ATTRIBUTION,
-                    } as mapboxgl.AnySourceData);
-            }
-            add(
-                {
-                    id: `relief-${set}-tint`,
-                    type: 'raster',
-                    source: `relief-${set}-idx`,
-                    minzoom,
-                    maxzoom: t1,
-                    paint: {
-                        'raster-color': reliefIndexRamp(DAY.ramp, safetyChoice.get(map) ?? null),
-                        // GL JS 3.19 feeds the channels as 0..1: [1,0,0,0] drew nothing.
-                        'raster-color-mix': [255, 0, 0, 0],
-                        'raster-color-range': [0, 255],
-                        'raster-opacity': tintFade(t0, t1, 1),
-                        'raster-fade-duration': 0,
-                    },
-                },
-                above,
-            );
-            add(
-                {
-                    id: `relief-${set}-shade`,
-                    type: 'hillshade',
-                    source: `relief-${set}-dem`,
-                    minzoom,
-                    maxzoom: s1,
-                    paint: {
-                        'hillshade-exaggeration': shadeFade(s0, s1),
-                        'hillshade-shadow-color': DAY.shadow,
-                        'hillshade-highlight-color': DAY.highlight,
-                        'hillshade-accent-color': 'rgba(0,0,0,0)',
-                        'hillshade-illumination-direction': 315,
-                    },
-                },
-                above,
-            );
+                    ...(kind === 'dem' ? { encoding: 'terrarium' } : {}),
+                    ...(region.bounds ? { bounds: [...region.bounds] } : {}),
+                    attribution: region.attribution ?? RELIEF_ATTRIBUTION,
+                } as mapboxgl.AnySourceData);
         }
-    }
+        add(
+            {
+                id: `relief-${set}-tint`,
+                type: 'raster',
+                source: `relief-${set}-idx`,
+                ...(metadata ? { metadata } : {}),
+                minzoom,
+                maxzoom: t1,
+                paint: {
+                    'raster-color': reliefIndexRamp(DAY.ramp, safetyChoice.get(map) ?? null),
+                    // GL JS 3.19 feeds the channels as 0..1: [1,0,0,0] drew nothing.
+                    'raster-color-mix': [255, 0, 0, 0],
+                    'raster-color-range': [0, 255],
+                    'raster-opacity': tintFade(t0, t1, 1),
+                    'raster-fade-duration': 0,
+                },
+            },
+            before,
+        );
+        add(
+            {
+                id: `relief-${set}-shade`,
+                type: 'hillshade',
+                source: `relief-${set}-dem`,
+                ...(metadata ? { metadata } : {}),
+                minzoom,
+                maxzoom: s1,
+                paint: {
+                    'hillshade-exaggeration': shadeFade(s0, s1),
+                    'hillshade-shadow-color': DAY.shadow,
+                    'hillshade-highlight-color': DAY.highlight,
+                    'hillshade-accent-color': 'rgba(0,0,0,0)',
+                    'hillshade-illumination-direction': 315,
+                },
+            },
+            before,
+        );
+    };
+    if (base) for (const region of SETS) if (!region.availability) addRegion(region);
     if (vectorSea)
         add(
             {
@@ -408,6 +423,19 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
             },
             above,
         );
+    installSparseReliefOwner(map, base ? SETS.filter((r) => !!r.availability) : [], addRegion, () => {
+        const visibility = map.getLayoutProperty('relief-global-tint', 'visibility') ?? 'none';
+        for (const region of SETS.filter((r) => !!r.availability && ownsSparseRelief(map, r.id)))
+            for (const kind of ['tint', 'shade']) {
+                const id = `relief-${region.id}-${kind}`;
+                if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility);
+            }
+        const mode = painted.get(map);
+        if (mode) {
+            painted.delete(map);
+            setReliefPalette(map, mode);
+        }
+    });
 }
 
 /** A cold offline launch cannot depend on an uncached Mapbox style request. */
@@ -421,7 +449,7 @@ export function offlineReliefStyle(): mapboxgl.StyleSpecification {
 
 /** Public API only: retry missing tiles after hydration/download/delete without replacing the style. */
 export function reloadReliefSources(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE): void {
-    for (const region of SETS)
+    for (const region of SETS.filter((r) => !r.availability || ownsSparseRelief(map, r.id)))
         for (const kind of ['idx', 'dem']) {
             const set = region.id;
             const source = map.getSource(`relief-${set}-${kind}`) as mapboxgl.RasterTileSource | undefined;
@@ -475,6 +503,7 @@ export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette, safetyD
         id: setName,
         tintFade: [t0, t1],
     } of SETS) {
+        if (SETS.find((r) => r.id === setName)?.availability && !ownsSparseRelief(map, setName)) continue;
         const tint = `relief-${setName}-tint`;
         // Light's world tint ends at z12 (GA's keeps its own fade): past it a
         // harbour shows flat water, never 450 m blobs or a tile seam.
