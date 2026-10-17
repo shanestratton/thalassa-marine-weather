@@ -16,6 +16,9 @@ import './helpers/noPrivateRoutingAreas';
  *
  * Scenes are synthetic or NOAA only (tests/helpers/routeJobScenes.ts). The
  * NOAA cases skip, saying why, without THALASSA_ENC_SAMPLES.
+ * Build139 adds the explicit incomplete area-restriction disclosure. Its six
+ * synthetic goldens were compared against exact138 captures: every field
+ * except that disclosure and the empty caveat array remains exactly equal.
  *
  * Goldens: ROUTEJOB_GOLDEN_WRITE=1 rewrites tests/fixtures/routeJob/*.json.
  * Run: NODE_OPTIONS=--max-old-space-size=4096 npx vitest run tests/routeJob.parity.test.ts --maxWorkers=1
