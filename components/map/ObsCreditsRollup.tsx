@@ -10,6 +10,7 @@ import { aisCoverageText, useAisCoverage } from '../../services/ais/aisCoverage'
 import { subscribeLightningStatus, type StatusSnapshot } from '../../services/weather/api/blitzortungLightning';
 import { openExternalUrl } from '../../services/externalLinks';
 import { CREDITS_STRIP_POSITION_CLASS } from './creditsStrip';
+import { receiverCoverageWords, type ReceiverCoverageStatus } from '../../services/ais/receiverCoverage';
 
 export interface ObsCreditsRollupProps {
     rain: 'radar' | 'forecast' | null;
@@ -18,6 +19,7 @@ export interface ObsCreditsRollupProps {
     lightning: boolean;
     satellite: SatIrState;
     ais: boolean;
+    receiverCoverage?: ReceiverCoverageStatus;
     onToggleSatellite: () => void;
 }
 /** Presentation only: subscribes to existing feed status, never starts a layer or makes a data request. */
@@ -28,6 +30,7 @@ export default function ObsCreditsRollup({
     lightning,
     satellite,
     ais,
+    receiverCoverage,
     onToggleSatellite,
 }: ObsCreditsRollupProps) {
     const [open, setOpen] = React.useState(false),
@@ -64,8 +67,12 @@ export default function ObsCreditsRollup({
                 now - aisTime > 900000 ||
                 aisTime > now + 60000),
         lightningWarning = lightning && lightningStatus?.status !== 'open',
-        warning = satelliteWarning || aisWarning || lightningWarning;
-    const active = !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais;
+        receiverWarning =
+            !!receiverCoverage &&
+            receiverCoverage.state !== 'off' &&
+            (receiverCoverage.state !== 'available' || receiverCoverage.partial),
+        warning = satelliteWarning || aisWarning || lightningWarning || receiverWarning;
+    const active = !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais || !!receiverCoverage;
     React.useEffect(() => {
         if (!active) setOpen(false);
     }, [active]);
@@ -80,6 +87,7 @@ export default function ObsCreditsRollup({
             ? `Satellite ${satellite.status}; ${satellite.frameTimeMs === null ? 'frame time unknown' : satellite.frameTimeMs > now + 60000 ? 'frame time is in the future' : satIrAgeLabel(satellite.frameTimeMs, now)}. ${satIrCoverageNote(satellite.coverage) ?? ''}`
             : null,
         aisWarning ? aisCoverageText(coverage, now) : null,
+        receiverWarning && receiverCoverage ? receiverCoverageWords(receiverCoverage) : null,
         lightningWarning
             ? `Lightning feed ${lightningStatus?.status ?? 'connecting'}; absence is not clear sky.`
             : null,
@@ -184,6 +192,16 @@ export default function ObsCreditsRollup({
                             <section aria-label="Internet AIS source">
                                 <h4 className="font-bold text-sky-200">Internet AIS</h4>
                                 <AisCoverageNotice />
+                            </section>
+                        )}
+                        {receiverCoverage && (
+                            <section aria-label="Receiver coverage source">
+                                <h4 className="font-bold text-sky-200">Who’s listening</h4>
+                                <p>{receiverCoverageWords(receiverCoverage)}</p>
+                                <p className="mt-2 text-xs text-slate-400">
+                                    Thalassa consenting Pi receivers. Fixed 2° cells; five-minute publication delay and
+                                    ten-minute observation expiry. No public receiver identities or trails.
+                                </p>
                             </section>
                         )}
                         <p className="text-xs text-slate-400">

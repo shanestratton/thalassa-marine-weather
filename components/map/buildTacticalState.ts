@@ -15,6 +15,8 @@ import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicenc
 export interface BuildTacticalStateDeps {
     aisVisible: boolean;
     setAisVisible: Dispatch<SetStateAction<boolean>>;
+    receiverCoverageVisible?: boolean;
+    setReceiverCoverageVisible?: Dispatch<SetStateAction<boolean>>;
     cycloneVisible: boolean;
     setCycloneVisible: Dispatch<SetStateAction<boolean>>;
     squallVisible: boolean;
@@ -47,6 +49,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
     const {
         aisVisible,
         setAisVisible,
+        receiverCoverageVisible,
+        setReceiverCoverageVisible,
         cycloneVisible,
         setCycloneVisible,
         squallVisible,
@@ -74,6 +78,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
 
     return {
         aisVisible,
+        receiverCoverageVisible,
+        onToggleReceiverCoverage: setReceiverCoverageVisible ? () => setReceiverCoverageVisible((v) => !v) : undefined,
         onToggleAis: () => {
             setAisVisible((v) => {
                 if (!v) {

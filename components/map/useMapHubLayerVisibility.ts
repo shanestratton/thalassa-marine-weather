@@ -27,6 +27,7 @@ export function useMapHubLayerVisibility({
     // tab switches, so deliberate toggles still survive ordinary navigation.
     // Never restore yesterday's overlays from device storage.
     const [aisVisible, setAisVisible] = useState(false);
+    const [receiverCoverageVisible, setReceiverCoverageVisible] = useState(false);
     const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
@@ -84,6 +85,7 @@ export function useMapHubLayerVisibility({
     );
 
     const browseAisVisible = aisVisible && !planningSurface;
+    const browseReceiverCoverageVisible = receiverCoverageVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
@@ -97,6 +99,9 @@ export function useMapHubLayerVisibility({
     return {
         aisVisible,
         setAisVisible,
+        receiverCoverageVisible,
+        setReceiverCoverageVisible,
+        browseReceiverCoverageVisible,
         chokepointVisible,
         setChokepointVisible,
         cycloneVisible,

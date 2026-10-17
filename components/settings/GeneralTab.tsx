@@ -13,6 +13,7 @@ import {
     type SettingsTabProps,
 } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
+const PiFleetSharingSection = React.lazy(() => import('./PiFleetSharingSection'));
 import { SeabedMappingSection } from './SeabedMappingSection';
 import { BoatQuietSection } from './BoatQuietSection';
 import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
@@ -916,6 +917,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 (Shane 2026-09-09: "i want to move most toggles there"). */}
             <Section title="Share what you hear">
                 <FleetSharingSection />
+            </Section>
+            <Section title="Share from the boat’s Pi">
+                <React.Suspense fallback={null}>
+                    <PiFleetSharingSection />
+                </React.Suspense>
             </Section>
 
             {/* Seabed mapping, phase 1 (Shane 2026-10-05): the owner's opt-in to
