@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export const TARGET = Object.freeze({
   repo: "shanestratton/thalassa-marine-weather",
-  source: "e4722dfc5eea78e2a2af8ffd83134da06ce301e0",
+  source: "8e6edf36a0c0514c252c347b68e7bb86cc7e0da9",
   sourceBranch: "codex/build-138-editor",
   originalB132: "a9372b33c967d79d8676e9bb3564b68c794cc33b",
   originalB133: "9c0d9f2f2e5ca3a00226bc023b44a850e3666225",
@@ -13,8 +13,8 @@ export const TARGET = Object.freeze({
   originalB136: "b6fdb1626cec1d850e7f8d2f3f3df88921c34d5c",
   originalB137: "12f7a34b4e3f15613bd4a55a965237b77f9376e3",
   master: "12f7a34b4e3f15613bd4a55a965237b77f9376e3",
-  validationRun: Number("38992504453"),
-  validationDefinition: "57c749e70299794e7efe4257127e5257076502c3",
+  validationRun: Number("39003250839"),
+  validationDefinition: "17bca6d8e62f27b86ec8c45f07f91f6e0eb9e659",
   validationPath: ".github/workflows/validate-testflight-138.yml",
   validationBranch: "codex/build-138-full-validation",
 });
