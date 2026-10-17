@@ -47,6 +47,16 @@ afterEach(() => {
     setAuthIdentityScope(null);
 });
 describe('actual private chart library controls', () => {
+    it('keeps a missing copy visible for Remove while disabling Display', async () => {
+        service.list.mockResolvedValue([{ ...chart, unavailable: 'missing' }]);
+        const f = view();
+        await screen.findByText(chart.name);
+        expect(screen.getByRole('button', { name: 'Display' })).toBeDisabled();
+        expect(screen.getByText(/Saved copy is missing/)).toBeVisible();
+        fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+        await waitFor(() => expect(service.remove).toHaveBeenCalledWith(chart.id, expect.any(Object)));
+        expect(f.props.onDisplay).not.toHaveBeenCalled();
+    });
     it('refuses an attachment whose process-local admission expired while the sheet stayed open', async () => {
         let now = Date.now();
         const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);

@@ -6,10 +6,11 @@ import {
     listLocalCharts,
     removeLocalChart,
     subscribeLocalChartLibrary,
+    type LocalChartListing,
 } from '../../services/charts/localChartLibrary';
 import { finishOpenedChart, peekOpenedChart, OPEN_CHART_EVENT } from '../../services/charts/openedChartQueue';
 import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
-import type { LocalChartRecord, LocalChartRights } from '../../services/charts/localChartLibraryContract';
+import type { LocalChartRights } from '../../services/charts/localChartLibraryContract';
 
 const button = 'min-h-[44px] rounded-lg border border-white/20 px-3 py-2 text-sm disabled:opacity-40';
 export default function LocalChartLibrarySheet({
@@ -25,7 +26,7 @@ export default function LocalChartLibrarySheet({
     onStop(): void;
     status: string;
 }) {
-    const [charts, setCharts] = React.useState<LocalChartRecord[]>([]);
+    const [charts, setCharts] = React.useState<LocalChartListing[]>([]);
     const [rights, setRights] = React.useState<LocalChartRights | ''>('');
     const [notice, setNotice] = React.useState(''),
         [busy, setBusy] = React.useState(false);
@@ -209,6 +210,12 @@ export default function LocalChartLibrarySheet({
                     {charts.map((chart) => (
                         <article key={chart.id} className="space-y-2 rounded-xl border border-white/15 p-3">
                             <p className="break-words font-semibold">{chart.name}</p>
+                            {chart.unavailable && (
+                                <p className="text-xs text-amber-200">
+                                    Saved copy {chart.unavailable === 'missing' ? 'is missing' : 'has changed'}. Remove
+                                    this entry, then import the original again.
+                                </p>
+                            )}
                             <p className="text-xs text-slate-400">
                                 {(chart.bytes / 1048576).toFixed(1)} MiB · {chart.kind.toUpperCase()} ·{' '}
                                 {chart.rights === 'own' ? 'Your rights declaration' : 'Open licence declaration'}
@@ -216,7 +223,7 @@ export default function LocalChartLibrarySheet({
                             <div className="grid grid-cols-2 gap-2">
                                 <button
                                     className={button}
-                                    disabled={busy}
+                                    disabled={busy || (!!chart.unavailable && activeId !== chart.id)}
                                     aria-pressed={activeId === chart.id}
                                     onClick={() => {
                                         setNotice('');

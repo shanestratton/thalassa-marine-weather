@@ -38,7 +38,7 @@ export function mountLocalChartPresentation(
     };
     const layerOwned = () => {
         const layer = map.getLayer(LAYER);
-        const metadata = layer?.metadata;
+        const metadata = layer && 'metadata' in layer ? layer.metadata : undefined;
         return (
             !!layer &&
             layer.type === 'raster' &&

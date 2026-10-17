@@ -9,7 +9,7 @@ const SOURCE = 'retained-local-chart-source',
     LAYER = 'retained-local-chart-layer';
 class ChartMap {
     sources = new Map<string, object>();
-    layers = new Map<string, mapboxgl.LayerSpecification>();
+    layers = new Map<string, mapboxgl.LayerSpecification | mapboxgl.CustomLayerInterface>();
     listeners = new Map<string, Set<(event: never) => void>>();
     element = document.createElement('div');
     failRemove = false;
@@ -99,6 +99,16 @@ afterEach(() => {
     vi.useRealTimers();
 });
 describe('local private raster presentation ownership', () => {
+    it('refuses a foreign custom layer without reading absent metadata or removing it', async () => {
+        const f = await setup();
+        const custom: mapboxgl.CustomLayerInterface = { id: LAYER, type: 'custom', render() {} };
+        f.map.layers.set(LAYER, custom);
+        const owner = f.mount();
+        expect(f.map.layers.get(LAYER)).toBe(custom);
+        expect(f.map.removeLayer).not.toHaveBeenCalled();
+        expect(f.status).toHaveBeenLastCalledWith('unavailable');
+        expect(owner.done()).toBe(true);
+    });
     it('keeps the privacy hold and honest warning if a foreign source appears before the clean retirement render', async () => {
         const f = await setup(),
             owner = f.mount();

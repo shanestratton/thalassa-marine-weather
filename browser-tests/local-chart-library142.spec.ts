@@ -19,6 +19,7 @@ type State = {
     probe(lon: number, lat: number): number[];
     sourcePresent(): boolean;
     switchAccount(owner: 'a' | 'b'): void;
+    loseSavedBytes(name: string): Promise<void>;
 };
 type FixtureWindow = Window & { __localChart142: State };
 test.afterEach(async ({ page }, info) => {
@@ -210,6 +211,16 @@ for (const width of [300, 375])
             ).toBe(false);
             await unsupportedRow.getByRole('button', { name: 'Remove', exact: true }).click();
             await expect(unsupportedRow).toHaveCount(0);
+            await page.getByRole('button', { name: 'Done', exact: true }).click();
+            await page.evaluate(() =>
+                (window as unknown as FixtureWindow).__localChart142.loseSavedBytes('own-ocean.mbtiles'),
+            );
+            await library(page);
+            const missingRow = page
+                .getByRole('article')
+                .filter({ has: page.getByText('own-ocean.mbtiles', { exact: true }) });
+            await expect(missingRow.getByRole('button', { name: 'Display', exact: true })).toBeDisabled();
+            await expect(missingRow).toContainText('Saved copy is missing.');
             const modal = page.getByRole('dialog');
             const geometry = await modal.evaluate((element) => ({
                 rect: element.getBoundingClientRect().toJSON(),

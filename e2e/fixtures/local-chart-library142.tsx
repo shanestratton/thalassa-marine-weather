@@ -11,6 +11,9 @@ import type { AtmosCredit } from '../../components/map/atmosPresentation';
 import { ToastPortal } from '../../components/Toast';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { MBTilesService, TRANSPARENT_TILE_DATA_URL } from '../../services/MBTilesService';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { listLocalCharts, readLocalChart } from '../../services/charts/localChartLibrary';
+import { localChartPath } from '../../services/charts/localChartLibraryContract';
 
 setAuthIdentityScope('chart-proof-owner-a');
 document.documentElement.style.fontSize = '130%';
@@ -28,6 +31,13 @@ const report = {
     violations: [] as { directive: string; blockedURI: string }[],
     switchAccount(owner: 'a' | 'b') {
         setAuthIdentityScope(`chart-proof-owner-${owner}`);
+    },
+    async loseSavedBytes(name: string) {
+        const chart = (await listLocalCharts()).find((chart) => chart.name === name);
+        if (!chart) throw new Error('Own fixture chart missing');
+        const original = await readLocalChart(chart.id);
+        if (!original.isCurrent()) throw new Error('Own fixture retired');
+        await Filesystem.deleteFile({ path: localChartPath(original.namespace, chart), directory: Directory.Data });
     },
     probe(lon: number, lat: number) {
         const point = map.project([lon, lat]),

@@ -63,6 +63,8 @@ export const subscribeLocalChartLibrary = (listener: () => void) => {
         listeners.delete(listener);
     };
 };
+/** Presentation-only recovery state; never persisted or used to admit bytes. */
+export type LocalChartListing = LocalChartRecord & { readonly unavailable?: 'missing' | 'changed' };
 const hash = async (bytes: Uint8Array) =>
     Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)), (byte) =>
         byte.toString(16).padStart(2, '0'),
@@ -301,24 +303,31 @@ async function reserveDisk(ctx: Context, incoming: number): Promise<void> {
     if (count >= LOCAL_CHART_LIBRARY_COUNT || bytes + incoming > LOCAL_CHART_LIBRARY_BYTES)
         throw new Error('Saved charts are full (8 files or 64 MiB). Remove a saved chart first.');
 }
-export function listLocalCharts(options: LocalChartOperation = {}): Promise<LocalChartRecord[]> {
+export function listLocalCharts(options: LocalChartOperation = {}): Promise<LocalChartListing[]> {
     const captured = capture(options);
     return serial(async () => {
         const ctx = await context(captured),
             manifest = await readIndex(ctx);
+        const charts: LocalChartListing[] = [];
         for (const chart of manifest.charts) {
-            const stat = await Filesystem.stat({
-                path: localChartPath(ctx.namespace, chart),
-                directory: Directory.Data,
-            });
+            let stat;
+            try {
+                stat = await Filesystem.stat({ path: localChartPath(ctx.namespace, chart), directory: Directory.Data });
+            } catch (error) {
+                ctx.check();
+                if (!missing(error)) throw error;
+                charts.push({ ...chart, unavailable: 'missing' });
+                continue;
+            }
             ctx.check();
-            if (
+            charts.push(
                 stat.type !== 'file' ||
-                stat.size !== (chart.webEncoding ? localChartBase64Length(chart.bytes) : chart.bytes)
-            )
-                throw new Error('A saved chart is missing or changed. Remove it before importing another copy.');
+                    stat.size !== (chart.webEncoding ? localChartBase64Length(chart.bytes) : chart.bytes)
+                    ? { ...chart, unavailable: 'changed' }
+                    : chart,
+            );
         }
-        return manifest.charts;
+        return charts;
     });
 }
 function validCopiedPath(path: string, ctx: Context, kind: LocalChartRecord['kind']): boolean {
@@ -553,7 +562,7 @@ export function removeLocalChart(id: string, options: LocalChartOperation = {}):
         const ctx = await context(captured),
             before = await readIndex(ctx);
         const chart = before.charts.find((item) => item.id === id);
-        if (!chart) throw new Error('This saved chart is unavailable.');
+        if (!chart) return;
         const next = { ...before, charts: before.charts.filter((item) => item.id !== id) };
         let erased = false;
         try {
@@ -563,7 +572,11 @@ export function removeLocalChart(id: string, options: LocalChartOperation = {}):
             ctx.check();
             // An already issued native unlink can only name this immutable,
             // owner-scoped UUID, never a later import or another account.
-            await Filesystem.deleteFile({ path: localChartPath(ctx.namespace, chart), directory: Directory.Data });
+            try {
+                await Filesystem.deleteFile({ path: localChartPath(ctx.namespace, chart), directory: Directory.Data });
+            } catch (error) {
+                if (!missing(error)) throw error;
+            }
             erased = true;
             ctx.check();
         } catch (error) {

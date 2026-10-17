@@ -45,6 +45,11 @@ copy, read or result. Pending writes use an owner-scoped temporary index; a
 rename completing after retirement is rolled back before a later queued read.
 Removal immediately retires existing read proofs, then removes the index entry
 and immutable owner/UUID file. Failed unlink restores the entry for retry.
+Missing or size-changed copies keep their validated owner-manifest entries in
+the list as unavailable, with Display disabled and Remove available. A confirmed
+already-missing captured UUID can be removed idempotently; unknown I/O/auth
+errors remain held. No unavailable marker admits bytes or reduces quota before
+the removal finishes.
 Other accounts' quota accounting reads only stat/list metadata, never content.
 No chart is copied to cloud storage, providers or a server.
 
@@ -128,7 +133,7 @@ physical-phone claim is made.
 ## Evidence and remaining gates
 
 The original 57 foundation/manifest cases remain. The combined focused packet
-currently passes 187 cases in 13 suites, including actual late copy/index/remove
+currently passes 192 cases in 13 suites, including actual late copy/index/remove
 ownership races, read timeout, SQL schema refusal, worker termination, live React
 controls, URI queues, original raster pixel equality and decompression bombs.
 The own fictional binary fixtures are reproducibly generated in
@@ -160,3 +165,10 @@ removed. A retained raster tile also refuses disguised gzip/vector bytes while
 the legacy vector reader keeps its prior behavior. The repair's first unit run
 exposed a leaked URL test mock; its eight failures and the corrected 187-case
 run are retained separately. The repair compiler remains a separate receipt.
+
+The repair compiler on `d972fa46f` failed with one remaining Mapbox union error:
+`CustomLayerInterface` has no metadata member. The final source first checks
+that property exists and includes a foreign custom-layer regression. The
+missing/size-changed entry recovery has real storage/UI tests and is added to
+the final actual browser replay. The parent owns the next combined compiler;
+this packet does not claim a whole-app type pass or production budget pass.

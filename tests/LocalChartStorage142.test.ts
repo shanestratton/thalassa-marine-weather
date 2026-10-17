@@ -108,6 +108,48 @@ beforeEach(() => {
     });
 });
 describe('retained private chart storage', () => {
+    it('keeps a missing manifest entry removable alongside intact charts and removes it idempotently', async () => {
+        const { service } = await setup(),
+            lost = await service.importLocalChart(pickedFile('lost.mbtiles'), 'own'),
+            good = await service.importLocalChart(pickedFile('good.mbtiles'), 'own');
+        const path = [...files.keys()].find((path) => path.includes(lost.id))!;
+        files.delete(path);
+        expect(await service.listLocalCharts()).toEqual([{ ...lost, unavailable: 'missing' }, good]);
+        await expect(service.readLocalChart(lost.id)).rejects.toThrow(/not found|missing/i);
+        const remove = mock.fs.deleteFile.getMockImplementation()!;
+        mock.fs.deleteFile.mockImplementation(async (request: { path: string }) => {
+            if (request.path === path) throw new Error('File does not exist');
+            return remove(request);
+        });
+        await service.removeLocalChart(lost.id);
+        const deletes = mock.fs.deleteFile.mock.calls.length;
+        await service.removeLocalChart(lost.id);
+        expect(mock.fs.deleteFile.mock.calls.length).toBe(deletes);
+        expect(await service.listLocalCharts()).toEqual([good]);
+    });
+    it('lists size-changed copies as unavailable without reading them and keeps their quota until removal', async () => {
+        const { service } = await setup(),
+            chart = await service.importLocalChart(pickedFile(), 'own');
+        const path = [...files.keys()].find((path) => path.includes(chart.id))!;
+        files.set(path, new Blob([page(), page()]));
+        mock.fs.readFile.mockClear();
+        expect(await service.listLocalCharts()).toEqual([{ ...chart, unavailable: 'changed' }]);
+        expect(mock.fs.readFile.mock.calls.every(([request]) => request.path.endsWith('/index.json'))).toBe(true);
+        await expect(service.readLocalChart(chart.id)).rejects.toThrow('missing or changed');
+        expect(files.has(path)).toBe(true);
+        await service.removeLocalChart(chart.id);
+        expect(files.has(path)).toBe(false);
+    });
+    it('does not turn an unknown I/O error into an unavailable or empty listing', async () => {
+        const { service } = await setup(),
+            chart = await service.importLocalChart(pickedFile(), 'own');
+        const stat = mock.fs.stat.getMockImplementation()!;
+        mock.fs.stat.mockImplementation(async (request: { path: string }) => {
+            if (request.path.includes(chart.id)) throw new Error('Permission denied');
+            return stat(request);
+        });
+        await expect(service.listLocalCharts()).rejects.toThrow('Permission denied');
+    });
     it('refuses a native picker reply without its original display name and cleans its captured copy', async () => {
         const { service } = await setup();
         mock.native = true;
