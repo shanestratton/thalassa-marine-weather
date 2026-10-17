@@ -13,6 +13,7 @@ import {
     NATIVE_PROJECT139,
     UNSIGNED_SOURCE139,
     WATCH_FILES139,
+    expectedNativeProject139,
 } from '../scripts/native-identity139.mjs';
 import { assertPublicCopy139 } from '../scripts/public-copy-proof139.mjs';
 
@@ -22,7 +23,7 @@ const fixture = (changes = {}) => {
     const names = changes.names ?? [NATIVE_PROJECT139, ...Object.keys(WATCH_FILES139)];
     return () =>
         assertNative139(
-            (file) => changes.read?.(file) ?? show(UNSIGNED_SOURCE139, file),
+            (file) => changes.read?.(file) ?? readFileSync(file),
             (_command, args) => {
                 if (args[0] === 'show') return show(NATIVE_BASE138, NATIVE_PROJECT139);
                 if (args.includes('--name-only')) return names.join('\n') + '\n';
@@ -32,9 +33,41 @@ const fixture = (changes = {}) => {
         );
 };
 
-test('exact frozen139 has four build-number edits plus two reviewed compiled Watch files', () => {
+test('current139 has four build edits, six measured entry relocations and two reviewed Watch files', () => {
     assert.equal(fixture()().appBuild, 139);
     assert.equal(execFileSync('git', ['diff', NATIVE_BASE138, UNSIGNED_SOURCE139, '--', 'ios/WatchApp']).length, 0);
+});
+
+test('only the captured post-sync project order is accepted, with every byte and identifier retained', () => {
+    const baseline = show(NATIVE_BASE138, NATIVE_PROJECT139).toString('utf8');
+    const expected = expectedNativeProject139(baseline);
+    assert.ok(expected.equals(readFileSync(NATIVE_PROJECT139)));
+    const original139 = Buffer.from(
+        baseline.replaceAll('CURRENT_PROJECT_VERSION = 138;', 'CURRENT_PROJECT_VERSION = 139;'),
+    );
+    assert.throws(fixture({ read: (file) => (file === NATIVE_PROJECT139 ? original139 : undefined) }));
+    const oldReferences = original139
+        .toString()
+        .split('/* Begin PBXFileReference section */')[1]
+        .split('/* End PBXFileReference section */')[0];
+    const partlyMoved = expected
+        .toString()
+        .replace(
+            /(\/\* Begin PBXFileReference section \*\/)[\s\S]*?(\/\* End PBXFileReference section \*\/)/,
+            `$1${oldReferences}$2`,
+        );
+    assert.throws(fixture({ read: (file) => (file === NATIVE_PROJECT139 ? Buffer.from(partlyMoved) : undefined) }));
+    assert.throws(() =>
+        expectedNativeProject139(baseline.replace('AA0011B1AAAA11B100000001', 'AA0011B1AAAA11B100000099')),
+    );
+    assert.throws(
+        fixture({
+            read: (file) =>
+                file === NATIVE_PROJECT139
+                    ? Buffer.from(expected.toString().replace('path = NfcTagPlugin.m;', 'path = Other.m;'))
+                    : undefined,
+        }),
+    );
 });
 test('old WatchApp, signing, other native files and missing permitted files are refused', () => {
     for (const names of [
