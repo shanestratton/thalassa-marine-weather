@@ -1,0 +1,82 @@
+name: Native139 bounded logger isolated offline proof
+on:
+  push:
+    branches:
+      - codex/build-139-native-log-offline-proof
+    paths:
+      - .github/workflows/check-native139-log-offline.yml
+permissions:
+  contents: read
+concurrency:
+  group: native139-log-offline-proof
+  cancel-in-progress: false
+jobs:
+  offline:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/build-139-native-log-offline-proof' && github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PROOF_SOURCE_SHA: e28dc0c136e8a45ab5aa1cc0e3d1ce8fd3a67334
+    steps:
+      - name: Checkout exact reviewed test-only source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e28dc0c136e8a45ab5aa1cc0e3d1ce8fd3a67334
+          persist-credentials: false
+      - name: Set up Node24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+      - name: Prove actual independent pipe tail behavior offline
+        env:
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: 127.0.0.1,localhost,::1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROOF_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/native139-log-offline"
+          sha256sum scripts/bounded-native-log139.mjs tests/UnsignedNative139.test.mjs > "$RUNNER_TEMP/native139-log-offline/source-sha256.txt"
+          node --input-type=module <<'JS' 2>&1 | tee "$RUNNER_TEMP/native139-log-offline/proof.log"
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import path from 'node:path';
+          import { spawnSync } from 'node:child_process';
+          const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+          const test = fs.readFileSync('tests/UnsignedNative139.test.mjs');
+          const logger = fs.readFileSync('scripts/bounded-native-log139.mjs');
+          assert.equal(hash(test), '2a13220c2df5d882a5d182fdfbbfe06202fd65f2257b184e6aa798343ede453c');
+          assert.equal(hash(logger), '95ae72353701de48af6a83f847bc40723299b012408132358d929ff324d00522');
+          const text = test.toString('utf8');
+          const names = ['native logger retains at most2MiB and propagates failure exit status', 'native logger bounds stderr independently and preserves its failure status'];
+          for (const name of names) assert.equal(text.split("test('"+name+"'").length - 1, 1);
+          const tail = text.slice(text.indexOf("test('"+names[0]+"'"));
+          assert.equal(hash(Buffer.from(tail)), '34d7ca0c58eb81170179f0422b294d8647c29d7c3804234834e1c9aa4a575f29');
+          assert.equal(tail.match(/^test\(/gm)?.length, 2);
+          const evidence = path.join(process.env.RUNNER_TEMP, 'native139-log-offline');
+          const file = path.join(evidence, 'exact-logger.test.mjs');
+          const imports = "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport fs from 'node:fs/promises';\nimport { spawnSync } from 'node:child_process';\nimport os from 'node:os';\nimport path from 'node:path';\n";
+          fs.writeFileSync(file, imports + tail);
+          const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', file], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 1024*1024 });
+          fs.writeFileSync(path.join(evidence, 'unittest.log'), result.stdout + result.stderr);
+          process.stdout.write(result.stdout); process.stderr.write(result.stderr);
+          assert.equal(result.error, undefined);
+          assert.equal(result.signal, null);
+          assert.equal(result.status, 0);
+          for (const [name, count] of [['tests',2],['pass',2],['fail',0],['cancelled',0],['skipped',0],['todo',0]]) assert.match(result.stdout, new RegExp('^# '+name+' '+count+'$', 'm'));
+          const report = { source: process.env.PROOF_SOURCE_SHA, control: process.env.GITHUB_SHA, node: process.version, platform: process.platform, arch: process.arch, exactTestFileSha256: hash(test), loggerSha256: hash(logger), extractedTailSha256: hash(Buffer.from(tail)), names, tests: 2, pass: 2, fail: 0, skipped: 0, actualProcessExit: result.status };
+          fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify(report, null, 2)+'\n');
+          JS
+          printf '0\n' > "$RUNNER_TEMP/native139-log-offline/process-exit.txt"
+      - name: Retain every outcome
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native139-log-offline-${{ github.run_id }}
+          path: ${{ runner.temp }}/native139-log-offline
+          if-no-files-found: warn
+          retention-days: 14
