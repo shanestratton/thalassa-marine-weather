@@ -386,6 +386,8 @@ export async function reportPrivateComfort(level: number): Promise<string> {
         marine.waveCurrentAtMs > reportedAt + 300000
     )
         throw new Error('No contemporaneous local wave model; no qualified report was saved.');
+    // Retain the validated original clock across the asynchronous outbox wait.
+    const waveCurrentAtMs = marine.waveCurrentAtMs;
     return serial(async () => {
         if (!current(c, gen)) throw new Error('Vessel or account changed.');
         const queue = await pending(c.auth);
@@ -403,7 +405,7 @@ export async function reportPrivateComfort(level: number): Promise<string> {
             level,
             parts: marine.currentParts,
             fetchedAt: new Date(marine.fetchedAtMs).toISOString(),
-            validAt: new Date(marine.waveCurrentAtMs).toISOString(),
+            validAt: new Date(waveCurrentAtMs).toISOString(),
         };
         queue.push({
             owner: c.auth.userId!,
