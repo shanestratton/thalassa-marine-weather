@@ -25,6 +25,8 @@ describe('pure model-to-report marine boundary', () => {
             currentDirection: 45,
         });
         expect(result.hourly[0]).toMatchObject({ timeMs: at, waveHeight: 4.92, currentSpeed: 1 });
+        expect(result.currentParts.total?.hM).toBe(1.5);
+        expect(result.currentParts.swell).toEqual({ hM: 1.2, periodS: 10, fromDeg: 280 });
         expect(result.fetchedAtMs).toBe(at);
         expect(result.waveCurrentAtMs).toBe(at);
         expect(result.motionCurrentAtMs).toBe(at);

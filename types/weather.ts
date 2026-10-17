@@ -77,7 +77,7 @@ export interface BeaconObservation {
     currentDegree?: number | null;
 }
 
-export type DataSource = 'buoy' | 'stormglass' | 'weatherkit';
+export type DataSource = 'buoy' | 'stormglass' | 'weatherkit' | 'marine_model';
 export type SourceColor = 'emerald' | 'amber' | 'sky' | 'white';
 
 export interface MetricSource {
@@ -88,7 +88,21 @@ export interface MetricSource {
     distance?: string;
 }
 
+/** Source-qualified model partitions in metres. Display/report scalar heights remain feet. */
+export interface MarineModelSnapshot {
+    parts: import('../services/weather/marineModelV2').MarineSeaPartsV2;
+    status: 'available' | 'enclosed' | 'unavailable';
+    reason: string | null;
+    waveModel: 'meteofrance_wave';
+    motionModel: 'best_match';
+    fetchedAtMs: number | null;
+    waveValidAtMs: number | null;
+    motionValidAtMs: number | null;
+    requested: { latitude: number; longitude: number } | null;
+}
+
 export interface WeatherMetrics {
+    marine?: MarineModelSnapshot;
     windSpeed: number | null;
     windGust?: number | null;
     windDirection: string;
@@ -173,6 +187,7 @@ export interface CalibratedSensorData extends Partial<WeatherMetrics> {
 }
 
 export interface ForecastDay {
+    marine?: MarineModelSnapshot;
     day: string;
     date: string;
     isoDate?: string;
@@ -208,6 +223,7 @@ export interface ForecastDay {
 }
 
 export interface HourlyForecast {
+    marine?: MarineModelSnapshot;
     time: string;
     windSpeed: number | null;
     windGust?: number | null;

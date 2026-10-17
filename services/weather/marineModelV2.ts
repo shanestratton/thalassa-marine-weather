@@ -8,6 +8,17 @@ import { marineGridSnapKm } from '../../utils/marineGrid';
 import { calculateDistance } from '../../utils/navigationCalculations';
 
 export const MARINE_CURRENT_MAX_AGE_MS = 30 * 60_000;
+export interface MarineSeaPartV2 {
+    hM: number;
+    periodS: number | null;
+    fromDeg: number | null;
+}
+export interface MarineSeaPartsV2 {
+    total: MarineSeaPartV2 | null;
+    windSea: MarineSeaPartV2 | null;
+    swell: MarineSeaPartV2 | null;
+    secondarySwell: MarineSeaPartV2 | null;
+}
 export interface MarineReportValuesV2 {
     waveHeight: number | null;
     wavePeriod: number | null;
@@ -31,6 +42,7 @@ export interface MarineCellV2 extends MarinePointV2 {
     local: boolean;
 }
 export interface MarineModelReadingV2 {
+    requested: MarinePointV2;
     via: 'pi' | 'supabase';
     fetchedAtMs: number;
     waveModel: 'meteofrance_wave';
@@ -41,13 +53,33 @@ export interface MarineModelReadingV2 {
     waveCurrentAtMs: number | null;
     motionCurrentAtMs: number | null;
     current: MarineReportValuesV2;
-    hourly: ({ timeMs: number } & MarineReportValuesV2)[];
+    currentParts: MarineSeaPartsV2;
+    hourly: ({
+        timeMs: number;
+        waveValidAtMs: number | null;
+        motionValidAtMs: number | null;
+        parts: MarineSeaPartsV2;
+    } & MarineReportValuesV2)[];
 }
 const known = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const feet = (v: unknown) => {
     const n = known(v);
     return n === null ? null : Math.round(n * 3.28084 * 100) / 100;
 };
+function parts(w: Record<string, unknown> | null): MarineSeaPartsV2 {
+    const part = (prefix: string): MarineSeaPartV2 | null => {
+        const hM = known(w?.[`${prefix}_height`]);
+        return hM === null
+            ? null
+            : { hM, periodS: known(w?.[`${prefix}_period`]), fromDeg: known(w?.[`${prefix}_direction`]) };
+    };
+    return {
+        total: part('wave'),
+        windSea: part('wind_wave'),
+        swell: part('swell_wave'),
+        secondarySwell: part('secondary_swell_wave'),
+    };
+}
 function values(w: Record<string, unknown> | null, m: Record<string, unknown> | null): MarineReportValuesV2 {
     return {
         waveHeight: feet(w?.wave_height),
@@ -112,6 +144,7 @@ export function mapMarineModelV2(
         motionNow = currentFresh(motion, now) ? motion : null;
     const times = [...new Set([...(waves?.hourly.time ?? []), ...(motion?.hourly.time ?? [])])].sort((a, b) => a - b);
     return {
+        requested: { ...point },
         via,
         fetchedAtMs: envelope.fetched_at_ms,
         waveModel: envelope.wave_model,
@@ -121,6 +154,17 @@ export function mapMarineModelV2(
         waveCurrentAtMs: waveNow ? waveNow.current.time * 1000 : null,
         motionCurrentAtMs: motionNow ? motionNow.current.time * 1000 : null,
         current: values(waveNow?.current ?? null, motionNow?.current ?? null),
-        hourly: times.map((time) => ({ timeMs: time * 1000, ...values(hour(waves, time), hour(motion, time)) })),
+        currentParts: parts(waveNow?.current ?? null),
+        hourly: times.map((time) => {
+            const waveHour = hour(waves, time);
+            const motionHour = hour(motion, time);
+            return {
+                timeMs: time * 1000,
+                waveValidAtMs: waveHour ? time * 1000 : null,
+                motionValidAtMs: motionHour ? time * 1000 : null,
+                parts: parts(waveHour),
+                ...values(waveHour, motionHour),
+            };
+        }),
     };
 }
