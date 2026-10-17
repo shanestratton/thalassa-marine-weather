@@ -8,6 +8,43 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('public-beta release gate contract', () => {
+    it('runs the actual v3 privacy predicate and holds missing community rights, privacy or moderation clauses', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(
+            /check\(\s*'live beta privacy\/terms copy covers deletion, telemetry, sync, and location',([\s\S]*?)\n\);/,
+        )?.[1];
+        expect(expression).toBeTruthy();
+        const normalizedTerms = read('public/terms.html').replace(/\s+/g, ' ');
+        const evaluate = (terms = normalizedTerms) =>
+            runInNewContext(`(${expression?.replace(/,\s*$/, '')})`, {
+                normalizedTerms: terms,
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        for (const clause of [
+            'Version 3.0',
+            'Effective Date: 17 October 2026',
+            'Community notes and photos',
+            'You retain ownership of content you contribute.',
+            'royalty-free licence to host, process, resize, display and moderate that content solely to provide',
+            'This does not transfer ownership of your content or third-party data.',
+            'photos remain private until approved.',
+            'Photos are processed to remove embedded metadata before storage',
+            "You may edit or delete your notes, report content, or hide another contributor's notes.",
+            'Reports hide the reported note and its public photo pending review.',
+            'Deleted or reported content is excluded from new public reads.',
+            'Copies already seen or saved by other people cannot be recalled.',
+            // Older promises remain enforceable alongside the new community copy.
+            'Once you confirm, deletion cannot be undone',
+            'Sentry',
+            'precise location',
+            'syncs automatically',
+        ]) {
+            expect(normalizedTerms).toContain(clause);
+            expect(evaluate(normalizedTerms.replaceAll(clause, 'REMOVED DISCLOSURE')), clause).toBe(false);
+        }
+    });
+
     it('runs the actual attribution predicate with regional credits and rejects lost credits or controls', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const expression = gate.match(/check\(\s*'map provider attribution is visible',([\s\S]*?)\n\);/)?.[1];
