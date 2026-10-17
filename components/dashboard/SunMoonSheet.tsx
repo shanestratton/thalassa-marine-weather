@@ -34,6 +34,7 @@ import {
     type TwilightKind,
 } from '../../utils/celestial';
 import { readableZoneName } from '../../utils/zoneLabel';
+import { solunarPeriods } from '../../utils/solunar';
 
 interface SunMoonSheetProps {
     onClose: () => void;
@@ -179,6 +180,7 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
         () => sunMoonDay(lat, lon, isoDate, timeZone, Date.now(), isToday),
         [lat, lon, isoDate, timeZone, isToday],
     );
+    const solunar = useMemo(() => solunarPeriods(isoDate, lat, lon, timeZone), [isoDate, lat, lon, timeZone]);
     const where = `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'W'}`;
 
     return createPortal(
@@ -297,6 +299,29 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                         {day.tonight}
                     </p>
                 </div>
+
+                <section className="px-5 pb-2" aria-label="Solunar periods">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pb-0.5">Solunar</h3>
+                    <p className="text-[11px] text-gray-400">
+                        Traditional lunar windows, not predictions of fish activity.
+                    </p>
+                    {solunar ? (
+                        <dl className="text-[12px] tabular-nums">
+                            {solunar.map((period) => (
+                                <div key={period.label} className="py-1 border-t border-white/5">
+                                    <dt className="text-gray-300">{period.label}</dt>
+                                    <dd className="font-semibold text-white">
+                                        {period.times.join(' / ') || 'None that day'}
+                                    </dd>
+                                </div>
+                            ))}
+                        </dl>
+                    ) : (
+                        <p className="text-[12px] text-gray-300">
+                            Lunar transits unavailable for this location or date.
+                        </p>
+                    )}
+                </section>
 
                 <p className="px-5 pb-3 text-[10px] text-gray-400">
                     Worked out on this phone for {where}; darkness is the sun more than 6° down.

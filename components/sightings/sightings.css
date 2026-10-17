@@ -75,6 +75,17 @@
     background-color: var(--sg-page-bg);
 }
 
+/* Native WebKit select chrome must follow the sheet, including its picker. */
+.sg-catch-details {
+    color: var(--sg-off-fg);
+}
+.sg-catch-select {
+    color-scheme: dark;
+}
+:root.display-light .sg-catch-select {
+    color-scheme: light;
+}
+
 .sg-card {
     background: var(--sg-card-bg);
     border: 1px solid var(--sg-card-border);
