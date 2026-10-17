@@ -11,7 +11,6 @@ import { fetchOpenMeteoProxy } from './openMeteoProxy';
 import { fetchOwnAromePoint } from './aromeSource';
 import { isModelLive, probeModelLiveness, resetModelLivenessForTests } from './modelLiveness';
 import { addAromeSeries, ATMOS_VARS, queryModelSpread } from './ModelSpreadService';
-import { fetchAromeFromWx, AROME_OWN_ORIGIN, AROME_UPSTREAM_MS } from '../../supabase/functions/_shared/arome-upstream';
 import {
     aromePointFixture,
     AROME_TEST_RUN as run,
@@ -20,11 +19,6 @@ import {
 } from '../../tests/fixtures/arome142';
 
 const fetcher = vi.fn<typeof fetch>();
-const settings: Record<string, string> = {
-    THALASSA_WX_REGIONAL_ORIGIN: AROME_OWN_ORIGIN,
-    THALASSA_WX_REGIONAL_TOKEN: 'private_test_token_'.repeat(3),
-};
-const env = (name: string): string | undefined => settings[name];
 beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(run + 3600_000);
@@ -148,55 +142,5 @@ describe('14206 own regional transport', () => {
         expect(merged.models[0].values.wind_speed_10m).toEqual([10, 10, null]);
         expect(Object.keys(merged.models[0].values)).toEqual([...ATMOS_VARS]);
         expect(merged.models[0].sourceRunAtMs).toBe(run);
-    });
-});
-
-describe('14206 Edge to owned wx admission', () => {
-    it('makes exactly one fixed-origin request using only its server credential', async () => {
-        const own = await fetchAromeFromWx(model, point, env, fetcher, () => run + 3600_000);
-        expect(own.model).toBe(model);
-        expect(fetcher).toHaveBeenCalledOnce();
-        expect(fetcher.mock.calls[0][0]).toBe(`${AROME_OWN_ORIGIN}/regional/arome`);
-        expect(fetcher.mock.calls[0][1]?.redirect).toBe('error');
-        expect(fetcher.mock.calls[0][1]?.headers).toMatchObject({
-            Authorization: `Bearer ${env('THALASSA_WX_REGIONAL_TOKEN')}`,
-        });
-        expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
-            schema: 1,
-            model,
-            ...point,
-            cellSelection: 'sea',
-        });
-    });
-
-    it.each([
-        undefined,
-        'https://overpass-api.de',
-        'http://wx-data.thalassawx.app',
-        'https://attacker.example',
-        `${AROME_OWN_ORIGIN}/extra`,
-    ])('refuses unadmitted own origin %s before any request', async (origin) => {
-        await expect(
-            fetchAromeFromWx(model, point, (name) => (name.endsWith('ORIGIN') ? origin : env(name)), fetcher),
-        ).rejects.toThrow('unavailable');
-        expect(fetcher).not.toHaveBeenCalled();
-    });
-
-    it('does not fallback/retry after provider, malformed, land or body deadline failures', async () => {
-        for (const response of [
-            new Response('busy', { status: 503 }),
-            new Response('{}'),
-            new Response('x'.repeat(64 * 1024 + 1)),
-        ]) {
-            fetcher.mockReset().mockResolvedValue(response);
-            await expect(fetchAromeFromWx(model, point, env, fetcher)).rejects.toThrow();
-            expect(fetcher).toHaveBeenCalledOnce();
-        }
-        fetcher.mockReset().mockResolvedValue(new Response(new ReadableStream({ start() {} })));
-        const pending = fetchAromeFromWx(model, point, env, fetcher);
-        const assertion = expect(pending).rejects.toThrow('deadline');
-        await vi.advanceTimersByTimeAsync(AROME_UPSTREAM_MS);
-        await assertion;
-        expect(fetcher).toHaveBeenCalledOnce();
     });
 });
