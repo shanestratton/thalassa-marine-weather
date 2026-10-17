@@ -33,6 +33,11 @@ export function useMapHubLayerVisibility({
     const [measuredBuoysLoaded, setMeasuredBuoysLoaded] = useState(false);
     const [ascatVisible, setAscatVisible] = useState(false);
     const [ascatLoaded, setAscatLoaded] = useState(false);
+    const [opticalLightningVisible, setOpticalLightningVisible] = useState(false);
+    const [opticalLightningLoaded, setOpticalLightningLoaded] = useState(false);
+    useEffect(() => {
+        if (opticalLightningVisible) setOpticalLightningLoaded(true);
+    }, [opticalLightningVisible]);
     useEffect(() => {
         if (ascatVisible) setAscatLoaded(true);
     }, [ascatVisible]);
@@ -104,6 +109,7 @@ export function useMapHubLayerVisibility({
     const browseCrowdSoundingsVisible = crowdSoundingsVisible && !planningSurface;
     const browseMeasuredBuoysVisible = measuredBuoysVisible && !planningSurface;
     const browseAscatVisible = ascatVisible && !planningSurface;
+    const browseOpticalLightningVisible = opticalLightningVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
@@ -134,6 +140,10 @@ export function useMapHubLayerVisibility({
         setAscatVisible,
         ascatLoaded,
         browseAscatVisible,
+        opticalLightningVisible,
+        setOpticalLightningVisible,
+        opticalLightningLoaded,
+        browseOpticalLightningVisible,
         chokepointVisible,
         setChokepointVisible,
         cycloneVisible,

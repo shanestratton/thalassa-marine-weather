@@ -23,6 +23,8 @@ export interface BuildTacticalStateDeps {
     setMeasuredBuoysVisible?: Dispatch<SetStateAction<boolean>>;
     ascatVisible?: boolean;
     setAscatVisible?: Dispatch<SetStateAction<boolean>>;
+    opticalLightningVisible?: boolean;
+    setOpticalLightningVisible?: Dispatch<SetStateAction<boolean>>;
     cycloneVisible: boolean;
     setCycloneVisible: Dispatch<SetStateAction<boolean>>;
     squallVisible: boolean;
@@ -74,6 +76,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setMeasuredBuoysVisible,
         ascatVisible,
         setAscatVisible,
+        opticalLightningVisible,
+        setOpticalLightningVisible,
         cycloneVisible,
         setCycloneVisible,
         squallVisible,
@@ -124,6 +128,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         onToggleMeasuredBuoys: setMeasuredBuoysVisible ? () => setMeasuredBuoysVisible((v) => !v) : undefined,
         ascatVisible,
         onToggleAscat: setAscatVisible ? () => setAscatVisible((v) => !v) : undefined,
+        opticalLightningVisible,
+        onToggleOpticalLightning: setOpticalLightningVisible ? () => setOpticalLightningVisible((v) => !v) : undefined,
         onToggleAis: () => {
             setAisVisible((v) => {
                 if (!v) {
