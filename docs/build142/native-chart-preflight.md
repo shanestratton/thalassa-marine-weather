@@ -22,6 +22,25 @@ and the [balanced resource access API](<https://developer.apple.com/documentatio
 The source defect is identified from those contracts; no actual iCloud or
 third-party provider refusal/success is asserted by this review.
 
+## Complete chart-capacity measurement
+
+The original native enumeration omitted an error handler. Apple's
+[enumerator contract](https://developer.apple.com/documentation/foundation/nsfilemanager/enumeratoraturl:includingpropertiesforkeys:options:errorhandler:)
+continues enumeration after errors when the handler is nil. An unreadable owner
+subtree could therefore be omitted from the chart capacity measurement before
+another copy was admitted. Native chart imports do not use the browser's separate
+`reserveDisk` scan, so they must hold on an incomplete native measurement.
+
+Chart enumeration now includes hidden entries, captures the first enumeration
+error, stops and throws before constructing a destination. A nil enumerator also
+remains unavailable. Metadata sizes must be known and nonnegative. The original
+128-visit/file/byte/index caps remain, with cooperative deadline checks during
+enumeration and immediately before destination construction. GRIB/GPX retain
+their hidden-file policy and continue-on-enumeration-error behavior; they do not
+inherit the chart-only refusal or extra clock checks. A negative source contract
+first fails on the old missing error handler, then verifies those chart/legacy
+branches and the error hold before destination construction.
+
 ## Native surface and API assessment
 
 Only `ios/App/App/GribDocumentPlugin.swift` and `ios/App/App/Info.plist` differ from
@@ -63,12 +82,16 @@ are existing disclosed boundaries, not new hard cancellation guarantees. No wide
 cancel API or permission change is introduced by this repair.
 
 The new source regression first fails on the original string round-trip (one
-failure / one pass), then the repaired focused group passes 44 cases in five
-suites: native chart/GRIB contracts, storage races, Open-in queue and bounded wait.
+failure / one pass). The subsequent quota regression independently fails on the
+old incomplete scan (one failure / two passes). After both repairs the focused
+group passes 45 cases in five suites: native chart/GRIB contracts, storage races,
+Open-in queue and bounded wait. The preceding picker-only group passed 44 cases.
 Scope balancing and original-URL flow are source contracts; mocked storage races
 do not prove OS grants or physical cancellation. Logs are
-`work/validation142-native-picker-scope-{baseline,focused,lint}.log` outside the
-checkout. Scoped lint, formatting and `git diff --check` pass.
+`work/validation142-native-picker-scope-{baseline,focused,lint}.log`,
+`work/validation142-native-quota-scan-baseline.log` and
+`work/validation142-native-final-bounded-focused.log` outside the checkout.
+Scoped lint, formatting and `git diff --check` pass.
 
 All four native build settings at the reviewed source still say139. The parent
 must prepare the deliberate142 identity change, exact native allowlist/hashes and

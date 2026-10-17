@@ -109,15 +109,25 @@ public final class GribDocumentPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPi
                         try backupRoot.setResourceValues(backupValues)
                     }
                     var total = 0, count = 0, visited = 0
-                    guard let files = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { throw ImportFailure.invalid }
+                    var enumerationFailure: Error?
+                    // Chart capacity needs the complete existing library. Keep
+                    // legacy GRIB/GPX's hidden-file/continue-on-error behavior.
+                    guard let files = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey], options: chart ? [] : [.skipsHiddenFiles], errorHandler: { _, error in
+                        if chart {
+                            if enumerationFailure == nil { enumerationFailure = error }
+                            return false
+                        }
+                        return true
+                    }) else { throw ImportFailure.invalid }
                     for case let item as URL in files {
+                        if chart && ProcessInfo.processInfo.systemUptime >= chartDeadline { throw ImportFailure.invalid }
                         visited += 1
                         guard visited <= 128 else { throw ImportFailure.quota }
                         let value = try item.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
                         guard value.isSymbolicLink != true else { throw ImportFailure.invalid }
                         if value.isRegularFile == true {
                             if chart && ["index.json", "index.pending"].contains(item.lastPathComponent) {
-                                guard let metadataSize = value.fileSize, metadataSize <= 16 * 1024 else { throw ImportFailure.quota }
+                                guard let metadataSize = value.fileSize, metadataSize >= 0, metadataSize <= 16 * 1024 else { throw ImportFailure.quota }
                             } else {
                                 if chart {
                                     guard let retainedSize = value.fileSize, retainedSize >= 0,
@@ -129,6 +139,8 @@ public final class GribDocumentPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPi
                         }
                         guard count < (gpx ? 4 : 8), total + size <= (gpx ? 16 : 64) * 1024 * 1024 else { throw ImportFailure.quota }
                     }
+                    if chart, let enumerationFailure = enumerationFailure { throw enumerationFailure }
+                    if chart && ProcessInfo.processInfo.systemUptime >= chartDeadline { throw ImportFailure.invalid }
                     let folder = root.appendingPathComponent(namespace, isDirectory: true)
                     try manager.createDirectory(at: folder, withIntermediateDirectories: true)
                     let folderInfo = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])

@@ -50,4 +50,25 @@ describe('142 native chart picker security-scope source contract', () => {
         expect(copy).toContain('outcome = ["path": "\\(rootName)/\\(namespace)/\\(filename)", "size": copied]');
         expect(copy).not.toMatch(/outcome.*(?:sourceURL|absoluteString|bookmarkData)/);
     });
+
+    it('holds an incomplete chart quota scan before creating a destination and includes hidden entries', () => {
+        const quota = between('var total = 0, count = 0, visited = 0', 'let folder = root.appendingPathComponent');
+        expect(quota).toContain('var enumerationFailure: Error?');
+        expect(quota).toMatch(/options:\s*chart\s*\?\s*\[\]\s*:\s*\[\.skipsHiddenFiles\]/);
+        expect(quota).toMatch(/errorHandler:\s*\{\s*_, error in/);
+        expect(quota).toMatch(
+            /if chart\s*\{\s*if enumerationFailure == nil\s*\{\s*enumerationFailure = error\s*\}\s*return false\s*\}\s*return true/,
+        );
+        // A nil enumerator is unavailable, never an empty measured directory.
+        expect(quota).toMatch(/\}\) else\s*\{\s*throw ImportFailure\.invalid\s*\}/);
+        expect(quota).toMatch(
+            /if chart, let enumerationFailure = enumerationFailure\s*\{\s*throw enumerationFailure\s*\}/,
+        );
+        expect(quota).toContain('guard visited <= 128');
+        expect(quota).toContain('metadataSize >= 0');
+        expect(quota).toContain('metadataSize <= 16 * 1024');
+        expect(quota).toContain('retainedSize <= 64 * 1024 * 1024 - total');
+        expect(quota).toContain('total + size <= (gpx ? 16 : 64) * 1024 * 1024');
+        expect(quota).toContain('chart && ProcessInfo.processInfo.systemUptime >= chartDeadline');
+    });
 });
