@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 export const person = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 export const boat = (n) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-export const presenceMigration = new URL('../migrations/20261017015015_boat_presence.sql', import.meta.url);
+export const presenceMigration = new URL('../migrations/20261017030921_boat_presence.sql', import.meta.url);
 export async function preparePresenceFixture(db) {
     const durability = await readFile(
         new URL('../migrations/20260806120000_account_deletion_durability.sql', import.meta.url),
