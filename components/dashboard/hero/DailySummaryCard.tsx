@@ -535,6 +535,9 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
                 data-density={drawnDensity}
                 data-chip-line={chipLine ? '1' : '0'}
                 className={`flex flex-col items-center justify-start px-5 ${full ? 'pt-3 gap-2.5' : 'pt-1.5 gap-1'}`}
+                // The fluid 13px root shrinks px-5 below the fixed corner
+                // glyph's gutter on 300px phones; keep its 20px design floor.
+                style={cornerChip ? { paddingInline: 'max(20px, 1.25rem)' } : undefined}
             >
                 {/* Day of week + date — anchored to the top so it's never clipped.
                 Not on a short slot: the day label row above already names it. */}
