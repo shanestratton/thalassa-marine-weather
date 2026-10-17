@@ -374,7 +374,12 @@ class WorldResume:
 
     def read(self, name):
         path = self.root / name
-        return read_json(path) if path.exists() else None
+        if not path.exists() and not path.is_symlink():
+            return None
+        value = read_json(path)
+        if not isinstance(value, dict) or not value:
+            raise ValueError("Existing world checkpoint must be a nonempty object")
+        return value
 
     def checkpoint(self, name, value):
         atomic(self.root / name, value)

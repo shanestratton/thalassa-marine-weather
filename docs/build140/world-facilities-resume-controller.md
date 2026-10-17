@@ -130,7 +130,7 @@ unproven until root's actual controlled Linux run.
 ## Source proof
 
 `python -m unittest discover -s scripts/marine-catalogue -p 'test_*.py' -v`
-passes 83 cases locally: 81 pass, two explicit Windows skips (real symlink
+passes 88 cases locally: 86 pass, two explicit Windows skips (real symlink
 privilege; root-owned POSIX /opt policy admission). Actual Linux must execute
 those fences before deployment. The focused suite uses synthetic HTTP/native
 ports, eight small continental fixtures and real build/output validation; it
@@ -145,3 +145,13 @@ descriptor; output fsync now opens the existing file r+b. The first whole-suite
 pass also exposed the Windows absence of SIGKILL in the mocked Linux timeout
 test; that test now supplies the Linux signal explicitly. Assertions were
 retained; production cleanup remains the Linux process-group path.
+
+Before installation review, an additional read audit caught empty JSON being
+treated like absence by truthy fallback. `self.read` now distinguishes a missing
+path from every existing malformed/empty checkpoint. Existing null, empty
+object/array, false, zero and empty-string transfer/raw/cohort/promoted/job state
+all refuse immediately, preserving the original reservation and bytes without
+another provider/native call. Five additional tests retain all original 83 and
+cover those 30 corruption combinations. The original v4 preparation is retained
+unexecuted; the corrected child requires a separately pinned v4b packet and an
+actual Linux88 proof with zero skips before production.

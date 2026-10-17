@@ -238,6 +238,36 @@ class WorldResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "header cap"): self.controller().execute()
         (controller.root / "raw-2.json").write_bytes(b"x" * (resume.STATE_CAP + 1))
         with self.assertRaisesRegex(ValueError, "byte cap"): self.controller().execute()
+    def malformed_checkpoint(self, name):
+        for malformed in ({}, None, [], False, 0, ""):
+            with self.subTest(name=name, malformed=malformed), tempfile.TemporaryDirectory() as tmp:
+                native, ports = Native(), Ports()
+                controller = resume.WorldResume(self.plan, Path(tmp) / "inputs" / "facilities-world", native)
+                with patch.object(resume, "download_world", ports.download):
+                    if name == "transfers.json": ports.fail = "partial"
+                    if name == "raw-0.json": native.fail = ("tags-filter", 0)
+                    if name == "cohort-0.json": native.fail = ("tags-filter", 1)
+                    if name != "job.json":
+                        if name == "promoted.json": controller.execute()
+                        else:
+                            with self.assertRaises(RuntimeError): controller.execute()
+                    ports.fail = None; native.fail = None
+                    provider_count, child_count = len(ports.calls), len(native.calls)
+                    controller.checkpoint(name, malformed)
+                    before = (controller.root / name).read_bytes()
+                    with self.assertRaisesRegex(ValueError, "checkpoint must be a nonempty object"): controller.execute()
+                    self.assertEqual(len(ports.calls), provider_count); self.assertEqual(len(native.calls), child_count)
+                    self.assertEqual((controller.root / name).read_bytes(), before)
+    def test_existing_malformed_transfer_checkpoint_cannot_reset_reservation(self):
+        self.malformed_checkpoint("transfers.json")
+    def test_existing_malformed_raw_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("raw-0.json")
+    def test_existing_malformed_cohort_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("cohort-0.json")
+    def test_existing_malformed_promoted_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("promoted.json")
+    def test_existing_malformed_job_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("job.json")
 
 
 class TransportTests(unittest.TestCase):
