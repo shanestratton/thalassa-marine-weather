@@ -60,6 +60,7 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 
 /** Callers that cannot present a Supabase JWT at all. Each function guards itself. */
 const CREDENTIALLESS_ALLOWLIST = {
+    'satellite-view': 'fixed display-only provider imagery with bounded queries and a mandatory HMAC public quota',
     'forecast-assets':
         'bare public fixed-dataset reads, HMAC per-client quota before bounded public GitHub release access',
     'anchor-alert-messaging':
@@ -212,7 +213,8 @@ describe('Supabase Edge gateway JWT policy', () => {
         // wx-publisher (134) is a separate producer identity: its exact 256-bit
         // token is verified inside the handler, never a credentialless DB path.
         // forecast-assets (141) serves only three fixed public release datasets after an HMAC client quota.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(24);
+        // satellite-view (141) adds only fixed display imagery after its HMAC client quota.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(25);
     });
 
     it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {

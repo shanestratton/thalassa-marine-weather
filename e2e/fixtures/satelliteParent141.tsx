@@ -63,13 +63,17 @@ async function image(url: URL) {
     );
     return new Response(blob, { headers: { 'content-type': 'image/png' } });
 }
-const { handler } = await import('../../api/satellite-view');
+const { createPublicSatelliteViewHandler } = await import('../../supabase/functions/satellite-view/handler');
+const handler = createPublicSatelliteViewHandler(
+    () => true,
+    async () => null,
+);
 window.fetch = async (input, options) => {
     const url = new URL(
         typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
         location.href,
     );
-    if (url.pathname === '/api/satellite-view' && url.origin === location.origin) {
+    if (url.pathname === '/functions/v1/satellite-view' && url.origin === 'https://pcisdplnodrphauixcau.supabase.co') {
         requests.push(url.pathname + url.search);
         record('client-start', url.search);
         if (delay && url.searchParams.get('action') === 'image')

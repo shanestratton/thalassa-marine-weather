@@ -1,4 +1,4 @@
-import { API_BASE } from '../native/apiBase';
+import { SATELLITE_VIEW_URL } from './satelliteViewEndpoint';
 import { satelliteModeBlocks } from '../networkPolicy';
 import {
     awaitSatelliteOperation,
@@ -159,7 +159,7 @@ export async function readSatelliteTimes(
         checkNetwork();
         if (!current()) throw Error('Satellite metadata owner retired');
         const { bytes } = await readSatelliteResponse(
-            `${API_BASE}/satellite-view?action=times&product=${product}`,
+            `${SATELLITE_VIEW_URL}?action=times&product=${product}`,
             'application/json',
             SATELLITE_METADATA_MAX,
             bounded.signal,
@@ -286,7 +286,7 @@ export async function prepareSatelliteFrame(
                 height: String(plan.height),
             });
             const { response, bytes } = await readSatelliteResponse(
-                `${API_BASE}/satellite-view?${params}`,
+                `${SATELLITE_VIEW_URL}?${params}`,
                 'image/png',
                 SATELLITE_IMAGE_MAX,
                 bounded.signal,
