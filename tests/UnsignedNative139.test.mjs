@@ -19,11 +19,15 @@ import { assertPublicCopy139 } from '../scripts/public-copy-proof139.mjs';
 
 const yaml = createRequire(import.meta.url)('yaml');
 const show = (ref, file) => execFileSync('git', ['show', `${ref}:${file}`]);
+// The unchanged original workflow pins57a (before CocoaPods' captured relocation).
+// Native policy now requires the reviewed post-sync139 bytes. Keep this historical
+// fixture independent of the current checkout's later build number.
+const PINNED_NATIVE_SNAPSHOT139 = '5142118666fa1653fef882c2d90c8f690cfb4ff5';
 const fixture = (changes = {}) => {
     const names = changes.names ?? [NATIVE_PROJECT139, ...Object.keys(WATCH_FILES139)];
     return () =>
         assertNative139(
-            (file) => changes.read?.(file) ?? readFileSync(file),
+            (file) => changes.read?.(file) ?? show(PINNED_NATIVE_SNAPSHOT139, file),
             (_command, args) => {
                 if (args[0] === 'show') return show(NATIVE_BASE138, NATIVE_PROJECT139);
                 if (args.includes('--name-only')) return names.join('\n') + '\n';
@@ -33,7 +37,7 @@ const fixture = (changes = {}) => {
         );
 };
 
-test('current139 has four build edits, six measured entry relocations and two reviewed Watch files', () => {
+test('pinned139 has four build edits, six measured entry relocations and two reviewed Watch files', () => {
     assert.equal(fixture()().appBuild, 139);
     assert.equal(execFileSync('git', ['diff', NATIVE_BASE138, UNSIGNED_SOURCE139, '--', 'ios/WatchApp']).length, 0);
 });
@@ -41,7 +45,7 @@ test('current139 has four build edits, six measured entry relocations and two re
 test('only the captured post-sync project order is accepted, with every byte and identifier retained', () => {
     const baseline = show(NATIVE_BASE138, NATIVE_PROJECT139).toString('utf8');
     const expected = expectedNativeProject139(baseline);
-    assert.ok(expected.equals(readFileSync(NATIVE_PROJECT139)));
+    assert.ok(expected.equals(show(PINNED_NATIVE_SNAPSHOT139, NATIVE_PROJECT139)));
     const original139 = Buffer.from(
         baseline.replaceAll('CURRENT_PROJECT_VERSION = 138;', 'CURRENT_PROJECT_VERSION = 139;'),
     );
@@ -82,14 +86,14 @@ test('Swift, project whitespace/configuration changes and post-sync tracked muta
     assert.throws(
         fixture({
             read: (file) =>
-                file === watch ? Buffer.concat([show(UNSIGNED_SOURCE139, file), Buffer.from('\n')]) : undefined,
+                file === watch ? Buffer.concat([show(PINNED_NATIVE_SNAPSHOT139, file), Buffer.from('\n')]) : undefined,
         }),
     );
     assert.throws(
         fixture({
             read: (file) =>
                 file === NATIVE_PROJECT139
-                    ? Buffer.concat([show(UNSIGNED_SOURCE139, file), Buffer.from('\n')])
+                    ? Buffer.concat([show(PINNED_NATIVE_SNAPSHOT139, file), Buffer.from('\n')])
                     : undefined,
         }),
     );
@@ -98,7 +102,7 @@ test('Swift, project whitespace/configuration changes and post-sync tracked muta
             read: (file) =>
                 file === NATIVE_PROJECT139
                     ? Buffer.from(
-                          show(UNSIGNED_SOURCE139, file)
+                          show(PINNED_NATIVE_SNAPSHOT139, file)
                               .toString()
                               .replace('CURRENT_PROJECT_VERSION = 139;', 'CURRENT_PROJECT_VERSION = 138;'),
                       )
