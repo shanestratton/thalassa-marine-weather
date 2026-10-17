@@ -127,6 +127,18 @@ describe('bounded pressure vector ownership', () => {
         expect(hook.result.current).toBe('unavailable');
     });
 
+    it('accepts the actual first GeoJSON worker metadata completion only for the current owned source', () => {
+        const f = fixture();
+        const hook = renderHook(() => usePressureSymbolOverlay(f.mapRef, true, true, f.view, 'Original IFS credit'));
+        act(() => f.map.emit('sourcedata', { sourceId: 'foreign', sourceDataType: 'metadata' }));
+        expect(hook.result.current).toBe('loading');
+        act(() => f.map.emit('sourcedata', { sourceId: 'atmos-pressure-symbols', sourceDataType: 'metadata' }));
+        expect(hook.result.current).toBe('ready');
+        f.retire();
+        act(() => f.map.emit('sourcedata', { sourceId: 'atmos-pressure-symbols', sourceDataType: 'metadata' }));
+        expect(hook.result.current).toBe('unavailable');
+    });
+
     it('retires at the original source lifetime and refuses a late old content event', () => {
         const f = fixture();
         const hook = renderHook(() => usePressureSymbolOverlay(f.mapRef, true, true, f.view, 'Original IFS credit'));

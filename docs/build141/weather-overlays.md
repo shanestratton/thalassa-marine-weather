@@ -126,3 +126,24 @@ Network/Mapbox boundaries are mocked in these unit cases. The failed first vecto
 ownership receipt remains outside Git. Phone browser layout, full compiler,
 configured bundle and real provider/cohort publication are still pending; no
 readiness or live-source availability is inferred from these focused checks.
+
+## Phone fixture before generic vector extraction
+
+The actual Mapbox 3.19 local-fixture check passed Chrome and WebKit at 300/375 px
+and 130% text (four cases). The app kept the same 780 px document/canvas extent,
+44 px credit opener and internally scrolling chart panel. Tests exercised actual
+source installation, both selected-model endpoints, refused out-of-coverage UTC,
+unsupported model, credits, and delayed old response after user-off. Provider
+manifests/bytes and glyph bitmaps were synthetic loopback fixtures; there were no
+provider requests, publication checks or device-memory measurements. Screenshots
+were visually inspected at 300 px Chrome and 375 px WebKit.
+
+The first native run exposed distinct image and GeoJSON readiness assumptions.
+Image content can precede metadata/loading completion; a first successful GeoJSON
+worker parse emits metadata and subsequent parses emit content. Exact source,
+layer and original-lifetime checks remain mandatory. The preserved failed runs
+also include two fixture interaction corrections (opening the collapsed layer
+key and reopening it after all layers were off), and a synthetic glyph bitmap
+border correction. The pre-extraction four-case receipt is retained at
+`work/atmos141-browser-pre-extraction-pass.json`; shared vector extraction will
+require another actual four-case run, including source-cleanup map errors.

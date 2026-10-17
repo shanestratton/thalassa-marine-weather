@@ -240,7 +240,13 @@ export function usePressureSymbolOverlay(
             publish('off');
         };
         const sourceData = (event: mapboxgl.MapSourceDataEvent) => {
-            if (event.sourceId !== SOURCE || event.sourceDataType !== 'content') return;
+            // GeoJSONSource emits metadata after its first successful worker parse,
+            // then content for subsequent updates. Both belong to this new source.
+            if (
+                event.sourceId !== SOURCE ||
+                (event.sourceDataType !== 'content' && event.sourceDataType !== 'metadata')
+            )
+                return;
             contentSeen = true;
             verify();
         };
