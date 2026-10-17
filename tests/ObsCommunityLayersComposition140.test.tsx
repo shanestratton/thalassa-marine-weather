@@ -75,13 +75,13 @@ it('composes the real builder/menu once per layer and clears all four without op
     }
     render(<Menu />);
     fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sea layers', exact: true }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Sea layers$/ }));
     for (const label of ['Facilities', 'Community notes']) {
         const item = screen.getAllByRole('menuitemcheckbox', { name: `${label}, off` });
         expect(item).toHaveLength(1);
         fireEvent.click(item[0]);
     }
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Live layers', exact: true }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Live layers$/ }));
     expect(screen.getAllByRole('menuitemcheckbox', { name: 'Thalassa boats, off' })).toHaveLength(1);
     expect(screen.getAllByRole('menuitemcheckbox', { name: /Who.s listening, off/ })).toHaveLength(1);
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Thalassa boats, off' }));
@@ -102,7 +102,7 @@ it('composes the real builder/menu once per layer and clears all four without op
         'aria-checked',
         'false',
     );
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Sea layers', exact: true }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Sea layers$/ }));
     expect(screen.getByRole('menuitemcheckbox', { name: 'Facilities, off' })).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('menuitemcheckbox', { name: 'Community notes, off' })).toHaveAttribute(
         'aria-checked',
@@ -134,7 +134,7 @@ it('retains all three new source notices inside one existing credits row', () =>
             {...props}
             facilities={{ state: 'unavailable', count: 0, partial: true, cachedOnly: false }}
             boatPresence={{ active: true, publishing: false, text: 'Viewing only; position not shared' }}
-            receiverCoverage={{ state: 'held', partial: false, cells: 0 }}
+            receiverCoverage={{ state: 'held', partial: false, cells: 0, asOf: null }}
         />,
     );
     expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);

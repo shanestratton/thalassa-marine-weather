@@ -2,8 +2,12 @@ import React from 'react';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 import type mapboxgl from 'mapbox-gl';
-const api = vi.hoisted(() => ({ rpc: vi.fn() }));
-vi.mock('../services/supabase', () => ({ supabase: { rpc: (...args: unknown[]) => api.rpc(...args) } }));
+const api = vi.hoisted(() => ({ rpc: vi.fn(), available: true }));
+vi.mock('../services/supabase', () => ({
+    get supabase() {
+        return api.available ? { rpc: (...args: unknown[]) => api.rpc(...args) } : null;
+    },
+}));
 import Layer from '../components/map/ReceiverCoverageLayer';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 const now = 1800000000000;
@@ -18,14 +22,17 @@ const reply = () => ({
         expiresAt: now + 60000,
     },
 });
-function fixture() {
+function fixture(boundsAvailable = true) {
     let data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
     const sources = new Map<string, { setData(v: GeoJSON.FeatureCollection): void }>(),
         layers = new Set<string>(),
         listeners = new Map<string, Set<() => void>>();
     const map = {
         isStyleLoaded: () => true,
-        getBounds: () => ({ getWest: () => 150, getSouth: () => -30, getEast: () => 155, getNorth: () => -24 }),
+        getBounds: () =>
+            boundsAvailable
+                ? { getWest: () => 150, getSouth: () => -30, getEast: () => 155, getNorth: () => -24 }
+                : null,
         getSource: (id: string) => sources.get(id),
         addSource: (id: string, v: { data: GeoJSON.FeatureCollection }) => {
             data = v.data;
@@ -56,11 +63,29 @@ beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     api.rpc.mockReset();
+    api.available = true;
     setAuthIdentityScope('10000000-0000-4000-8000-000000000001');
 });
 afterEach(() => {
     vi.useRealTimers();
     setAuthIdentityScope(null);
+});
+it('an unready camera makes no coverage request and remains unavailable', () => {
+    const f = fixture(false),
+        status = vi.fn();
+    render(<Layer mapRef={f.mapRef} mapReady active onStatus={status} />);
+    expect(api.rpc).not.toHaveBeenCalled();
+    expect(status).toHaveBeenLastCalledWith({ state: 'unavailable', partial: false, cells: 0, asOf: null });
+    expect(f.data().features).toEqual([]);
+});
+it('an unavailable backend client makes no request or geometry', () => {
+    api.available = false;
+    const f = fixture(),
+        status = vi.fn();
+    render(<Layer mapRef={f.mapRef} mapReady active onStatus={status} />);
+    expect(api.rpc).not.toHaveBeenCalled();
+    expect(status).toHaveBeenLastCalledWith({ state: 'unavailable', partial: false, cells: 0, asOf: null });
+    expect(f.data().features).toEqual([]);
 });
 it('default off and anonymous views make no coverage request or geometry', () => {
     const f = fixture(),

@@ -34,6 +34,7 @@ export default function ReceiverCoverageLayer({
 }) {
     React.useEffect(() => {
         const map = mapRef.current;
+        const client = supabase;
         if (!active || !mapReady || !map) {
             onStatus({ state: 'off', partial: false, cells: 0, asOf: null });
             return;
@@ -90,12 +91,17 @@ export default function ReceiverCoverageLayer({
                 publish('signed-out');
                 return;
             }
+            if (!client) {
+                publish('unavailable');
+                return;
+            }
             if (document.visibilityState === 'hidden') return;
             if (outstandingReads >= 2) {
                 publish('unavailable');
                 return;
             }
-            const box = receiverCoverageWindow(map.getBounds());
+            const bounds = map.getBounds();
+            const box = bounds ? receiverCoverageWindow(bounds) : null;
             if (!box) {
                 publish('unavailable');
                 return;
@@ -110,7 +116,7 @@ export default function ReceiverCoverageLayer({
             controller = request;
             publish('loading');
             try {
-                const reading = supabase
+                const reading = client
                     .rpc('ais_receiver_coverage', { p_west: box[0], p_south: box[1], p_east: box[2], p_north: box[3] })
                     .abortSignal(request.signal);
                 outstandingReads++;
