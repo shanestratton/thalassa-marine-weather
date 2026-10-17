@@ -63,12 +63,12 @@ export function marineFieldUnitV2(field: MarineFieldV2): string {
     return field === 'sea_surface_temperature'
         ? '°C'
         : field === 'ocean_current_velocity'
-          ? 'km/h'
-          : field.endsWith('_direction')
-            ? '°'
-            : field.endsWith('_period')
-              ? 's'
-              : 'm';
+        ? 'km/h'
+        : field.endsWith('_direction')
+        ? '°'
+        : field.endsWith('_period')
+        ? 's'
+        : 'm';
 }
 function admittedValue(field: MarineFieldV2, v: unknown): number | null {
     if (!number(v)) return null;
@@ -89,8 +89,9 @@ export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2
         !object(raw.hourly) ||
         !object(raw.current_units) ||
         !object(raw.hourly_units)
-    )
+    ) {
         return null;
+    }
     const times = raw.hourly.time;
     if (
         !second(raw.current.time) ||
@@ -100,8 +101,9 @@ export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2
         !times.length ||
         times.length > MARINE_HOURS ||
         !times.every((v, i) => second(v) && v % 3600 === 0 && (!i || v - times[i - 1] === 3600))
-    )
+    ) {
         return null;
+    }
     const interval = raw.current.interval;
     if (
         !number(interval) ||
@@ -109,8 +111,9 @@ export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2
         interval < 300 ||
         interval > 10800 ||
         raw.current_units.interval !== 'seconds'
-    )
+    ) {
         return null;
+    }
     const current: MarineSourceV2['current'] = { time: raw.current.time, interval };
     const hourly: MarineSourceV2['hourly'] = { time: [...times] };
     const currentUnits: Record<string, string> = { time: 'unixtime', interval: 'seconds' },
@@ -120,16 +123,14 @@ export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2
             series = raw.hourly[field];
         const currentOk = raw.current_units[field] === expected,
             hourlyOk = raw.hourly_units[field] === expected;
-        const currentMask =
-            kind === 'waves' &&
+        const currentMask = kind === 'waves' &&
             raw.current.wave_height === 0 &&
             raw.current.wave_period === 0 &&
             raw.current.wave_direction === 0;
         current[field] = currentOk && !currentMask ? admittedValue(field, raw.current[field]) : null;
         hourly[field] = Array.from({ length: times.length }, (_, i) => {
             const h = raw.hourly as Obj;
-            const mask =
-                kind === 'waves' &&
+            const mask = kind === 'waves' &&
                 Array.isArray(h.wave_height) &&
                 h.wave_height[i] === 0 &&
                 Array.isArray(h.wave_period) &&
@@ -179,8 +180,9 @@ export function marineEnvelopeV2(
         !Number.isSafeInteger(fetchedAt) ||
         fetchedAt < 946684800000 ||
         fetchedAt > 4102444800000
-    )
+    ) {
         throw Error('Invalid marine envelope context');
+    }
     return {
         marine_schema: MARINE_SCHEMA,
         requested: { latitude: point.latitude, longitude: point.longitude },
@@ -206,8 +208,9 @@ export function readMarineEnvelopeV2(raw: unknown, point: MarinePointV2, now: nu
         !number(raw.fetched_at_ms) ||
         raw.fetched_at_ms > now + 5000 ||
         now - raw.fetched_at_ms > 3600000
-    )
+    ) {
         return null;
+    }
     try {
         return marineEnvelopeV2(point, raw.fetched_at_ms, raw.waves, raw.motion);
     } catch {
