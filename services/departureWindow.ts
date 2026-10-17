@@ -7,6 +7,7 @@ import { haversineNm } from './isochrone/geodesy';
 import { routingComfortConfig, vesselIsochroneConfig } from './routing/isochronePolicy';
 import { departureMetrics } from './routing/departureMetrics';
 import type { DepartureWeatherField } from './routing/departureWeather';
+import type { ComfortPreference } from '../utils/comfortPreference';
 import {
     departureScore,
     departureScoreTerms,
@@ -41,6 +42,8 @@ export interface DepartureScenario {
     comparison?: ScoredDeparture;
 }
 export interface DepartureWindowOptions {
+    /** Bounded current-owner preference snapshot; hard weather limits are separate. */
+    comfortPreference?: ComfortPreference | null;
     /** 3 or 6 hours; default 6. */
     intervalHours?: number;
     windowHours?: number;
@@ -200,6 +203,7 @@ export async function planDepartureWindow(
                 options.weatherField,
                 vessel,
                 comfortConfig.comfortParams?.maxWaveM,
+                options.comfortPreference,
             );
             // A caller that explicitly tried and could not load an absolute-clock
             // field must not rank the legacy grid's clamped final hour as a forecast.

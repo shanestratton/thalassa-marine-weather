@@ -1509,6 +1509,26 @@ function isTombstoned(stones: VoyageTombstones, e: Partial<ShipLogEntry>): boole
     return !Number.isFinite(entryTime) || entryTime <= stone.deleted_at;
 }
 
+/** Sidecars reuse the exact log deletion ledger before retrying a parent-bound
+ * write. Missing identity/storage is a refusal, never permission to recreate. */
+export async function shipLogCaptureRetired(
+    operation: string,
+    voyageId: string,
+    timestamp: string,
+    scope: AuthIdentityScope,
+): Promise<boolean | null> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+    const state = getQueueState(scope);
+    try {
+        const [voyages, entries] = await Promise.all([loadTombstones(state), loadEntryTombstones(state)]);
+        return !isAuthIdentityScopeCurrent(scope)
+            ? null
+            : entries[operation] !== undefined || isTombstoned(voyages, { voyageId, timestamp });
+    } catch {
+        return null;
+    }
+}
+
 /** Apply the same durable deletion ledger to cloud-read rows as local rows. */
 export async function filterVoyageTombstonedEntries<T extends Partial<ShipLogEntry>>(
     entries: T[],
@@ -2722,6 +2742,7 @@ export async function syncOfflineQueue(): Promise<number> {
     if (isCaptureLocalOnly()) return 0;
 
     state.isSyncing = true;
+    let privateSyncEligible = false;
     try {
         // Purge tombstoned (deleted-voyage) entries from the live queue
         // BEFORE snapshotting — a voyage the user just binned must never
@@ -2753,6 +2774,7 @@ export async function syncOfflineQueue(): Promise<number> {
         // fresh session). slice() pins the upload set; appends during the
         // upload land in memQueue and survive via commitProgress below.
         const queue = live.slice();
+        privateSyncEligible = true;
         if (queue.length === 0) return 0;
 
         const normalized = normalizeLatestPositions(queue) as OwnedOfflineEntry[];
@@ -2923,6 +2945,16 @@ export async function syncOfflineQueue(): Promise<number> {
         return 0;
     } finally {
         state.isSyncing = false;
+        // Includes an empty ordinary queue: its parent may have uploaded on a
+        // previous attempt whose private sidecar failed. Active captures stay local.
+        if (privateSyncEligible && isAuthIdentityScopeCurrent(scope) && !isCaptureLocalOnly()) {
+            void import('../comfort/privateComfort')
+                .then((privateComfort) => {
+                    if (isAuthIdentityScopeCurrent(scope) && !isCaptureLocalOnly())
+                        return privateComfort.drainPrivateComfortReports();
+                })
+                .catch(() => undefined);
+        }
     }
 }
 

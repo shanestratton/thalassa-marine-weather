@@ -4,6 +4,9 @@ import { FORECAST_TTL_MS, sampleRouteForecast, type RouteForecast } from './rout
 import { sampleRouteSea, type RouteSea } from './routeSeaSampler';
 import { sampleRouteSpread, type RouteSpread, type SpreadLevel } from './routeForecastSpread';
 import { stationOnIndex, type RouteIndex } from './routeProgress';
+import { seaComfort } from '../utils/seaComfort';
+import type { ComfortPreference } from '../utils/comfortPreference';
+import type { VesselProfile } from '../types';
 
 const HOUR = 3_600_000;
 const MAX_ROUTE_SAMPLES = 2048;
@@ -21,6 +24,8 @@ export interface PassageDepartureSuggestionInput {
     sea?: RouteSea | null;
     spread?: RouteSpread | null;
     comfort?: Limits;
+    vessel?: Pick<VesselProfile, 'type' | 'length'> | null;
+    comfortPreference?: ComfortPreference | null;
     nowMs: number;
     modelLabel?: string;
 }
@@ -325,6 +330,8 @@ export function suggestPassageDeparture(input: PassageDepartureSuggestionInput):
             maxHeadwindKts: 0,
             gustComplete: true,
             waveComplete: true,
+            comfortComplete: true,
+            comfortLevel: 0,
         };
         let complete = true;
         for (const point of samples) {
@@ -348,9 +355,27 @@ export function suggestPassageDeparture(input: PassageDepartureSuggestionInput):
                 candidate.maxGustKts = Math.max(candidate.maxGustKts, wind.gustKts);
             else candidate.gustComplete = false;
             const wave = sea && waveCovered(sea, point.alongNm, at) ? sampleRouteSea(sea, point.alongNm, at) : null;
-            if (wave && nonnegative(wave.waveM) && !wave.inshore && !wave.beyond)
+            if (wave && nonnegative(wave.waveM) && !wave.inshore && !wave.beyond) {
                 candidate.maxWaveM = Math.max(candidate.maxWaveM, wave.waveM);
-            else candidate.waveComplete = false;
+                const feel = seaComfort(
+                    {
+                        total: { hM: wave.waveM, periodS: wave.wavePeriodS, fromDeg: wave.waveFromDeg },
+                        windSea: null,
+                        swell: null,
+                    },
+                    input.vessel,
+                    input.comfortPreference,
+                );
+                if (feel?.word)
+                    candidate.comfortLevel = Math.max(
+                        candidate.comfortLevel ?? 0,
+                        ['Comfortable', 'Lively', 'Uncomfortable', 'Hard going'].indexOf(feel.word),
+                    );
+                else candidate.comfortComplete = false;
+            } else {
+                candidate.waveComplete = false;
+                candidate.comfortComplete = false;
+            }
         }
         if (
             !complete ||

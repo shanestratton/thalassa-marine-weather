@@ -1265,13 +1265,15 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         windowAbortRef.current?.abort();
         const controller = new AbortController();
         windowAbortRef.current = controller;
+        let personalPreferenceCurrent = () => true;
         const operationIsCurrent = () =>
             mountedRef.current &&
             lifecycleGeneration === lifecycleGenerationRef.current &&
             requestId === operationRequestRef.current.window &&
             !controller.signal.aborted &&
             sameIdentityScope(operationScope, identityScope) &&
-            isAuthIdentityScopeCurrent(operationScope);
+            isAuthIdentityScopeCurrent(operationScope) &&
+            personalPreferenceCurrent();
         if (!operationIsCurrent()) return;
 
         if (!isPro) {
@@ -1380,6 +1382,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 : createWindFieldFromGrid(grid!);
             const blendedComfort = routingComfortConfig(vessel, settings.comfortParams).comfortParams;
             const { planDepartureWindow } = await import('../services/departureWindow');
+            const privateComfort = await import('../services/comfort/privateComfort');
+            const preferenceKey = privateComfort.privateComfortViewKey();
+            const comfortPreference = privateComfort.personalComfortPreference();
+            personalPreferenceCurrent = () => privateComfort.privateComfortViewKey() === preferenceKey;
             if (!operationIsCurrent()) return;
             const final = await planDepartureWindow(
                 o,
@@ -1395,6 +1401,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 baseDateIso,
                 {
                     shouldContinue: operationIsCurrent,
+                    comfortPreference,
                     weatherField,
                     fixedRoute: inshoreWindow?.route,
                     tideForRoute: inshoreWindow?.tideForRoute,
