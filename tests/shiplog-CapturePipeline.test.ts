@@ -300,6 +300,7 @@ describe('captureLog — DEDUP threshold (~5m / 0.005nm)', () => {
         const ctx = makeCtx();
         const result = await captureLog(ctx, { entryType: 'auto', skipDedup: true });
         expect(result).not.toBeNull();
+        expect(result?.source).toBe('device');
     });
 });
 

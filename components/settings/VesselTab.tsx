@@ -46,6 +46,7 @@ import { clampGpsToBowFt } from '../../utils/gpsAntenna';
 import MarineRadarEquipmentSection from './MarineRadarEquipmentSection';
 
 const SailInventoryEditor = React.lazy(() => import('./SailInventoryEditor'));
+const PrivateComfortSection = React.lazy(() => import('./PrivateComfortSection'));
 const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 
 /**
@@ -2059,6 +2060,7 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                     </Section>
                 )}
                 <Section title="Routing limits">
+                    <React.Suspense fallback={null}><PrivateComfortSection /></React.Suspense>
                     <SubSection title="Comfort zone">
                         <div className="space-y-5">
                             <p className="text-xs text-gray-400 leading-relaxed">

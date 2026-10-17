@@ -55,11 +55,14 @@ function reviewDeps(patch: Partial<AreaReviewDeps> = {}): AreaReviewDeps {
 }
 
 test('custom assignment admission is immutable, frame-bound and explicit about returning to the circle', () => {
-    const input = structuredClone(assignment);
+    const input = structuredClone({
+        ...assignment,
+        safeZone: { ...zone, vertices: zone.vertices.map((point) => ({ ...point })) },
+    });
     const normalized = normalizeAnchorAssignment(input)!;
     assert.ok(normalized);
     assert.equal(Object.isFrozen(normalized.safeZone), true);
-    (input.safeZone as typeof zone).vertices[0].latitude = 0;
+    input.safeZone.vertices[0].latitude = 0;
     assert.notDeepEqual(normalized.safeZone, input.safeZone);
     assert.equal(normalizeAnchorAssignment({ ...assignment, safeZone: undefined }, assignment), null);
     assert.equal(normalizeAnchorAssignment({ ...assignment, anchorLon: 0 }), null);

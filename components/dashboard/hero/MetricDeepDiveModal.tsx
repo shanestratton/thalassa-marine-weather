@@ -24,6 +24,10 @@ import { useSettingsStore } from '../../../stores/settingsStore';
 import { SmartPolarStore } from '../../../services/SmartPolarStore';
 import { vesselWindowThresholds } from '../../../services/vesselWindowThresholds';
 import { lazyRetry } from '../../../utils/lazyRetry';
+import { SeaPartitionsBlock } from '../../weather/SeaPartitionsBlock';
+import type { MarineModelSnapshot } from '../../../types/weather';
+import type { ComfortPreference } from '../../../utils/comfortPreference';
+import type { VesselProfile } from '../../../types';
 
 // The point meteogram (131-02): its own chunk, loaded when 'All metrics' is tapped.
 const Meteogram = lazyRetry(
@@ -229,6 +233,10 @@ interface MetricDeepDiveModalProps {
     utcOffset?: number;
     /** The Glass is on an offshore source: the meteogram credits it as such. */
     offshore?: boolean;
+    marine?: MarineModelSnapshot;
+    comfortVessel?: Pick<VesselProfile, 'type' | 'length'> | null;
+    comfortPreference?: ComfortPreference | null;
+    currentMarine?: boolean;
 }
 
 /** A point on the chart. */
@@ -509,6 +517,10 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     timeZone,
     utcOffset,
     offshore,
+    marine,
+    comfortVessel,
+    comfortPreference,
+    currentMarine,
 }) => {
     const cfg = metric ? CONFIG[metric] : null;
     // 'All metrics': the stacked seven-day picture, over this sheet (131-02).
@@ -703,6 +715,15 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     return (
         <ModalSheet isOpen={!!metric} onClose={onClose} title={cfg.label}>
             <div className="space-y-5">
+                {(metric === 'wave' || metric === 'period') && (
+                    <SeaPartitionsBlock
+                        marine={marine}
+                        vessel={comfortVessel}
+                        preference={comfortPreference}
+                        hours={hourly}
+                        current={currentMarine}
+                    />
+                )}
                 {/* Now + trend/shift */}
                 <div className="flex items-end justify-between">
                     <div>
