@@ -21,12 +21,10 @@ import initSqlJs from 'sql.js';
  * a third refusal (file:// under connect-src): MBTilesService now reads it
  * through Capacitor.convertFileSrc (tests/MBTilesService.test.ts).
  *
- * This proves the service and policy path only. No skipper reaches it today:
- * the chart picker that would open a local chart is parked behind
- * CHARTS_FAB_CATEGORY_VISIBLE (components/map/mapHubHelpers.ts), and even
- * shown it lists only charts that are already open (useLocalCharts), so
- * nothing can be switched on. Reviving it needs a size gate first: open()
- * reads the whole file into the web view's memory.
+ * This retains coverage of the bounded legacy Cache reader. Build142's
+ * separate private Directory.Data library has its own import/owner tests.
+ * The fixture saves a real Cache file so type/size admission happens before
+ * the intercepted getUri fetch; no Filesystem metadata method is mocked.
  */
 
 const ROOT = process.cwd();
@@ -106,6 +104,7 @@ function webAppCsp(): string {
 type Report = {
     ready: boolean;
     open: string;
+    savedFile: { bytes: number; type: string } | null;
     blobUrlsHanded: number;
     violations: Array<{ directive: string; blockedURI: string }>;
     mapErrors: string[];
@@ -121,7 +120,8 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
             if (/refused|violates|content security policy/i.test(m.text())) refusals.push(m.text());
         });
 
-        // The chart read: Filesystem.getUri on the web answers /CACHE/chart_downloads/<file>.
+        // Seed and legacy chart read use the same fictional bytes. Filesystem
+        // metadata comes from its real IndexedDB-backed Directory.Cache entry.
         await page.route('**/CACHE/chart_downloads/**', (route) =>
             route.fulfill({ body: mbtiles, contentType: 'application/octet-stream' }),
         );
@@ -154,6 +154,10 @@ for (const policy of ['index.html meta', 'vercel.json header'] as const) {
 
         expect(refusals, 'nothing in the chain is refused by the CSP').toEqual([]);
         expect(report.violations).toEqual([]);
+        expect(report.savedFile, 'a real saved file passes exact type and byte admission').toEqual({
+            bytes: mbtiles.byteLength,
+            type: 'file',
+        });
         expect(report.open, 'the chart opens (sql.js compiled)').toMatch(/^ok png z4-4$/);
         expect(report.blobUrlsHanded, 'transformRequest handed Mapbox a blob: tile').toBeGreaterThan(0);
         expect(report.mapErrors).toEqual([]);

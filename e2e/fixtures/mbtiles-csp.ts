@@ -18,6 +18,7 @@
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { MBTilesService, TRANSPARENT_TILE_DATA_URL } from '../../services/MBTilesService';
+import { Directory, Filesystem } from '@capacitor/filesystem';
 
 const FILE = 'fictional-ocean-test.mbtiles';
 const SOURCE = `local-mbtiles-${FILE}`;
@@ -26,6 +27,7 @@ type Violation = { directive: string; blockedURI: string };
 const state = {
     ready: false,
     open: 'pending' as string,
+    savedFile: null as { bytes: number; type: string } | null,
     blobUrlsHanded: 0,
     violations: [] as Violation[],
     mapErrors: [] as string[],
@@ -95,6 +97,22 @@ map.on('error', (e) => {
 
 map.on('load', async () => {
     try {
+        // The real legacy reader admits the saved file's type/size before its
+        // getUri fetch. Seed that actual web Filesystem entry with the same
+        // fictional bytes the spec serves; an HTTP route alone is not a file.
+        const response = await fetch(`/CACHE/chart_downloads/${FILE}`);
+        if (!response.ok) throw new Error('Fictional chart fixture unavailable.');
+        const bytes = await response.blob();
+        await Filesystem.writeFile({
+            path: `chart_downloads/${FILE}`,
+            directory: Directory.Cache,
+            data: bytes,
+            recursive: true,
+        });
+        const saved = await Filesystem.stat({ path: `chart_downloads/${FILE}`, directory: Directory.Cache });
+        state.savedFile = { bytes: saved.size, type: saved.type };
+        if (saved.type !== 'file' || saved.size !== bytes.size)
+            throw new Error('Fictional chart fixture was not saved exactly.');
         const chart = await MBTilesService.open(FILE);
         state.open = `ok ${chart.metadata.format} z${chart.metadata.minzoom}-${chart.metadata.maxzoom}`;
         // As useLocalCharts adds it.
