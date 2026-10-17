@@ -38,28 +38,57 @@ export function lazyRetry<T extends React.ComponentType<any>>(
     factory: () => Promise<{ default: T }>,
     moduleName?: string,
 ): React.LazyExoticComponent<T> {
-    return React.lazy(() =>
-        factory().catch((err: Error) => {
-            // Use a module-specific key so one failed module doesn't block others
-            const key = `lazyRetry_${moduleName ?? 'default'}`;
-            const lastReloadAt = Number(sessionStorage.getItem(GLOBAL_COOLDOWN_KEY) ?? 0);
-            const cooledDown = Date.now() - lastReloadAt > RELOAD_COOLDOWN_MS;
-            if (!sessionStorage.getItem(key) && cooledDown) {
-                sessionStorage.setItem(key, '1');
-                sessionStorage.setItem(GLOBAL_COOLDOWN_KEY, String(Date.now()));
-                // This reload was previously silent — it lands the punter back
-                // on the default page looking exactly like a crash. Leave a
-                // trace so the two are never confused again.
-                crumb('lazyRetry:reload', moduleName ?? 'default');
-                window.location.reload();
-                // Return a never-resolving promise to stop React rendering during reload
-                return new Promise<{ default: T }>(() => {});
-            }
-            // Already retried this module (or a reload fired within the
-            // cooldown): clear the key and re-throw so ErrorBoundary
-            // catches it instead of an infinite reload loop.
-            sessionStorage.removeItem(key);
+    return React.lazy(() => {
+        // WebKit rejects pending imports while a document navigation is still
+        // provisional. Reloading that outgoing document cancels the chosen
+        // destination. This attempt may no longer initiate automatic recovery.
+        const lifetime = typeof window === 'undefined' ? null : window;
+        let retiring = false;
+        const retire = () => {
+            retiring = true;
+        };
+        const cleanup = () => {
+            lifetime?.removeEventListener('beforeunload', retire);
+            lifetime?.removeEventListener('pagehide', retire);
+        };
+        lifetime?.addEventListener('beforeunload', retire, { once: true });
+        lifetime?.addEventListener('pagehide', retire, { once: true });
+        let pending: ReturnType<typeof factory>;
+        try {
+            pending = factory();
+        } catch (err) {
+            cleanup();
             throw err;
-        }),
-    );
+        }
+        return pending.then(
+            (value) => {
+                cleanup();
+                return value;
+            },
+            (err: Error) => {
+                cleanup();
+                if (retiring) throw err;
+                // Use a module-specific key so one failed module doesn't block others
+                const key = `lazyRetry_${moduleName ?? 'default'}`;
+                const lastReloadAt = Number(sessionStorage.getItem(GLOBAL_COOLDOWN_KEY) ?? 0);
+                const cooledDown = Date.now() - lastReloadAt > RELOAD_COOLDOWN_MS;
+                if (!sessionStorage.getItem(key) && cooledDown) {
+                    sessionStorage.setItem(key, '1');
+                    sessionStorage.setItem(GLOBAL_COOLDOWN_KEY, String(Date.now()));
+                    // This reload was previously silent — it lands the punter back
+                    // on the default page looking exactly like a crash. Leave a
+                    // trace so the two are never confused again.
+                    crumb('lazyRetry:reload', moduleName ?? 'default');
+                    window.location.reload();
+                    // Return a never-resolving promise to stop React rendering during reload
+                    return new Promise<{ default: T }>(() => {});
+                }
+                // Already retried this module (or a reload fired within the
+                // cooldown): clear the key and re-throw so ErrorBoundary
+                // catches it instead of an infinite reload loop.
+                sessionStorage.removeItem(key);
+                throw err;
+            },
+        );
+    });
 }
