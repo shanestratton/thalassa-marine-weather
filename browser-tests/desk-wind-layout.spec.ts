@@ -828,7 +828,7 @@ test.describe('the wind credit on the phone’s Obs chart', () => {
             });
             await page.getByRole('button', { name: 'Open layer menu' }).click();
             await page.getByRole('menuitem', { name: 'Sky layers' }).click();
-            await page.getByRole('menuitemcheckbox', { name: 'Wind, off' }).click();
+            await page.getByRole('menuitemcheckbox', { name: 'Wind, off', exact: true }).click();
             await page.getByRole('button', { name: 'Close layer menu' }).click();
             const credit = page.getByTestId('obs-credits-rollup');
             const openCredits = page.getByRole('button', { name: /^Credits(?:; layer status needs review)?$/ });
