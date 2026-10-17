@@ -27,7 +27,7 @@ jobs:
                 image: postgis/postgis:17-3.5
                 env:
                     POSTGRES_PASSWORD: fixture-only-password
-                    POSTGRES_DB: ais_receiver140_test
+                    POSTGRES_DB: postgres
                 ports: ['5432:5432']
                 options: >-
                     --health-cmd pg_isready --health-interval 5s
@@ -64,6 +64,11 @@ jobs:
                   npm install --prefix "$RUNNER_TEMP/ais-receiver140-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
                   test "$(node -p "require('$RUNNER_TEMP/ais-receiver140-pg/node_modules/pg/package.json').version")" = 8.16.3
                   sha256sum "$RUNNER_TEMP/ais-receiver140-pg/package-lock.json" > "$RUNNER_TEMP/ais-receiver140-proof/CLIENT_LOCK_SHA256.txt"
+            - name: Create only the empty isolated receiver fixture
+              env:
+                  PGPASSWORD: fixture-only-password
+              shell: bash
+              run: createdb -h 127.0.0.1 -p 5432 -U postgres --maintenance-db=postgres --template=template0 ais_receiver140_test
             - name: Execute actual migrations, PostGIS privacy and competing transactions
               env:
                   PG_MODULE_PATH: ${{ runner.temp }}/ais-receiver140-pg/node_modules/pg/lib/index.js
