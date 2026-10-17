@@ -18,7 +18,11 @@ import { ProxyConfig, cachedJsonFetch, supabaseEdgeUrl, supabaseHeaders, openMet
 import { TTL } from '../scheduler.js';
 import { readMarineEnvelopeV2 } from '../marine/marine-v2.js';
 
-export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
+export function createWeatherRoutes(
+    cache: Cache,
+    config: ProxyConfig,
+    dependencies: { marineFetch?: typeof cachedJsonFetch } = {},
+): Router {
     const router = Router();
 
     /**
@@ -113,7 +117,7 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
                 )
                     return res.status(400).json({ error: 'lat/lon must be valid coordinates' });
                 const point = { latitude: Number(latitude.toFixed(4)), longitude: Number(longitude.toFixed(4)) };
-                const result = await cachedJsonFetch(cache, {
+                const result = await (dependencies.marineFetch ?? cachedJsonFetch)(cache, {
                     url: supabaseEdgeUrl(config, 'get-marine', {
                         lat: point.latitude.toFixed(4),
                         lon: point.longitude.toFixed(4),
@@ -127,7 +131,9 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
                     source: 'marine-schema-2',
                 });
                 const admitted = readMarineEnvelopeV2(result.data, point, Date.now());
-                if (!admitted || (!admitted.waves && !admitted.motion))
+                // Generic weather caching may serve expired data after an upstream
+                // failure even with a zero SWR window. Schema 2 keeps this lane fresh.
+                if (result.stale || !admitted || (!admitted.waves && !admitted.motion))
                     return res.status(502).json({ error: 'Marine schema unavailable' });
                 res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
                 return res.json(admitted);
