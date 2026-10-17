@@ -38,6 +38,7 @@ const beforeTemplates: string[][] = collectUiStringPools(root, { literalCounts, 
 const pools: string[][] = collectUiStringPools(root, { literalCounts });
 const legacyPaths: string[] = collectLegacySvgPaths(root);
 const paths: string[] = collectSvgPaths(root, { uiCounts: literalCounts });
+const unpooledSourceKeys = ['thalassa_music_pill_pos', 'thalassa_watch_schedule'];
 let temporary: string;
 beforeAll(async () => {
     vi.stubEnv('NODE_ENV', 'production');
@@ -68,7 +69,38 @@ it('retains every original selected UI/SVG value and restores all five actual ta
     expect(original.length).toBeGreaterThanOrEqual(8531);
     const current = new Set([...pools.flat(), ...paths]);
     expect(original.filter((value) => !current.has(value))).toEqual([]);
-    expect(beforeTemplates.flat().length).toBeGreaterThanOrEqual(10559);
+    // Immutable430c selected10559 values. The later approved ModelComparison
+    // layout changes replace these four class strings; the bounded selection
+    // then leaves two still-present source keys literal instead of pooling them.
+    // Reconstruct and hash the entire original cohort, rather than treating a
+    // representation-dependent current table count as a data-retention proof.
+    const historical = new Set(beforeTemplates.flat());
+    for (const [before, after] of [
+        [
+            'min-h-[44px] w-full rounded-xl border border-white/10 px-3 text-left text-xs text-sky-300',
+            'min-h-[44px] shrink-0 whitespace-nowrap rounded-xl border border-white/10 px-3 text-left text-xs text-sky-300',
+        ],
+        ...[
+            'mx-4 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-sky-400/20 flex items-center gap-2',
+            'mx-4 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2',
+            'mx-4 mb-2 px-3 py-0.5 text-[11px] text-gray-400 text-center',
+        ].map((value) => [value, value.replace('mb-2', 'mb-1')]),
+    ]) {
+        expect(historical.has(before)).toBe(false);
+        expect(historical.delete(after)).toBe(true);
+        historical.add(before);
+    }
+    for (const value of unpooledSourceKeys) {
+        expect(literalCounts.get(value)).toBeGreaterThan(0);
+        expect(historical.has(value)).toBe(false);
+        historical.add(value);
+    }
+    expect(historical.size).toBe(10559);
+    expect(
+        createHash('sha256')
+            .update(JSON.stringify([...historical].sort()))
+            .digest('hex'),
+    ).toBe('fc1de91009bcf4e179512b2abab2f0f4519e674c2f0aa862a09da70dd6643e16');
     expect(beforeTemplates.flat().filter((value) => !current.has(value))).toEqual([]);
     expect(pools).toHaveLength(4);
     expect(paths).toHaveLength(374);
@@ -92,6 +124,21 @@ it('retains every original selected UI/SVG value and restores all five actual ta
     }
     const decoder = originalDecoderHash();
     expect(decoder).toBe('a221b18976fe54913e67e915f9af23b5390444e3637266b81a03f739b19a7a8e');
+});
+
+it('leaves the two unpooled original source keys byte-exact instead of requiring an unnecessary table entry', () => {
+    for (const value of unpooledSourceKeys) {
+        expect(literalCounts.get(value)).toBeGreaterThan(0);
+        expect(pools.flat()).not.toContain(value);
+        const code = `export const key=${JSON.stringify(value)};`;
+        expect(
+            shareUiStringLiterals(code, path.join(root, 'components/Proof.tsx'), {
+                root,
+                values: pools.flat(),
+                parse: parseAst,
+            }),
+        ).toBeNull();
+    }
 });
 
 // Pin the original decoder itself, rather than copying a permissive decoder into a fixture.
