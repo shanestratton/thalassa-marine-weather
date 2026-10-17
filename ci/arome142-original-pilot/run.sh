@@ -45,7 +45,13 @@ cleanup() {
             sudo systemctl stop "$unit" || failed=1
         fi
         sudo systemctl show "$unit" --property=LoadState --property=ActiveState --property=SubState --property=MainPID > "$proof/cleanup-${unit}.txt" 2>&1 || true
-        if grep -qE '^(ActiveState=active|MainPID=[1-9])' "$proof/cleanup-${unit}.txt"; then failed=1; fi
+        if grep -q '^LoadState=not-found$' "$proof/cleanup-${unit}.txt"; then
+            :
+        elif grep -q '^ActiveState=inactive$' "$proof/cleanup-${unit}.txt" && grep -q '^MainPID=0$' "$proof/cleanup-${unit}.txt"; then
+            :
+        else
+            failed=1
+        fi
     done
     return "$failed"
 }
