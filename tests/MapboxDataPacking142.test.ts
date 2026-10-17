@@ -110,7 +110,7 @@ describe('explicit data-only SDK stages142', () => {
         expect(() => schemaCodecBuiltins('var local=outerSdkValue;')).toThrow(/outer SDK/);
         expect(() => schemaCodecBuiltins('eval("x")')).toThrow();
         expect(() => schemaCodecBuiltins('new Function("x")')).toThrow();
-        expect(() => schemaCodecBuiltins('import("x")')).toThrow(/Dynamic/);
+        expect(() => schemaCodecBuiltins('import("./fictional-sdk.mjs")')).toThrow(/Dynamic/);
         expect(() => schemaCodecBuiltins('with({}){}')).toThrow(/Dynamic/);
         expect(() => packMapboxSharedSchema142(main.code + SCHEMA_CODEC_BINDING, codec.code)).toThrow(/collision/);
         expect(() => packMapboxSharedSchema142(main.code, codec.code + '\n')).toThrow(/Unreviewed/);
