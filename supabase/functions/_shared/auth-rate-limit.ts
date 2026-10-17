@@ -165,7 +165,7 @@ export async function requireAuthenticatedOrPublicQuota(
     const apiKey = req.headers.get('apikey');
     const bearer = authorization?.match(/^Bearer ([^\s]+)$/)?.[1] ?? null;
     const isPublicCredential = bearer === publicKey ||
-        (!bearer && apiKey === publicKey) ||
+        (authorization === null && apiKey === publicKey) ||
         (allowCredentiallessPublic && !authorization && !apiKey);
 
     if (!isPublicCredential) {
