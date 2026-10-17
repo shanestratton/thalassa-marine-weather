@@ -1,11 +1,29 @@
 import {
     canonicalMarineGeneration,
     MARINE_RELEASE_REPOSITORY,
-    marineAssetShardTag,
+    releaseAssetShardTag,
     validateMarineManifest,
-} from '../services/weather/api/marineManifestContract';
+    type MarineDatasetKey,
+} from '../services/weather/api/marineManifestContract.ts';
+import { ATMOS_RELEASE_CONTRACTS } from './_atmosReleaseContract.ts';
+import { SSH_RELEASE_CONTRACTS } from './_sshReleaseContract.ts';
+import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract.ts';
 
-type DatasetKey = 'currents' | 'waves' | 'sst' | 'chl' | 'seaice' | 'mld' | 'mpa';
+const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS, ...SSH_RELEASE_CONTRACTS } as const;
+type SpecializedDatasetKey = keyof typeof SPECIALIZED_RELEASE_CONTRACTS;
+type DatasetKey = MarineDatasetKey | SpecializedDatasetKey;
+
+function specialized(dataset: DatasetKey): SpecializedReleaseContract | undefined {
+    return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)
+        ? SPECIALIZED_RELEASE_CONTRACTS[dataset as SpecializedDatasetKey]
+        : undefined;
+}
+
+function validateDatasetManifest(value: unknown, dataset: DatasetKey, now: number, current: boolean): void {
+    const additional = specialized(dataset);
+    if (additional) additional.validate(value, now, current);
+    else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);
+}
 
 type DatasetProxySpec = {
     id: string;
@@ -35,6 +53,9 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 
 export const DATASET_PROXY_SPECS: Record<DatasetKey, DatasetProxySpec> = {
+    'gfs-atmos': ATMOS_RELEASE_CONTRACTS['gfs-atmos'].spec,
+    'ifs-pressure': ATMOS_RELEASE_CONTRACTS['ifs-pressure'].spec,
+    ssh: SSH_RELEASE_CONTRACTS.ssh.spec,
     currents: {
         id: 'cmems_mod_glo_phy_anfc_merged-uv_PT1H-i',
         releaseTag: 'cmems-currents-latest',
@@ -108,7 +129,8 @@ function isLegacyAssetName(dataset: DatasetKey, filename: string): boolean {
 }
 
 function legacyCmemsBridgeEnabled(): boolean {
-    return process.env.THALASSA_CMEMS_V1_BRIDGE_ENABLED === 'true' && Date.now() < CMEMS_V1_BRIDGE_SUNSET_MS;
+    const node = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+    return node?.env?.THALASSA_CMEMS_V1_BRIDGE_ENABLED === 'true' && Date.now() < CMEMS_V1_BRIDGE_SUNSET_MS;
 }
 
 function generationForAsset(dataset: DatasetKey, filename: string): string | null {
@@ -122,7 +144,7 @@ function generationForAsset(dataset: DatasetKey, filename: string): string | nul
 }
 
 export function assetShardTag(dataset: DatasetKey, generation: string): string {
-    const tag = marineAssetShardTag(dataset, generation);
+    const tag = releaseAssetShardTag(DATASET_PROXY_SPECS[dataset].releaseTag, generation);
     if (!SHARD_TAG_PATTERN.test(tag)) throw new Error('derived shard tag invalid');
     return tag;
 }
@@ -130,8 +152,11 @@ export function assetShardTag(dataset: DatasetKey, generation: string): string {
 async function assertManifest(value: unknown, dataset: DatasetKey): Promise<Record<string, unknown>> {
     // The same executable contract runs in the public clients and hosted gate.
     // Currentness is evaluated after both slots have completed independently.
-    validateMarineManifest(value, dataset, Date.now(), false);
+    validateDatasetManifest(value, dataset, Date.now(), false);
     if (!isRecord(value)) throw new Error('manifest root');
+    // New codecs have their own complete science/clock/identity contract. The
+    // original seven retain every original check below as well as their shared gate.
+    if (specialized(dataset)) return value;
     const rootKeys = [
         'schema_version',
         'dataset',
@@ -449,7 +474,7 @@ async function fetchSelectedManifest(
     ).filter((candidate): candidate is ManifestSlotCandidate => {
         if (candidate === null) return false;
         try {
-            validateMarineManifest(candidate.manifest, dataset, now, true);
+            validateDatasetManifest(candidate.manifest, dataset, now, true);
             return true;
         } catch {
             return false;
@@ -460,7 +485,7 @@ async function fetchSelectedManifest(
 }
 
 function synthesizeLegacyManifest(selected: ManifestSlotCandidate, dataset: DatasetKey): Uint8Array<ArrayBuffer> {
-    if (dataset === 'mpa') throw new Error('MPA has no safe legacy bridge');
+    if (dataset === 'mpa' || specialized(dataset)) throw new Error('Dataset has no safe legacy bridge');
     const manifest = selected.manifest;
     const legacy = {
         version: 1,
@@ -485,7 +510,10 @@ async function digest(bytes: Uint8Array<ArrayBuffer>): Promise<{ hex: string; ba
 }
 
 export async function computeGeneration(dataStart: string, dataset: DatasetKey, hashes: string[]): Promise<string> {
-    return canonicalMarineGeneration(dataStart, dataset, hashes);
+    const additional = specialized(dataset);
+    return additional
+        ? additional.generation(dataStart, hashes)
+        : canonicalMarineGeneration(dataStart, dataset as MarineDatasetKey, hashes);
 }
 
 function errorResponse(status: number, message: string): Response {
@@ -558,7 +586,10 @@ export async function proxyReleaseAsset(request: Request, dataset: DatasetKey): 
     const isLegacyAsset = isLegacyAssetName(dataset, filename);
     const assetGeneration = isManifest || isLegacyAsset ? null : generationForAsset(dataset, filename);
     if (!isManifest && !isLegacyAsset && assetGeneration === null) return errorResponse(400, 'Invalid asset name');
-    if (isLegacyAsset || (isLegacyManifest && (dataset === 'mpa' || !legacyCmemsBridgeEnabled()))) {
+    if (
+        isLegacyAsset ||
+        (isLegacyManifest && (dataset === 'mpa' || specialized(dataset) || !legacyCmemsBridgeEnabled()))
+    ) {
         return errorResponse(410, 'Legacy marine publication path is retired');
     }
 

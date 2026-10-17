@@ -44,6 +44,14 @@ import type { EncCell } from './enc/types';
 import { readS57 } from './enc/types';
 import { hasCellGeoJSON, loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
+import { collectTrackRoutingPriors, trackPriorContextKey } from './routing/trackRoutingPriors';
+import { auditFinishedRouteExclusions, finishedTrafficLaneGuidance } from './engine/exclusionField';
+import {
+    readCurrentRoutingExclusions,
+    routingExclusionContextKey,
+    type CurrentRoutingExclusions,
+} from './routing/routingExclusions';
+import { routeInsideAreaWindow, routingAreaWindow } from './routing/routingAreaWindow';
 import type { SurveyUncheckedCell, TideCeiling } from './engine/types';
 import { tideCeilingLookup } from './engine/tideCeiling';
 import { pinTailTideWindows, routeAreaTideCeilings } from './routing/tideCeilings';
@@ -81,6 +89,11 @@ import type { InshoreOrigin, InshoreRouteFailure, InshoreRouteResult, RouteJob }
 import { routeStopped, runRouteJobHosted, type RouteStage } from './routing/routeWorkerHost';
 
 const log = createLogger('InshoreRouter');
+class RoutingAreasChanged extends Error {}
+const areaCheckFailure = (): InshoreRouteFailure => ({
+    error: 'Routing areas changed. Plan the route again.',
+    code: 'exclusion-unavailable',
+});
 
 /**
  * The chart layers stamped with their cell's fineness rank (`_scaleRank`)
@@ -341,6 +354,7 @@ interface InshoreRunControl {
     timing: InshoreRunTiming;
     chartView?: Awaited<ReturnType<typeof import('./enc/noaaPackageWindow').loadNoaaPackageCohort>>;
     leadRelease?: () => void;
+    routingExclusions?: CurrentRoutingExclusions;
 }
 
 const exitDurations = (t: InshoreRunTiming): string =>
@@ -445,6 +459,14 @@ function fetchEndpointWater(
     );
 }
 
+interface TideShortcutOptions {
+    speedKts: number;
+    uncertaintyMs: number;
+    assertCurrent?: () => void;
+    onReview?: (view: import('./routing/tideGatedPlanning').TideShortcutView) => void;
+}
+let tideShortcutSerial = 0;
+
 export async function tryInshoreRoute(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
@@ -475,8 +497,11 @@ export async function tryInshoreRoute(
         tideCeilings?: readonly TideCeiling[];
         signal?: AbortSignal;
         onStage?: (stage: RouteStage) => void;
+        tideShortcut?: TideShortcutOptions;
     } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    const priorContext = trackPriorContextKey();
+    const areaContext = routingExclusionContextKey();
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
     // production builds — use warn() so it actually emits on iOS.
@@ -495,7 +520,9 @@ export async function tryInshoreRoute(
     const tideKey = routeOpts.tideCeilings
         ? `tc${tideCeilingLookup(routeOpts.tideCeilings).key}`
         : `dep${Math.floor((routeOpts.departureMs ?? Date.now()) / 3_600_000)}`;
-    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}`;
+    const dedupeKey = routeOpts.tideShortcut
+        ? `tide-window-${++tideShortcutSerial}`
+        : `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}_${priorContext}_${areaContext}`;
     let entry = inflightRouteRequests.get(dedupeKey);
     if (entry) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
@@ -503,7 +530,11 @@ export async function tryInshoreRoute(
         entry = startInshoreRun(dedupeKey, origin, destination, draftM, airDraftM, routeProfile, routeOpts);
         inflightRouteRequests.set(dedupeKey, entry);
     }
-    return joinInshoreRun(dedupeKey, entry, signal, onStage);
+    const result = await joinInshoreRun(dedupeKey, entry, signal, onStage);
+    if (trackPriorContextKey() !== priorContext)
+        throw new Error('Route request retired because the account or vessel changed.');
+    if (routingExclusionContextKey() !== areaContext) return areaCheckFailure();
+    return result;
 }
 
 /** One caller's wait on a run: it detaches alone when it stops; the last one stops the run. */
@@ -551,7 +582,7 @@ function startInshoreRun(
     draftM: number,
     airDraftM: number | null,
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect',
-    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] },
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[]; tideShortcut?: TideShortcutOptions },
 ): InshoreRun {
     // Wall-clock watchdog (reply 19 fix 2): bounds every ASYNC await in
     // the pipeline (cell loads, OSM overlay, marker fetch — AbortSignal
@@ -605,6 +636,8 @@ function startInshoreRun(
                 control.chartView = undefined;
                 control.leadRelease?.();
                 control.leadRelease = undefined;
+                control.routingExclusions?.release();
+                control.routingExclusions = undefined;
             }),
             entry.stop.signal,
         ),
@@ -612,6 +645,7 @@ function startInshoreRun(
         'inshore route',
     )
         .catch((err) => {
+            if (err instanceof RoutingAreasChanged) return areaCheckFailure();
             if (err instanceof DeadlineExceeded) {
                 entry.stop.abort();
                 log.warn(
@@ -669,16 +703,25 @@ async function tryInshoreRouteInner(
     draftM: number,
     airDraftM: number | null = null,
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
-    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[]; tideShortcut?: TideShortcutOptions } = {},
     overlayUse: { overlay?: OsmOverlayProvenance } = {},
     run: InshoreRunControl,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    const priorContext = trackPriorContextKey();
+    const areaContext = routingExclusionContextKey();
     // A run every caller has stopped drops out at its next wait (review
     // 2026-10-11): it starts no more fetches, cell reads or satellite reads
     // beside a re-tap's fresh run. The waits themselves can't be cancelled.
     const stillWanted = (): void => {
         run.signal.throwIfAborted();
+        if (trackPriorContextKey() !== priorContext)
+            throw new Error('Route request retired because the account or vessel changed.');
         run.chartView?.check();
+        if (
+            routingExclusionContextKey() !== areaContext ||
+            (run.routingExclusions && !run.routingExclusions.isCurrent())
+        )
+            throw new RoutingAreasChanged('Routing areas changed. Plan the route again.');
     };
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
@@ -702,6 +745,41 @@ async function tryInshoreRouteInner(
             error: `Trusted inshore ENC coverage is incomplete — gap ~${corridorGap.atNM.toFixed(0)} NM along the route (near ${corridorGap.lat.toFixed(2)}, ${corridorGap.lon.toFixed(2)}). Unverified reference packs cannot clear this safety gate.`,
             code: 'coverage-gap',
         };
+    }
+
+    if (opts.tideShortcut) {
+        const mode = opts.tideShortcut;
+        const { planTideGatedShortcut } = await import('./routing/tideGatedPlanning');
+        const candidate = await planTideGatedShortcut(
+            {
+                from: origin,
+                to: destination,
+                draftM,
+                safetyM: 0.5,
+                requiredM: draftM + 0.5,
+                airDraftM,
+                departureMs: opts.departureMs ?? Date.now(),
+                speedKts: mode.speedKts,
+                uncertaintyMs: mode.uncertaintyMs,
+                lifetimeKey: `tide-request-${++tideShortcutSerial}`,
+            },
+            {
+                signal: run.signal,
+                onStage: run.onStage,
+                assertCurrent: () => {
+                    stillWanted();
+                    mode.assertCurrent?.();
+                },
+                onRetired: (reason) => mode.onReview?.({ kind: 'held', reason }),
+            },
+        );
+        stillWanted();
+        mode.assertCurrent?.();
+        if (candidate.kind === 'preview') {
+            mode.onReview?.(candidate.result.tideShortcut!);
+            return candidate.result;
+        }
+        mode.onReview?.(candidate.view);
     }
 
     // ── The highest tide per place, BEFORE routing (owner decision 11) ──
@@ -769,6 +847,18 @@ async function tryInshoreRouteInner(
     if (candidateCells.length === 0) {
         log.warn('GATE: No installed cells intersect the route bbox — skipping inshore router');
         return null;
+    }
+    let areaWindow: ReturnType<typeof routingAreaWindow>;
+    try {
+        areaWindow = routingAreaWindow(origin, destination);
+        run.routingExclusions = await readCurrentRoutingExclusions({ bbox: areaWindow, signal: run.asks });
+        stillWanted();
+    } catch {
+        run.signal.throwIfAborted();
+        return {
+            error: 'Your route areas could not be checked. Review Your overlays and plan the route again.',
+            code: 'exclusion-unavailable',
+        };
     }
 
     if (ROUTE_DEBUG)
@@ -839,6 +929,11 @@ async function tryInshoreRouteInner(
     // we now do it on the device since iPhone CPU outpaces a Pi 5 several-
     // fold and the cell GeoJSON is already cached in the local Filesystem.
     const merged: InshoreLayers = {
+        ...(run.routingExclusions.manual ? { USER_NOGO: run.routingExclusions.manual } : {}),
+        ...(run.routingExclusions.marineParks ? { MPA_CAUTION: run.routingExclusions.marineParks } : {}),
+        RESARE: { type: 'FeatureCollection', features: [] },
+        TSEZNE: { type: 'FeatureCollection', features: [] },
+        TSSLPT: { type: 'FeatureCollection', features: [] },
         LNDARE: { type: 'FeatureCollection', features: [] },
         DEPARE: { type: 'FeatureCollection', features: [] },
         OBSTRN: { type: 'FeatureCollection', features: [] },
@@ -874,6 +969,7 @@ async function tryInshoreRouteInner(
     // crosses, not every cell merged for its window (fix-up, 2026-09-30;
     // the route job reads it).
     const structuresUnknownBbox = new Map<string, [number, number, number, number]>();
+    const exclusionsUnknownBboxes: [number, number, number, number][] = [];
     // Chart bridges, overhead cables and overhead pipes (Part B): each one this
     // vessel's mast cannot clear — too low, no charted clearance, or no air
     // draft set — becomes a low-clearance bar below (overheadClearance.ts).
@@ -1024,6 +1120,14 @@ async function tryInshoreRouteInner(
         if (seaare?.features && Array.isArray(seaare.features)) {
             (merged.SEAARE!.features as unknown[]).push(...seaare.features);
         }
+        let areasExtracted = true;
+        for (const name of ['RESARE', 'TSEZNE', 'TSSLPT'] as const) {
+            const original = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[name];
+            if (original?.type === 'FeatureCollection' && Array.isArray(original.features))
+                merged[name]!.features.push(...original.features);
+            else areasExtracted = false;
+        }
+        if (!areasExtracted) exclusionsUnknownBboxes.push([...cell.bbox]);
         cellsUsed.push(cell.id);
     }
     if (cellsUsed.length === 0) {
@@ -1801,7 +1905,12 @@ async function tryInshoreRouteInner(
     // 60 m is the empirical sweet spot — overlaps into
     // contiguous no-go strips along hazard chains, but doesn't
     // over-block the deep-water side.
+    const trackPriors = await collectTrackRoutingPriors(origin, destination, run.asks, priorContext);
+    stillWanted();
+    if (trackPriorContextKey() !== priorContext)
+        throw new Error('Route request retired because the account or vessel changed.');
     const routeOpts = {
+        ...(trackPriors.length ? { trackPriors } : {}),
         fromLat: origin.lat,
         fromLon: origin.lon,
         toLat: destination.lat,
@@ -1951,6 +2060,7 @@ async function tryInshoreRouteInner(
         cellsUsed,
         structuresUnknownCells,
         structuresUnknownBboxes: [...structuresUnknownBbox],
+        exclusionsUnknownBboxes,
         regionalPairs: regionalPairsForShadow,
         leadGraph,
         tideCeilings,
@@ -1971,7 +2081,35 @@ async function tryInshoreRouteInner(
         backMs: hosted.backMs,
         where: hosted.where,
     });
-    const res = hosted.output.result;
+    const rawResult = hosted.output.result;
+    let res = rawResult;
+    if (res && 'polyline' in res) {
+        if (!routeInsideAreaWindow(res.polyline, areaWindow))
+            return {
+                error: 'The finished route leaves the checked area. Plan a new route so its areas can be read again.',
+                code: 'exclusion-unavailable',
+                cellsUsed,
+            };
+        const failure = auditFinishedRouteExclusions(merged, res.polyline, stillWanted);
+        if (failure) return { ...failure, cellsUsed };
+        try {
+            // A hosted result cannot supply or retain its own direction verdict.
+            // Recompute from the original cohort after every route splice.
+            const guidance = finishedTrafficLaneGuidance(merged, res.polyline, stillWanted);
+            const current = { ...res, routeAreaCaveats: [...run.routingExclusions.advisories] };
+            delete current.trafficLaneGuidance;
+            if (guidance) current.trafficLaneGuidance = guidance;
+            stillWanted();
+            res = current;
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') throw error;
+            return {
+                error: 'The finished route’s traffic-lane guidance could not be checked. Review the current chart and route again.',
+                code: 'exclusion-unavailable',
+                cellsUsed,
+            };
+        }
+    }
     // A pin's dry tail with when the boat floats over it (125-05b), from the
     // tide curves this thread loaded.
     return res && 'polyline' in res && res.dryRuns?.length
@@ -1995,6 +2133,10 @@ export function inshoreRouteToGeoJSON(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
 ): GeoJSON.Feature<GeoJSON.LineString> {
+    if (result.tideShortcut || result._tideCandidatePath)
+        throw Error(
+            'A temporary tide-window preview cannot become a saved route. Replan and verify an ordinary route.',
+        );
     return {
         type: 'Feature',
         geometry: {
@@ -2016,6 +2158,9 @@ export function inshoreRouteToGeoJSON(
             // pin off the water) — kept WITH the saved route, not only in a
             // transient banner (fix-up, 2026-09-30).
             ...(result.structuresUnknownCells?.length ? { structuresUnknownCells: result.structuresUnknownCells } : {}),
+            ...(result.exclusionsUnchecked ? { exclusionsUnchecked: true } : {}),
+            ...(result.trafficLaneGuidance ? { trafficLaneGuidance: result.trafficLaneGuidance } : {}),
+            ...(result.routeAreaCaveats?.length ? { routeAreaCaveats: [...result.routeAreaCaveats] } : {}),
             ...(result.pinOffWater ? { pinOffWater: result.pinOffWater } : {}),
             // …and a shallow pin whose tail is not direct (Shane, 2026-10-03).
             ...(result.pinTail ? { pinTail: result.pinTail } : {}),

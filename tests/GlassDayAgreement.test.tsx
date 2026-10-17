@@ -178,6 +178,44 @@ describe('the Glass day card reads the models’ verdict for its own day', () =>
         expect(seen[0].dayMs).toBeGreaterThanOrEqual(Date.parse('2026-10-10T00:00:00+02:00'));
         expect(seen[0].dayMs).toBeLessThan(Date.parse('2026-10-11T00:00:00+02:00'));
     });
+
+    it.each(['rain', 'wave'] as const)(
+        '141: the actual card opens its %s cause with separate cohorts',
+        async (metric) => {
+            const input = spread();
+            for (const model of input.atmos!.models) model.values.precipitation = input.atmos!.times.map(() => 0);
+            input.marine = {
+                times: input.atmos!.times,
+                models: input.atmos!.models.slice(0, 4).map((model, i) => ({
+                    ...model,
+                    values: {
+                        wave_height: input.atmos!.times.map(() => (metric === 'wave' && i === 0 ? 3 : 1)),
+                        wave_period: input.atmos!.times.map(() => 8),
+                    },
+                })),
+            };
+            if (metric === 'rain') input.atmos!.models[0].values.precipitation.fill(3);
+            vi.mocked(queryModelSpread).mockResolvedValue(input);
+            const seen: { param: string }[] = [];
+            const on = (event: Event) => seen.push((event as CustomEvent).detail);
+            window.addEventListener(MODEL_COMPARE_EVENT, on);
+            try {
+                render(day('2026-10-09', 1));
+                const chip = await screen.findByRole('button', {
+                    name: metric === 'rain' ? /^Rain: models split/ : /^Waves: models split/,
+                });
+                expect(chip.getAttribute('aria-label')).toContain('wind: models agree, 7 models');
+                expect(chip.getAttribute('aria-label')).toContain(
+                    'waves: models ' + (metric === 'wave' ? 'split' : 'agree') + ', 4 models',
+                );
+                fireEvent.click(chip);
+            } finally {
+                window.removeEventListener(MODEL_COMPARE_EVENT, on);
+            }
+            expect(seen).toEqual([expect.objectContaining({ param: metric })]);
+            expect(queryModelSpread).toHaveBeenCalledTimes(1);
+        },
+    );
 });
 
 describe('the Glass grid opens the comparison where a day card asked', () => {

@@ -140,8 +140,13 @@ function defaultUserClient(deps: FleetFeedDeps, authorization: string): UserClie
 let udp: dgram.Socket | null = null;
 function defaultUdpSend(deps: FleetFeedDeps, line: string): void {
     if (!deps.aishubHost || !deps.aishubPort) return;
+    scheduleCrowdAisLine(line, deps.aishubHost, deps.aishubPort);
+}
+/** Called only after its own current consent/rights/budget admission. No socket at import. */
+export function scheduleCrowdAisLine(line: string, host: string, port: number): void {
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return;
     udp ??= dgram.createSocket('udp4');
-    udp.send(Buffer.from(line + '\r\n'), deps.aishubPort, deps.aishubHost, (err) => {
+    udp.send(Buffer.from(line + '\r\n'), port, host, (err) => {
         if (!err) stats.forwarded++;
     });
 }

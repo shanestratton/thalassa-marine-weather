@@ -14,12 +14,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { OffshoreModel } from '../types';
+import { resolveOffshoreModel } from '../services/weather/forecastModels';
 
 // Kept short enough to fit "OFFSHORE (XXX)" on a single line in the
 // header status badge alongside all the other offshore models. "Stormglass
 // AI" was the only one that wrapped to a second line.
 const MODEL_LABELS: Record<OffshoreModel, string> = {
-    sg: 'SG AI',
+    auto: 'Auto · ECMWF',
+    sg: 'Auto · ECMWF',
     ecmwf: 'ECMWF',
     gfs: 'GFS / NOAA',
     icon: 'ICON',
@@ -41,7 +43,7 @@ export interface OffshoreStatus {
 }
 
 export function useOffshoreStatus(locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland'): OffshoreStatus {
-    const modelCode = (useSettingsStore((s) => s.settings.offshoreModel) || 'sg') as OffshoreModel;
+    const modelCode = resolveOffshoreModel(useSettingsStore((s) => s.settings.offshoreModel));
 
     // Override state for the test toggle
     const [testOverride, setTestOverride] = useState<boolean | null>(null);

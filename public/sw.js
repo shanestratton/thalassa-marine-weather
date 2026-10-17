@@ -694,7 +694,8 @@ self.addEventListener('fetch', (event) => {
     // or retain a second copy after the skipper deletes the saved catalogue.
     if (
         url.origin === 'https://tiles.thalassatiles.com' &&
-        (/^\/marine-catalogue\/v1\/(places|osm|noaa)\//.test(url.pathname) || url.pathname.startsWith('/noaa-enc/v1/'))
+        (/^\/marine-catalogue\/v1\/(places|osm|noaa|facilities)\//.test(url.pathname) ||
+            url.pathname.startsWith('/noaa-enc/v1/'))
     ) {
         event.respondWith(fetch(event.request));
         return;
@@ -710,12 +711,24 @@ self.addEventListener('fetch', (event) => {
     // Explicit owned-terrain downloads validate bytes before writing the saved
     // cache. Do not substitute an old normal-browsing response for that fetch.
     if (
-        event.request.cache === 'reload' &&
+        (event.request.cache === 'reload' || event.request.cache === 'no-store') &&
         url.origin === 'https://tiles.thalassatiles.com' &&
-        /^\/v[1-9]\d{0,2}\/relief-(global|au)\/(dem|idx)\/\d+\/\d+\/\d+\.(webp|png)$/.test(url.pathname) &&
+        (/^\/v[1-9]\d{0,2}\/relief-(global|au)\/(dem|idx)\/\d+\/\d+\/\d+\.(webp|png)$/.test(url.pathname) ||
+            /^\/v2\/relief-(au250|nz)\/(dem|idx)\/\d+\/\d+\/\d+\.(webp|png)$/.test(url.pathname)) &&
         !url.search
     ) {
-        event.respondWith(fetch(event.request));
+        // Browser hard reload also marks Mapbox tile fetches 'reload'. Current
+        // explicit downloads use 'no-store' and must never accept a fallback.
+        // Only a rejected reload may show the saved-cache lane; HTTP failures
+        // and ordinary browsing bytes never become a successful fresh read.
+        event.respondWith(
+            fetch(event.request).catch(async (error) => {
+                if (event.request.cache === 'no-store') throw error;
+                const saved = await (await caches.open(OFFLINE_TILE_CACHE)).match(event.request);
+                if (saved) return saved;
+                throw error;
+            }),
+        );
         return;
     }
 

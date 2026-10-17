@@ -16,11 +16,18 @@
  */
 import { clearSightingsOutboxFlag, flagSightingsOutbox } from './outboxFlag';
 import type { LocalSighting } from './types';
+import { isAuthIdentityScopeCurrent, subscribeAuthIdentityScope, type AuthIdentityScope } from '../authIdentityScope';
 
 export interface SightingStoreBackend {
     getAll(): Promise<LocalSighting[]>;
     get(id: string): Promise<LocalSighting | null>;
     put(record: LocalSighting): Promise<void>;
+    /** Atomic read/modify/write: never recreates a record removed by a purge. */
+    update?(
+        id: string,
+        change: (record: LocalSighting) => LocalSighting | null,
+        signal: AbortSignal,
+    ): Promise<LocalSighting | null>;
     delete(id: string): Promise<void>;
     putBlob(key: string, blob: Blob): Promise<void>;
     getBlob(key: string): Promise<Blob | null>;
@@ -36,6 +43,25 @@ const DB_VERSION = 1;
 const RECORDS = 'sightings';
 const PHOTOS = 'photos';
 const META = 'meta';
+
+// Ordinary base-row/photo sync must not overwrite a newer private edit that
+// committed while that asynchronous operation was in flight.
+function keepNewerCatch(incoming: LocalSighting, existing?: LocalSighting): LocalSighting {
+    if (!existing || existing.ownerUserId !== incoming.ownerUserId) {
+        // Private data is introduced only by an atomic edit/adoption of an
+        // existing row. An old base/photo response after a purge cannot
+        // recreate the deleted account's private catch snapshot.
+        const base = { ...incoming };
+        delete base.privateCatch;
+        delete base.privateCatchSync;
+        return base;
+    }
+    return existing?.ownerUserId === incoming.ownerUserId &&
+        !!existing.privateCatchSync &&
+        existing.privateCatchSync.revision >= (incoming.privateCatchSync?.revision ?? -1)
+        ? { ...incoming, privateCatch: existing.privateCatch, privateCatchSync: existing.privateCatchSync }
+        : incoming;
+}
 
 function idbBackend(): SightingStoreBackend {
     let dbPromise: Promise<IDBDatabase> | null = null;
@@ -76,7 +102,55 @@ function idbBackend(): SightingStoreBackend {
     return {
         getAll: () => run<LocalSighting[]>(RECORDS, 'readonly', (s) => s.getAll()).then((rows) => rows ?? []),
         get: (id) => run<LocalSighting | undefined>(RECORDS, 'readonly', (s) => s.get(id)).then((r) => r ?? null),
-        put: (record) => run<void>(RECORDS, 'readwrite', (s) => s.put(record)),
+        put: async (record) => {
+            const db = await open();
+            await new Promise<void>((resolve, reject) => {
+                const tx = db.transaction(RECORDS, 'readwrite'),
+                    records = tx.objectStore(RECORDS);
+                const request = records.get(record.id);
+                request.onsuccess = () => records.put(keepNewerCatch(record, request.result));
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error ?? request.error);
+                tx.onabort = () => reject(tx.error ?? new Error('Sighting write aborted'));
+            });
+        },
+        update: async (id, change, signal) => {
+            const db = await open();
+            if (signal.aborted) return null;
+            return new Promise<LocalSighting | null>((resolve, reject) => {
+                const tx = db.transaction(RECORDS, 'readwrite'),
+                    records = tx.objectStore(RECORDS);
+                let saved: LocalSighting | null = null;
+                const abort = () => {
+                    try {
+                        tx.abort();
+                    } catch {
+                        /* already committed */
+                    }
+                };
+                signal.addEventListener('abort', abort, { once: true });
+                const done = () => signal.removeEventListener('abort', abort);
+                const request = records.get(id);
+                request.onsuccess = () => {
+                    if (signal.aborted || !request.result) return;
+                    saved = change(request.result as LocalSighting);
+                    if (saved) records.put(saved);
+                };
+                tx.oncomplete = () => {
+                    done();
+                    resolve(signal.aborted ? null : saved);
+                };
+                tx.onabort = () => {
+                    done();
+                    if (signal.aborted) resolve(null);
+                    else reject(tx.error ?? new Error('Sighting update aborted'));
+                };
+                tx.onerror = () => {
+                    done();
+                    reject(tx.error ?? request.error);
+                };
+            });
+        },
         delete: (id) => run<void>(RECORDS, 'readwrite', (s) => s.delete(id)),
         putBlob: (key, blob) => run<void>(PHOTOS, 'readwrite', (s) => s.put(blob, key)),
         getBlob: (key) => run<Blob | undefined>(PHOTOS, 'readonly', (s) => s.get(key)).then((b) => b ?? null),
@@ -101,7 +175,15 @@ export function memoryBackend(): SightingStoreBackend {
         getAll: async () => [...records.values()].map(clone),
         get: async (id) => clone(records.get(id) ?? null),
         put: async (record) => {
-            records.set(record.id, clone(record));
+            records.set(record.id, clone(keepNewerCatch(record, records.get(record.id))));
+        },
+        update: async (id, change, signal) => {
+            const current = records.get(id);
+            if (signal.aborted || !current) return null;
+            const next = change(clone(current));
+            if (signal.aborted || !next) return null;
+            records.set(id, clone(next));
+            return clone(next);
         },
         delete: async (id) => {
             records.delete(id);
@@ -196,10 +278,50 @@ export async function getLocalSighting(id: string, userId: string | null): Promi
 export async function putLocalSighting(record: LocalSighting): Promise<void> {
     await store().put(record);
     // Waiting to send: app start drains it even if Sightings never opens.
-    if (record.ownerUserId && record.sync.op && (record.sync.state === 'pending' || record.sync.state === 'held')) {
+    if (
+        record.ownerUserId &&
+        ((record.sync.op && (record.sync.state === 'pending' || record.sync.state === 'held')) ||
+            record.privateCatchSync?.pending)
+    ) {
         flagSightingsOutbox(record.ownerUserId);
     }
     notifyRecordsChanged();
+}
+
+/** Owner-scoped atomic edits, including private data. A purge that runs first
+ * leaves no row to edit; a purge that runs afterwards removes the committed row.
+ * Identity changes abort an in-flight IndexedDB transaction. */
+export async function updateLocalSighting(
+    id: string,
+    scope: AuthIdentityScope,
+    change: (record: LocalSighting) => LocalSighting | null,
+    adoptAnonymous = false,
+): Promise<LocalSighting | null> {
+    const current = store(),
+        controller = new AbortController();
+    if (!current.update || !isAuthIdentityScopeCurrent(scope) || (adoptAnonymous && !scope.userId)) return null;
+    const unsubscribe = subscribeAuthIdentityScope(() => controller.abort());
+    try {
+        const saved = await current.update(
+            id,
+            (record) =>
+                isAuthIdentityScopeCurrent(scope) && record.ownerUserId === (adoptAnonymous ? null : scope.userId)
+                    ? change(record)
+                    : null,
+            controller.signal,
+        );
+        if (!saved || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (
+            saved.ownerUserId &&
+            (saved.privateCatchSync?.pending ||
+                (saved.sync.op && (saved.sync.state === 'pending' || saved.sync.state === 'held')))
+        )
+            flagSightingsOutbox(saved.ownerUserId);
+        notifyRecordsChanged();
+        return saved;
+    } finally {
+        unsubscribe();
+    }
 }
 
 /** Remove a record and its photo blobs. */

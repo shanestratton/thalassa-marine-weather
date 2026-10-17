@@ -306,12 +306,18 @@ describe('model-only weather refresh preserves location intent', () => {
         );
     });
 
-    it('passes the verified exact-point class to the premium precision fallback too', async () => {
+    it('keeps the verified exact-point class and failure without reviving the retired premium fallback', async () => {
+        const providerStamp = new Date(Date.now() - 15 * 60_000).toISOString();
+        world.cache = { ...report(), generatedAt: providerStamp };
         world.premium = true;
         world.fetch.mockRejectedValue(new Error('Primary source unavailable'));
-        const view = render(tree());
-        world.settings = { ...world.settings, offshoreModel: 'ecmwf' };
-        view.rerender(tree());
-        await waitFor(() => expect(world.precision).toHaveBeenCalledWith('Lady Musgrave', MUSGRAVE, false, 'offshore'));
+        render(tree());
+        await act(async () => current.refreshData(true));
+        expect(world.fetch).toHaveBeenCalledExactlyOnceWith(MUSGRAVE.lat, MUSGRAVE.lon, 'Lady Musgrave', 'offshore');
+        await waitFor(() => expect(current.error).toContain('Primary source unavailable'));
+        expect(world.precision).not.toHaveBeenCalled();
+        expect(current.weatherData).toMatchObject({ coordinates: MUSGRAVE, generatedAt: providerStamp });
+        expect(current.loading).toBe(false);
+        expect(current.backgroundUpdating).toBe(false);
     });
 });

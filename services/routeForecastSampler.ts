@@ -397,6 +397,51 @@ export function sampleRouteForecast(
     };
 }
 
+/** Sail choices need complete spatial/time support, rather than the display sampler's edge tolerance. */
+export function sampleCoveredRouteWind(
+    forecast: RouteForecast | null,
+    alongNm: number,
+    atMs: number,
+): RouteForecastSample | null {
+    if (
+        !forecast ||
+        !Number.isFinite(alongNm) ||
+        !Number.isFinite(atMs) ||
+        !forecast.stations.length ||
+        forecast.stations.length > MAX_STATIONS
+    )
+        return null;
+    const stations = forecast.stations;
+    if (alongNm < stations[0].alongNm || alongNm > stations.at(-1)!.alongNm) return null;
+    const hi = stations.findIndex((s) => s.alongNm >= alongNm);
+    if (hi < 0) return null;
+    const lo = hi > 0 && stations[hi].alongNm > alongNm ? hi - 1 : hi;
+    let gustKnown = true;
+    for (const index of new Set([lo, hi])) {
+        const station = stations[index];
+        const times = station.timesMs;
+        if (!times.length || atMs < times[0] || atMs > times.at(-1)!) return null;
+        const b = times.findIndex((t) => t >= atMs);
+        if (b < 0) return null;
+        const a = b > 0 && times[b] > atMs ? b - 1 : b;
+        for (const i of new Set([a, b])) {
+            if (
+                typeof station.speedKts[i] !== 'number' ||
+                !Number.isFinite(station.speedKts[i]) ||
+                station.speedKts[i]! < 0 ||
+                typeof station.dirDeg[i] !== 'number' ||
+                !Number.isFinite(station.dirDeg[i])
+            )
+                return null;
+            if (typeof station.gustKts[i] !== 'number' || !Number.isFinite(station.gustKts[i])) gustKnown = false;
+        }
+    }
+    const sample = sampleRouteForecast(forecast, alongNm, atMs);
+    return sample.beyond || sample.twsKts === null || sample.twdDeg === null
+        ? null
+        : { ...sample, gustKts: gustKnown ? sample.gustKts : null };
+}
+
 // ── Apparent wind, estimated ───────────────────────────────────
 
 /**

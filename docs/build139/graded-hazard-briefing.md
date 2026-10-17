@@ -1,0 +1,11 @@
+# 139-04: graded hazard briefing checkpoint
+
+The aboard report, floating hazard list and trip PDF share one proximity grade and worst-first ordering. A charted shoal below the boat's clearance floor, or a wreck/rock/obstruction whose clearance is unknown, is danger within 0.05 NM. Other nearby hazards remain caution, with more distant known-depth findings and coastline notes graded separately. These grades describe proximity; they do not verify a route, prove a crossing or relax any admission/depth check.
+
+Grading runs before the existing shoal quota and global display cap, so a closer deep feature cannot crowd out an on-track drying patch. The report now counts actually consulted and unavailable chart indexes separately, preserves the incomplete-list caution alongside other route advisories, and reports omitted findings. Original source positions, signed depths, names and CATZOC stay in RAM for the aboard display.
+
+The trip PDF previously printed every supplied hazard row. It now requires both an explicitly open NOAA source identity and a still-registered open cell before printing chart facts. Unknown, removed and protected sources contribute plain grade counts only. Their positions, depths, distances, mark names, cell identifiers and advisory prose do not enter the file projection. This check occurs at generation time.
+
+Validation: `tests/enc/routeHazardGrade139.test.ts`, `tests/enc/hazardReportShoal.test.ts`, `tests/enc/hazardReportPublish.test.ts`, `tests/TripHazardPdf139.test.ts` and the existing `tests/routeReportPdf.test.ts`: 35 cases pass. The actual PDF test includes an open public row as a positive control, plus protected/removed-source rows and all-protected text checks. The first run's numeric scan also matched an unrelated PDF graphics operand; the corrected check inspects actual PDF text operators for the formatted private numbers and still scans the full file for private marker/identifier strings. The original failed log is retained.
+
+This is a partial checkpoint for 139-04. Composite exclusion geometry, traffic-lane routing, explicit manual no-go controls and marine-park caution integration remain outstanding. No full compiler, configured size, full-app browser, release, backend deployment or Pi installation is claimed here.

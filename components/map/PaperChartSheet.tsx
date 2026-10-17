@@ -8,6 +8,7 @@ import {
 } from '../../services/authIdentityScope';
 import { noaaAgreementAccepted } from '../../services/enc/noaaAgreement';
 import { DISPLAY_CATEGORIES, type ChartDisplayCategory } from './chartDisplayCategory';
+import ChartContourControls, { type ChartContourControlsProps } from './ChartContourControls';
 const Agreement = React.lazy(() => import('./NoaaAgreementSheet'));
 const button = 'min-h-[44px] rounded-lg border border-white/20 px-3 py-2 text-sm disabled:opacity-40';
 export interface PaperChartSheetProps {
@@ -21,10 +22,17 @@ export interface PaperChartSheetProps {
     onCategory: (category: ChartDisplayCategory) => void;
     satelliteMode: boolean;
     onCatalogue?: () => void;
+    onFindChart?: () => void;
+    onUserOverlays?: () => void;
+    onDrawingTools?: () => void;
+    drawingToolsDisabled?: boolean;
+    contours?: ChartContourControlsProps;
+    notices?: { enabled: boolean; onChange: (enabled: boolean) => void };
 }
 export default function PaperChartSheet(props: PaperChartSheetProps) {
     const [pending, setPending] = React.useState<ChartSourceId | null>(null);
     const live = React.useRef(true);
+    const scopeAtOpen = React.useRef(getAuthIdentityScope());
     React.useEffect(() => {
         live.current = true;
         const unsubscribe = subscribeAuthIdentityScope(props.onClose);
@@ -69,6 +77,27 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             {props.category === null ? 'The slider has a custom setting.' : ''}
                         </p>
                     </fieldset>
+                    {props.notices && (
+                        <section className="space-y-2" aria-label="Browsing notices">
+                            <label className="flex min-h-[44px] items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="h-5 w-5 shrink-0"
+                                    checked={props.notices.enabled}
+                                    onChange={(event) => {
+                                        if (isAuthIdentityScopeCurrent(scopeAtOpen.current))
+                                            props.notices?.onChange(event.target.checked);
+                                    }}
+                                />
+                                Notices on Obs
+                            </label>
+                            <p className="text-xs text-slate-400">
+                                Visible area only from zoom 9. Available geolocated listings are incomplete; no icon
+                                does not mean no warnings. Read the issuer’s current notice.
+                            </p>
+                        </section>
+                    )}
+                    {props.contours && <ChartContourControls {...props.contours} />}
                     <section className="space-y-3" aria-label="Paper chart">
                         <h3 className="font-bold">Paper chart</h3>
                         <p className="text-xs">
@@ -137,6 +166,43 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             </div>
                         ))}
                     </section>
+                    {props.onDrawingTools && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            disabled={props.drawingToolsDisabled}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                if (isAuthIdentityScopeCurrent(scopeAtOpen.current)) props.onDrawingTools?.();
+                            }}
+                        >
+                            Draw on chart · ruler / annotations
+                        </button>
+                    )}
+                    {props.onUserOverlays && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                if (isAuthIdentityScopeCurrent(scopeAtOpen.current)) props.onUserOverlays?.();
+                            }}
+                        >
+                            Your overlays · import / manage
+                        </button>
+                    )}
+                    {props.onFindChart && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                props.onFindChart?.();
+                            }}
+                        >
+                            Find on chart · lights, marks, places
+                        </button>
+                    )}
                     {props.onCatalogue && (
                         <button type="button" className={`${button} w-full text-sky-200`} onClick={props.onCatalogue}>
                             Free NOAA ENC catalogue · download / update

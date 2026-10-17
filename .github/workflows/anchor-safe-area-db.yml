@@ -1,0 +1,81 @@
+name: Build139 isolated anchor safe-area database proof
+on:
+    push:
+        branches: ['codex/build-139-anchor-backend-validation']
+        paths:
+            - '.github/workflows/anchor-safe-area-db.yml'
+            - 'supabase/tests/anchor-safe-area*'
+            - 'supabase/migrations/20261017005140_anchor_safe_area.sql'
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source commit (40 hex characters)
+                required: true
+                type: string
+permissions:
+    contents: read
+concurrency:
+    group: anchor-area139-isolated-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    postgres:
+        if: github.repository == 'shanestratton/thalassa-marine-weather'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 12
+        services:
+            postgres:
+                image: postgres:17.6
+                env:
+                    POSTGRES_PASSWORD: fixture-only-password
+                    POSTGRES_DB: anchor_area139_test
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd pg_isready --health-interval 5s
+                    --health-timeout 5s --health-retries 10
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+            THALASSA_DISPOSABLE_ANCHOR_AREA_TEST: '1'
+            ANCHOR_AREA_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/anchor_area139_test
+        steps:
+            - name: Require an exact reviewed source
+              shell: bash
+              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha || github.sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+            - name: Record source and actual PostgreSQL image
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/anchor-area139-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/anchor-area139-proof/SOURCE_SHA.txt"
+                  node --version > "$RUNNER_TEMP/anchor-area139-proof/NODE_VERSION.txt"
+                  docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/anchor-area139-proof/POSTGRES_IMAGE_ID.txt"
+                  sha256sum supabase/tests/anchor-safe-area* supabase/migrations/20261017005140_anchor_safe_area.sql supabase/migrations/20260829090000_anchor_relay_sessions.sql supabase/migrations/20261010130000_anchor_watch_keeper_heartbeat.sql > "$RUNNER_TEMP/anchor-area139-proof/SHA256SUMS"
+            - name: Install only pinned isolated PostgreSQL client
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  npm install --prefix "$RUNNER_TEMP/anchor-area139-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+                  test "$(node -p "require('$RUNNER_TEMP/anchor-area139-pg/node_modules/pg/package.json').version")" = 8.16.3
+                  sha256sum "$RUNNER_TEMP/anchor-area139-pg/package-lock.json" > "$RUNNER_TEMP/anchor-area139-proof/CLIENT_LOCK_SHA256.txt"
+            - name: Execute actual migration, RLS, legacy and competing transactions
+              env:
+                  PG_MODULE_PATH: ${{ runner.temp }}/anchor-area139-pg/node_modules/pg/lib/index.js
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  node supabase/tests/anchor-safe-area-postgres.mjs 2>&1 | tee "$RUNNER_TEMP/anchor-area139-proof/POSTGRES.txt"
+            - name: Preserve success or failure proof
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build139-anchor-safe-area-database-proof
+                  path: ${{ runner.temp }}/anchor-area139-proof/
+                  retention-days: 7
+                  if-no-files-found: error

@@ -32,11 +32,13 @@ import {
     fixLegOnGrid,
     type TracerContext,
     type TraceLegVerdict,
+    type TracePoint,
 } from '../../services/routeTracer';
+import { routeConstraintsForTrace } from '../../services/routing/traceConstraints';
 
 export interface TracerLegFixDeps {
-    capturedCoords: { lat: number; lon: number }[];
-    setCapturedCoords: (pins: { lat: number; lon: number }[]) => void;
+    capturedCoords: TracePoint[];
+    setCapturedCoords: (pins: TracePoint[]) => void;
     /** The keel the CURRENT verdicts were graded against — not settings. */
     gradedDraftRef: { current: { d: number; assumed: boolean; air?: number | null } | null };
     tracerCtxFromLru: (pts: ReadonlyArray<{ lat: number; lon: number }>) => TracerContext | null;
@@ -108,7 +110,13 @@ export function useTracerLegFixes(deps: TracerLegFixDeps): TracerLegFixes {
                     }
                     const detour = fixLegOnGrid(ctx, pins[i], pins[i + 1]);
                     if (detour && detour.length >= 2) {
-                        pins = [...pins.slice(0, i + 1), ...detour.slice(1, -1), ...pins.slice(i + 1)];
+                        const proposed = [
+                            ...pins.slice(0, i + 1),
+                            ...detour.slice(1, -1).map((p) => ({ ...p, shape: true as const })),
+                            ...pins.slice(i + 1),
+                        ];
+                        if (proposed.some((p) => p.constraint) && !routeConstraintsForTrace(proposed)) continue;
+                        pins = proposed;
                         fixed++;
                     }
                 } finally {

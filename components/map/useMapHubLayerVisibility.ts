@@ -27,6 +27,17 @@ export function useMapHubLayerVisibility({
     // tab switches, so deliberate toggles still survive ordinary navigation.
     // Never restore yesterday's overlays from device storage.
     const [aisVisible, setAisVisible] = useState(false);
+    const [receiverCoverageVisible, setReceiverCoverageVisible] = useState(false);
+    const [measuredBuoysVisible, setMeasuredBuoysVisible] = useState(false);
+    const [measuredBuoysLoaded, setMeasuredBuoysLoaded] = useState(false);
+    const [ascatVisible, setAscatVisible] = useState(false);
+    const [ascatLoaded, setAscatLoaded] = useState(false);
+    useEffect(() => {
+        if (ascatVisible) setAscatLoaded(true);
+    }, [ascatVisible]);
+    useEffect(() => {
+        if (measuredBuoysVisible) setMeasuredBuoysLoaded(true);
+    }, [measuredBuoysVisible]);
     const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
@@ -35,6 +46,10 @@ export function useMapHubLayerVisibility({
     const [seamarkVisible, setSeamarkVisible] = useState(false);
     const [anchorageVisible, setAnchorageVisible] = useState(false);
     const [mooringsVisible, setMooringsVisible] = useState(false);
+    const [facilitiesVisible, setFacilitiesVisible] = useState(false);
+    const [communityNotesVisible, setCommunityNotesVisible] = useState(false);
+    const [boatPresenceVisible, setBoatPresenceVisible] = useState(false);
+    const [boatPresenceControlsOpen, setBoatPresenceControlsOpen] = useState(false);
     // Active-MOB flag for the radial menu's MOB item highlight. MobService
     // emits ~1 Hz while active; setState with an unchanged boolean bails
     // before re-render, so this costs nothing in steady state.
@@ -84,11 +99,17 @@ export function useMapHubLayerVisibility({
     );
 
     const browseAisVisible = aisVisible && !planningSurface;
+    const browseReceiverCoverageVisible = receiverCoverageVisible && !planningSurface;
+    const browseMeasuredBuoysVisible = measuredBuoysVisible && !planningSurface;
+    const browseAscatVisible = ascatVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
     const browseAnchorageVisible = anchorageVisible && !planningSurface;
     const browseMooringsVisible = mooringsVisible && !planningSurface;
+    const browseFacilitiesVisible = facilitiesVisible && !planningSurface;
+    const browseCommunityNotesVisible = communityNotesVisible && !planningSurface;
+    const browseBoatPresenceVisible = boatPresenceVisible && !planningSurface;
     const browseTideStationsVisible = tideStationsVisible && !planningSurface;
     // The flag first: only its menu item can turn lightning on, and a build
     // with it off then drops the strike layer's credit strip as well.
@@ -97,6 +118,17 @@ export function useMapHubLayerVisibility({
     return {
         aisVisible,
         setAisVisible,
+        receiverCoverageVisible,
+        setReceiverCoverageVisible,
+        browseReceiverCoverageVisible,
+        measuredBuoysVisible,
+        setMeasuredBuoysVisible,
+        measuredBuoysLoaded,
+        browseMeasuredBuoysVisible,
+        ascatVisible,
+        setAscatVisible,
+        ascatLoaded,
+        browseAscatVisible,
         chokepointVisible,
         setChokepointVisible,
         cycloneVisible,
@@ -110,6 +142,14 @@ export function useMapHubLayerVisibility({
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        facilitiesVisible,
+        setFacilitiesVisible,
+        communityNotesVisible,
+        setCommunityNotesVisible,
+        boatPresenceVisible,
+        setBoatPresenceVisible,
+        boatPresenceControlsOpen,
+        setBoatPresenceControlsOpen,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -129,6 +169,9 @@ export function useMapHubLayerVisibility({
         browseSeamarkVisible,
         browseAnchorageVisible,
         browseMooringsVisible,
+        browseFacilitiesVisible,
+        browseCommunityNotesVisible,
+        browseBoatPresenceVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     };

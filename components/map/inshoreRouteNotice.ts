@@ -16,12 +16,16 @@ import {
 import { dryRunCaveat, dryRunNoticeTitle, pinDryRunCaveat, savedDryRuns } from '../../services/routing/dryRunWords';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
+import { knownRouteAreaCaveats, ROUTING_AREA_CAVEATS } from '../../services/routing/routeAreaWords';
 
 export interface InshoreRouteNoticeInput {
     /** The router's per-segment safety classifications arrived intact. */
     stateMaskOk: boolean;
     destinationInlandTrimM?: number;
     structuresUnknownCells?: readonly string[];
+    exclusionsUnchecked?: boolean;
+    trafficLaneGuidance?: 'charted-flow' | 'orientation-unknown';
+    routeAreaCaveats?: readonly string[];
     /** A pin on charted land, a drying bank or in water no tide clears
      *  (InshoreRouteResult.pinOffWater). */
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
@@ -271,6 +275,14 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     // offline pack or the Pi's stale copy is said first, with its date and
     // the OSM credit — it is the water the whole route stands on.
     const out: string[] = [...waterPackCaveats(input.waterPack)];
+    out.push(...knownRouteAreaCaveats(input.routeAreaCaveats));
+    if (input.trafficLaneGuidance === 'charted-flow') out.push(ROUTING_AREA_CAVEATS[7], ROUTING_AREA_CAVEATS[9]);
+    else if (input.trafficLaneGuidance === 'orientation-unknown')
+        out.push(ROUTING_AREA_CAVEATS[8], ROUTING_AREA_CAVEATS[9]);
+    if (input.exclusionsUnchecked)
+        out.push(
+            'Area restrictions were not fully checked: some charts lack restricted-area, traffic-separation or traffic-lane layers. Check current chart rules before departure.',
+        );
     // Package 125-05 (Shane, 2026-10-08): the route goes through water no
     // tide clears where there is no deeper way round, red — said next, each
     // stretch with its charted depth against draft + UKC, instead of the
@@ -582,6 +594,12 @@ export function savedInshoreRouteCaveats(
         const tails = p.pinTail as { origin?: unknown; destination?: unknown } | undefined;
         return inshoreRouteCaveats({
             structuresUnknownCells: strings(p.structuresUnknownCells),
+            exclusionsUnchecked: p.exclusionsUnchecked === true,
+            trafficLaneGuidance:
+                p.trafficLaneGuidance === 'charted-flow' || p.trafficLaneGuidance === 'orientation-unknown'
+                    ? p.trafficLaneGuidance
+                    : undefined,
+            routeAreaCaveats: knownRouteAreaCaveats(p.routeAreaCaveats),
             pinOffWater:
                 off && typeof off === 'object'
                     ? { origin: side(off.origin), destination: side(off.destination) }

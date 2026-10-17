@@ -1,0 +1,27 @@
+{
+    "testOnly": true,
+    "at": 1800000000000,
+    "tokenCharacter": "e",
+    "receipt": {
+        "consent": {
+            "schema": 1,
+            "binding": {
+                "ownerId": "10000000-0000-4000-8000-000000000001",
+                "boatId": "20000000-0000-4000-8000-000000000001",
+                "piDeviceId": "30000000-0000-4000-8000-000000000001",
+                "relayId": "fictional-relay-14005",
+                "pairingId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "controllerId": "40000000-0000-4000-8000-000000000001",
+                "enrollmentRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "sourceKey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            },
+            "revision": "50000000-0000-4000-8000-000000000001",
+            "enabled": true,
+            "consentVersion": "2026-10-17-pi-v1",
+            "issuedAt": 1799999999000,
+            "expiresAt": 1800000100000
+        },
+        "nonce": "60000000-0000-4000-8000-000000000001",
+        "mac": "3e82d763abac52eb7fbf9550fa12c2fc63bb33b7c5ed74bfac65483c98bee280"
+    }
+}

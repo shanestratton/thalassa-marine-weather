@@ -38,6 +38,11 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>();
+let clearRevision = 0;
+/** A cleared private vault cannot be restored by an earlier read receipt. */
+export function boatCellVaultClearRevision(): number {
+    return clearRevision;
+}
 const pending = new Set<Promise<void>>();
 let stored = 0;
 let puts = 0;
@@ -127,6 +132,7 @@ export function drop(cellId: string): void {
 }
 
 export function clear(): void {
+    clearRevision++;
     entries.clear();
     stored = 0;
 }

@@ -40,6 +40,9 @@ import {
 import { splitDaysHours } from '../../utils/splitDaysHours';
 import { RouteEstimateSummary } from './RouteEstimateSummary';
 import { estimateRouteFuel } from '../../services/isochrone/routeStats';
+import { useForecastSteeringField } from '../../hooks/useForecastSteeringField';
+import { forecastSteeringAt, type ForecastSteering } from '../../services/routing/forecastSteering';
+import { ForecastSteeringLine } from './ForecastSteeringLine';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -146,6 +149,7 @@ const CARDINALS = [
 ] as const;
 
 const NO_TRACK_ENTRIES: ShipLogEntry[] = [];
+const PassageSailPlans = React.lazy(() => import('./PassageSailPlans'));
 
 const bearingToCardinal = (deg: number): string => {
     return CARDINALS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
@@ -202,7 +206,11 @@ const DIFFICULTY_CONFIG = {
 
 /* ── Leg Row Component ────────────────────────────────────────── */
 
-const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) => {
+const LegRow: React.FC<{ leg: PassageLeg; index: number; steering?: ForecastSteering | null }> = ({
+    leg,
+    index,
+    steering,
+}) => {
     const diff = DIFFICULTY_CONFIG[leg.difficulty];
     return (
         <div className={`${diff.bg} border ${diff.border} rounded-lg p-3`}>
@@ -241,6 +249,7 @@ const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) =>
                     <div className={diff.color}>{Math.round(leg.maxWindKt)}kt</div>
                 </div>
             </div>
+            <ForecastSteeringLine value={steering ?? null} />
             {leg.difficultyReason && <p className="text-[10px] text-gray-500 mt-1.5 italic">{leg.difficultyReason}</p>}
         </div>
     );
@@ -693,6 +702,38 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     const effectiveDistance = passageSchedule.distanceNm;
     const effectiveEta = passageSchedule.eta;
     const duration = formatPassageDuration(passageSchedule.durationHours);
+    const steeringPoints = useMemo(() => mapRouteCoords.map(([lon, lat]) => ({ lat, lon })), [mapRouteCoords]);
+    const activeVesselId = useSettingsStore((s) => s.activeVesselId);
+    const steeringDepartureMs = Date.parse(passageSchedule.departureTime);
+    const steeringMatches =
+        !foreignBoat &&
+        passageMatchesVoyage &&
+        Date.parse(passage.departureTime ?? '') === steeringDepartureMs &&
+        mapRouteCoords.length === passage.routeCoordinates.length &&
+        mapRouteCoords.every(
+            ([lon, lat], i) => lon === passage.routeCoordinates[i][0] && lat === passage.routeCoordinates[i][1],
+        ) &&
+        passage.turnWaypoints.length === passage.legs.length + 1;
+    const steeringField = useForecastSteeringField({
+        points: steeringPoints,
+        startMs: steeringDepartureMs,
+        endMs: steeringDepartureMs + passage.totalDurationHours * 3_600_000,
+        vesselKey: activeVesselId ?? '',
+        enabled: steeringMatches,
+        satelliteMode: settings.satelliteMode,
+    });
+    const steeringForLeg = (index: number) => {
+        const point = passage.turnWaypoints[index];
+        return steeringMatches && point && Number.isFinite(point.timeHours) && point.timeHours >= 0
+            ? forecastSteeringAt(
+                  steeringField,
+                  point,
+                  steeringDepartureMs + point.timeHours * 3_600_000,
+                  passage.legs[index].bearing,
+                  cruisingSpeedKt ?? NaN,
+              )
+            : null;
+    };
 
     // A pre-existing past departure must self-heal while the card is visible,
     // rather than staying valid only until the page is reopened. Do not create
@@ -1070,8 +1111,28 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     {showLegs && (
                         <div className="mt-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
                             {passage.legs.map((leg, i) => (
-                                <LegRow key={i} leg={leg} index={i} />
+                                <LegRow key={i} leg={leg} index={i} steering={steeringForLeg(i)} />
                             ))}
+                            {steeringMatches && settings.vessel?.type === 'sail' && settings.vessel.sailInventory && (
+                                <React.Suspense fallback={<p role="status">Opening sail advice…</p>}>
+                                    <PassageSailPlans
+                                        vessel={settings.vessel}
+                                        vesselKey={activeVesselId ?? ''}
+                                        coords={steeringPoints}
+                                        model={conditionsQueryModel}
+                                        provider={getForecastModelInfo(glassModel)?.provider ?? conditionsModelLabel}
+                                        satelliteMode={settings.satelliteMode}
+                                        nowMs={clockMs}
+                                        legs={passage.legs.map((leg, i) => ({
+                                            name: `${leg.from} → ${leg.to}`,
+                                            alongNm: passage.turnWaypoints[i].distanceNM,
+                                            timeMs:
+                                                steeringDepartureMs + passage.turnWaypoints[i].timeHours * 3_600_000,
+                                            courseDeg: leg.bearing,
+                                        }))}
+                                    />
+                                </React.Suspense>
+                            )}
                         </div>
                     )}
                 </div>

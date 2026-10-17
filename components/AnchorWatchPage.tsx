@@ -60,6 +60,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { gpsToBowMetres } from '../utils/gpsAntenna';
 import { ShoreSwingTrail } from '../services/shoreSwingTrail';
+import { anchorSafeZoneContains } from '../utils/anchorSafeZone';
 import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
@@ -69,6 +70,7 @@ import { piFixIsFresh } from '../services/anchorPiMove';
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
+const AnchorSafeZoneSheet = React.lazy(() => import('./anchor-watch/AnchorSafeZoneSheet'));
 
 /**
  * The chart-area note is read for this long (126-07d), then a warning folds
@@ -183,6 +185,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [weighRefused, setWeighRefused] = useState<string | null>(null);
     /** The Move anchor sheet (build 123, must-do #3). */
     const [showMoveAnchor, setShowMoveAnchor] = useState(false);
+    const [showSafeArea, setShowSafeArea] = useState(false);
     /** The same sheet for the watch this phone handed to the Pi (126-07a). */
     const [showPiMove, setShowPiMove] = useState(false);
     /**
@@ -256,14 +259,24 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const wxRecommendation = useMemo(() => {
         const wind = weatherData?.current?.windSpeed ?? 0;
         const gust = weatherData?.current?.windGust ?? 0;
-        const waveFt = weatherData?.current?.waveHeight ?? 0; // already in feet from transformer
-        const waveM = waveFt / 3.28084; // convert back to meters for scope thresholds
+        const waveFt = weatherData?.current?.waveHeight; // report boundary is feet
+        const waveKnown = typeof waveFt === 'number' && Number.isFinite(waveFt) && waveFt >= 0;
+        const waveM = waveKnown ? waveFt / 3.28084 : 0;
         const rec = getWeatherRecommendation(wind, gust, waveM);
         const recRode = Math.min(100, Math.round(rec.scope * waterDepth));
-        // The recommendation still falls back to the light-air scope, but the
-        // strip must not print that fallback as a measured 0 kts.
-        const windKnown = typeof weatherData?.current?.windSpeed === 'number';
-        return { ...rec, rode: recRode, wind, gust, wave: waveFt, windKnown };
+        // The fallback numbers stay internal. Missing sea/wind cannot supply
+        // a one-tap recommendation; manual rode setup remains available.
+        const windKnown = typeof weatherData?.current?.windSpeed === 'number' && Number.isFinite(wind);
+        return {
+            ...rec,
+            rode: recRode,
+            wind,
+            gust,
+            wave: waveFt,
+            windKnown,
+            waveKnown,
+            canRecommend: windKnown && waveKnown,
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData?.current?.windSpeed, weatherData?.current?.windGust, weatherData?.current?.waveHeight, waterDepth]);
 
@@ -862,13 +875,51 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         }
         setPiHandoffBusy(true);
         try {
+            const frameKey = JSON.stringify([
+                snap.state,
+                snap.watchStartedAt,
+                snap.anchorPosition,
+                snap.swingRadius,
+                snap.safeZone ?? null,
+            ]);
+            const zoneToken = snap.safeZone !== undefined ? await AnchorWatchService.getSafeZoneEditToken() : null;
+            const current = async () => {
+                if (!zoneToken) return true;
+                const now = AnchorWatchService.getSnapshot();
+                return (
+                    frameKey ===
+                        JSON.stringify([
+                            now.state,
+                            now.watchStartedAt,
+                            now.anchorPosition,
+                            now.swingRadius,
+                            now.safeZone ?? null,
+                        ]) && zoneToken === (await AnchorWatchService.getSafeZoneEditToken())
+                );
+            };
+            let boundaryProtocol = false;
+            if (snap.safeZone !== undefined) {
+                const capability = await probePiWatchCapability();
+                boundaryProtocol = capability.safeZoneVersion === 1;
+                if (snap.safeZone && !boundaryProtocol) {
+                    toast.error(
+                        'This Pi watches the circle. Keep the custom-area watch on this phone, or explicitly choose Circle only in Area before handing over.',
+                    );
+                    return;
+                }
+                if (!(await current())) {
+                    toast.error('The watch changed. Review the handoff again.');
+                    return;
+                }
+            }
             const code = syncState?.sessionCode ?? (await AnchorWatchSyncService.createSession());
             if (!code) {
                 toast.error('Could not start a shore-watch session — check your connection.');
                 return;
             }
             const askedAt = Date.now();
-            const took = await AnchorPiWatchKeeper.begin({
+            const assignment = {
+                ...(boundaryProtocol ? { safeZone: snap.safeZone ?? null } : {}),
                 sessionCode: code,
                 anchorLat: anchor.latitude,
                 anchorLon: anchor.longitude,
@@ -877,7 +928,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 // skipper actually set. The Pi cannot know either.
                 rodeLength: snap.config?.rodeLength,
                 waterDepth: snap.config?.waterDepth,
-            });
+            };
+            const took = boundaryProtocol
+                ? await AnchorPiWatchKeeper.begin(assignment, { isCurrent: current })
+                : await AnchorPiWatchKeeper.begin(assignment);
             if (!took) {
                 // Her Pi takes a watch only from her own devices while it keeps one (129-12): in its words.
                 const refused = piCommandRefusalWords(Date.now(), askedAt);
@@ -885,6 +939,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     refused
                         ? `${refused} This phone is still keeping the watch.`
                         : 'The Pi would not take the watch — this phone is still keeping it.',
+                );
+                return;
+            }
+            if (!(await current())) {
+                toast.error(
+                    'The Pi assignment needs review; this phone watch was kept because the watch context changed.',
                 );
                 return;
             }
@@ -1055,26 +1115,41 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         // so ADEQUATE was on screen and the app's own advice was not. The
         // dial already prints the ratio and its word, so the strip's second
         // copy of them went with it.
-        const adviceSet = rodeLength === wxRecommendation.rode;
+        const adviceSet = wxRecommendation.canRecommend && rodeLength === wxRecommendation.rode;
         // '5 kts now · 5:1 needs 25 m': the wind, then the recommendation in
         // one reading order (UX scorecard run 10: 'Wind now 5 kts: 25 m for
         // 5:1' took a second read). 'now' stays: the advice reads this
         // minute's wind, not the night ahead (UX scorecard run 9).
         const windWords = wxRecommendation.windKnown ? `${wxRecommendation.wind.toFixed(0)} kts now` : '-- kts now';
-        const adviceAction = adviceSet
-            ? `${wxRecommendation.scope}:1 set`
-            : `${wxRecommendation.scope}:1 needs ${wxRecommendation.rode} m`;
+        const adviceAction = !wxRecommendation.canRecommend
+            ? wxRecommendation.waveKnown
+                ? 'Choose rode'
+                : 'Sea unknown'
+            : adviceSet
+              ? `${wxRecommendation.scope}:1 set`
+              : `${wxRecommendation.scope}:1 needs ${wxRecommendation.rode} m`;
         const adviceText = `${windWords} · ${adviceAction}`;
         const rodeAdvice = (
             <button
                 type="button"
+                disabled={!wxRecommendation.canRecommend}
                 aria-label={
-                    adviceSet
-                        ? `${adviceText}, rode ${wxRecommendation.rode} metres`
-                        : `${adviceText}, set rode to ${wxRecommendation.rode} metres`
+                    !wxRecommendation.canRecommend
+                        ? 'Wind or sea forecast unavailable; choose rode manually'
+                        : adviceSet
+                          ? `${adviceText}, rode ${wxRecommendation.rode} metres`
+                          : `${adviceText}, set rode to ${wxRecommendation.rode} metres`
                 }
-                onClick={() => setRodeLength(wxRecommendation.rode)}
-                title={adviceSet ? undefined : `Set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`}
+                onClick={() => {
+                    if (wxRecommendation.canRecommend) setRodeLength(wxRecommendation.rode);
+                }}
+                title={
+                    !wxRecommendation.canRecommend
+                        ? 'Choose rode manually while forecast data is unavailable'
+                        : adviceSet
+                          ? undefined
+                          : `Set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`
+                }
                 // Drawn 44 px tall, the same as the rode-type buttons below it,
                 // not 28 px with an invisible reach: it is an action (it sets
                 // the rode) on a page used one-handed in a blow (UX scorecard
@@ -1099,7 +1174,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     <span className="whitespace-nowrap">{windWords} ·</span>{' '}
                     <span className="whitespace-nowrap">
                         {adviceAction}
-                        {!adviceSet && <span aria-hidden="true"> ›</span>}
+                        {!adviceSet && wxRecommendation.canRecommend && <span aria-hidden="true"> ›</span>}
                     </span>
                 </span>
             </button>
@@ -1657,6 +1732,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             showPiMove && canMovePiAnchor && shoreData
                 ? {
                       anchor: { latitude: shoreData.anchor.latitude, longitude: shoreData.anchor.longitude },
+                      safeZone: shoreData.safeZone,
                       boatFix: shoreData.vessel,
                       swingRadius: shoreData.swingRadius,
                       rodeLength: shoreData.config?.rodeLength,
@@ -1846,6 +1922,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         mode="pi"
                         pi={piMoveSource}
                         onPiMove={handlePiMove}
+                        onPiClearSafeArea={() =>
+                            AnchorPiWatchKeeper.clearSafeArea({
+                                boatFix: shoreData?.vessel ?? null,
+                                alarm: shoreStatusIsAlarm,
+                                gpsLost: shoreGpsLost,
+                            })
+                        }
                         onClose={() => setShowPiMove(false)}
                         onMoved={handlePiMoved}
                     />
@@ -1862,7 +1945,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const corruptConfigRecovery = Boolean(
         monitoringBlocked && snapshot?.setupError?.startsWith('Saved Anchor Watch is blocked'),
     );
-    const isHolding = Boolean(snapshot && !monitoringBlocked && snapshot.distanceFromAnchor <= snapshot.swingRadius);
+    const isHolding = Boolean(
+        snapshot &&
+        !monitoringBlocked &&
+        snapshot.distanceFromAnchor <= snapshot.swingRadius &&
+        (!snapshot.safeZone ||
+            (snapshot.anchorPosition &&
+                snapshot.vesselPosition &&
+                anchorSafeZoneContains(
+                    snapshot.safeZone,
+                    { ...snapshot.anchorPosition, radiusM: snapshot.swingRadius },
+                    snapshot.vesselPosition,
+                ) === true)),
+    );
     const liveStatusLabel = monitoringBlocked ? 'Not Monitoring' : isHolding ? 'Holding' : 'Drifting';
     // 126-07d: the area note, only while the anchor is still the one it was about.
     const anchorNow = snapshot?.anchorPosition;
@@ -2129,6 +2224,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         onClick={() => setShowMoveAnchor(true)}
                                     />
                                 )}
+                                {snapshot?.state === 'watching' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSafeArea(true)}
+                                        aria-label="Edit anchor safe area"
+                                        className="pointer-events-auto min-h-11 min-w-11 shrink-0 rounded-full border border-cyan-400/50 bg-slate-950/90 px-2 text-sm font-bold text-cyan-100"
+                                    >
+                                        Area
+                                    </button>
+                                )}
                                 {areaNoteShown?.folded && (
                                     <button
                                         type="button"
@@ -2347,6 +2452,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             </div>
 
             {/* Move anchor: the watch THIS phone keeps (canMoveAnchor). */}
+            {showSafeArea && snapshot?.state === 'watching' && (
+                <React.Suspense fallback={null}>
+                    <AnchorSafeZoneSheet
+                        snapshot={snapshot}
+                        onClose={() => setShowSafeArea(false)}
+                        readToken={() => AnchorWatchService.getSafeZoneEditToken()}
+                        onSave={(value, token) => AnchorWatchService.updateSafeZone(value, token)}
+                    />
+                </React.Suspense>
+            )}
             {showMoveAnchor && canMoveAnchor && snapshot && (
                 <MoveAnchorSheet
                     snapshot={snapshot}

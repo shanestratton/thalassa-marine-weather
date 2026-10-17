@@ -145,6 +145,20 @@ for (const size of SIZES) {
         await expectWideFaceDrawn(page.getByRole('button', { name: 'Wind', exact: true }));
         await settled(page, 'relief-sat');
         expect(await layerMismatches(page), 'layers not as seaBaseLayers(reliefSat)').toEqual([]);
+        // A regional negative control: an unadmitted layer must be absent,
+        // even if it is transparent and would pass a mere visibility check.
+        await page.evaluate(() => {
+            const map = window.__logMapFixture.maps.at(-1)! as unknown as {
+                addLayer(layer: { id: string; type: 'background'; paint: { 'background-opacity': number } }): void;
+            };
+            map.addLayer({ id: 'relief-au250-tint', type: 'background', paint: { 'background-opacity': 0 } });
+        });
+        expect(await layerMismatches(page), 'unadmitted sparse layer detected').toEqual(['relief-au250-tint']);
+        await page.evaluate(() => {
+            const map = window.__logMapFixture.maps.at(-1)! as unknown as { removeLayer(id: string): void };
+            map.removeLayer('relief-au250-tint');
+        });
+        expect(await layerMismatches(page), 'canonical scene restored').toEqual([]);
         await expect(page.locator('canvas.mapboxgl-canvas'), 'one WebGL map').toHaveCount(1);
 
         // Relief at sea, imagery on land, the track in its wind colours, both ends.

@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
+import { importsOf as runtimeImportsOf } from '../scripts/route-job-closure.mjs';
 
 /**
  * Worker builds resolve createLogger's lazy `import('../services/sentry')` to
@@ -51,12 +53,9 @@ function resolveImport(from: string, specifier: string): string | null {
 }
 
 /** Runtime imports only: `import type` / `export type` are erased. */
-function importsOf(code: string): string[] {
-    const specs: string[] = [];
-    const statements = /(?:^|[;\n])\s*(import|export)\s+(?!type\b)(?:[\w*\s{},$]*?\s+from\s+)?['"]([^'"]+)['"]/g;
-    for (const match of code.matchAll(statements)) specs.push(match[2]);
-    for (const match of code.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)) specs.push(match[1]);
-    return specs;
+function importsOf(code: string, file = 'worker.ts'): string[] {
+    const { values, dynamic } = runtimeImportsOf(ts, file, code);
+    return [...values, ...dynamic];
 }
 
 /** Worker entry specifiers in one file: `new (Shared)Worker(new URL(...))` and Vite's `?worker` imports. */
@@ -94,7 +93,7 @@ function importGraph(entry: string): string[] {
     const queue = [entry];
     while (queue.length > 0) {
         const file = queue.shift()!;
-        for (const specifier of importsOf(stripComments(read(file)))) {
+        for (const specifier of importsOf(read(file), file)) {
             const target = resolveImport(file, specifier);
             if (target && !seen.has(target)) {
                 seen.add(target);
@@ -153,9 +152,34 @@ describe('workers ship without a second Sentry SDK', () => {
     const viteConfig = read(join(ROOT, 'vite.config.ts'));
     const entries = workerEntries();
 
+    it('follows real static, re-export and dynamic imports while erasing inline and declared type imports', () => {
+        const code = `
+import type { A } from './declared-type';
+import { type B } from './named-type';
+export type { C } from './exported-type';
+type Result = import('./inline-type').Result;
+type Module = typeof import('./typeof-type');
+import { value, type D } from './runtime-static';
+export { value } from './runtime-export';
+void value;
+const actual = import('./runtime-dynamic');
+const text = "import('./ordinary-string')";
+// import('./comment-only')
+`;
+        expect(importsOf(code)).toEqual(['./runtime-static', './runtime-export', './runtime-dynamic']);
+        const compiled = ts.transpileModule(code, {
+            compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+        }).outputText;
+        expect(importsOf(compiled)).toEqual(importsOf(code));
+    });
+
+    it('reports an actual computed import rather than confusing it with an import type', () => {
+        expect(importsOf("type T=import('./erased').T; const real=import(path);")).toEqual(['<computed>']);
+    });
+
     it('wires the no-op into worker builds only', () => {
         expect(viteConfig).toMatch(
-            /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[workerSentryNoop\(\)\],?\s*\}/,
+            /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[workerSentryNoop\(\),\s*inertUiDataWorkerFence\(__dirname\)\],?\s*\}/,
         );
         // Defined once, used once: never in the main build's plugin list.
         expect(viteConfig.match(/(?<!function )\bworkerSentryNoop\(\)/g)).toHaveLength(1);

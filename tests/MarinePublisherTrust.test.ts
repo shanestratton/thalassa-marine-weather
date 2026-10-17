@@ -12,6 +12,15 @@ import {
     validateCmemsManifest,
     verifyPublisherAsset,
     type CmemsManifest,
+    clearCmemsGridCache,
+    fetchCmemsGrid,
+    getCmemsGridCacheStats,
+    getCmemsReadEpoch,
+    getCmemsHoldingReadDeadline,
+    subscribeCmemsReadEpoch,
+    readCachedCmemsFrames,
+    releaseCmemsGrid,
+    CMEMS_CACHE_TTL_MS,
 } from '../services/weather/api/cmemsGridTrust';
 import {
     clearMpaDatasetCache,
@@ -24,6 +33,12 @@ import {
     type MpaManifest,
     type MpaProperties,
 } from '../services/weather/api/mpaDataset';
+
+import {
+    borrowRetainedMpaDataset,
+    retainedMpaRoutingContextKey,
+    registerVerifiedMpaRetainedOwner,
+} from '../services/weather/api/mpaRetained';
 
 const NOW = Date.parse('2026-08-05T12:00:00Z');
 const WIDTH = 1440;
@@ -86,11 +101,65 @@ function makeThcu(): Uint8Array {
 describe('CMEMS schema-v2 client trust boundary', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+        clearCmemsGridCache();
     });
 
     it('gives 12-hourly waves one honest 3-hour cadence margin without weakening currents', () => {
         expect(CMEMS_DATASETS.waves.maxSourceAgeHours).toBe(15);
         expect(CMEMS_DATASETS.currents.maxSourceAgeHours).toBe(12);
+    });
+    it('borrows only fresh retained frames without fetching, touching LRU, renewing clocks or surviving release', async () => {
+        clearCmemsGridCache();
+        vi.spyOn(Date, 'now').mockReturnValue(NOW);
+        const bytes = makeThcu(),
+            manifest = currentsManifest(),
+            hash = await sha256Hex(bytes);
+        manifest.files.forEach((f) => {
+            f.sha256 = hash;
+        });
+        manifest.generation = `g-20260805T060000Z-${await publisherGenerationSuffix(
+            manifest.data_start,
+            'currents',
+            manifest.files.map((f) => f.sha256),
+        )}`;
+        manifest.files.forEach((f) => {
+            f.filename = `${manifest.generation}-h${String(f.step).padStart(3, '0')}.bin`;
+        });
+        const fetchMock = vi.fn(async (url: string) =>
+            url.includes('manifest-v2.json')
+                ? new Response(JSON.stringify(manifest), { headers: { 'content-type': 'application/json' } })
+                : new Response(new Uint8Array(bytes).buffer, {
+                      headers: { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) },
+                  }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        expect(await fetchCmemsGrid('currents', 0)).not.toBeNull();
+        const before = getCmemsGridCacheStats(),
+            calls = fetchMock.mock.calls.length,
+            epoch = getCmemsReadEpoch();
+        const summary = readCachedCmemsFrames('currents', NOW, (m, frames, checked) => ({
+            generation: m.generation,
+            steps: frames.map((f) => f.step),
+            checked,
+            originalValidStart: m.data_start,
+        }));
+        expect(summary).toMatchObject({ generation: manifest.generation, steps: [0], checked: NOW });
+        expect(getCmemsGridCacheStats()).toEqual(before);
+        expect(fetchMock).toHaveBeenCalledTimes(calls);
+        expect(getCmemsReadEpoch()).toBe(epoch);
+        expect(getCmemsHoldingReadDeadline(NOW)).toBe(NOW + CMEMS_CACHE_TTL_MS);
+        expect(readCachedCmemsFrames('currents', NOW + CMEMS_CACHE_TTL_MS, () => true)).toBeNull();
+        expect(readCachedCmemsFrames('currents', NOW - 1, () => true)).toBeNull();
+        const changed = vi.fn(),
+            off = subscribeCmemsReadEpoch(changed);
+        releaseCmemsGrid('currents');
+        off();
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(getCmemsReadEpoch()).toBeGreaterThan(epoch);
+        expect(readCachedCmemsFrames('currents', NOW, () => true)).toBeNull();
+        expect(getCmemsHoldingReadDeadline(NOW)).toBe(Infinity);
+        expect(fetchMock).toHaveBeenCalledTimes(calls);
     });
 
     it('derives every CMEMS scrubber count from the inclusive manifest contract with load-aware playback', () => {
@@ -372,6 +441,130 @@ function mpaCollection() {
 }
 
 describe('MPA schema-v2 client trust boundary', () => {
+    it('borrows only retained verified references without fetching, copying the footprint or renewing TTL', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        const absent = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(absent.status).toBe('absent');
+        expect(fetchMock).not.toHaveBeenCalled();
+        const bundle = await mpaNetworkBundle();
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+            .mockResolvedValueOnce(geoJsonResponse(bundle.asset));
+        const loaded = await fetchVerifiedMpaGeoJson();
+        expect(absent.isCurrent()).toBe(false);
+        absent.release();
+        const sourceKey = retainedMpaRoutingContextKey();
+        expect(retainedMpaRoutingContextKey()).toBe(sourceKey);
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.status).toBe('available');
+        expect(lease.data?.features[0]).toBe(loaded?.features[0]);
+        expect(() => registerVerifiedMpaRetainedOwner(() => ({ entry: null, epoch: 0 }))).toThrow(/already registered/);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        vi.setSystemTime(NOW + MPA_CACHE_TTL_MS);
+        expect(retainedMpaRoutingContextKey()).not.toBe(sourceKey);
+        expect(lease.isCurrent()).toBe(false);
+        const expired = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(expired.status).toBe('expired');
+        expect(expired.data).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        lease.release();
+        expect(lease.data).toBeUndefined();
+        expired.release();
+    });
+    it('retained borrows retire on release, replacement and cancellation; empty windows stay honestly available', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const bundle = await mpaNetworkBundle();
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+                .mockResolvedValueOnce(geoJsonResponse(bundle.asset)),
+        );
+        await fetchVerifiedMpaGeoJson();
+        const controller = new AbortController(),
+            lease = borrowRetainedMpaDataset({ bbox: [-10, 20, -9, 21], signal: controller.signal });
+        expect(lease.status).toBe('available');
+        expect(lease.data?.features).toHaveLength(0);
+        expect(lease.isCurrent()).toBe(true);
+        controller.abort();
+        expect(lease.isCurrent()).toBe(false);
+        expect(lease.data).toBeUndefined();
+        const next = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        releaseMpaDataset();
+        expect(next.isCurrent()).toBe(false);
+        expect(next.data).toBeUndefined();
+        next.release();
+    });
+    it('an observed clock retirement drops its selected references and cannot revive', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const bundle = await mpaNetworkBundle();
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+                .mockResolvedValueOnce(geoJsonResponse(bundle.asset)),
+        );
+        await fetchVerifiedMpaGeoJson();
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.data?.features.length).toBeGreaterThan(0);
+        vi.setSystemTime(NOW - 1);
+        expect(lease.isCurrent()).toBe(false);
+        expect(lease.data).toBeUndefined();
+        vi.setSystemTime(NOW);
+        expect(lease.isCurrent()).toBe(false);
+        expect(lease.data).toBeUndefined();
+    });
+    it('refuses an oversized retained route slice rather than handing over a partial park footprint', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const collection = mpaCollection();
+        collection.features = Array.from({ length: 2001 }, () => structuredClone(collection.features[0]));
+        const bundle = await mpaNetworkBundle(collection);
+        bundle.manifest.dimensions.feature_count = 2001;
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+                .mockResolvedValueOnce(geoJsonResponse(bundle.asset)),
+        );
+        expect(await fetchVerifiedMpaGeoJson()).not.toBeNull();
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.status).toBe('bounded-out');
+        expect(lease.data).toBeUndefined();
+        lease.release();
+    });
+    it('bounds complete retained selection by actual UTF-8 bytes, without publishing a partial view', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const collection = mpaCollection();
+        collection.features = Array.from({ length: 1000 }, () => {
+            const feature = structuredClone(collection.features[0]);
+            for (const key of ['name', 'type', 'iucn', 'zone', 'authority', 'state'] as const)
+                feature.properties[key] = '海'.repeat(300);
+            return feature;
+        });
+        const bundle = await mpaNetworkBundle(collection);
+        bundle.manifest.dimensions.feature_count = 1000;
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+            .mockResolvedValueOnce(geoJsonResponse(bundle.asset));
+        vi.stubGlobal('fetch', fetchMock);
+        expect(await fetchVerifiedMpaGeoJson()).not.toBeNull();
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.status).toBe('bounded-out');
+        expect(lease.data).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        lease.release();
+    });
     afterEach(() => {
         clearMpaDatasetCache();
         vi.useRealTimers();

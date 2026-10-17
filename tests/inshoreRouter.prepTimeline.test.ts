@@ -155,6 +155,12 @@ vi.mock('../services/GebcoDepthService', async (original) => {
         );
     return { ...mod, GebcoDepthService: service };
 });
+// These synthetic chart scenes have an explicitly empty private overlay library.
+// Keep the real exclusion admission, auth fences and retained-MPA checks.
+vi.mock('../services/userOverlays/store', async (original) => ({
+    ...(await original<typeof import('../services/userOverlays/store')>()),
+    loadUserOverlays: async () => ({ schema: 1, charts: true, position: 'boat', overlays: [] }),
+}));
 vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: {
         getState: () => ({ settings: { autorouteTrialEnabled: true } }),

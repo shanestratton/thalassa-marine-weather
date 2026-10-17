@@ -65,8 +65,17 @@ vi.mock('../services/routing/tideCeilings', async (original) => ({
     ...(await original<Record<string, unknown>>()),
     routeAreaTideCeilings: async () => ({ ceilings: [] }),
 }));
+// These synthetic chart scenes have an explicitly empty private overlay library.
+// Keep the real exclusion admission, auth fences and retained-MPA checks.
+vi.mock('../services/userOverlays/store', async (original) => ({
+    ...(await original<typeof import('../services/userOverlays/store')>()),
+    loadUserOverlays: async () => ({ schema: 1, charts: true, position: 'boat', overlays: [] }),
+}));
 vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: true } }) },
+    useSettingsStore: {
+        subscribe: () => () => undefined,
+        getState: () => ({ settings: { autorouteTrialEnabled: true } }),
+    },
 }));
 
 import { calculateThalassaProposal } from '../services/autoroutingThalassa';

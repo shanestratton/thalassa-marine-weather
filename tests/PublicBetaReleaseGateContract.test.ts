@@ -2,11 +2,70 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import { isReviewedUnsignedNative139Workflow } from '../scripts/unsigned-native139-policy.mjs';
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('public-beta release gate contract', () => {
+    it('keeps the shared legacy bridge closed without Node and after its original sunset', () => {
+        const proxy = read('api/_releaseAssetProxy.ts');
+        const declaration =
+            'const node = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;';
+        const helper = proxy.match(/function legacyCmemsBridgeEnabled\(\): boolean \{[\s\S]*?\n\}/)?.[0];
+        expect(helper).toContain(declaration);
+        const code = helper!.replace('(): boolean', '()').replace(declaration, 'const node = globalThis.process;');
+        const sunset = Date.parse('2026-08-20T00:00:00Z');
+        const evaluate = (process: unknown, now: number) =>
+            runInNewContext(`${code}; legacyCmemsBridgeEnabled()`, {
+                ...(process === undefined ? {} : { process }),
+                Date: { now: () => now },
+                CMEMS_V1_BRIDGE_SUNSET_MS: sunset,
+            });
+        for (const process of [undefined, {}, { env: {} }, { env: { THALASSA_CMEMS_V1_BRIDGE_ENABLED: 'false' } }])
+            expect(evaluate(process, sunset - 1)).toBe(false);
+        const opted = { env: { THALASSA_CMEMS_V1_BRIDGE_ENABLED: 'true' } };
+        expect(evaluate(opted, sunset - 1)).toBe(true);
+        expect(evaluate(opted, sunset)).toBe(false);
+        expect(evaluate(opted, Date.UTC(2026, 9, 17))).toBe(false);
+    });
+    it('runs the actual v3 privacy predicate and holds missing community rights, privacy or moderation clauses', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(
+            /check\(\s*'live beta privacy\/terms copy covers deletion, telemetry, sync, and location',([\s\S]*?)\n\);/,
+        )?.[1];
+        expect(expression).toBeTruthy();
+        const normalizedTerms = read('public/terms.html').replace(/\s+/g, ' ');
+        const evaluate = (terms = normalizedTerms) =>
+            runInNewContext(`(${expression?.replace(/,\s*$/, '')})`, {
+                normalizedTerms: terms,
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        for (const clause of [
+            'Version 3.0',
+            'Effective Date: 17 October 2026',
+            'Community notes and photos',
+            'You retain ownership of content you contribute.',
+            'royalty-free licence to host, process, resize, display and moderate that content solely to provide',
+            'This does not transfer ownership of your content or third-party data.',
+            'photos remain private until approved.',
+            'Photos are processed to remove embedded metadata before storage',
+            "You may edit or delete your notes, report content, or hide another contributor's notes.",
+            'Reports hide the reported note and its public photo pending review.',
+            'Deleted or reported content is excluded from new public reads.',
+            'Copies already seen or saved by other people cannot be recalled.',
+            // Older promises remain enforceable alongside the new community copy.
+            'Once you confirm, deletion cannot be undone',
+            'Sentry',
+            'precise location',
+            'syncs automatically',
+        ]) {
+            expect(normalizedTerms).toContain(clause);
+            expect(evaluate(normalizedTerms.replaceAll(clause, 'REMOVED DISCLOSURE')), clause).toBe(false);
+        }
+    });
+
     it('runs the actual attribution predicate with regional credits and rejects lost credits or controls', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const expression = gate.match(/check\(\s*'map provider attribution is visible',([\s\S]*?)\n\);/)?.[1];
@@ -173,8 +232,11 @@ describe('public-beta release gate contract', () => {
             // upload results on a private repository without paid Code Security.
             expect(writePermissions, `${name} must retain least-privilege writes`).toEqual([]);
             for (const runner of source.matchAll(/^\s*runs-on:\s*([^\s#]+)\s*$/gm)) {
-                // One fixed macOS image, for the iPhone build only (docs/IOS_TESTFLIGHT_CI.md).
-                expect(runner[1], `${name} runner`).toBe(name === 'ios-testflight.yml' ? 'macos-26' : 'ubuntu-24.04');
+                // The existing signed path and one separately fenced unsigned diagnostic.
+                const unsigned = isReviewedUnsignedNative139Workflow(`.github/workflows/${name}`, source);
+                expect(runner[1], `${name} runner`).toBe(
+                    name === 'ios-testflight.yml' || unsigned ? 'macos-26' : 'ubuntu-24.04',
+                );
             }
             for (const action of source.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)(?:\s+#\s*(\S.*?))?\s*$/gm)) {
                 usesCount += 1;
@@ -394,6 +456,42 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain("await cancelResponseBody(upstream, 'upstream status rejected')");
         expect(gate).toContain("await cancelResponseBody(upstream, 'upstream content type rejected')");
         expect(gate).toContain("await cancelResponseBody(response, 'upstream content length rejected')");
+    });
+
+    it('runs the actual manifest-dispatch gate and refuses missing ordinary fallback or changed clocks', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(
+            /includesAll\(releaseAssetProxy, \[\s*'function validateDatasetManifest[\s\S]*?\n\s*\]\)/,
+        )?.[0];
+        expect(expression).toBeTruthy();
+        const proxy = read('api/_releaseAssetProxy.ts');
+        const evaluate = (source = proxy) =>
+            runInNewContext(expression!, {
+                releaseAssetProxy: source,
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        for (const clause of [
+            'return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)',
+            'if (additional) additional.validate(value, now, current);',
+            'else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);',
+            'validateDatasetManifest(value, dataset, Date.now(), false);',
+            'validateDatasetManifest(candidate.manifest, dataset, now, true);',
+        ]) {
+            expect(proxy).toContain(clause);
+            expect(evaluate(proxy.replace(clause, 'REMOVED VALIDATION')), clause).toBe(false);
+        }
+        expect(
+            evaluate(proxy.replace('additional.validate(value, now, current)', 'additional.validate(value, 0, false)')),
+        ).toBe(false);
+        expect(
+            evaluate(
+                proxy.replace(
+                    'validateMarineManifest(value, dataset as MarineDatasetKey, now, current)',
+                    'validateMarineManifest(value, dataset as MarineDatasetKey, now, false)',
+                ),
+            ),
+        ).toBe(false);
     });
 
     it('retains canonical feature, fail-closed deletion, and Guardian opt-in release boundaries', () => {

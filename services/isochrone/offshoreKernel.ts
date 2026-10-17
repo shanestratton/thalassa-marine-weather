@@ -348,6 +348,8 @@ export async function computeOffshoreKernel(
                     distance: parent.distance + projDistance,
                 };
 
+                if (cfg.segmentAllowed && !cfg.segmentAllowed(parent, node)) continue;
+
                 // ── Exclusion check (cyclones, no-go zones) ──
                 // Candidates inside an active exclusion zone at THIS node's
                 // arrival time are dropped before they enter the wavefront.
@@ -736,6 +738,9 @@ export async function computeOffshoreKernel(
             smoothed = pushRouteOffshore(smoothed, bathyGrid);
         }
     }
+
+    if (cfg.segmentAllowed && smoothed.some((node, i) => i > 0 && !cfg.segmentAllowed!(smoothed[i - 1], node)))
+        return null;
 
     const arrivalTimeMs = depTime.getTime() + arrivalNode.timeHours * 3600000;
 

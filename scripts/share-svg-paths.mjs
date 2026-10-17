@@ -126,8 +126,11 @@ export function shareLiteralSvgPaths(code, id, { root, values, parse }) {
     };
 }
 
-/** @param {string} root @returns {import('vite').Plugin} */
-export function shareSvgPaths(root) {
+/** @param {string} root
+ * @param {{ data?: ReturnType<typeof import('./inert-ui-data.mjs').inertUiData>, standalone?: boolean }} [options]
+ * @returns {import('vite').Plugin} */
+export function shareSvgPaths(root, { data, standalone = false } = {}) {
+    if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone SVG packing');
     let enabled = false,
         values = [],
         replacements = 0;
@@ -147,6 +150,7 @@ export function shareSvgPaths(root) {
         load(id) {
             if (id !== RESOLVED) return null;
             const packed = packClassNames(values);
+            if (data) return data.moduleSource(RESOLVED, [packed]);
             return `import {decodeClassNames} from ${JSON.stringify(path.resolve(root, 'utils/decodeClassNames.ts'))};export const values=decodeClassNames(${JSON.stringify(packed.encoded)},${packed.bytes},${packed.count},${packed.checksum});`;
         },
         transform(code, id) {

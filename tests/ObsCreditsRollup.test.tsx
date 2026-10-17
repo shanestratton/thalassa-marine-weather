@@ -44,12 +44,54 @@ function props(): ObsCreditsRollupProps {
         onToggleSatellite: vi.fn(),
     };
 }
+it('adds relief datum/source details inside the same row and only when the relief base is selected', () => {
+    const p = props();
+    p.rain = null;
+    p.wind = null;
+    p.cmems = [];
+    p.ais = false;
+    p.satellite.status = 'off';
+    p.relief = true;
+    const view = render(<ObsCreditsRollup {...p} />);
+    expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+    expect(screen.getByTestId('obs-credits-rollup').className).toContain('h-[44px]');
+    fireEvent.click(screen.getByRole('button', { name: /^Credits$/ }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('NZVD2016 native heights; not MSL');
+    expect(dialog).toHaveTextContent('No vertical conversion');
+    expect(dialog).toHaveTextContent('not whole-country');
+    expect(within(dialog).getByRole('link', { name: 'New Zealand · 61 surveyed coastal patches' })).toHaveAttribute(
+        'href',
+        'https://data.linz.govt.nz/layer/122508-new-zealand-coastal-lidar-1m-dem/',
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Close$/ }));
+    view.rerender(<ObsCreditsRollup {...p} relief={false} />);
+    expect(screen.queryByTestId('obs-credits-rollup')).toBeNull();
+});
 beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     vi.clearAllMocks();
     feed.status = 'closed';
     publishAisCoverage({ state: 'recent', polledAt: new Date(now - 60000).toISOString(), truncated: false });
+});
+it('holds new atmospheric credits and uncertainty inside the same one-row rollup', () => {
+    const p = props();
+    p.atmosphere = [
+        {
+            key: 'gfs',
+            title: 'GFS atmospheric fields',
+            text: 'NOAA / NCEP GFS. Model visibility, low skill. Original run and valid UTC.',
+            warning: true,
+        },
+    ];
+    render(<ObsCreditsRollup {...p} />);
+    expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+    expect(screen.queryByText('GFS atmospheric fields')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Credits; layer status needs review' }));
+    const panel = screen.getByRole('dialog');
+    expect(panel).toHaveTextContent('Model visibility, low skill');
+    expect(screen.getByRole('region', { name: 'GFS atmospheric fields' })).toBeInTheDocument();
 });
 afterEach(() => {
     cleanup();
@@ -122,4 +164,16 @@ it('rain forecast credits remain distinct, and all-off retires the open panel', 
     );
     expect(screen.queryByTestId('obs-credits-rollup')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
+});
+it('optional coarse receiver status stays inside the existing rollup and never replaces internet AIS credit', () => {
+    render(
+        <ObsCreditsRollup {...props()} receiverCoverage={{ state: 'held', partial: false, cells: 0, asOf: null }} />,
+    );
+    expect(screen.getAllByTestId('obs-credits-rollup')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /^Credits/ }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Internet AIS');
+    expect(dialog).toHaveTextContent('Who’s listening');
+    expect(dialog).toHaveTextContent('No public receiver identities or trails');
+    expect(dialog).toHaveTextContent('prerequisites');
 });

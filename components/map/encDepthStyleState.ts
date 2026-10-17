@@ -27,6 +27,7 @@
  */
 
 import mapboxgl from 'mapbox-gl';
+import { effectiveChartContours, parseChartContours, type ChartContours } from '../../services/enc/chartContours';
 import {
     ENC_AREA_TIER_GROUPS,
     ENC_COAST_LINE_LAYERS,
@@ -61,8 +62,8 @@ import {
  * "Depth right now" — apply (or clear, with null) the tide offset on
  * every depth READOUT layer: band tints, sounding numbers + ink,
  * contour labels. VISUAL ONLY by hard rule: the safety contour, the
- * tracer and the router all keep grading against chart datum (they do
- * their own per-spot tide windows properly). The satellite GLAZE is a
+ * tracer and the router keep their separate chart-datum and provider-use
+ * guards. The satellite GLAZE is a
  * VERDICT, not a readout — it stays chart-datum in both colour and
  * opacity (see applyTideOffsetPaint). Stored per map so mount/refresh
  * re-apply it after style swaps and cell loads.
@@ -93,9 +94,7 @@ export function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | nu
     const h = tideOffsetM ?? 0;
     const live = tideOffsetM !== null;
     // Every scale tier's water fill (the scale-ordered groups, 2026-10-03).
-    for (const id of ENC_WATER_FILL_LAYERS) {
-        if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', buildDepareFillColor(h));
-    }
+    applyBandPaint(map, h);
     // DEPARE_GLAZE is deliberately NOT here. The satellite glaze is a
     // go/no-go VERDICT (keel-keyed opacity on chart-datum DRVAL1, same
     // hard rule as the safety contour) and its colour must stay keyed
@@ -124,6 +123,8 @@ export function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | nu
  */
 export interface EncDepthStyleState {
     safetyDepthM: number;
+    /** Optional mariner display targets, separate from physical keel/clearance. */
+    contours?: ChartContours | null;
     /** Router grounding threshold (draft×1.5 + UKC, metres) — drives the glaze's
      *  [safety, hazard) caution band so the hand-piloting surface agrees with the
      *  router (cycle-5 re-audit). Undefined → the two-band glaze look. */
@@ -150,12 +151,27 @@ export interface EncDepthStyleState {
 }
 export const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
 
+function applyBandPaint(map: mapboxgl.Map, h: number): void {
+    const state = depthStyleState.get(map);
+    const contours = effectiveChartContours(state?.contours, state?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M);
+    for (const id of ENC_WATER_FILL_LAYERS)
+        if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', buildDepareFillColor(h, contours));
+}
+/** Preserved across remounts. The original unraised choice is retained so a
+ * later vessel change can recompute the effective display thresholds. */
+export function setEncContourBands(map: mapboxgl.Map, input: unknown): void {
+    const state = depthStyleState.get(map) ?? { safetyDepthM: DEFAULT_SAFETY_DEPTH_M, depcntValdcosByCell: {} };
+    state.contours = parseChartContours(input);
+    depthStyleState.set(map, state);
+    updateEncDepthStyle(map, state.safetyDepthM);
+}
+
 /**
  * THE single choke point for draft changes (risk note: a missed
  * update path silently shows the WRONG safety contour — worse than
  * none). Moves the safety contour and re-keys the keel-keyed satellite
- * glaze; the chart-mode DEPARE fill is an ABSOLUTE white ramp since
- * 2026-07-11 and no longer re-bands with draft.
+ * glaze. Legacy chart bands stay absolute; explicitly chosen display bands
+ * are raised to the physical vessel floor when necessary.
  * Called from mount (via opts), from the hook whenever vessel draft
  * changes, and from refresh when new cells land.
  *
@@ -169,7 +185,8 @@ export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number, haz
     if (hazardDepthM !== undefined) state.hazardDepthM = hazardDepthM;
     depthStyleState.set(map, state);
 
-    const safetyByCell = computeSafetyValdcoByCell(state.depcntValdcosByCell, safetyDepthM);
+    const contours = effectiveChartContours(state.contours, safetyDepthM);
+    const safetyByCell = computeSafetyValdcoByCell(state.depcntValdcosByCell, contours?.safetyM ?? safetyDepthM);
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
         map.setFilter(ENC_VEC_LAYERS.DEPCNT_LINE, depcntLineFilter(safetyByCell));
     }
@@ -179,6 +196,7 @@ export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number, haz
     // The satellite glaze is keel-keyed (safe = whiter) — a draft change
     // must re-key it through the same choke point as the contour.
     syncDepareBaseTreatment(map);
+    if (state.contours !== undefined) applyBandPaint(map, state.tideOffsetM ?? 0);
 }
 
 /**

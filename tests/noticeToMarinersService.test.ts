@@ -43,10 +43,9 @@ describe('NoticeToMarinersService geographic helpers', () => {
     });
 
     it('puts a deadline on notice-source refreshes so one source cannot hang the layer', async () => {
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-            ok: true,
-            json: vi.fn().mockResolvedValue({ 'broadcast-warn': [] }),
-        } as unknown as Response);
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockImplementation(async () => new Response(JSON.stringify({ 'broadcast-warn': [] })));
         const signal = new AbortController().signal;
         const timeoutMock = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
 
@@ -56,6 +55,8 @@ describe('NoticeToMarinersService geographic helpers', () => {
         expect(fetchMock).toHaveBeenCalledWith('/api/nga-msi/broadcast-warn?output=json', {
             headers: undefined,
             signal,
+            credentials: 'omit',
+            redirect: 'error',
         });
         fetchMock.mockRestore();
         timeoutMock.mockRestore();

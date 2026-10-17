@@ -2,6 +2,8 @@ import { expect, type Locator, type Page, type TestInfo } from '@playwright/test
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { compositeTile, fixtureStyle, imageryTile, reliefTile, seamarkTile } from './syntheticChartTiles';
+import { RELIEF_DISPLAY_REGIONS } from '../../services/reliefDisplayRegions';
+import { reliefTileAvailable } from '../../services/reliefAvailability';
 
 /**
  * What the Log maps' browser specs share (the little map, browser-tests/
@@ -42,7 +44,8 @@ export type LogMapFixture = {
     ready: boolean;
     maps: FixtureMap[];
     taps: { count: number };
-    expected: Array<[string, boolean]>;
+    /** null requires absence: an unadmitted sparse source must not mount. */
+    expected: Array<[string, boolean | null]>;
     boat: [number, number];
     /** The track map's fixture: named places on its tracks, [lon, lat]. */
     spots: Record<string, [number, number]>;
@@ -78,6 +81,24 @@ const once = (key: string, make: () => Buffer | null) => {
 function upstreamTile(url: URL): Buffer | null | undefined {
     const xyz = (m: RegExpMatchArray, at: number) => [Number(m[at]), Number(m[at + 1]), Number(m[at + 2])] as const;
     if (url.hostname === 'tiles.thalassatiles.com') {
+        const regional = url.pathname.match(/^\/v2\/relief-(au250|nz)\/(idx|dem)\/(\d+)\/(\d+)\/(\d+)\.(png|webp)$/);
+        if (regional) {
+            const [, id, kind, zs, xs, ys, extension] = regional;
+            const region = RELIEF_DISPLAY_REGIONS.find((r) => r.id === id);
+            const [z, x, y] = [Number(zs), Number(xs), Number(ys)];
+            if (
+                !region ||
+                region.version !== 'v2' ||
+                z < region.minzoom ||
+                z > region.maxzoom ||
+                (kind === 'idx' ? extension !== 'png' : extension !== 'webp') ||
+                !reliefTileAvailable(region.availability, z, x, y)
+            )
+                return null;
+            // Fictional colours/terrain, only at independently admitted tile
+            // locations. The actual published AU/NZ replay has its own spec.
+            return once(`v2/${id}/${kind}/${z}/${x}/${y}`, () => reliefTile(kind as 'idx' | 'dem', z, x, y));
+        }
         const m = url.pathname.match(/^\/v1\/relief-(global|au)\/(idx|dem)\/(\d+)\/(\d+)\/(\d+)\.(png|webp)$/);
         if (!m) return undefined;
         const [z, x, y] = xyz(m, 3);
@@ -221,6 +242,7 @@ export async function layerMismatches(page: Page) {
         const map = f.maps.at(-1)!;
         return f.expected
             .filter(([id, on]) => {
+                if (on === null) return !!map.getLayer(id);
                 if (!map.getLayer(id)) return true;
                 const shown = (map.getLayoutProperty(id, 'visibility') ?? 'visible') === 'visible';
                 return shown !== on;

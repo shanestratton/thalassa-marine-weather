@@ -400,6 +400,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
 
                 <ModelPickerSheet
                     visible={showModelSheet}
+                    coordinates={coordinates}
                     currentModel={glassModel}
                     offshore={offshore ? { currentModel: offshoreModel, onPick: pickOffshoreModel } : undefined}
                     spitfireAvailable={!!spitfireLoc || publishedModels.includes('spitfire')}

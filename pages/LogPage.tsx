@@ -61,7 +61,7 @@ import { NmeaStore } from '../services/NmeaStore';
 import { LocationStore } from '../stores/LocationStore';
 import { VoyageLogService } from '../services/VoyageLogService';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
-import { requestTracerOpen } from '../services/deepLink';
+import { requestTracerOpen, requestTrackRouteLibraryOpen } from '../services/deepLink';
 import { useUIStore } from '../stores/uiStore';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import { VoyageCard } from './log/LogSubComponents';
@@ -2324,6 +2324,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         overflowMenuId={overflowMenuId}
                         showMenu={showMenu}
                         setShowMenu={setShowMenu}
+                        onMakeTrackRoute={() => {
+                            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+                            requestTrackRouteLibraryOpen(identityScope);
+                            useUIStore.getState().setPage('voyage');
+                        }}
                         closeOverflowMenu={closeOverflowMenu}
                         dispatch={dispatch}
                         loggedVoyages={loggedVoyages}

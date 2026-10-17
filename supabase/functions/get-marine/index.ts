@@ -6,6 +6,7 @@ declare const Deno: {
 
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { fetchWithTimeout, parseCoordinate, readResponseJsonObjectLimited } from '../_shared/http-security.ts';
+import { fetchMarineEnvelopeV2 } from './marine-v2.ts';
 
 /**
  * get-marine — waves, swell, sea temperature and current.
@@ -21,10 +22,10 @@ import { fetchWithTimeout, parseCoordinate, readResponseJsonObjectLimited } from
  * REMOVES StormGlass as a third party rather than adding one, and keeps the
  * commercial key off the client.
  *
- * Request:  GET ?lat=X&lon=Y
- * Response: the Open-Meteo marine payload, unmodified.
+ * Request: GET ?lat=X&lon=Y keeps the legacy provider payload.
+ * Opt-in: &schema=2 returns independently validated wave and ocean sources.
  *
- * DELIBERATELY A PASS-THROUGH. The client maps and converts units in ONE
+ * The legacy response remains a pass-through. The client converts units in ONE
  * place (services/weather/api/marine.ts) so the Pi and this function cannot
  * drift apart into two subtly different mappers — this codebase has been
  * bitten by hand-mirrored pairs before. Two traps live in that mapper:
@@ -134,6 +135,20 @@ Deno.serve(async (req: Request) => {
         const lat = parseCoordinate(url.searchParams.get('lat'), 'lat');
         const lon = parseCoordinate(url.searchParams.get('lon'), 'lon');
         if (lat === null || lon === null) return json({ error: 'lat/lon must be valid coordinates' }, 400);
+
+        const schema = url.searchParams.get('schema');
+        if (schema !== null && schema !== '2') return json({ error: 'Unsupported marine schema' }, 400);
+        if (schema === '2') {
+            const key = Deno.env.get('OPEN_METEO_API_KEY') ?? '';
+            if (!key) return json({ error: 'Marine service is not configured' }, 500);
+            const point = { latitude: Number(lat.toFixed(4)), longitude: Number(lon.toFixed(4)) };
+            const result = await fetchMarineEnvelopeV2(point, key);
+            if (!result) return json({ error: 'Marine sources unavailable' }, 502);
+            return new Response(JSON.stringify(result), {
+                status: 200,
+                headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' },
+            });
+        }
 
         // 2dp — matches the Pi's cache key granularity (~1 km), so the two
         // machines answer for the same grid point rather than one of them

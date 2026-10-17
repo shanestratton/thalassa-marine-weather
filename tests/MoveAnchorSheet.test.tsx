@@ -15,6 +15,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateDistance, destinationPoint } from '../utils/navigationCalculations';
+import { anchorZonePosition } from '../utils/anchorSafeZone';
 import type { AnchorWatchConfig, AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import type { VesselProfile } from '../types/vessel';
 
@@ -22,6 +23,8 @@ const service = vi.hoisted(() => ({
     relocateAnchor: vi.fn(),
     relocateAnchorFromAlarm: vi.fn(),
     checkMoveFromAlarm: vi.fn(),
+    getSafeZoneEditToken: vi.fn(),
+    clearSafeZoneForMove: vi.fn(),
 }));
 vi.mock('../services/AnchorWatchService', () => ({
     AnchorWatchService: service,
@@ -165,6 +168,8 @@ describe('MoveAnchorSheet', () => {
         service.relocateAnchor.mockReset().mockResolvedValue({ ok: true });
         service.relocateAnchorFromAlarm.mockReset().mockResolvedValue({ ok: true });
         service.checkMoveFromAlarm.mockReset().mockReturnValue({ ok: true, spreadM: 1, lateM: 33 });
+        service.getSafeZoneEditToken.mockReset().mockResolvedValue('reviewed-zone');
+        service.clearSafeZoneForMove.mockReset().mockResolvedValue({ ok: true });
         heading(null, 0);
         setUnits('m');
         radar.drag = undefined;
@@ -831,6 +836,34 @@ describe('MoveAnchorSheet', () => {
         }
         const stopButton = () => screen.getByRole('button', { name: 'Move and stop alarm' });
 
+        it('offers the explicit custom-area clear inside the alarm sheet without silencing or moving', async () => {
+            heading(212, 2_000);
+            const safeZone = {
+                version: 1 as const,
+                kind: 'polygon' as const,
+                anchor: setAt,
+                vertices: [
+                    [-15, -15],
+                    [15, -15],
+                    [15, 15],
+                    [-15, 15],
+                ].map(([x, y]) => anchorZonePosition(setAt, x, y)!),
+            };
+            render(
+                <MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot(undefined, { safeZone })} onClose={vi.fn()} />,
+            );
+            expect(stopButton()).toBeDisabled();
+            await act(async () => {});
+            expect(screen.getByText(/This does not silence the alarm/)).toBeInTheDocument();
+            await act(async () =>
+                fireEvent.click(screen.getByRole('button', { name: 'Clear area; keep circle watch' })),
+            );
+            expect(service.clearSafeZoneForMove).toHaveBeenCalledWith('reviewed-zone');
+            expect(service.relocateAnchorFromAlarm).not.toHaveBeenCalled();
+            expect(service.relocateAnchor).not.toHaveBeenCalled();
+            expect(stopButton()).toBeEnabled();
+        });
+
         it('asks the skipper to be sure, and says before the tap that her swing fits', () => {
             heading(212, 2_000);
             render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
@@ -1028,6 +1061,91 @@ describe('MoveAnchorSheet', () => {
         const onPiMove = vi.fn();
         beforeEach(() => {
             onPiMove.mockReset().mockResolvedValue({ ok: true, ashore: false });
+        });
+        it('requires the explicit Pi clear action before allowing a custom-area mark to move', async () => {
+            heading(220, 3_000, { source: 'pi', via: 'lan' });
+            const safeZone = {
+                version: 1 as const,
+                kind: 'polygon' as const,
+                anchor: HORTA,
+                vertices: [
+                    [-15, -15],
+                    [15, -15],
+                    [15, 15],
+                    [-15, 15],
+                ].map(([x, y]) => anchorZonePosition(HORTA, x, y)!),
+            };
+            const onPiClearSafeArea = vi
+                .fn()
+                .mockResolvedValueOnce({ ok: false, error: 'The Pi has not confirmed circle only.' })
+                .mockResolvedValueOnce({ ok: true });
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { safeZone })}
+                    onPiMove={onPiMove}
+                    onPiClearSafeArea={onPiClearSafeArea}
+                    onClose={vi.fn()}
+                />,
+            );
+            expect(moveButton()).toBeDisabled();
+            await act(async () =>
+                fireEvent.click(screen.getByRole('button', { name: 'Clear area; keep circle watch' })),
+            );
+            expect(screen.getByRole('alert')).toHaveTextContent('not confirmed');
+            expect(moveButton()).toBeDisabled();
+            await act(async () =>
+                fireEvent.click(screen.getByRole('button', { name: 'Clear area; keep circle watch' })),
+            );
+            expect(moveButton()).toBeEnabled();
+            expect(onPiMove).not.toHaveBeenCalled();
+            expect(service.clearSafeZoneForMove).not.toHaveBeenCalled();
+            await move();
+            expect(onPiMove).toHaveBeenCalledOnce();
+        });
+        it('retires a late clear result when a replacement custom area arrives', async () => {
+            heading(220, 3_000, { source: 'pi', via: 'lan' });
+            const zone = (n: number) => ({
+                version: 1 as const,
+                kind: 'polygon' as const,
+                anchor: HORTA,
+                vertices: [
+                    [-n, -n],
+                    [n, -n],
+                    [n, n],
+                    [-n, n],
+                ].map(([x, y]) => anchorZonePosition(HORTA, x, y)!),
+            });
+            let finish!: (value: { ok: true }) => void;
+            const onPiClearSafeArea = vi.fn(
+                () =>
+                    new Promise<{ ok: true }>((resolve) => {
+                        finish = resolve;
+                    }),
+            );
+            const view = render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { safeZone: zone(15) })}
+                    onPiMove={onPiMove}
+                    onPiClearSafeArea={onPiClearSafeArea}
+                    onClose={vi.fn()}
+                />,
+            );
+            fireEvent.click(screen.getByRole('button', { name: 'Clear area; keep circle watch' }));
+            view.rerender(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { safeZone: zone(18) })}
+                    onPiMove={onPiMove}
+                    onPiClearSafeArea={onPiClearSafeArea}
+                    onClose={vi.fn()}
+                />,
+            );
+            await act(async () => finish({ ok: true }));
+            expect(moveButton()).toBeDisabled();
+            expect(screen.getByRole('button', { name: 'Clear area; keep circle watch' })).toBeEnabled();
+            expect(onPiMove).not.toHaveBeenCalled();
         });
 
         it('prefills from the rode and depth the Pi reports, and checks with the Pi’s guards', () => {

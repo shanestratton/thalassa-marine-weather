@@ -29,6 +29,7 @@ import { calculateDistance } from '../utils/navigationCalculations';
 import { SAME_PLACE_NM } from './shiplog/collapseReversedRoutes';
 import { reversedLegName, stripRouteBadges } from './routeNameParts';
 import type { TracePoint } from './routeTracer';
+import { reverseTraceRoutePoints } from './routing/traceRoutePoint';
 import {
     buildTripPassageRollups,
     destNameFromRouteName,
@@ -279,7 +280,7 @@ export interface ReversedSlot {
 export function reversedLegForSlot(source: SavedTrace, anchor: TracePoint): ReversedSlot | null {
     if (!Array.isArray(source.points) || source.points.length < 2) return null;
     if (distanceNM(last(source.points), anchor) > REVERSE_JOIN_NM) return null;
-    const points = [...source.points].reverse().map((point) => ({ lat: point.lat, lon: point.lon }));
+    const points = reverseTraceRoutePoints(source.points);
     points[0] = { lat: anchor.lat, lon: anchor.lon };
     const name = reversedLegName(source.name);
     return { points, name, destName: destNameFromRouteName(name), sourceLabel: displayRouteLabel(source) };
@@ -288,7 +289,7 @@ export function reversedLegForSlot(source: SavedTrace, anchor: TracePoint): Reve
 /** Reversed copy of a whole saved line — return leg 1, or ⇄ on an opened leg. */
 export function reversedCopyOf(source: Pick<SavedTrace, 'points' | 'name'>): { points: TracePoint[]; name: string } {
     return {
-        points: [...source.points].reverse().map((point) => ({ lat: point.lat, lon: point.lon })),
+        points: reverseTraceRoutePoints(source.points),
         name: reversedLegName(source.name),
     };
 }

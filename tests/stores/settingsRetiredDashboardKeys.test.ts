@@ -28,6 +28,14 @@ const OLD_BLOB = {
 };
 
 describe('retired dashboard widget settings', () => {
+    it('migrates stored legacy marine source preference on disk and cloud without changing inshore choice', () => {
+        const local = mergeSettings({ offshoreModel: 'sg', forecastModel: 'dwd_icon' });
+        expect(local.offshoreModel).toBe('auto');
+        expect(local.forecastModel).toBe('dwd_icon');
+        const cloud = mergeCloudSettings(local, { offshoreModel: 'sg' }, local.vessel);
+        expect(cloud.offshoreModel).toBe('auto');
+        expect(cloud.forecastModel).toBe('dwd_icon');
+    });
     it('are gone from the defaults', () => {
         for (const key of RETIRED) expect(DEFAULT_SETTINGS).not.toHaveProperty(key);
     });

@@ -6,6 +6,13 @@ import { join } from 'node:path';
 export default defineConfig({
     testDir: './browser-tests',
     testMatch: [
+        'chart-contours-layout.spec.ts',
+        'chart-find-layout.spec.ts',
+        'user-overlays139-layout.spec.ts',
+        'routing-exclusions139-layout.spec.ts',
+        'tide-shortcut139-layout.spec.ts',
+        'chart-drawing139-layout.spec.ts',
+        'berth139-layout.spec.ts',
         'pi-track-history-layout.spec.ts',
         'systems136-layout.spec.ts',
         'wake-rules137-layout.spec.ts',
@@ -21,6 +28,12 @@ export default defineConfig({
         'course136-layout.spec.ts',
         'timezone136.spec.ts',
         'ais-fleet-layout.spec.ts',
+        'receiver-coverage140-layout.spec.ts',
+        'weather-agreement141-layout.spec.ts',
+        'weather-evidence141-layout.spec.ts',
+        'ascat141-layout.spec.ts',
+        'own-boat-skill141-layout.spec.ts',
+        'obs-credits141-footer.spec.ts',
         'marine-places-layout.spec.ts',
         'paper-charts-layout.spec.ts',
         'noaa-catalogue-layout.spec.ts',
@@ -45,6 +58,11 @@ export default defineConfig({
         'diary-compose-layout.spec.ts',
         'scuttlebutt-layout.spec.ts',
         'sail-plan-layout.spec.ts',
+        'sail-inventory138.spec.ts',
+        'route-replan138.spec.ts',
+        'tracer-constraints138.spec.ts',
+        'track-route139-layout.spec.ts',
+        'along-route138.spec.ts',
         'boat-network-layout.spec.ts',
         // The NMEA Gateway page and the System status box say where this phone
         // is and how the boat reaches it, on one line each (e2e/fixtures/gateway-state.tsx).
@@ -74,6 +92,8 @@ export default defineConfig({
         // "Anchor is 33 m from the boat, bearing 212 °T": the Move anchor sheet
         // fits, centred above the tab bar and the keyboard (e2e/fixtures/move-anchor.tsx).
         'move-anchor-layout.spec.ts',
+        'anchor-safe-zone139-layout.spec.ts',
+        'anchor-safe-area-move139-layout.spec.ts',
         // Sightings: the page, quick log, species list and detail fit at 390,
         // 320 and in the split pane, centred above the tab bar
         // (e2e/fixtures/sightings.tsx).

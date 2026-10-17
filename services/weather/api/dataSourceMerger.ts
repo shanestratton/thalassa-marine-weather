@@ -158,7 +158,7 @@ export function mergeWeatherData(
 
     // Helper to set metric with source tracking
     // Priority: Buoy/AWS > existing source (e.g. WeatherKit) > StormGlass fallback
-    function setMetric<K extends keyof WeatherMetrics>(
+    function setMetric<K extends Exclude<keyof WeatherMetrics, 'marine'>>(
         key: K,
         buoyVal: WeatherMetrics[K] | null | undefined,
         stormglassVal: WeatherMetrics[K] | null | undefined,

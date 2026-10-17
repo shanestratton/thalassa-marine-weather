@@ -142,6 +142,8 @@ export interface TracerGradingDeps {
 }
 
 export interface TracerGrading {
+    /** A new route must not adopt an old line's cached verdicts or late tide labels. */
+    retireChecks: () => void;
     /**
      * Check grade stubs again on her charts (127-C-b): `keys` (legCacheKey),
      * else every stub on the line. Called only from her own taps — a stub row,
@@ -174,6 +176,8 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
     } = deps;
 
     const tracerSeqRef = useRef(0);
+    const retirementRef = useRef(0);
+    const freshTrackCheckRef = useRef(false);
     const tideReqRef = useRef<Set<string>>(new Set());
     /** Incremental grading (Shane 2026-07-09: "each new waypoint rechecks
      *  all of the previous waypoints — not necessary unless we nudged").
@@ -217,6 +221,18 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
     /** The line the last pass was run for: a re-check alone keeps her acks. */
     const lastLineRef = useRef<readonly unknown[]>([]);
     const [regradeTick, setRegradeTick] = useState(0);
+    const retireChecks = useCallback(() => {
+        tracerSeqRef.current++;
+        retirementRef.current++;
+        freshTrackCheckRef.current = true;
+        legCacheRef.current.clear();
+        failVerdictsRef.current.clear();
+        stubHoldRef.current.clear();
+        tideSpotCacheRef.current.clear();
+        tideReqRef.current.clear();
+        lastLineRef.current = [];
+        setRegradeTick((n) => n + 1);
+    }, []);
     const regradeStubLegs = useCallback((keys?: readonly string[]) => {
         const cache = legCacheRef.current;
         let hit = false;
@@ -327,7 +343,9 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
             // Library identity is the FINGERPRINT (stable across reloads),
             // never the in-memory version counter (boot-scoped — using it
             // meant hydration never matched and every mount cold-regraded).
-            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, fingerprint, airNow);
+            const persisted = freshTrackCheckRef.current
+                ? null
+                : hydrateLegVerdicts(draftNow, draftAssumed, fingerprint, airNow);
             if (persisted) for (const [k, v] of persisted) if (!cache.has(k)) cache.set(k, v);
         }
         // Failure verdicts retry with BACKOFF, not on every pass. Retrying
@@ -373,6 +391,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
                 getRegistryFingerprint(),
                 airNow,
             );
+            freshTrackCheckRef.current = false;
         };
         const passFor: TracerGradedFor = {
             geometryKey: traceGeometryKey(capturedCoords),
@@ -500,6 +519,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
     // the spot cache dies with the tracer context (draft/area change).
     useEffect(() => {
         if (!coordCaptureMode) return;
+        const retirement = retirementRef.current;
         const draftM = vesselDraftMetres(vessel);
         const next: Record<number, string> = {};
         legVerdicts.forEach((v, i) => {
@@ -518,6 +538,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
             if (tideReqRef.current.has(spot)) return;
             tideReqRef.current.add(spot);
             void tideWindowLabelFor(v.minDepthM, draftM, v.minAt, fromMs).then((label) => {
+                if (retirement !== retirementRef.current) return;
                 if (!label) {
                     // Fetch failed (offline) — release the spot so a later
                     // pass retries; the old design got free retries from
@@ -544,5 +565,5 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
             return next;
         });
     }, [legVerdicts, coordCaptureMode, vessel, departureMs, legEtaOffsetsMs, setTideLabels]);
-    return { regradeStubLegs };
+    return { regradeStubLegs, retireChecks };
 }

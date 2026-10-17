@@ -6,6 +6,8 @@
  * has been validated.  Downloads are streamed through hard limits before a
  * large ArrayBuffer/typed array can be allocated.
  */
+import { MarineDataTrustError, readBoundedResponse, rejectBeforeBodyRead } from './boundedPublisherResponse.ts';
+export { MarineDataTrustError, readBoundedResponse } from './boundedPublisherResponse.ts';
 import type { WindGrid } from '../windField';
 import { API_BASE } from '../../native/apiBase';
 import { createLogger } from '../../../utils/createLogger';
@@ -121,13 +123,6 @@ export interface CmemsManifest {
     producer: { commit: string; run_id: number; run_attempt: number };
     files: CmemsManifestFile[];
     metadata?: Record<string, unknown>;
-}
-
-export class MarineDataTrustError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'MarineDataTrustError';
-    }
 }
 
 function requireTrust(condition: unknown, message: string): asserts condition {
@@ -328,60 +323,6 @@ function responseContentType(response: Response): string {
     return (response.headers.get('content-type') ?? '').split(';', 1)[0].trim().toLowerCase();
 }
 
-async function cancelResponseBody(response: Response, reason: string): Promise<void> {
-    try {
-        await response.body?.cancel(new MarineDataTrustError(reason));
-    } catch {
-        // A rejection from an upstream stream's cancellation hook must not
-        // replace the deterministic trust error that caused the rejection.
-    }
-}
-
-async function rejectBeforeBodyRead(response: Response, message: string): Promise<never> {
-    await cancelResponseBody(response, message);
-    throw new MarineDataTrustError(message);
-}
-
-/**
- * Read a response body into one bounded allocation.
- *
- * Immutable asset callers pass the manifest's exact byte count as `maxBytes`,
- * so a valid 6–9 MiB frame never needs both a retained chunk list and a second
- * joined copy. Manifest callers reserve only the 256 KiB manifest ceiling.
- */
-export async function readBoundedResponse(response: Response, maxBytes: number): Promise<Uint8Array> {
-    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-        await rejectBeforeBodyRead(response, 'response byte ceiling is invalid');
-    }
-    const declared = response.headers.get('content-length');
-    if (declared !== null) {
-        if (!/^\d+$/.test(declared)) {
-            await rejectBeforeBodyRead(response, 'response Content-Length is invalid');
-        }
-        if (Number(declared) > maxBytes) {
-            await rejectBeforeBodyRead(response, 'response exceeds its byte ceiling');
-        }
-    }
-    requireTrust(response.body !== null, 'response has no body');
-    const reader = response.body.getReader();
-    const output = new Uint8Array(maxBytes);
-    let total = 0;
-    try {
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (!value) continue;
-            requireTrust(total + value.byteLength <= maxBytes, 'response exceeded its byte ceiling while streaming');
-            output.set(value, total);
-            total += value.byteLength;
-        }
-    } catch (error) {
-        await reader.cancel().catch(() => undefined);
-        throw error;
-    }
-    return total === output.byteLength ? output : output.slice(0, total);
-}
-
 export async function fetchBoundedPublisherBytes(
     url: string,
     maxBytes: number,
@@ -405,7 +346,9 @@ export async function fetchBoundedPublisherBytes(
         if (responseContentType(response) !== expectedContentType) {
             await rejectBeforeBodyRead(response, 'dataset response has the wrong content type');
         }
-        return await readBoundedResponse(response, maxBytes);
+        const bytes = await readBoundedResponse(response, maxBytes, controller.signal);
+        controller.signal.throwIfAborted();
+        return bytes;
     } finally {
         clearTimeout(timeout);
         signal?.removeEventListener('abort', onAbort);
@@ -688,6 +631,65 @@ const inflightFrames = new Map<string, InflightFrameEntry>();
 const releaseEpochs = new Map<CmemsDatasetKey, number>();
 const activeAssetControllers = new Map<CmemsDatasetKey, Set<AbortController>>();
 let loadQueue: Promise<void> = Promise.resolve();
+let readEpoch = 0;
+const readListeners = new Set<() => void>();
+const changedReadOwnership = () => {
+    ++readEpoch;
+    for (const fn of readListeners) {
+        try {
+            fn();
+        } catch {
+            /* A viewer cannot break map ownership. */
+        }
+    }
+};
+export const getCmemsReadEpoch = () => readEpoch;
+/** Earliest end of currently usable holding products; stale/unretained
+ * products already contribute only unknown facts, not a renewed deadline. */
+export function getCmemsHoldingReadDeadline(nowMs = Date.now()): number {
+    let end = Infinity;
+    for (const dataset of ['waves', 'currents'] as const) {
+        const entry = manifestCache.get(dataset);
+        if (
+            entry &&
+            nowMs >= entry.checkedAt &&
+            nowMs < entry.checkedAt + CMEMS_CACHE_TTL_MS &&
+            nowMs <= entry.dataEnd &&
+            [...frameCache.values()].some((f) => f.dataset === dataset && f.generation === entry.generation)
+        )
+            end = Math.min(end, entry.checkedAt + CMEMS_CACHE_TTL_MS, entry.dataEnd);
+    }
+    return end;
+}
+export function subscribeCmemsReadEpoch(fn: () => void): () => void {
+    readListeners.add(fn);
+    return () => readListeners.delete(fn);
+}
+/** Synchronous borrowed view of ALREADY retained frames. No fetch, LRU touch,
+ * verification renewal, extra cache or long-lived array ownership. The trusted
+ * reader must return primitive summaries and finish before this call returns. */
+export function readCachedCmemsFrames<T>(
+    dataset: CmemsDatasetKey,
+    nowMs: number,
+    read: (
+        manifest: Readonly<CmemsManifest>,
+        frames: readonly Readonly<{ step: number; grid: WindGrid }>[],
+        checkedAtMs: number,
+    ) => T,
+): T | null {
+    const entry = manifestCache.get(dataset);
+    if (
+        !entry ||
+        !Number.isFinite(nowMs) ||
+        nowMs < entry.checkedAt ||
+        nowMs - entry.checkedAt >= CMEMS_CACHE_TTL_MS ||
+        nowMs > entry.dataEnd
+    )
+        return null;
+    const frames = [...frameCache.values()].filter((f) => f.dataset === dataset && f.generation === entry.generation);
+    if (!frames.length) return null;
+    return read(entry.manifest, frames, entry.checkedAt);
+}
 
 function frameCacheKey(dataset: CmemsDatasetKey, generation: string, step: number): string {
     return `${dataset}:${generation}:${step}`;
@@ -708,6 +710,7 @@ function evictDecodedFrames(dataset: CmemsDatasetKey, bumpEpoch: boolean): void 
         for (const controller of controllers) controller.abort(new Error(`${dataset} frame was released`));
         activeAssetControllers.delete(dataset);
     }
+    changedReadOwnership();
 }
 
 /** Release all decoded map-frame ownership for one product. Safe to call repeatedly. */
@@ -756,6 +759,7 @@ async function verifiedManifest(dataset: CmemsDatasetKey, nowMs: number): Promis
             checkedAt: nowMs,
             dataEnd: Date.parse(manifest.data_end),
         });
+        changedReadOwnership();
         return manifest;
     })();
     manifestInflight.set(dataset, operation);
@@ -867,6 +871,7 @@ function deleteFrameAndOrphanMask(key: string): void {
     if (!datasetStillRetained && maskCache.get(entry.dataset)?.generation === entry.generation) {
         maskCache.delete(entry.dataset);
     }
+    changedReadOwnership();
 }
 
 function enforceFrameCacheBounds(): void {
@@ -978,6 +983,7 @@ async function fetchAndValidateFrame(
             decodedBytes: decoded.u.byteLength + (decoded.v?.byteLength ?? 0),
         };
         frameCache.set(key, entry);
+        changedReadOwnership();
         enforceFrameCacheBounds();
         log.info(`Loaded verified ${dataset} generation ${manifest.generation} frame ${requestedStep}`);
         return grid;

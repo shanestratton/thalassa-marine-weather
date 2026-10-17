@@ -71,7 +71,6 @@ import {
     flushBufferedTrack as _flushBufferedTrack,
     drainBufferedTrackForHandoff,
     type CaptureContext,
-    type CaptureLogOptions,
     type AddManualOptions,
     type FlushBufferedTrackResult,
 } from './shiplog/CapturePipeline';
@@ -139,7 +138,6 @@ const log = createLogger('ShipLog');
 
 const TRACKING_INTERVAL_MS = 3 * 1000; // land / inshore safe fallback
 const RAPID_INTERVAL_MS = 3 * 1000; // manual marina override matches dense geographic profile
-const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
 /**
  * Cold-start fast-lock (distanceFilter:0) duration for a new voyage.
  *
@@ -888,13 +886,12 @@ class ShipLogServiceClass {
                     if (!isAuthIdentityScopeCurrent(scope)) return;
                 } else if (decision.action === 'mark-stopped') {
                     // Genuine cold start / force-close — mark stopped so the
-                    // Start button shows correctly; autoStartIfEnabled() will
-                    // restart if the user's setting is on.
+                    // Start button shows correctly for the next explicit start.
                     this.trackingState = {
                         isTracking: false,
                         isPaused: false,
                         isRapidMode: false,
-                        // Preserve voyage info so autoStartIfEnabled can decide.
+                        // Preserve voyage info for the next start's resume decision.
                         currentVoyageId: this.trackingState.currentVoyageId,
                         voyageStartTime: this.trackingState.voyageStartTime,
                         voyageStartCapture: this.trackingState.voyageStartCapture,
@@ -998,33 +995,6 @@ class ShipLogServiceClass {
                 }
             });
         }
-    }
-
-    /**
-     * Automatically resume tracking if the user has auto-track enabled
-     * and there's a non-stale voyage in progress.
-     * @param autoTrackEnabled - Whether the user's settings allow auto-tracking
-     */
-    async autoStartIfEnabled(autoTrackEnabled: boolean): Promise<void> {
-        const scope = getAuthIdentityScope();
-        if (!autoTrackEnabled) return;
-        if (!isAuthIdentityScopeCurrent(scope)) return;
-        if (this.trackingState.isTracking) return;
-
-        const lastVoyageEnd = this.trackingState.voyageEndTime;
-        const lastVoyageId = this.trackingState.currentVoyageId;
-
-        if (lastVoyageEnd && lastVoyageId) {
-            const elapsed = Date.now() - new Date(lastVoyageEnd).getTime();
-            if (elapsed < VOYAGE_STALE_THRESHOLD_MS) {
-                // Recent voyage — resume it
-                await this.startTracking(true, lastVoyageId, scope);
-                return;
-            }
-        }
-
-        // No recent voyage or too stale — start fresh
-        await this.startTracking(false, undefined, scope);
     }
 
     /** Check whether the active geographic plotting profile missed a capture while backgrounded. */
@@ -2581,43 +2551,6 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Capture a single log entry
-     * Auto-pause detection: If vessel hasn't moved >0.05nm in 1 hour, pause tracking
-     */
-    async captureLogEntry(
-        entryType: 'auto' | 'manual' | 'waypoint' = 'auto',
-        notes?: string,
-        waypointName?: string,
-        eventCategory?:
-            | 'navigation'
-            | 'weather'
-            | 'equipment'
-            | 'crew'
-            | 'arrival'
-            | 'departure'
-            | 'safety'
-            | 'observation',
-        engineStatus?: 'running' | 'stopped' | 'maneuvering',
-        voyageId?: string,
-        skipDedup?: boolean,
-    ): Promise<ShipLogEntry | null> {
-        const scope = this.trackingOwnerScope ?? getAuthIdentityScope();
-        if (!isAuthIdentityScopeCurrent(scope)) return null;
-        const state = this.trackingState;
-        if (entryType === 'auto' && state.isTracking && !this.trackGpsGateOpen) return null;
-        const opts: CaptureLogOptions = {
-            entryType,
-            notes,
-            waypointName,
-            eventCategory,
-            engineStatus,
-            voyageId,
-            skipDedup,
-        };
-        return this.enqueueCaptureWrite(scope, state, (ctx) => _captureLog(ctx, opts));
-    }
-
-    /**
      * Flush the high-frequency GPS buffer.
      *
      * Called by the selected-point callback and as a timer safety net.
@@ -2774,6 +2707,16 @@ class ShipLogServiceClass {
         if (!this.trackingState.isTracking || this.trackingState.isPaused) return null;
         const last = this.shoreZoneResolver.getLastResolution();
         return last?.confirmed ? last.zone : null;
+    }
+    /** Geographic evidence for an explicit private comfort report. The
+     * caller must subtract the offset to its actual retained capture. */
+    getComfortShoreEvidence(): { latitude: number; longitude: number; coastDistanceNm: number } | null {
+        const status = this.getPublishedTrackingStatus();
+        if (!status.isTracking || status.isPaused) return null;
+        const last = this.shoreZoneResolver.getLastResolution();
+        return last?.confirmed && last.coastDistanceNm !== null && Number.isFinite(last.coastDistanceNm)
+            ? { latitude: last.latitude, longitude: last.longitude, coastDistanceNm: last.coastDistanceNm }
+            : null;
     }
 
     /** UI observers must not treat a pending start's optimistic state as a verified recording. */

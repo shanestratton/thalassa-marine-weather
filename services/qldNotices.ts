@@ -210,6 +210,21 @@ export function qldNoticesFetchedAt(): number | null {
     return loadCache()?.fetchedAt ?? null;
 }
 
+/** Browsing the chart must not launch the legacy28-dataset fan-out. */
+export function cachedQldNotices(): { notices: QldNotice[]; fetchedAt: number | null } {
+    try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw && raw.length <= 2 * 1024 * 1024) {
+            const saved = JSON.parse(raw) as CachePayload;
+            if (Array.isArray(saved?.notices) && saved.notices.length <= 1000 && Number.isFinite(saved.fetchedAt))
+                return { notices: saved.notices, fetchedAt: saved.fetchedAt };
+        }
+    } catch {
+        /* Public cache unavailable; never start network as a fallback. */
+    }
+    return { notices: [], fetchedAt: null };
+}
+
 let inflight: Promise<QldNotice[]> | null = null;
 
 /** All current QLD notices (cache-first, 12 h TTL). Fail-quiet per dataset. */

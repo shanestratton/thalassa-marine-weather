@@ -26,12 +26,17 @@ import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { shareClassNames } from './scripts/share-class-names.mjs';
 import { shareUiStrings } from './scripts/share-ui-strings.mjs';
+import { inertUiData, inertUiDataWorkerFence } from './scripts/inert-ui-data.mjs';
+import { inertPreloadData } from './scripts/inert-preload-data.mjs';
 import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
 import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
 import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
 import { shareSvgProps } from './scripts/share-svg-props.mjs';
 import { shareSvgPaths } from './scripts/share-svg-paths.mjs';
 import { packPolarArguments } from './scripts/pack-polar-arguments.mjs';
+import { packReliefInventories } from './scripts/pack-relief-rows.mjs';
+import { packMapboxShaders } from './scripts/pack-mapbox-shaders.mjs';
+import { packAuthoredProse } from './scripts/pack-authored-prose.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 import { handler as handleNoaaChart } from './api/noaa-chart';
@@ -411,6 +416,7 @@ function resolveCommitSha(): string {
 }
 
 export default defineConfig(({ mode }) => {
+    const packedUiData = inertUiData(__dirname);
     // 1. Load env vars from local .env files
     const env = loadEnv(mode, __dirname, '');
 
@@ -438,7 +444,9 @@ export default defineConfig(({ mode }) => {
     return {
         // Lazy ENC contours otherwise introduce this dependency during a
         // browser test and Vite reloads every open page halfway through input.
-        optimizeDeps: { include: ['delaunator'] },
+        // Overlay parsing can first request fflate inside its worker. Prebundle
+        // it before a dev session so that first import cannot reload the page.
+        optimizeDeps: { include: ['delaunator', 'fflate'] },
         server: {
             port: 3000,
             // Localhost by default. LAN exposure is an explicit developer opt-in.
@@ -490,6 +498,7 @@ export default defineConfig(({ mode }) => {
             },
         },
         plugins: [
+            inertPreloadData(__dirname),
             oceanApiLocal({ ...env, ...process.env }),
             releasePreviewDocumentRoutes(),
             mode === 'production' && releasePublicBetaFeatureManifest(publicBetaCredentialPresence),
@@ -627,10 +636,14 @@ export default defineConfig(({ mode }) => {
             jspdfPrimitives(__dirname),
             packTimezoneData(__dirname),
             packPolarArguments(__dirname),
+            packReliefInventories(__dirname),
+            packMapboxShaders(__dirname),
+            packAuthoredProse(__dirname),
             shareSvgProps(__dirname),
-            shareSvgPaths(__dirname),
-            shareClassNames(__dirname),
-            shareUiStrings(__dirname),
+            packedUiData.plugin,
+            shareSvgPaths(__dirname, { data: packedUiData }),
+            shareClassNames(__dirname, { data: packedUiData }),
+            shareUiStrings(__dirname, { data: packedUiData }),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
@@ -709,7 +722,7 @@ export default defineConfig(({ mode }) => {
         // grids run in the route worker, the main build's engine chunk.)
         worker: {
             format: 'es',
-            plugins: () => [workerSentryNoop()],
+            plugins: () => [workerSentryNoop(), inertUiDataWorkerFence(__dirname)],
         },
         build: {
             outDir: 'dist',
@@ -766,6 +779,7 @@ export default defineConfig(({ mode }) => {
                     hoistTransitiveImports: false,
                     manualChunks(id, meta) {
                         const moduleId = id.replaceAll('\\', '/');
+                        if (moduleId.endsWith('/utils/readPreloadData.ts')) return 'preload-data';
                         // The router: one chunk that is also the route worker's
                         // script (routeEngineLogger, above). What the app's
                         // start-up also imports of it is `engine-leaf`, so the

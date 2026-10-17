@@ -34,7 +34,8 @@ describe('public-beta privacy contract', () => {
         const signIn = read('components/SignInScreen.tsx');
         const account = read('components/settings/AccountTab.tsx');
 
-        expect(terms).toContain('Version 2.9 · Public Beta');
+        expect(terms).toContain('Version 3.0 · Public Beta');
+        expect(terms).toContain('Effective Date: 17 October 2026');
         expect(terms).toContain('supported account data syncs');
         expect(terms).toContain('may also be sent to');
         expect(terms).toContain('pseudonymous Thalassa account ID');

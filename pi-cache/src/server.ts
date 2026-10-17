@@ -10,6 +10,7 @@
 
 import 'dotenv/config';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 
 // Force IPv4 for all fetch() calls — most boat networks lack IPv6 connectivity
 // and Node.js 22's undici-based fetch() tries AAAA records first, causing timeouts
@@ -54,6 +55,8 @@ import {
     DiaryRelayValidationError,
 } from './diaryRelayOutbox.js';
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
+import { assignmentSafeArea, normalizeAnchorAssignment } from './anchorZoneContract.js';
+import { reviewAnchorAreaChange } from './anchorAreaAdmission.js';
 import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { SignalKReadSession } from './signalKReadSession.js';
@@ -72,6 +75,20 @@ import { WakeKeeperStore } from './wakeKeeper/store.js';
 import { WakeRelay } from './wakeKeeper/relay.js';
 import { wakePairingId, wakeEnrollmentRevision } from './wakeKeeper/contract.js';
 import { createWakeRuleRoutes } from './routes/wakeRules.js';
+import { FleetConsentStore } from './fleetFeed/store.js';
+import { FleetForwarder } from './fleetFeed/forwarder.js';
+import { FleetFeedKeeper } from './fleetFeed/keeper.js';
+import { FleetAisInput, currentFleetContext, localFleetSource } from './fleetFeed/source.js';
+import { fleetWorkerEndpoint, fleetBatchSender } from './fleetFeed/transport.js';
+import { createFleetFeedRoutes } from './routes/fleetFeed.js';
+import { createOwnBoatSkillRoutes } from './routes/ownBoatSkill.js';
+import { OwnBoatSkillKeeper, type OwnSkillContext } from './ownBoatSkill/keeper.js';
+import { OwnBoatSkillStore } from './ownBoatSkill/store.js';
+import { SkillOwnerVerifier } from './ownBoatSkill/owner.js';
+import { OwnPublishedWindReader } from './ownBoatSkill/published.js';
+import { readOwnInstrumentSource } from './ownBoatSkill/source.js';
+import type { FleetForwardBinding } from './fleetFeedWire.js';
+import type { ChartDevicePublic } from './encDevices.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
@@ -497,6 +514,119 @@ underwayWatch.restore();
 const piLock = new PiLockStore(path.join(CACHE_DIR, 'pi-lock.json'));
 const piLockLedger = new PiLockLedger();
 const piInternet = new PiInternetMemory(path.join(CACHE_DIR, 'pi-internet.json'));
+//140-05 is independently OFF. A declared receiver-only local rebroadcast,
+// fixed HTTPS worker and fresh owner consent are ALL needed before any socket.
+const fleetPort = process.env.THALASSA_FLEET_AIS_REBROADCAST_PORT;
+const fleetSource = localFleetSource({
+    port: fleetPort && /^\d{1,5}$/.test(fleetPort) ? Number(fleetPort) : undefined,
+    reference: process.env.THALASSA_FLEET_RECEIVER_REFERENCE,
+});
+const fleetEndpoint = fleetWorkerEndpoint(process.env.THALASSA_PI_FLEET_FEED_URL);
+const fleetOperatorEnabled =
+    APP_API_ENABLED &&
+    process.env.THALASSA_PI_FLEET_ENABLED === '1' &&
+    !!fleetSource &&
+    !!fleetEndpoint &&
+    /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/?$/.test(SIGNALK_ORIGIN);
+const fleetConsentStore = new FleetConsentStore(path.join(CACHE_DIR, 'fleet-sharing.json'));
+const fleetContextFor = async (boatId: string, device: ChartDevicePublic) => {
+    const before = diaryRelayOutbox.lendFleetCredentials();
+    if (!before) return null;
+    const document = await selfDocument(),
+        current = (await chartDevices.list()).find((d) => d.id === device.id);
+    const after = diaryRelayOutbox.lendFleetCredentials();
+    if (
+        !current ||
+        wakeEnrollmentRevision(current) !== wakeEnrollmentRevision(device) ||
+        !after ||
+        JSON.stringify(before) !== JSON.stringify(after)
+    )
+        return null;
+    return currentFleetContext({
+        source: fleetSource,
+        document,
+        now: Date.now(),
+        ...after,
+        piDeviceId: identity.deviceId,
+        boatId,
+        device: current,
+        allowInternet: diaryRelayOutbox.getConfiguration().allowInternet && piInternet.read() === true,
+    });
+};
+const fleetInput = new FleetAisInput(fleetSource?.port ?? null, (line, at, key) =>
+    fleetForwarder.ingest(line, at, key),
+);
+const fleetForwarder = new FleetForwarder({
+    store: fleetConsentStore,
+    identity,
+    operatorEnabled: fleetOperatorEnabled,
+    input: fleetInput,
+    readContext: async (binding: FleetForwardBinding) => {
+        const device = (await chartDevices.list()).find((d) => d.id === binding.controllerId);
+        if (!device) {
+            fleetForwarder.off();
+            return null;
+        }
+        return fleetContextFor(binding.boatId, device);
+    },
+    send: fleetEndpoint ? fleetBatchSender(fleetEndpoint) : async () => ({ status: 503 }),
+});
+const fleetKeeper = new FleetFeedKeeper({
+    store: fleetConsentStore,
+    identity,
+    operatorEnabled: fleetOperatorEnabled,
+    context: fleetContextFor,
+    forwarder: fleetForwarder,
+});
+fleetForwarder.start();
+//141-07: the registered relay is pairing context only, never owner proof.
+// Issue/renew access additionally verifies the JWT and actual owned fleet row.
+const ownSkillStore = new OwnBoatSkillStore(path.join(CACHE_DIR, 'own-boat-skill'));
+const ownSkillContext = async (controllerId: string): Promise<OwnSkillContext | null> => {
+    const before = diaryRelayOutbox.lendFleetCredentials();
+    if (!APP_API_ENABLED || !before) return null;
+    const enrolled = (await chartDevices.list()).find((d) => d.id === controllerId);
+    if (!enrolled) return null;
+    let document: unknown = null;
+    try {
+        document = await selfDocument();
+    } catch {
+        /* A quiet bus is unavailable, not a new source. */
+    }
+    const after = diaryRelayOutbox.lendFleetCredentials();
+    const device = (await chartDevices.list()).find((d) => d.id === controllerId);
+    if (
+        !after ||
+        JSON.stringify(before) !== JSON.stringify(after) ||
+        !device ||
+        wakeEnrollmentRevision(device) !== wakeEnrollmentRevision(enrolled)
+    )
+        return null;
+    const allowInternet = diaryRelayOutbox.getConfiguration().allowInternet && piInternet.read() === true;
+    return {
+        identity: {
+            ownerId: after.ownerId,
+            piDeviceId: identity.deviceId,
+            controllerId,
+            pairingRevision: createHash('sha256')
+                .update(JSON.stringify([1, after.ownerId, identity.deviceId, after.relayId, after.token]))
+                .digest('hex'),
+            enrollmentRevision: wakeEnrollmentRevision(device),
+        },
+        source: readOwnInstrumentSource(document, Date.now()),
+        allowInternet,
+        current: () =>
+            JSON.stringify(diaryRelayOutbox.lendFleetCredentials()) === JSON.stringify(after) &&
+            (diaryRelayOutbox.getConfiguration().allowInternet && piInternet.read() === true) === allowInternet,
+    };
+};
+const ownSkillKeeper = new OwnBoatSkillKeeper({
+    enabled: APP_API_ENABLED,
+    store: ownSkillStore,
+    context: ownSkillContext,
+    owner: new SkillOwnerVerifier({ trustedOrigin: SUPABASE_ORIGIN, anonKey: () => SUPABASE_ANON_KEY }),
+    forecasts: new OwnPublishedWindReader({ trustedOrigin: SUPABASE_ORIGIN, anonKey: () => SUPABASE_ANON_KEY }),
+});
 /** Started with the server (below); until then the vault reads as unreachable. */
 let vaultLink: VaultLink | null = null;
 
@@ -730,7 +860,10 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
 
     radarWatch.stop();
     radarSession.retire();
+    const priorFleetAuthority = diaryRelayOutbox.lendFleetCredentials();
     diaryRelayOutbox.configure(input);
+    fleetKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
+    ownSkillKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
     return input.allowInternet;
 }
@@ -949,7 +1082,14 @@ app.get('/api/anchor/capability', requireAppApi, async (_req, res) => {
           : !hasFix
             ? 'Signal K on this Pi cannot see the vessel right now'
             : null;
-    res.json({ capable: paired && !!SUPABASE_ANON_KEY && hasFix, paired, hasFix, reason });
+    res.json({
+        capable: paired && !!SUPABASE_ANON_KEY && hasFix,
+        paired,
+        hasFix,
+        reason,
+        safeZoneVersion: 1,
+        watchRevision: anchorWatch.watchRevision(),
+    });
 });
 
 /**
@@ -1026,7 +1166,7 @@ app.get('/api/telemetry', requireAppApi, async (req, res) => {
 // "Send a test from the Pi" through the push path (126-04b).
 app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch, { test: () => piAlarmRelay.test() }));
 
-app.post('/api/anchor/watch', requireAppApi, (req, res) => {
+app.post('/api/anchor/watch', requireAppApi, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const sessionCode = typeof body.sessionCode === 'string' ? body.sessionCode.trim() : '';
     const anchorLat = Number(body.anchorLat);
@@ -1059,6 +1199,57 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     // shows "--" rather than failing.
     const rodeLength = Number(body.rodeLength);
     const waterDepth = Number(body.waterDepth);
+    const previous = anchorWatch.current();
+    const assignment = normalizeAnchorAssignment(
+        {
+            sessionCode,
+            anchorLat,
+            anchorLon,
+            swingRadius,
+            rodeLength: Number.isFinite(rodeLength) && rodeLength > 0 ? rodeLength : undefined,
+            waterDepth: Number.isFinite(waterDepth) && waterDepth > 0 ? waterDepth : undefined,
+            ...(body.safeZone !== undefined
+                ? {
+                      safeZone: body.safeZone as never,
+                      safeAreaRevision: body.safeAreaRevision as string,
+                      safeAreaVesselId: body.safeAreaVesselId as string | null,
+                  }
+                : {}),
+        },
+        previous,
+    );
+    if (!assignment)
+        return res.status(400).json({
+            status: 'error',
+            error: 'Review the safe area with the exact anchor and circle; clearing it must be explicit.',
+        });
+    const safeArea = assignmentSafeArea(assignment);
+    const areaEdit = assignment.safeZone !== undefined || Boolean(previous?.safeZone);
+    const stillPaired = () => {
+        const still = diaryRelayOutbox.lendAnchorCredentials();
+        return still?.relayId === lent.relayId && still?.token === lent.token;
+    };
+    const review = areaEdit
+        ? await reviewAnchorAreaChange(assignment, previous, body.expectedWatchRevision, {
+              now: Date.now,
+              revision: () => anchorWatch.watchRevision(),
+              dragging: () => anchorWatch.isDragging(),
+              paired: stillPaired,
+              enrolled: async () => (await chartDevices.verify(req.get(CHART_DEVICE_HEADER))).state === 'enrolled',
+              readFix: () => currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, selfDocument }),
+          })
+        : { ok: true as const, unchanged: false, revision: anchorWatch.watchRevision() };
+    if (!review.ok) return res.status(409).json({ status: 'error', error: review.error });
+    if (review.unchanged) {
+        return res.json({
+            status: 'ok',
+            watch: anchorWatch.describe(),
+            safeZoneVersion: 1,
+            safeArea,
+            safeAreaRevision: assignment.safeAreaRevision,
+            safeAreaVesselId: assignment.safeAreaVesselId,
+        });
+    }
     // A device not set up, while the Pi enforces (129-12): the lock let this
     // through only to start a watch or renew the running one unchanged, and a
     // renewal leaves it running as it is, drag count and all.
@@ -1070,14 +1261,13 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
             .status(409)
             .json({ status: 'error', error: 'A Pi update is being staged. The watch has not been started.' });
     }
+    if (areaEdit && (anchorWatch.watchRevision() !== review.revision || !stillPaired() || anchorWatch.isDragging()))
+        return res
+            .status(409)
+            .json({ status: 'error', error: 'The paired watch changed before the area could be adopted.' });
     anchorWatch.start(
         {
-            sessionCode,
-            anchorLat,
-            anchorLon,
-            swingRadius,
-            rodeLength: Number.isFinite(rodeLength) && rodeLength > 0 ? rodeLength : undefined,
-            waterDepth: Number.isFinite(waterDepth) && waterDepth > 0 ? waterDepth : undefined,
+            ...assignment,
         },
         {
             url: canonicalAnchorRelayEndpoint(SUPABASE_ORIGIN),
@@ -1091,7 +1281,14 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     // was ever told, and whether something later told it to stop. Both were
     // silent, so both were guessed at.
     console.log(`⚓ Anchor watch STARTED for session ${sessionCode} (r=${swingRadius}m)`);
-    return res.json({ status: 'ok', watch: anchorWatch.describe() });
+    return res.json({
+        status: 'ok',
+        watch: anchorWatch.describe(),
+        safeZoneVersion: 1,
+        safeArea,
+        safeAreaRevision: assignment.safeAreaRevision,
+        safeAreaVesselId: assignment.safeAreaVesselId,
+    });
 });
 
 app.delete('/api/anchor/watch', requireAppApi, (_req, res) => {
@@ -1141,6 +1338,12 @@ if (APP_API_ENABLED) {
         createRadarRoutes(radarSession),
     );
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
+    app.use('/api/fleet-sharing', requireAppApi, createFleetFeedRoutes({ keeper: fleetKeeper, devices: chartDevices }));
+    app.use(
+        '/api/own-boat-skill',
+        requireAppApi,
+        createOwnBoatSkillRoutes({ keeper: ownSkillKeeper, devices: chartDevices }),
+    );
     app.use(
         '/api/weather-watch',
         requireAppApi,
@@ -1206,6 +1409,7 @@ if (APP_API_ENABLED) {
         '/api/radar',
         '/api/polars',
         '/api/offline-weather',
+        '/api/own-boat-skill',
     ]) {
         app.use(prefix, requireAppApi);
     }
@@ -1254,6 +1458,7 @@ if (UNSAFE_ADMIN_API_ENABLED && fs.existsSync(path.join(APP_DIST, 'index.html'))
 
 const server = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.2' }, app);
 server.listen(PORT, BIND_HOST, () => {
+    ownSkillKeeper.start();
     console.log(`\n🌊 Thalassa Pi Cache running on https://${BIND_HOST}:${PORT}`);
     console.log(`   Cache dir: ${CACHE_DIR}`);
     console.log(
@@ -1374,6 +1579,8 @@ function shutdown() {
     radarWatch.stop();
     radarSession.stop();
     signalkRead?.stop();
+    fleetForwarder.close();
+    ownSkillKeeper.stop();
     wakeKeeper.stop();
     windHistory.stop();
     polarLearner.stop();
@@ -1386,6 +1593,7 @@ function shutdown() {
     server.close(() => {
         void reconvertStopped.finally(() => {
             diaryRelayOutbox.close();
+            ownSkillStore.close();
             cache.close();
             process.exit(0);
         });

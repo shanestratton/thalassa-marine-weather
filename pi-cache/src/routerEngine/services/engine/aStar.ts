@@ -8,6 +8,9 @@ import { M_PER_DEG_LAT } from './constants.js';
 import type { NavGrid } from './types.js';
 import { mPerDegLon, bresenhamCells, isNavigable } from './geometry.js';
 import { euclideanDistanceTransform } from '../marinaCenterline.js';
+import { TRACK_PRIOR_MIN_FACTOR, trackPriorFactor } from './trackPriors.js';
+import { exclusionCostFactor } from './exclusionField.js';
+import { trafficGridCourse, trafficLaneStepFactor, trafficLaneChordAllowed } from './trafficLanes.js';
 
 // ── Min-heap for A* open set ────────────────────────────────────────
 
@@ -504,6 +507,7 @@ export function aStar(
     cameFrom.fill(-1);
 
     const startIdx = start.y * w + start.x;
+    if (grid.exclusionBlocked?.[startIdx] === 1 || grid.exclusionBlocked?.[end.y * w + end.x] === 1) return null;
     const endIdx = end.y * w + end.x;
 
     // Pre-compute mPerLon at grid's mid-latitude. The variation across
@@ -516,7 +520,7 @@ export function aStar(
     const heuristic = (x: number, y: number): number => {
         const dx = (end.x - x) * grid.dLon * mPerLonGrid;
         const dy = (end.y - y) * grid.dLat * M_PER_DEG_LAT;
-        return Math.sqrt(dx * dx + dy * dy);
+        return Math.sqrt(dx * dx + dy * dy) * (grid.trackPrior ? TRACK_PRIOR_MIN_FACTOR : 1);
     };
 
     const open = new MinHeap();
@@ -540,6 +544,13 @@ export function aStar(
     const stepLengthsM = NEIGHBORS.map(({ dx, dy }) =>
         Math.sqrt((dx * grid.dLon * mPerLonGrid) ** 2 + (dy * grid.dLat * M_PER_DEG_LAT) ** 2),
     );
+    const stepCourses = grid.tssLane
+        ? NEIGHBORS.map(
+              ({ dx, dy }) =>
+                  ((Math.atan2(dx * grid.dLon * mPerLonGrid, dy * grid.dLat * M_PER_DEG_LAT) * 180) / Math.PI + 360) %
+                  360,
+          )
+        : null;
 
     // Medial-axis centring field — the cure for the wall-hug. Each step below is
     // multiplied by centreFactor[dest] so the search bows to mid-channel in
@@ -578,9 +589,17 @@ export function aStar(
             if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
             const nIdx = ny * w + nx;
             const cellDepth = grid.cells[nIdx];
-            if (Number.isNaN(cellDepth)) continue; // blocked
+            if (Number.isNaN(cellDepth) || grid.exclusionBlocked?.[nIdx] === 1) continue;
+            if (
+                dx !== 0 &&
+                dy !== 0 &&
+                (grid.exclusionBlocked?.[cy * w + nx] === 1 || grid.exclusionBlocked?.[ny * w + cx] === 1)
+            )
+                continue;
 
             const cellPreferred = grid.preferred[nIdx] === 1;
+            const trafficFactor = stepCourses ? trafficLaneStepFactor(grid, idx, nIdx, stepCourses[n]) : 1;
+            if (!Number.isFinite(trafficFactor)) continue;
             // Corridor-exit surcharge (additive ≥0 → the distance heuristic
             // stays admissible; cellCostMultiplier untouched, flat-preferred
             // doctrine preserved). See EXIT_PENALTY_M.
@@ -601,7 +620,10 @@ export function aStar(
                         cellNtmRise,
                         grid.assistCostMul ?? 10.0,
                     ) *
-                    centreFactor[nIdx] +
+                    centreFactor[nIdx] *
+                    trackPriorFactor(grid, nIdx) *
+                    exclusionCostFactor(grid, nIdx) *
+                    trafficFactor +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
@@ -620,6 +642,7 @@ export function aStar(
  */
 export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     const idx = y * grid.width + x;
+    if (grid.exclusionBlocked?.[idx] === 1) return Infinity;
     // × centreFactor so the smoother + acceptance gates price edges EXACTLY as
     // aStar did (centred). Absent on cached/test grids ⇒ 1 (prior behaviour).
     const centre = centreFactorAt(grid, idx);
@@ -634,11 +657,15 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
             assist,
             ntmRise,
             grid.assistCostMul ?? 10.0,
-        ) * centre
+        ) *
+        centre *
+        trackPriorFactor(grid, idx) *
+        exclusionCostFactor(grid, idx)
     );
 }
 
 export function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+    if (!trafficLaneChordAllowed(grid, a, b)) return false;
     // Cost-aware line of sight. The smoothed straight line must not
     // route through water STRICTLY WORSE than either endpoint already
     // uses. This is what keeps smoothPath from collapsing a channel
@@ -683,7 +710,7 @@ export function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: 
  * no post-A* refinement can silently undo a cost-optimal detour OR re-straighten
  * a centred leg back onto the bank.
  */
-export function chainCostM(grid: NavGrid, chain: { x: number; y: number }[]): number {
+export function chainCostM(grid: NavGrid, chain: { x: number; y: number }[], courseBearing?: number): number {
     const mPerLonG = M_PER_DEG_LAT * Math.cos(((grid.minLat + (grid.height * grid.dLat) / 2) * Math.PI) / 180);
     const stepLonM = grid.dLon * mPerLonG;
     const stepLatM = grid.dLat * M_PER_DEG_LAT;
@@ -692,10 +719,27 @@ export function chainCostM(grid: NavGrid, chain: { x: number; y: number }[]): nu
         const dx = Math.abs(chain[i].x - chain[i - 1].x);
         const dy = Math.abs(chain[i].y - chain[i - 1].y);
         const stepM = Math.hypot(dx * stepLonM, dy * stepLatM);
-        cost += stepM * cellCostAt(grid, chain[i].x, chain[i].y);
+        const trafficFactor = grid.tssLane
+            ? trafficLaneStepFactor(
+                  grid,
+                  chain[i - 1].y * grid.width + chain[i - 1].x,
+                  chain[i].y * grid.width + chain[i].x,
+                  courseBearing ?? trafficGridCourse(grid, chain[i - 1], chain[i]),
+              )
+            : 1;
+        cost += stepM * cellCostAt(grid, chain[i].x, chain[i].y) * trafficFactor;
         const fromPref = grid.preferred[chain[i - 1].y * grid.width + chain[i - 1].x] === 1;
         const toPref = grid.preferred[chain[i].y * grid.width + chain[i].x] === 1;
         if (fromPref && !toPref) cost += EXIT_PENALTY_M;
     }
     return cost;
+}
+
+/** The actual straight course, rather than the raster staircase, prices every lane cell. */
+export function chordCostM(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): number {
+    return chainCostM(
+        grid,
+        Array.from(bresenhamCells(a.x, a.y, b.x, b.y)),
+        grid.tssLane ? trafficGridCourse(grid, a, b) : undefined,
+    );
 }

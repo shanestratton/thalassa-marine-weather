@@ -28,6 +28,7 @@ import type mapboxgl from 'mapbox-gl';
 import type { ExpressionSpecification, FilterSpecification } from 'mapbox-gl';
 import { readS57 } from '../../services/enc/types';
 import { ENC_DRAW_TIER_COUNT } from '../../services/enc/scaleShadow';
+import { parseChartContours, type ChartContours } from '../../services/enc/chartContours';
 
 // ── Sentinels ──────────────────────────────────────────────────────
 
@@ -103,9 +104,9 @@ type Expr = unknown[];
 export function numAttrExpr(upper: string, lower: string): Expr {
     return [
         'case',
-        ['has', upper],
+        ['all', ['has', upper], ['!=', ['get', upper], null]],
         ['to-number', ['get', upper], ATTR_UNKNOWN],
-        ['has', lower],
+        ['all', ['has', lower], ['!=', ['get', lower], null]],
         ['to-number', ['get', lower], ATTR_UNKNOWN],
         ATTR_UNKNOWN,
     ];
@@ -124,9 +125,9 @@ const attrValid = (attr: Expr): Expr => ['>', attr, ATTR_VALID_FLOOR];
  * convention (Shane 2026-07-11: "white where deep, off white all the
  * way to a dirty white where it is not"). White = SURVEYED AND DEEP;
  * the tint dirties as the sand comes up, drying banks go khaki.
- * Bands are absolute, not draft-keyed (his call — predictable, matches
- * the paper chart aboard); the keel story lives in the draft-keyed
- * SAFETY CONTOUR on top. Uncharted water — AND water whose DRVAL1 is
+ * Legacy bands are absolute; optional mariner bands are validated by the
+ * caller against the vessel floor. The physical keel/glaze threshold stays
+ * separate from those display choices. Uncharted water — AND water whose DRVAL1 is
  * missing/garbage — gets no fill at all: absence of data must never
  * read as deep (the au-brisbane-test lesson, hard rule 1).
  *
@@ -135,8 +136,28 @@ const attrValid = (attr: Expr): Expr => ['>', attr, ATTR_VALID_FLOOR];
  * the water that's actually under the keel. Stops stay strictly
  * ascending for any constant shift, so the step stays valid.
  */
-export function buildDepareFillColor(tideOffsetM = 0): ExpressionSpecification {
+export function buildDepareFillColor(tideOffsetM = 0, contours?: ChartContours | null): ExpressionSpecification {
     const h = tideOffsetM;
+    const custom = parseChartContours(contours);
+    if (custom)
+        return mapExpr([
+            'case',
+            attrValid(DRVAL1_ATTR),
+            [
+                'step',
+                DRVAL1_ATTR,
+                DEPARE_BAND_COLORS.drying,
+                -h,
+                DEPARE_BAND_COLORS.b0to2,
+                custom.shallowM - h,
+                DEPARE_BAND_COLORS.b2to5,
+                custom.safetyM - h,
+                DEPARE_BAND_COLORS.b10to20,
+                custom.deepM - h,
+                DEPARE_BAND_COLORS.b50plus,
+            ],
+            'rgba(0,0,0,0)',
+        ]);
     return mapExpr([
         'case',
         attrValid(DRVAL1_ATTR),

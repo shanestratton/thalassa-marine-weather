@@ -119,6 +119,8 @@ export interface IsochroneConfig {
     waveLimitCeilingM?: number;
     comfortVessel?: { type: 'sail' | 'power' | 'observer'; length: number };
     shouldContinue?: () => boolean;
+    /** User-authored route constraints on the main-thread caller; never serialized as a function. */
+    segmentAllowed?: (from: { lat: number; lon: number }, to: { lat: number; lon: number }) => boolean;
     useDepthPenalty: boolean; // query GEBCO for depth-aware routing
     comfortParams?: ComfortParams; // user safety thresholds — cells exceeding these are treated as obstacles
 }

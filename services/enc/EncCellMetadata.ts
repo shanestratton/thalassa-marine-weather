@@ -27,6 +27,7 @@ import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_METADATA_PREFIX, encCellSt
 import { encCellContentIdentity } from './cellContentIdentity';
 import { BOAT_CELLS_ON_PHONE } from './boatCellVault';
 import { isOpenChartCell } from './chartLicence';
+import { retireChartFindCell, retireChartFindMemory } from './chartFindMemory';
 
 const log = createLogger('EncCellMetadata');
 
@@ -393,6 +394,7 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
     if (inMemory) {
         // The kill #41 rule holds in memory too: identical in, nothing out.
         if (held && JSON.stringify(held) === serialized) return;
+        retireChartFindCell(canonicalId);
         boatRecords.set(identity, classified);
         // A record of this identity an older build stored goes with it.
         for (const alias of ids.filter((id) => encCellStorageIdentity(id) === identity))
@@ -421,6 +423,7 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
         return;
     }
 
+    retireChartFindCell(canonicalId);
     localStorage.setItem(recordKey(classified.id), serialized);
     for (const alias of aliases) {
         if (alias !== classified.id) localStorage.removeItem(recordKey(alias));
@@ -439,6 +442,7 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
 export function removeCell(id: string): void {
     const canonicalId = canonicalEncCellId(id);
     if (!ENC_CELL_ID_PATTERN.test(canonicalId)) throw new Error(`Invalid ENC cell ID: ${id}`);
+    retireChartFindCell(canonicalId);
     const identity = encCellStorageIdentity(canonicalId);
     const ids = readIndex();
     for (const alias of ids) {
@@ -451,6 +455,7 @@ export function removeCell(id: string): void {
 
 /** Forget every licensed record (unpair, sign-out). One notify. */
 export function clearBoatRecords(): void {
+    retireChartFindMemory();
     boatLoaded = false;
     if (boatRecords.size === 0) return;
     boatRecords.clear();
@@ -496,6 +501,7 @@ export function displayCellsForBBox(bbox: [number, number, number, number]): Enc
  * EncCellStore's job). Used by the "reset all charts" admin action.
  */
 export function clearAllCellMetadata(): void {
+    retireChartFindMemory();
     const ids = readIndex();
     for (const id of ids) localStorage.removeItem(recordKey(id));
     localStorage.removeItem(INDEX_KEY);

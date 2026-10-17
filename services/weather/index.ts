@@ -1,21 +1,25 @@
 import { MarineWeatherReport, WeatherModel, OffshoreModel } from '../../types';
 import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
-import { fetchStormGlassWeather } from './api/stormglass';
+import { applyMarineModel, finalizeMarineForecast } from './applyMarineModel';
 import { fetchWeatherKitFull, buildReportFromWeatherKit } from './api/weatherkit';
 import { fetchUnifiedWeather } from './api/unified';
 import { fetchRealTides, interpolateTideHourly } from './api/tides';
-import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
-import { assessShelter, dampReportWaves } from './shelter';
+import { saveToCache, getFromCacheOffline } from './cache';
+import { assessShelter } from './shelter';
 import { crumb } from '../../utils/flightRecorder';
 import { Capacitor } from '@capacitor/core';
 import { announceCell } from './wxPublished';
 import { withTimeout } from '../../utils/deadline';
-import { fetchMarine, isLocalReading } from './api/marine';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { AUTO_MODEL, resolveForecastModel, resolveOffshoreModel, isConcreteModel, isSpitfire } from './forecastModels';
-import { blendOffshoreForecast } from './transformers';
+import {
+    resolveForecastModel,
+    resolveOffshoreModel,
+    offshoreAtmosphericModel,
+    isConcreteModel,
+    isSpitfire,
+} from './forecastModels';
 import { fetchSpitfire, applySpitfireToReport } from './spitfire';
 import { piCache } from '../PiCacheService';
 import { satelliteModeActive } from '../networkPolicy';
@@ -23,6 +27,13 @@ import { satelliteModeActive } from '../networkPolicy';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('index');
+
+// Session/pair listeners belong to an actual full marine read, not importing
+// a pure weather helper or opening the compact Satellite path.
+async function fetchMarineModelV2(lat: number, lon: number) {
+    const marine = await import('./api/marineModel');
+    return marine.fetchMarineModelV2(lat, lon);
+}
 
 // --- RE-EXPORTS (Maintain API Compatibility) ---
 export { MAJOR_BUOYS } from './config';
@@ -33,24 +44,8 @@ export { fetchActiveBuoys } from './api/buoys';
 export { fetchWeatherKitRealtime, fetchWeatherKitFull, fetchMinutelyRain } from './api/weatherkit';
 export { fetchUnifiedWeather, fetchUnifiedWeatherRaw, extractNowcast } from './api/unified';
 
-// Alias for compatibility
-export const fetchStormglassData = fetchStormGlassWeather;
-
-// ═══════════════════════════════════════════════════════════════
-// MAIN ORCHESTRATOR — WeatherKit-Primary Architecture
-// ═══════════════════════════════════════════════════════════════
-//
-// WeatherKit is THE source of truth for atmospheric data.
-// StormGlass fills marine gaps. OpenMeteo is fallback only.
-//
-// | Source      | Role                                   | Data                              |
-// |-------------|----------------------------------------|-----------------------------------|
-// | WeatherKit  | PRIMARY — all atmospheric              | current, hourly, daily, rain      |
-// | StormGlass  | MARINE ENRICHMENT                      | waves, swell, water temp, current |
-// | OpenMeteo   | FALLBACK (if WeatherKit fails) + CAPE  | full atmospheric + CAPE for map   |
-//
-// All API calls fire in parallel via Promise.allSettled. No serial dependencies.
-// ═══════════════════════════════════════════════════════════════
+// Atmospheric source selection and independent versioned marine enrichment.
+// No active StormGlass request or premium fallback remains in this orchestrator.
 
 // ── Request Dedup ──
 // If an identical fetch is already in-flight, piggyback on its Promise
@@ -81,9 +76,12 @@ const sameSelection = (a: ForecastSelection, b: ForecastSelection) =>
 
 const matchesOffshoreModel = (report: MarineWeatherReport, model: OffshoreModel): boolean =>
     report.locationType === 'offshore' &&
-    (model === 'icon'
-        ? /(?:om|wx):dwd_icon(?:\+|$)/.test(report.modelUsed)
-        : report.modelUsed.startsWith(`stormglass_${model}`));
+    report.modelUsed
+        .split('+')
+        .some(
+            (part) =>
+                part === `om:${offshoreAtmosphericModel(model)}` || part === `wx:${offshoreAtmosphericModel(model)}`,
+        );
 
 /**
  * Fill the holes a single forecast model physically cannot fill.
@@ -125,8 +123,8 @@ export function gapFillModelBlindSpots(report: MarineWeatherReport, supplement: 
             if (h.uvIndex != null && h.visibility != null) return h;
             const s = supHourly.get(toHourKey(h.time));
             if (!s) return h;
-            const uvIndex = h.uvIndex ?? s.uvIndex ?? null;
-            const visibility = h.visibility ?? s.visibility ?? null;
+            const uvIndex = h.uvIndex ?? s.uvIndex ?? h.uvIndex;
+            const visibility = h.visibility ?? s.visibility ?? h.visibility;
             if (uvIndex !== h.uvIndex || visibility !== h.visibility) borrowed = true;
             return { ...h, uvIndex, visibility };
         });
@@ -186,20 +184,16 @@ const _fetchWeatherByStrategyImpl = async (
         if (!compact) throw new Error('Compact forecast unavailable. Retry when the satellite link is ready.');
         compact.limitedForecast = 'satellite';
         compact.locationType = locationType;
-        return compact;
+        return finalizeMarineForecast(applyMarineModel(compact, null));
     }
     let isOffshore = locationType === 'offshore';
-    const needsStormGlass = locationType !== 'inland';
+    const needsMarine = locationType !== 'inland';
     const { userId, offshoreModel } = selection;
 
-    // ── Glass forecast model (the model-picker pill) ──
-    // A concrete model makes the Open-Meteo fetch below THE atmospheric base
-    // of the merged report (self-hosted wx server when reachable, commercial
-    // API otherwise). 'best_match' (Auto) keeps the legacy WeatherKit-primary
-    // blend and OM stays a supplement.
-    let glassModel = isOffshore ? (offshoreModel === 'icon' ? 'dwd_icon' : AUTO_MODEL) : selection.forecastModel;
-    let modelPinned = isOffshore ? offshoreModel === 'icon' : isConcreteModel(glassModel);
-    let offshoreAtmosphereReady = isOffshore && offshoreModel !== 'icon';
+    // Offshore models use the named atmospheric domain, while marine is always
+    // Météo-France waves paired with independent best-match motion/temperature.
+    let glassModel = isOffshore ? offshoreAtmosphericModel(offshoreModel) : selection.forecastModel;
+    let modelPinned = isOffshore || isConcreteModel(glassModel);
     // SPITFIRE is a published blend, not a grid — it is fetched separately and
     // only exists near the locations the wx box computes. Asking for it away
     // from those returns null and we fall through to the normal path.
@@ -219,32 +213,10 @@ const _fetchWeatherByStrategyImpl = async (
     // cold-start latency near-zero for users without / away from the Pi.
     await piCache.awaitReady();
 
-    // ── PARALLEL FETCH: Unified + StormGlass + Tides + OpenMeteo ──
-    // OpenMeteo is included ALWAYS (not just as a fallback) because the
-    // Unified/WeatherKit stack doesn't expose CAPE (Convective Available
-    // Potential Energy) — a thunderstorm-instability metric we still
-    // want offshore even when Unified is serving the primary data. Same
-    // call also gives us distToLandKm, isLandlocked, and timezone data
-    // for free. OpenMeteo is free + unlimited so the parallel cost is
-    // just one extra network round-trip that overlaps the others.
-    // Each source is BOUNDED and TIMED. Promise.allSettled waits for the
-    // slowest member, and .catch() only handles a REJECTION, not a stall —
-    // so before this, one slow endpoint held the whole report hostage.
-    // AbortSignal is a no-op under CapacitorHttp (utils/deadline.ts), so the
-    // native floor is 600 s: a single stuck socket could hang the Glass
-    // indefinitely. Shane 2026-07-22: "selecting a saved location takes ages,
-    // like 20 seconds".
-    //
-    // A source that misses its deadline degrades to null and the report is
-    // built from whatever DID arrive — the same path an outright failure
-    // already took. The per-source timings say which one is slow instead of
-    // us guessing.
-    // Start the sheltered-water assessment NOW so it overlaps the source
-    // fetches instead of queueing behind them — it needs only lat/lon, and
-    // its Overpass call was adding up to 4.5 s of dead time to the critical
-    // path. Awaited (already-resolved, usually) at the damping step below.
-    // .catch here so an early rejection can't surface as an unhandled one
-    // while nothing is awaiting it yet.
+    // Every atmospheric source keeps the original8s bound. Marine is
+    // supplementary: after atmosphere/tides settle it gets the same1.5s grace.
+    // Late results may populate only the marine client's bounded public RAM;
+    // its account/vessel/pair revision fences prevent retired cache writes.
     const shelterPromise = assessShelter(lat, lon).catch(() => null);
 
     // Tell the wx publisher a boat occupies this cell (coarse 0.25° cell, no
@@ -254,25 +226,6 @@ const _fetchWeatherByStrategyImpl = async (
     announceCell(lat, lon);
 
     const SOURCE_BUDGET_MS = 8_000;
-    /**
-     * How long a SUPPLEMENTARY source may keep the report waiting after
-     * everything the report actually needs has already landed.
-     *
-     * Promise.allSettled waits for the slowest member, so one slow provider
-     * set the wall clock for the whole report even when every other source
-     * was in. Shane's device, 2026-09-05: "wx sources 6513ms total:
-     * weatherkit=569 unified=570 tides=2318 openmeteo=2477 marine=2862
-     * stormglass=6509" — 6.5 s of which 3.6 s was spent waiting on one
-     * source, with the finished report sitting in memory the whole time.
-     *
-     * Cutting a source here does NOT throw its work away. withTimeout cannot
-     * cancel anything (utils/deadline.ts — the CapacitorHttp patch ignores
-     * AbortSignal), so the fetch runs on and writes its own cache; StormGlass
-     * caches to localStorage on the 6-hourly model cycle, so the answer is
-     * waiting, already paid for, on the next fetch. The in-flight dedupe in
-     * fetchStormGlassWeather means a re-fetch during the window JOINS that
-     * request rather than buying a second one.
-     */
     const SUPPLEMENTARY_GRACE_MS = 1_500;
     const t0 = Date.now();
     const timings: string[] = [];
@@ -338,36 +291,11 @@ const _fetchWeatherByStrategyImpl = async (
     ]);
     const graceGate = essentials.then(() => new Promise((resolve) => setTimeout(resolve, SUPPLEMENTARY_GRACE_MS)));
 
-    /**
-     * OFFSHORE IS NOT SUPPLEMENTARY. Away from the coast StormGlass is asked
-     * for the full atmospheric suite as well as the marine one, because
-     * WeatherKit has no ocean station data out there (see stormglass.ts). Cut
-     * it offshore and the report loses wind, pressure and air temperature —
-     * not just waves. Inshore and coastal it carries marine data only, which
-     * the report already renders without.
-     */
-    const sgCutWhen = isOffshore ? undefined : graceGate;
-
-    const [unifiedResult, sgResult, tideResult, omResult, marineResult] = await Promise.allSettled([
+    const [unifiedResult, tideResult, omResult, marineResult] = await Promise.allSettled([
         unifiedPromise,
-
-        // 2. StormGlass: Marine data (waves, swell, water temp, currents)
-        needsStormGlass
-            ? bounded('stormglass', fetchStormGlassWeather(lat, lon, name, locationType, offshoreModel), sgCutWhen)
-            : Promise.resolve(null),
-
         tidePromise,
         omPromise,
-
-        // 5. Marine from OUR OWN infra — Pi first, then Supabase. Running
-        //    ALONGSIDE StormGlass on purpose: this is the parity stage of
-        //    retiring it (Shane 2026-07-22). Nothing consumes this yet; it
-        //    only logs how the two compare, so the numbers can be checked at
-        //    sea before anything depends on them. Removing a marine source
-        //    on a boat app because the code looked right is not good enough.
-        //    Nothing reading it means nothing can be waiting on it either, so
-        //    it takes the grace window at every location.
-        bounded('marine', fetchMarine(lat, lon), graceGate),
+        needsMarine ? bounded('marine', fetchMarineModelV2(lat, lon), graceGate) : Promise.resolve(null),
     ]);
 
     // warn, not info — info is silenced in prod, and this line is the whole
@@ -375,61 +303,26 @@ const _fetchWeatherByStrategyImpl = async (
     // one the grace window cut while it was still running.
     log.warn(`[perf] wx sources ${Date.now() - t0}ms total: ${timings.join(' ')}`);
 
-    // ── MARINE PARITY (temporary, until StormGlass is cut) ──
-    // Both sources are live; this compares them so the switch is made on
-    // measured agreement rather than on the code reading correctly. Waves are
-    // in FEET on both sides here. `snap` is how far Open-Meteo's ocean-only
-    // grid moved the request — anything over ~2 km is a reading about
-    // somewhere else and is refused as local (see isLocalReading).
-    try {
-        const mr = marineResult.status === 'fulfilled' ? marineResult.value : null;
-        const sgc = (sgResult.status === 'fulfilled' ? sgResult.value : null)?.current;
-        if (mr || sgc) {
-            const f = (v: number | null | undefined) => (v == null ? '—' : Number(v).toFixed(1));
-            log.warn(
-                `[parity] marine via=${mr?.via ?? 'none'} snap=${mr ? `${mr.snappedKm}km` : '—'}` +
-                    `${mr && !isLocalReading(mr) ? ' REFUSED(too-far)' : ''} | ` +
-                    `wave ours=${f(mr?.waveHeight)}ft sg=${f(sgc?.waveHeight)}ft | ` +
-                    `swellP ours=${f(mr?.swellPeriod)}s sg=${f(sgc?.swellPeriod)}s | ` +
-                    `sea ours=${f(mr?.waterTemperature)}C sg=${f(sgc?.waterTemperature)}C`,
-            );
-        }
-    } catch {
-        /* parity logging must never affect the report */
-    }
-
     const unifiedReport = unifiedResult.status === 'fulfilled' ? unifiedResult.value : null;
-    let stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
     const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
     let openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
+    const marineReading = marineResult.status === 'fulfilled' ? marineResult.value : null;
 
-    // A never-visited point has no trusted coastal/offshore classification.
-    // Once the initial marine lookup establishes offshore, correct only the
-    // selected atmospheric source, reusing tides, marine and all fallbacks.
-    // This is a single bounded correction, never a recursive full refresh.
-    if (locationType === undefined && stormGlassReport?.locationType === 'offshore') {
+    // A first visit may be classified offshore by the atmospheric/geographic
+    // lookup. Correct its selected atmosphere once, reusing marine/tides and
+    // all other results. Never refetch the entire pack recursively.
+    if (locationType === undefined && openMeteoReport?.locationType === 'offshore') {
         isOffshore = true;
-        modelPinned = false;
-        if (sameSelection(selection, forecastSelection())) {
-            if (offshoreModel === 'icon') {
-                if (glassModel === 'dwd_icon' && openMeteoReport) {
-                    modelPinned = true;
-                } else {
-                    const corrected = await bounded('offshore-icon', fetchOpenMeteo(lat, lon, name, false, 'dwd_icon'));
-                    if (corrected) {
-                        openMeteoReport = corrected;
-                        glassModel = 'dwd_icon';
-                        modelPinned = true;
-                    }
-                }
-            } else {
-                const corrected = await bounded(
-                    'offshore-model',
-                    fetchStormGlassWeather(lat, lon, name, 'offshore', offshoreModel),
-                );
+        const wanted = offshoreAtmosphericModel(offshoreModel);
+        if (glassModel === wanted) modelPinned = true;
+        else {
+            modelPinned = false;
+            if (sameSelection(selection, forecastSelection())) {
+                const corrected = await bounded('offshore-model', fetchOpenMeteo(lat, lon, name, false, wanted));
                 if (corrected) {
-                    stormGlassReport = corrected;
-                    offshoreAtmosphereReady = true;
+                    openMeteoReport = corrected;
+                    glassModel = wanted;
+                    modelPinned = true;
                 }
             }
         }
@@ -469,17 +362,9 @@ const _fetchWeatherByStrategyImpl = async (
     /** Pinned-model path only: true once UV/visibility were gap-filled from
      *  the WeatherKit-backed report, so the model tag can say so. */
     let borrowedFromWeatherKit = false;
-    const offshoreAtmosphere = isOffshore && offshoreAtmosphereReady && !!stormGlassReport;
-
-    if (offshoreAtmosphere && stormGlassReport) {
-        const fallback =
-            unifiedReport ??
-            (weatherKitFull ? buildReportFromWeatherKit(weatherKitFull, lat, lon, name) : null) ??
-            openMeteoReport;
-        report = blendOffshoreForecast(stormGlassReport, fallback);
-    } else if (modelPinned && openMeteoReport) {
+    if (modelPinned && openMeteoReport) {
         // ✅ PINNED MODEL: the user chose a specific forecast model, so its
-        // report IS the atmospheric truth — no StormGlass current-override
+        // report IS the atmospheric truth — no other-provider current override
         // (that blend exists to paper over model uncertainty; here the model
         // is the point). Marine enrichment, tides, and CAPE still merge in
         // the shared pipeline below.
@@ -495,9 +380,6 @@ const _fetchWeatherByStrategyImpl = async (
     } else if (weatherKitFull) {
         // FALLBACK: WeatherKit as atmospheric base
         report = buildReportFromWeatherKit(weatherKitFull, lat, lon, name);
-    } else if (stormGlassReport && (!isOffshore || offshoreAtmosphereReady)) {
-        // WeatherKit also failed — use StormGlass as full fallback
-        report = structuredClone(stormGlassReport);
     } else if (openMeteoReport) {
         // Last resort — OpenMeteo only
         report = structuredClone(openMeteoReport);
@@ -508,7 +390,9 @@ const _fetchWeatherByStrategyImpl = async (
             const staleReport = structuredClone(offlineResult.data);
             staleReport._stale = true;
             staleReport._staleAgeMinutes = offlineResult.ageMinutes;
-            return staleReport;
+            // Expired marine is not a current sea observation, even when the
+            // atmospheric offline forecast remains useful and explicitly stale.
+            return finalizeMarineForecast(applyMarineModel(staleReport, null));
         }
         throw new Error(`All weather APIs failed for ${name}`);
     }
@@ -532,112 +416,8 @@ const _fetchWeatherByStrategyImpl = async (
         }
     }
 
-    // --- DETERMINE LOCATION TYPE ---
-    const computedLocationType =
-        stormGlassReport?.locationType || locationType || openMeteoReport?.locationType || 'coastal';
-    report.locationType = computedLocationType as 'inshore' | 'coastal' | 'offshore' | 'inland';
-
-    // --- ENRICH WITH STORMGLASS MARINE DATA ---
-    // WeatherKit doesn't provide wave, swell, water temp, or current data.
-    // StormGlass fills these gaps for coastal/offshore.
-    if (stormGlassReport && report.modelUsed !== 'stormglass') {
-        const sg = stormGlassReport.current;
-        const current = { ...report.current };
-        const sources = current.sources || {};
-
-        const sgSource = (val: number | string | null) => ({
-            value: val,
-            source: 'stormglass' as const,
-            sourceColor: 'sky' as const,
-            sourceName: 'StormGlass',
-        });
-
-        // Marine fields from StormGlass
-        if (sg.waveHeight != null) {
-            current.waveHeight = sg.waveHeight;
-            sources['waveHeight'] = sgSource(sg.waveHeight);
-        }
-        if (sg.swellPeriod != null) {
-            current.swellPeriod = sg.swellPeriod;
-            sources['swellPeriod'] = sgSource(sg.swellPeriod);
-        }
-        if (sg.swellDirection != null) {
-            current.swellDirection = sg.swellDirection;
-        }
-        if (sg.waterTemperature != null) {
-            current.waterTemperature = sg.waterTemperature;
-            sources['waterTemperature'] = sgSource(sg.waterTemperature);
-        }
-        if (sg.currentSpeed != null) {
-            current.currentSpeed = sg.currentSpeed;
-            sources['currentSpeed'] = sgSource(sg.currentSpeed);
-        }
-        if (sg.currentDirection != null) {
-            current.currentDirection = sg.currentDirection;
-        }
-        // Secondary swell (offshore-only marine data)
-        if (sg.secondarySwellHeight != null) {
-            current.secondarySwellHeight = sg.secondarySwellHeight;
-        }
-        if (sg.secondarySwellPeriod != null) {
-            current.secondarySwellPeriod = sg.secondarySwellPeriod;
-        }
-
-        current.sources = sources;
-        report.current = current;
-
-        // Merge StormGlass marine data into hourly forecasts
-        // FIX: WeatherKit uses "2024-03-10T17:00:00Z" but StormGlass uses "2024-03-10T17:00:00.000Z"
-        // Exact string match fails — normalize to epoch-hour for robust matching
-        if (stormGlassReport.hourly?.length) {
-            const toHourKey = (t: string) => Math.floor(new Date(t).getTime() / 3600000);
-            const sgHourlyMap = new Map(stormGlassReport.hourly.map((h) => [toHourKey(h.time), h]));
-            report.hourly = report.hourly.map((h) => {
-                const sgH = sgHourlyMap.get(toHourKey(h.time));
-                if (!sgH) return h;
-                return {
-                    ...h,
-                    waveHeight: sgH.waveHeight ?? h.waveHeight,
-                    swellPeriod: sgH.swellPeriod ?? h.swellPeriod,
-                    waterTemperature: sgH.waterTemperature ?? h.waterTemperature,
-                    currentSpeed: sgH.currentSpeed ?? h.currentSpeed,
-                    currentDirection: sgH.currentDirection ?? h.currentDirection,
-
-                    secondarySwellHeight: sgH.secondarySwellHeight ?? h.secondarySwellHeight,
-
-                    secondarySwellPeriod: sgH.secondarySwellPeriod ?? h.secondarySwellPeriod,
-
-                    cape: sgH.cape ?? h.cape,
-                };
-            });
-        }
-
-        // Merge StormGlass marine data into daily forecasts
-        if (stormGlassReport.forecast?.length) {
-            const sgDailyMap = new Map(stormGlassReport.forecast.map((d) => [d.isoDate || d.date, d]));
-            report.forecast = report.forecast.map((d) => {
-                const sgD = sgDailyMap.get(d.isoDate || d.date);
-                if (!sgD) return d;
-                return {
-                    ...d,
-                    waveHeight: sgD.waveHeight ?? d.waveHeight,
-                    swellPeriod: sgD.swellPeriod ?? d.swellPeriod,
-                    waterTemperature: sgD.waterTemperature ?? d.waterTemperature,
-                    currentSpeed: sgD.currentSpeed ?? d.currentSpeed,
-                    currentDirection: sgD.currentDirection ?? d.currentDirection,
-                };
-            });
-        }
-
-        // Inherit tides from StormGlass
-        if (stormGlassReport.tides?.length) report.tides = stormGlassReport.tides;
-        if (stormGlassReport.tideHourly?.length) report.tideHourly = stormGlassReport.tideHourly;
-        if (stormGlassReport.tideGUIDetails) report.tideGUIDetails = stormGlassReport.tideGUIDetails;
-
-        // Inherit location metadata from StormGlass (it does the coastline distance check)
-        if (stormGlassReport.distToLandKm != null) report.distToLandKm = stormGlassReport.distToLandKm;
-        if (stormGlassReport.isLandlocked != null) report.isLandlocked = stormGlassReport.isLandlocked;
-    }
+    const computedLocationType = locationType || openMeteoReport?.locationType || report.locationType || 'coastal';
+    report.locationType = computedLocationType;
 
     // --- APPLY TIDES (WorldTides — direct, first-class) ---
     // Tides are fetched directly from WorldTides API, not as a side effect
@@ -650,14 +430,9 @@ const _fetchWeatherByStrategyImpl = async (
         // refresh in WeatherContext (services/weather/api/tides.ts).
         const interpolated = interpolateTideHourly(tideData.tides);
         if (interpolated.length > 0) report.tideHourly = interpolated;
-    } else if (stormGlassReport?.tides?.length) {
-        // Fallback: StormGlass may have tides if WorldTides failed
-        report.tides = stormGlassReport.tides;
-        if (stormGlassReport.tideHourly?.length) report.tideHourly = stormGlassReport.tideHourly;
-        if (stormGlassReport.tideGUIDetails) report.tideGUIDetails = stormGlassReport.tideGUIDetails;
     }
 
-    // --- INHERIT LOCATION METADATA FROM OPENMETEO (if StormGlass didn't provide) ---
+    // --- INHERIT LOCATION METADATA FROM OPENMETEO ---
     if (report.distToLandKm == null && openMeteoReport?.distToLandKm != null) {
         report.distToLandKm = openMeteoReport.distToLandKm;
     }
@@ -666,14 +441,8 @@ const _fetchWeatherByStrategyImpl = async (
     }
 
     // --- ENRICH WITH OPENMETEO CAPE (current + hourly) ---
-    // CAPE (Convective Available Potential Energy) isn't exposed by
-    // WeatherKit or StormGlass — only OpenMeteo reports it. The
-    // StormGlass fetcher does its own OM side-call and injects cape
-    // onto SG hours, but that path silently fails if SG itself fails
-    // OR if the SG hybrid-context fetch doesn't match hour keys (seen
-    // 2026-04-24: wave/period/currents populating, CAPE still "--"
-    // everywhere). Safety net: merge CAPE directly from the parallel
-    // `fetchOpenMeteo` result, which always runs regardless of SG.
+    // WeatherKit does not supply CAPE. Keep the original atmospheric
+    // Open-Meteo supplement independent of marine availability.
     if (openMeteoReport?.current?.cape != null) {
         const current = { ...report.current };
         current.cape = openMeteoReport.current.cape;
@@ -683,9 +452,7 @@ const _fetchWeatherByStrategyImpl = async (
         const toHourKey = (t: string) => Math.floor(new Date(t).getTime() / 3600000);
         const omHourlyMap = new Map(openMeteoReport.hourly.map((h) => [toHourKey(h.time), h]));
         report.hourly = report.hourly.map((h) => {
-            // Only fill cape if downstream hasn't already set it. The SG
-            // merge earlier may have populated it via its hybrid inject;
-            // don't stomp that value here.
+            // Keep a value already supplied by the selected atmosphere.
             if (h.cape != null) return h;
             const omH = omHourlyMap.get(toHourKey(h.time));
             if (omH?.cape == null) return h;
@@ -711,18 +478,15 @@ const _fetchWeatherByStrategyImpl = async (
 
     // --- INHERIT TIMEZONE ---
     if (!report.timeZone) {
-        report.timeZone = openMeteoReport?.timeZone || stormGlassReport?.timeZone;
+        report.timeZone = openMeteoReport?.timeZone;
     }
     if (report.utcOffset === undefined) {
-        report.utcOffset = openMeteoReport?.utcOffset ?? stormGlassReport?.utcOffset;
+        report.utcOffset = openMeteoReport?.utcOffset;
     }
 
-    // --- BACKFILL DAILY GUST + SWELL PERIOD FROM HOURLY ---
-    // The daily forecast from some providers omits windGust (native WeatherKit
-    // daily) and swellPeriod (only the StormGlass daily merge sets it, and it
-    // doesn't reach the back days) — which blanked Gust + swell on the
-    // day-overview cards for forecast days. The hourly series carries both, so
-    // derive them per local day (max gust, median period). Gap-fill only.
+    // --- BACKFILL DAILY GUST FROM HOURLY ---
+    // Marine daily representatives are assigned separately by exact local
+    // date and source clock after this atmospheric gap fill.
     if (report.forecast?.length && report.hourly?.length) {
         const tzOpt = report.timeZone ? { timeZone: report.timeZone } : {};
         const hoursByDay = new Map<string, typeof report.hourly>();
@@ -732,7 +496,6 @@ const _fetchWeatherByStrategyImpl = async (
             if (list) list.push(h);
             else hoursByDay.set(day, [h]);
         }
-        const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
         report.forecast = report.forecast.map((d) => {
             const hrs = hoursByDay.get(d.isoDate || d.date);
             if (!hrs?.length) return d;
@@ -740,10 +503,6 @@ const _fetchWeatherByStrategyImpl = async (
             if (out.windGust == null) {
                 const gusts = hrs.map((h) => h.windGust).filter((g): g is number => typeof g === 'number' && g > 0);
                 if (gusts.length) out.windGust = parseFloat(Math.max(...gusts).toFixed(1));
-            }
-            if (out.swellPeriod == null) {
-                const pers = hrs.map((h) => h.swellPeriod).filter((p): p is number => typeof p === 'number' && p > 0);
-                if (pers.length) out.swellPeriod = parseFloat(median(pers).toFixed(1));
             }
             return out;
         });
@@ -762,8 +521,6 @@ const _fetchWeatherByStrategyImpl = async (
     const sourcesParts: string[] = [];
     if (spitfire) {
         sourcesParts.push('spitfire');
-    } else if (offshoreAtmosphere) {
-        sourcesParts.push(report.modelUsed);
     } else if (modelPinned && openMeteoReport) {
         // e.g. "wx:dwd_icon" (self-hosted) or "om:dwd_icon" (commercial)
         sourcesParts.push(`${openMeteoReport.modelUsed.startsWith('wx_') ? 'wx' : 'om'}:${glassModel}`);
@@ -775,38 +532,25 @@ const _fetchWeatherByStrategyImpl = async (
     } else if (weatherKitFull?.observation) {
         sourcesParts.push('wk');
     }
-    if (stormGlassReport && !offshoreAtmosphere) sourcesParts.push('sg');
-    if (!offshoreAtmosphere && !modelPinned && !unifiedReport && openMeteoReport) sourcesParts.push('om');
+    if (marineReading) sourcesParts.push('marine-v2');
+    if (!modelPinned && !unifiedReport && openMeteoReport) sourcesParts.push('om');
     report.modelUsed = sourcesParts.join('+') || report.modelUsed;
 
     report.locationName = name;
     report.coordinates = { lat, lon };
 
-    // --- SHELTERED-WATER WAVE DAMPING ---
-    // Global wave models leak open-ocean swell into enclosed bays the coarse
-    // grid can't resolve (Newport / Moreton Bay reads 2.7 m for a ~0.4 m bay).
-    // Where OSM coastline geometry confirms the point is boxed in, cap wave
-    // heights at what the local fetch can actually sustain. Best-effort and
-    // enclosed-only: an exposed coast, or any failure to get coastline, leaves
-    // the model values untouched. Time-boxed so it can't stall the load — on a
-    // cache miss the Overpass fetch still populates the cache for next time.
+    // Enclosed water receives an explicit unknown, never a fabricated capped
+    // ocean wave or coarse current. The already-started assessment is bounded.
+    let enclosed = false;
     try {
         crumb('shelter:start');
-        // Awaiting a promise STARTED EARLIER (see shelterPromise, kicked off
-        // before the source fetches) — it has had the whole source window to
-        // run, so this is usually already resolved. It used to start here,
-        // adding its full 4.5 s budget to the critical path AFTER the
-        // fetches had finished. Nothing about the result changes; it just
-        // overlaps instead of queueing.
         const shelter = await withTimeout(shelterPromise, null, 4_500);
+        enclosed = shelter?.enclosed === true;
         crumb('shelter:done');
-        if (shelter?.enclosed) {
-            const adjusted = dampReportWaves(report, shelter);
-            if (adjusted) log.info(`shelter: capped waves (fetch ${report.shelterFetchKm} km) for ${name}`);
-        }
     } catch (e) {
-        log.warn('shelter damping skipped:', (e as Error)?.message || e);
+        log.warn('shelter assessment unavailable:', (e as Error)?.message || e);
     }
+    report = finalizeMarineForecast(applyMarineModel(report, marineReading, enclosed));
 
     // The general/offline cache is coordinate-keyed. A late obsolete model
     // response may return to its original caller, but must not replace the
@@ -864,24 +608,32 @@ export const fetchFastWeather = async (
         name = parsed.name;
     }
 
-    // 2. Timeout Wrapper (15s)
-    const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Fast Fetch Timeout')), 15000),
+    // The quick path uses the same marine admission and final alert policy;
+    // neither a legacy atmospheric sea placeholder nor a provider failure is0.
+    const selection = forecastSelection();
+    const result = await withTimeout(
+        Promise.all([
+            fetchOpenMeteo(lat, lon, name, true, model),
+            fetchMarineModelV2(lat, lon),
+            withTimeout(
+                assessShelter(lat, lon).catch(() => null),
+                null,
+                4_500,
+            ),
+        ]),
+        null,
+        15_000,
     );
-
-    try {
-        const data = await Promise.race([fetchOpenMeteo(lat, lon, name, true, model), timeoutPromise]);
+    if (!result) throw new Error('Fast Fetch Timeout');
+    const [atmosphere, marine, shelter] = result;
+    const data = finalizeMarineForecast(applyMarineModel(atmosphere, marine, shelter?.enclosed === true));
+    if (sameSelection(selection, forecastSelection()) && model === selection.forecastModel)
         saveToCache({ lat, lon }, data);
-        return data;
-    } catch (e: unknown) {
-        throw e;
-    }
+    return data;
 };
 
-/**
- * Precision Weather: Uses StormGlass (Paid/Accurate).
- * Kept as fallback path for the WeatherContext error handler.
- */
+/** The fallback uses the same bounded source policy and never revives the
+ * retired paid marine provider or a coordinate-only legacy marine cache. */
 export const fetchPrecisionWeather = async (
     location: string,
     coords?: { lat: number; lon: number },
@@ -892,7 +644,6 @@ export const fetchPrecisionWeather = async (
         if (!coords) throw new Error('Choose a saved position for a compact satellite forecast.');
         return fetchWeatherByStrategy(coords.lat, coords.lon, location, existingLocationType);
     }
-    const selection = forecastSelection();
     let lat: number, lon: number, name: string;
 
     if (coords) {
@@ -917,27 +668,8 @@ export const fetchPrecisionWeather = async (
         name = p.name;
     }
 
-    if (!forceRefresh) {
-        const cached = getFromCache({ lat, lon });
-        if (
-            cached &&
-            cached.utcOffset !== undefined &&
-            (existingLocationType === 'offshore'
-                ? matchesOffshoreModel(cached, selection.offshoreModel)
-                : cached.modelUsed.includes('sg'))
-        ) {
-            return cached;
-        }
-    }
+    // Each source has its own bounded cache; forceRefresh remains API-compatible.
+    void forceRefresh;
 
-    try {
-        const data =
-            existingLocationType === 'offshore' && selection.offshoreModel === 'icon'
-                ? await _fetchWeatherByStrategyImpl(lat, lon, name, selection, existingLocationType)
-                : await fetchStormGlassWeather(lat, lon, name, existingLocationType, selection.offshoreModel);
-        if (sameSelection(selection, forecastSelection())) saveToCache({ lat, lon }, data);
-        return data;
-    } catch (e) {
-        throw e;
-    }
+    return fetchWeatherByStrategy(lat, lon, name, existingLocationType);
 };

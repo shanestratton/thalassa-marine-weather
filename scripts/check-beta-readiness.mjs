@@ -20,6 +20,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from 'vite';
+import { isReviewedUnsignedNative139Workflow } from './unsigned-native139-policy.mjs';
+import { resolveBoundedReaderSource } from './bounded-reader-source-policy.mjs';
 import {
     PUBLIC_BETA_ENDPOINT_KEYS,
     PUBLIC_BETA_FEATURE_ARTIFACT_FILE,
@@ -437,6 +439,7 @@ const cmemsWebglSafetySource = read('components/map/cmemsWebglSafety.ts');
 const cmemsRendererFailureTest = read('tests/CmemsRendererFailure.test.ts');
 const marineLayerVisualContractTest = read('tests/MarineLayerVisualContract.test.ts');
 const mpaDataset = read('services/weather/api/mpaDataset.ts');
+const mpaRetained = read('services/weather/api/mpaRetained.ts');
 const mpaLayer = read('components/map/MpaLayer.ts');
 const mapHubSource = read('components/map/MapHub.tsx');
 const marinePublisherTrustTest = read('tests/MarinePublisherTrust.test.ts');
@@ -518,8 +521,13 @@ check(
         workflowRunnerRecords.every(
             ({ relative, runner }) =>
                 runner === 'ubuntu-24.04' ||
-                // The one macOS job: the iPhone build/TestFlight upload (docs/IOS_TESTFLIGHT_CI.md).
-                (path.basename(relative) === 'ios-testflight.yml' && runner === 'macos-26'),
+                // The existing signed iPhone path, plus the separately fenced unsigned diagnostic.
+                (path.basename(relative) === 'ios-testflight.yml' && runner === 'macos-26') ||
+                (runner === 'macos-26' &&
+                    isReviewedUnsignedNative139Workflow(
+                        relative,
+                        workflowEntries.find(([name]) => name === relative)?.[1] ?? '',
+                    )),
         ) &&
         workflowEntries.every(([, source]) => /^permissions:\s*(?:\{\})?\s*$/m.test(source)) &&
         !workflowEntries.some(([, source]) => /\b(?:read-all|write-all)\b/.test(source.replace(/^\s*#.*$/gm, ''))) &&
@@ -843,10 +851,8 @@ check(
             'expect(onToggleMpa).toHaveBeenCalledOnce()',
         ]),
 );
-const cmemsBoundedReadBoundary = cmemsGridTrust.slice(
-    cmemsGridTrust.indexOf('export async function readBoundedResponse'),
-    cmemsGridTrust.indexOf('export async function fetchBoundedPublisherBytes'),
-);
+const cmemsBoundedReadBinding = resolveBoundedReaderSource(cmemsGridTrust, read);
+const cmemsBoundedReadBoundary = cmemsBoundedReadBinding.reader;
 const cmemsHashBoundary = cmemsGridTrust.slice(
     cmemsGridTrust.indexOf('export async function sha256Hex'),
     cmemsGridTrust.indexOf('export async function publisherGenerationSuffix'),
@@ -904,11 +910,29 @@ check(
             'sourceStep,',
         ]) &&
         !cmemsGridTrust.includes('/manifest.json') &&
+        cmemsBoundedReadBinding.bound &&
         includesAll(cmemsBoundedReadBoundary, [
+            'Number.isSafeInteger(maxBytes)',
+            'maxBytes <= 0',
+            "response.headers.get('content-length')",
+            'Number(declared) > maxBytes',
             'const output = new Uint8Array(maxBytes)',
             'requireTrust(total + value.byteLength <= maxBytes',
             'output.set(value, total)',
             'return total === output.byteLength ? output : output.slice(0, total)',
+            'signal?.throwIfAborted()',
+            'await waitForPublisherRead(reader.read(), signal,',
+            'void cancelOnce()',
+            'if (signal?.aborted) void cancelOnce()',
+            'else await waitForPublisherRead(cancelOnce(), signal)',
+            'reader.releaseLock()',
+        ]) &&
+        includesAll(cmemsBoundedReadBinding.module, [
+            'function waitForPublisherRead',
+            "signal.addEventListener('abort', abort, { once: true })",
+            "signal.removeEventListener('abort', abort)",
+            'onAbort?.()',
+            'if (signal.aborted) abort()',
         ]) &&
         !cmemsBoundedReadBoundary.includes('const chunks') &&
         !cmemsBoundedReadBoundary.includes('new Uint8Array(total)') &&
@@ -1118,7 +1142,6 @@ check(
     'MPA client validates one bounded immutable asset, releases ownership, and aborts stale work before Mapbox',
     includesAll(mpaDataset, [
         'export const MPA_ASSET_MAX_BYTES = 16 * 1024 * 1024',
-        'export const MPA_CACHE_TTL_MS = 30 * 60 * 1000',
         'value.schema_version === 2',
         'value.dimensions.feature_count',
         '`${API_BASE}/mpa/manifest-v2.json`',
@@ -1133,6 +1156,26 @@ check(
         'cache.publishedAt = manifest.published_at',
         "'force-cache'",
     ]) &&
+        includesAll(mpaRetained, [
+            'export const MPA_CACHE_TTL_MS = 30 * 60 * 1000',
+            'ownerReader === reader',
+            'now.entry === original',
+            'now.epoch === epoch',
+            'original.checkedAt === checkedAt',
+            'new WeakRef(captured)',
+            'source = null',
+            'captured = null',
+            'now >= entry.checkedAt',
+            'now - entry.checkedAt < MPA_CACHE_TTL_MS',
+            'bytes > OVERLAY_INPUT_BYTES',
+            'features.length >= OVERLAY_MAX_FEATURES',
+            'vertices > OVERLAY_MAX_VERTICES',
+            "signal?.removeEventListener('abort', release)",
+        ]) &&
+        includesAll(mpaDataset, [
+            'const readRetainedOwner = () => ({ entry: cache, epoch: ownershipEpoch })',
+            'registerVerifiedMpaRetainedOwner(readRetainedOwner)',
+        ]) &&
         !mpaDataset.includes('/manifest.json') &&
         cmemsGridTrust.includes("cache: RequestCache = 'no-store'") &&
         includesInOrder(mpaDatasetOwnershipBoundary, [
@@ -1285,7 +1328,9 @@ check(
             "headers.set('x-thalassa-valid-manifest-slots', String(validSlotCount))",
             'max-age=31536000, s-maxage=31536000, immutable',
             "'cache-control': isManifest ? 'no-store'",
-            "process.env.THALASSA_CMEMS_V1_BRIDGE_ENABLED === 'true'",
+            'const node = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;',
+            "node?.env?.THALASSA_CMEMS_V1_BRIDGE_ENABLED === 'true'",
+            'Date.now() < CMEMS_V1_BRIDGE_SUNSET_MS',
             "return errorResponse(410, 'Legacy marine publication path is retired')",
             "if (request.headers.get('if-none-match') === etag)",
             'cancelReaderWithoutWaiting(reader,',
@@ -1300,7 +1345,18 @@ check(
         ]) &&
         cmemsGridTrust.includes("import { validateMarineManifest } from './marineManifestContract';") &&
         mpaDataset.includes("import { validateMarineManifest } from './marineManifestContract';") &&
-        releaseAssetProxy.includes('validateMarineManifest(value, dataset, Date.now(), false)') &&
+        includesAll(releaseAssetProxy, [
+            'function validateDatasetManifest(value: unknown, dataset: DatasetKey, now: number, current: boolean): void {',
+            'const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS, ...SSH_RELEASE_CONTRACTS } as const;',
+            'return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)',
+            '? SPECIALIZED_RELEASE_CONTRACTS[dataset as SpecializedDatasetKey]',
+            ': undefined;',
+            'const additional = specialized(dataset);',
+            'if (additional) additional.validate(value, now, current);',
+            'else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);',
+            'validateDatasetManifest(value, dataset, Date.now(), false);',
+            'validateDatasetManifest(candidate.manifest, dataset, now, true);',
+        ]) &&
         !releaseAssetProxy.includes("'content-length': String(body.byteLength)") &&
         !releaseAssetProxy.includes("h00.bin'") &&
         !Object.hasOwn(marineVercelConfig, 'routes') &&
@@ -1352,6 +1408,9 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_CHL_ENABLED: true,
     VITE_CMEMS_SEAICE_ENABLED: false,
     VITE_CMEMS_MLD_ENABLED: false,
+    VITE_ATMOSPHERE_ENABLED: true,
+    VITE_ENABLE_OCEAN_EDDIES: true,
+    VITE_SHARPER_SATELLITE_ENABLED: true,
     VITE_MPA_ENABLED: false,
     VITE_APPLE_SIGN_IN_ENABLED: true,
     VITE_APPLE_WEB_SIGN_IN_ENABLED: true,
@@ -2932,8 +2991,22 @@ check(
         // (Settings → Account → Delete account) and exactly what it removes —
         // the flag was on and the backend smoke had passed while the hosted
         // Terms still said "temporarily unavailable" (audit item 7).
-        'Version 2.9',
+        // v3.0 (17 Oct 2026) adds contributor ownership/licence, private photo
+        // moderation, metadata removal and edit/delete/report/hide disclosures.
+        // Retain the existing deletion, telemetry, sync and location checks.
+        'Version 3.0',
+        'Effective Date: 17 October 2026',
         '5 September 2026',
+        'Community notes and photos',
+        'You retain ownership of content you contribute.',
+        'royalty-free licence to host, process, resize, display and moderate that content solely to provide',
+        'This does not transfer ownership of your content or third-party data.',
+        'photos remain private until approved.',
+        'Photos are processed to remove embedded metadata before storage',
+        "You may edit or delete your notes, report content, or hide another contributor's notes.",
+        'Reports hide the reported note and its public photo pending review.',
+        'Deleted or reported content is excluded from new public reads.',
+        'Copies already seen or saved by other people cannot be recalled.',
         'You can permanently delete your account from within the App',
         'Once you confirm, deletion cannot be undone',
         'mailto:privacy@thalassawx.com',

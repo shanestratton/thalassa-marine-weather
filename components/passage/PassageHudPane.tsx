@@ -73,6 +73,10 @@
  * until the ghost joins; actual map weather retains its own spatial coverage.
  */
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { usePersonalComfort } from '../../hooks/usePersonalComfort';
+import { seaComfort } from '../../utils/seaComfort';
+import { comfortPreferenceLabel } from '../../utils/comfortPreference';
+import { AlongRouteNextUp } from './AlongRouteNextUp';
 import {
     askPassageOverview,
     LOOK_AHEAD_MAX_MS,
@@ -148,6 +152,7 @@ import {
     peekRouteForecast,
     routeForecastKey,
     sampleRouteForecast,
+    sampleCoveredRouteWind,
     type RouteForecast,
 } from '../../services/routeForecastSampler';
 import { vesselCruisingSpeedKts } from '../../services/units';
@@ -167,6 +172,10 @@ import { LocationStore } from '../../stores/LocationStore';
 import { GpsService } from '../../services/GpsService';
 import { MobService } from '../../services/MobService';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
+import { useForecastSteeringField } from '../../hooks/useForecastSteeringField';
+import { forecastSteeringAt } from '../../services/routing/forecastSteering';
+import { ForecastSteeringLine } from './ForecastSteeringLine';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 import { triggerHaptic } from '../../utils/system';
@@ -217,6 +226,8 @@ const tone = (m: HudMetric, forecast = false): string =>
 
 interface CellProps {
     label: string;
+    /** Shares the number's existing height; never adds another grid row. */
+    labelDetail?: string | null;
     value: string;
     unit?: string;
     metric: HudMetric;
@@ -230,7 +241,17 @@ interface CellProps {
 
 const SUB_TONE = { quiet: 'text-gray-400', amber: 'text-amber-300', red: 'text-red-400' } as const;
 
-const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentence, forecast = false, sub = null }) => (
+const Cell: React.FC<CellProps> = ({
+    label,
+    labelDetail,
+    value,
+    unit,
+    metric,
+    testId,
+    sentence,
+    forecast = false,
+    sub = null,
+}) => (
     <div
         className="thalassa-passage-hud-cell grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 border-b border-white/10 px-2 py-1"
         data-testid={testId}
@@ -242,6 +263,14 @@ const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentenc
             className={`text-[13px] font-black uppercase leading-tight ${forecast ? 'text-amber-300/90' : 'text-gray-300'}`}
         >
             {label}
+            {labelDetail && (
+                <span
+                    className="block text-[10px] font-semibold normal-case leading-tight"
+                    data-testid={`${testId}-comfort`}
+                >
+                    {labelDetail}
+                </span>
+            )}
             {!forecast && metric.value !== null && metric.freshness === 'stale' && (
                 <span className="ml-1 text-[9px] text-amber-300">OLD</span>
             )}
@@ -372,6 +401,9 @@ const HOW_WORDS: Record<SpeedHow, string> = {
 const currentWindModel = () => WindStore.getState().model;
 
 const SailingPerformanceHud = React.lazy(() => import('./SailingPerformanceHud'));
+const SailAdviceLine = React.lazy(() => import('./SailAdviceLine'));
+const RouteReplanControl = React.lazy(() => import('./RouteReplanControl'));
+const subscribeSailOwner = (notify: () => void) => subscribeAuthIdentityScope(() => notify());
 
 const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: TrackingState }> = ({
     open,
@@ -530,6 +562,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const windCoverageHours = usePassageWindCoverageHours();
     const unsyncedLayers = usePassageUnsyncedLayers();
     const vessel = useSettingsStore((st) => st.settings.vessel);
+    const personalComfort = usePersonalComfort();
+    const sailOwner = useSyncExternalStore(subscribeSailOwner, getAuthIdentityScope, getAuthIdentityScope);
     const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
     const profileCruiseKts =
         vessel?.cruisingSpeed && Number.isFinite(vessel.cruisingSpeed) && vessel.cruisingSpeed > 0
@@ -698,35 +732,38 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             const navigation = document.querySelector('nav[aria-label="Main"]');
             if (navigation) furniture.add(navigation);
             const chartBounds = chart.getBoundingClientRect();
-            let bottom = Math.min(chartBounds.bottom, window.innerHeight) - 8;
-            for (const element of furniture) {
-                const box = element.getBoundingClientRect();
-                if (
-                    box.width > 0 &&
-                    box.height > 0 &&
-                    box.left < bounds.right &&
-                    box.right > bounds.left &&
-                    box.top > bounds.top
-                ) {
-                    bottom = Math.min(bottom, box.top - 8);
+            const reconcileHeight = () => {
+                let bottom = Math.min(chartBounds.bottom, window.innerHeight) - 8;
+                for (const element of furniture) {
+                    const box = element.getBoundingClientRect();
+                    if (
+                        box.width > 0 &&
+                        box.height > 0 &&
+                        box.left < bounds.right &&
+                        box.right > bounds.left &&
+                        box.top > bounds.top
+                    ) {
+                        bottom = Math.min(bottom, box.top - 8);
+                    }
                 }
-            }
-            const height = Math.max(0, Math.floor(bottom - bounds.top));
-            if (height !== availableHeight) {
-                availableHeight = height;
-                pane.style.setProperty('--passage-hud-available-height', `${height}px`);
-                // Relax back to the readable default when space is returned.
-                delete pane.dataset.density;
-            }
-            // Keep every category and warning. Only tighten row spacing and
-            // the largest numerals if the available height requires it.
-            // Extremely short/accessibility-scaled panes retain a scroll escape.
-            if (cells.scrollHeight > cells.clientHeight + 1 && !pane.dataset.density) {
-                pane.dataset.density = 'compact';
-            }
-            if (cells.scrollHeight > cells.clientHeight + 1 && pane.dataset.density === 'compact') {
-                pane.dataset.density = 'tight';
-            }
+                const height = Math.max(0, Math.floor(bottom - bounds.top));
+                if (height !== availableHeight) {
+                    availableHeight = height;
+                    pane.style.setProperty('--passage-hud-available-height', `${height}px`);
+                    // Relax back to the readable default when space is returned.
+                    delete pane.dataset.density;
+                }
+                // Keep every category and warning. Only tighten row spacing and
+                // the largest numerals if the available height requires it.
+                // Extremely short/accessibility-scaled panes retain a scroll escape.
+                if (cells.scrollHeight > cells.clientHeight + 1 && !pane.dataset.density) {
+                    pane.dataset.density = 'compact';
+                }
+                if (cells.scrollHeight > cells.clientHeight + 1 && pane.dataset.density === 'compact') {
+                    pane.dataset.density = 'tight';
+                }
+            };
+            reconcileHeight();
             // The chart's open layer panel shares this column, under the strip,
             // and takes only the room the strip leaves at its TIGHTEST
             // (index.css, --passage-hud-reserve-bottom): both then fit wherever
@@ -743,6 +780,11 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             if (reserve !== reserveBottom) {
                 reserveBottom = reserve;
                 chart.style.setProperty('--passage-hud-reserve-bottom', `${reserve}px`);
+                // That reservation changes the weather panel's CSS max-height.
+                // Reconcile its new real bounds now: waiting for another observer
+                // frame exposed a too-tall/too-short HUD while its neighbour had
+                // already settled. One bounded second pass keeps both coherent.
+                reconcileHeight();
             }
             const targets = new Set<Element>([chart, pane, ...cells.children, ...furniture]);
             for (const target of targets) {
@@ -964,6 +1006,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             sea,
             spread,
             comfort,
+            vessel,
+            comfortPreference: personalComfort,
             nowMs: Date.now(),
             modelLabel: model.label,
         });
@@ -981,6 +1025,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         sea,
         spread,
         comfort,
+        vessel,
+        personalComfort,
         nowMs,
         model.label,
         start?.source,
@@ -1130,6 +1176,22 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const ghostLat = station?.lat ?? null;
     const ghostLon = station?.lon ?? null;
     const ghostBearing = station?.bearingDeg ?? null;
+    const steeringVesselId = useSettingsStore((state) => state.activeVesselId);
+    const steeringSatellite = useSettingsStore((state) => state.settings.satelliteMode);
+    const steeringAtMs = departureTimeMs + aheadMs;
+    const steeringField = useForecastSteeringField({
+        points: station ? [station] : [],
+        startMs: steeringAtMs,
+        endMs: steeringAtMs,
+        vesselKey: steeringVesselId ?? '',
+        enabled:
+            look.on && !!station && !station.joining && !planArrived && planHow !== 'tack' && planHow !== 'assumed',
+        satelliteMode: steeringSatellite,
+    });
+    const forecastSteering =
+        station && !station.joining && planHow !== 'tack' && planHow !== 'assumed'
+            ? forecastSteeringAt(steeringField, station, steeringAtMs, station.bearingDeg, planBoatKts)
+            : null;
     useEffect(() => {
         publishPassageGhost(
             ghostLat !== null && ghostLon !== null && ghostBearing !== null
@@ -1201,6 +1263,18 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // three-hour-old wind (review, 2026-09-19). Same grace, same words.
     const seaAgeMs = sea ? Math.max(0, nowMs - sea.fetchedAt) : 0;
     const seaOld = seaAgeMs > FORECAST_TTL_MS + 5 * 60_000;
+    const seaFeel =
+        seaNow && seaNow.waveM !== null && !seaNow.inshore && !seaNow.beyond && !seaOld
+            ? seaComfort(
+                  {
+                      total: { hM: seaNow.waveM, periodS: seaNow.wavePeriodS, fromDeg: seaNow.waveFromDeg },
+                      windSea: null,
+                      swell: null,
+                  },
+                  vessel,
+                  personalComfort,
+              )
+            : null;
     const seaAgeTag =
         seaAgeMs < 2 * 3_600_000
             ? `${Math.round(seaAgeMs / 60_000)}M OLD`
@@ -1295,6 +1369,27 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // covers one refresh round, so a healthy hourly refetch never flashes it.
     const forecastAgeMs = forecast ? Math.max(0, nowMs - forecast.fetchedAt) : 0;
     const forecastOld = forecastAgeMs > FORECAST_TTL_MS + 5 * 60_000;
+    const sailWind =
+        station &&
+        !station.joining &&
+        !planArrived &&
+        forecastAgeMs <= FORECAST_TTL_MS &&
+        (planHow === 'sail' || planHow === 'tack')
+            ? sampleCoveredRouteWind(forecast, station.alongNm, steeringAtMs)
+            : null;
+    const sailSample =
+        sailWind && sailWind.twsKts !== null && sailWind.twdDeg !== null && forecast
+            ? {
+                  twsKn: sailWind.twsKts,
+                  gustKn: sailWind.gustKts,
+                  twaDeg:
+                      planHow === 'tack'
+                          ? pointingDeg(speedModel)
+                          : Math.abs(((sailWind.twdDeg - station!.bearingDeg + 540) % 360) - 180),
+                  timeMs: steeringAtMs,
+                  sourceKey: `${forecast.model}:${forecast.fetchedAt}:${forecastKey}`,
+              }
+            : null;
     const forecastAgeTag =
         forecastAgeMs < 2 * 3_600_000
             ? `${Math.round(forecastAgeMs / 60_000)}M OLD`
@@ -1356,8 +1451,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             ? 'Course over ground: not making way, no course to show'
             : `Course over ground ${fmtBearing(cogMetric)} true`;
 
-    // LOOK AHEAD / back to LIVE. For a preview it is the departure control, in
-    // half the bottom row: there the word alone, with no arrow (62 px at 320).
+    // LOOK AHEAD / back to LIVE. Preview departure and followed-route Ahead
+    // share the bottom row with Hide: the word alone, with no arrow (62px at 320).
     const renderLookAhead = (layout: string, half = false) => (
         <button
             type="button"
@@ -1401,6 +1496,56 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                     />
                 </svg>
             )}
+        </button>
+    );
+
+    const renderShowPassage = (layout: string) => (
+        <button
+            type="button"
+            data-testid="hud-show-passage"
+            disabled={!(followingRoute || voyageActive || recordingAvailable) || overlayOn}
+            aria-pressed={overlayOn}
+            aria-label={
+                overlayOn
+                    ? `${followingRoute ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
+                    : followingRoute || voyageActive || recordingAvailable
+                      ? followingRoute
+                          ? 'Show route and track on the chart'
+                          : 'Show recorded track on the chart'
+                      : 'Show route and track on the chart — cast off or follow a route first'
+            }
+            title={
+                overlayOn
+                    ? 'On the chart — turn off with Passage in the layer button'
+                    : followingRoute
+                      ? 'Show route & track'
+                      : 'Show recorded track'
+            }
+            onClick={() => {
+                void triggerHaptic('light');
+                // The skipper's ask: the whole route framed (a Layers toggle never is).
+                askPassageOverview();
+                setPassageOverlay(true);
+            }}
+            className={`flex items-center justify-center active:scale-95 disabled:active:scale-100 ${layout}`}
+        >
+            <svg
+                className={`h-5 w-5 ${
+                    overlayOn
+                        ? 'text-sky-300'
+                        : followingRoute || voyageActive || recordingAvailable
+                          ? 'text-white'
+                          : 'text-white/40'
+                }`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.2}
+            >
+                <circle cx="6" cy="18" r="2.2" />
+                <circle cx="18" cy="6" r="2.2" />
+                <path strokeLinecap="round" strokeDasharray="3 3" d="M8 17c4-1 3-8 8-10" />
+            </svg>
         </button>
     );
 
@@ -1572,6 +1717,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                         : 'Sea'
                                 }
                                 value={waveShown === null ? DASH : waveShown.toFixed(1)}
+                                labelDetail={seaFeel?.word ?? 'Comfort unknown'}
                                 unit={waveUnit}
                                 metric={fc(waveShown)}
                                 testId="hud-sea"
@@ -1588,7 +1734,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                               seaNow?.waveFromDeg != null
                                                   ? `, from ${String(Math.round(seaNow.waveFromDeg) % 360).padStart(3, '0')} true`
                                                   : ''
-                                          }, ${SEA_WAVE_PROVIDER} wave model${
+                                          }, ${seaFeel?.word ?? 'comfort unknown'}${seaFeel ? `, ${seaFeel.reason}, ${comfortPreferenceLabel(personalComfort, seaFeel.input)}, comfort not safety` : ''}, ${SEA_WAVE_PROVIDER} wave model${
                                               seaOld ? `, fetched ${seaAgeTag.toLowerCase()}` : ''
                                           }`
                                 }
@@ -1628,6 +1774,17 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                         : null
                                 }
                             />
+                            <ForecastSteeringLine value={forecastSteering} />
+                            {isSail && vessel?.sailInventory && (
+                                <React.Suspense fallback={null}>
+                                    <SailAdviceLine
+                                        inventory={vessel.sailInventory}
+                                        vesselType={vessel.type}
+                                        scopeKey={`${sailOwner.key}:${sailOwner.generation}:${steeringVesselId ?? 'local'}`}
+                                        sample={sailSample}
+                                    />
+                                </React.Suspense>
+                            )}
                             <Cell
                                 forecast
                                 // The chance rides in the label: a line of its own
@@ -1695,6 +1852,12 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                         </>
                     ) : (
                         <>
+                            <AlongRouteNextUp
+                                points={routeCoords}
+                                alongNm={
+                                    previewing ? 0 : fix && fix.source !== 'phone-old' ? fix.progress.alongNm : null
+                                }
+                            />
                             {previewing ? (
                                 // The previewed route: its whole length from its first
                                 // point, and its name. No ETA until a departure is chosen.
@@ -1847,6 +2010,19 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                             )}
                         </>
                     )}
+                    {/* Optional route actions scroll with the readings. Keeping these
+                        outside exhausted the short phone's fixed strip and clipped Hide. */}
+                    {followingRoute && (
+                        <>
+                            {renderShowPassage('min-h-[44px] w-full border-t border-white/10')}
+                            <React.Suspense fallback={null}>
+                                <RouteReplanControl
+                                    xteNm={fix && fix.source !== 'phone-old' ? fix.progress.offTrackNm : null}
+                                    etaMs={liveEta.arrivalMs}
+                                />
+                            </React.Suspense>
+                        </>
+                    )}
                 </div>
 
                 {/* Warnings remain outside the readings' last-resort scroller,
@@ -1874,77 +2050,21 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                     </div>
                 )}
 
-                {/* LOOK AHEAD / back to LIVE. Entering draws the route too — the
-                same explicit ON as the button below: a ghost with no line to
-                ride is a boat adrift on the chart. OFF still lives in the
-                layer button. A preview keeps it in the bottom row instead. */}
-                {followingRoute && renderLookAhead('h-10 border-t border-white/10')}
-
                 <div className="flex shrink-0 border-t border-white/10">
-                    {/* A preview's departure shares this row: the strip's fixed height
-                    is what a 320 x 568 phone under two credits can least spare. Its
-                    route is already on the chart, and the Passage overlay would put
-                    the followed line there in its place, so it has no Route & track. */}
-                    {previewing ? (
-                        renderLookAhead('h-11 w-1/2 border-r border-white/10', true)
-                    ) : (
-                        // Route & track: the same ON the layer button performs. OFF lives
-                        // there, because only MapHub's own path clears what it drew.
-                        <button
-                            type="button"
-                            data-testid="hud-show-passage"
-                            disabled={!(followingRoute || voyageActive || recordingAvailable) || overlayOn}
-                            aria-pressed={overlayOn}
-                            aria-label={
-                                overlayOn
-                                    ? `${followingRoute ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
-                                    : followingRoute || voyageActive || recordingAvailable
-                                      ? followingRoute
-                                          ? 'Show route and track on the chart'
-                                          : 'Show recorded track on the chart'
-                                      : 'Show route and track on the chart — cast off or follow a route first'
-                            }
-                            title={
-                                overlayOn
-                                    ? 'On the chart — turn off with Passage in the layer button'
-                                    : followingRoute
-                                      ? 'Show route & track'
-                                      : 'Show recorded track'
-                            }
-                            onClick={() => {
-                                void triggerHaptic('light');
-                                // The skipper's ask: the whole route framed (a Layers toggle never is).
-                                askPassageOverview();
-                                setPassageOverlay(true);
-                            }}
-                            className="flex h-11 w-1/2 items-center justify-center border-r border-white/10 active:scale-95 disabled:active:scale-100"
-                        >
-                            <svg
-                                className={`h-5 w-5 ${
-                                    overlayOn
-                                        ? 'text-sky-300'
-                                        : followingRoute || voyageActive || recordingAvailable
-                                          ? 'text-white'
-                                          : 'text-white/40'
-                                }`}
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={2.2}
-                            >
-                                <circle cx="6" cy="18" r="2.2" />
-                                <circle cx="18" cy="6" r="2.2" />
-                                <path strokeLinecap="round" strokeDasharray="3 3" d="M8 17c4-1 3-8 8-10" />
-                            </svg>
-                        </button>
-                    )}
+                    {/* Departure/Ahead and Hide keep one fixed 44px row. The optional
+                    route actions above scroll instead of pushing this row out of the strip. */}
+                    {previewing || followingRoute
+                        ? renderLookAhead('h-[44px] w-1/2 border-r border-white/10', true)
+                        : // Route & track: the same ON the layer button performs. OFF lives
+                          // there, because only MapHub's own path clears what it drew.
+                          renderShowPassage('h-[44px] w-1/2 border-r border-white/10')}
                     <button
                         type="button"
                         onClick={onToggle}
                         aria-label="Hide passage instruments"
                         aria-expanded
                         data-testid="passage-hud-toggle"
-                        className="flex h-11 w-1/2 items-center justify-center active:scale-95"
+                        className="flex h-[44px] w-1/2 items-center justify-center active:scale-95"
                     >
                         <svg
                             className="h-5 w-5 text-white/70"

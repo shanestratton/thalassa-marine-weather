@@ -74,6 +74,22 @@ function fakeMap(
         layers,
         sources,
         writes,
+        getBounds: () => ({ getWest: () => -180, getEast: () => 180, getSouth: () => -80, getNorth: () => 80 }),
+        getZoom: () => 9,
+        on: () => undefined,
+        off: () => undefined,
+        removeLayer: (id: string) => {
+            const i = layers.findIndex((l) => l.id === id);
+            if (i >= 0) layers.splice(i, 1);
+        },
+        removeSource: (id: string) => {
+            sources.delete(id);
+        },
+        getLayoutProperty: (id: string, prop: string) => layers.find((l) => l.id === id)?.layout?.[prop],
+        setLayoutProperty: (id: string, prop: string, value: unknown) => {
+            const layer = layers.find((l) => l.id === id);
+            if (layer) layer.layout = { ...layer.layout, [prop]: value };
+        },
         getStyle: () => ({ layers: layers.map((l) => ({ ...l })) }),
         getLayer: (id: string) => layers.find((l) => l.id === id),
         getSource: (id: string) => sources.get(id),
@@ -309,6 +325,10 @@ describe('the quiet fallback', () => {
             'relief-global-dem',
             'relief-au-idx',
             'relief-au-dem',
+            'relief-au250-idx',
+            'relief-au250-dem',
+            'relief-nz-idx',
+            'relief-nz-dem',
         ]);
         expect(offlineReliefStyle()).toMatchObject({
             version: 8,
@@ -328,8 +348,12 @@ describe('the quiet fallback', () => {
         expect(calls.map(([id]) => id)).toEqual([
             'relief-global-idx',
             'relief-global-dem',
+            'relief-au250-idx',
+            'relief-au250-dem',
             'relief-au-idx',
             'relief-au-dem',
+            'relief-nz-idx',
+            'relief-nz-dem',
         ]);
         expect(calls[0][1]).toEqual([`${BASE}/relief-global/idx/{z}/{x}/{y}.png`]);
         expect(order(map)).toEqual(layers);
@@ -488,7 +512,7 @@ describe('MapHub wiring', () => {
         // Light is never damped to 'enc' (127-DESKMAP A1): its chart mode draws
         // the ENC opaque over it, and the dark ramp must never come back.
         expect(hub).toMatch(
-            /setReliefPalette\(\s*map,\s*nightMode \? 'night' : shownBase === 'light' \? 'light' : encDrawn \? 'enc' : 'day',?\s*\)/,
+            /setReliefPalette\(\s*map,\s*nightMode \? 'night' : shownBase === 'light' \? 'light' : encDrawn \? 'enc' : 'day',\s*reliefSafetyDepthM,?\s*\)/,
         );
         // No unconditional paint write sneaks in beside them.
         expect(hub).not.toMatch(/setPaintProperty\(\s*'relief-/);

@@ -44,6 +44,7 @@ import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 import { piPairingFetch, piRequest, type PiTlsResponse } from './piTls';
 import { utf8ByteLength } from './enc/types';
+import { retireChartFindMemory } from './enc/chartFindMemory';
 import { clearPiCommandRefusal, piCommandRefusalCode } from './piCommandRefusal';
 import {
     getSecureValue,
@@ -103,6 +104,7 @@ export function getPairing(): PiPairingRecord | null {
 
 export function savePairing(record: PiPairingRecord): void {
     if (!PI_INTEGRATION_ENABLED) return;
+    retireChartFindMemory();
     equipmentReadRevision++;
     localStorage.setItem(PAIRING_KEY, JSON.stringify(record));
     markHostPairable(record.host);
@@ -111,6 +113,7 @@ export function savePairing(record: PiPairingRecord): void {
 }
 
 export function forgetPairing(): void {
+    retireChartFindMemory();
     equipmentReadRevision++;
     localStorage.removeItem(PAIRING_KEY);
     dropChartDevice();

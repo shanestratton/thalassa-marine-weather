@@ -48,6 +48,7 @@ import { getIndexForCell, releaseIndexForCell } from './EncHazardService';
 import type { EncCatzoc, EncHazard, EncHazardType } from './types';
 import type { BBoxEntry } from './types';
 import { ENC_HAZARD_DEPTH_M, isStructureClass } from './types';
+import { gradedRouteHazards } from './routeHazardGrade';
 
 const log = createLogger('EncHazardReportService');
 
@@ -131,8 +132,14 @@ export interface RouteHazardReport {
     cellsConsulted: number;
     /** Lateral buffer used (NM). */
     bufferNm: number;
-    /** Hazards found, sorted by distance ascending. */
+    /** Hazards found, graded worst first; licensed details remain in RAM. */
     entries: RouteHazardReportEntry[];
+    /** Positive metres used for this boat's proximity grading, never a tide adjustment. */
+    requiredDepthM?: number;
+    /** Selected cells whose index could not be consulted. Absence of findings is not coverage. */
+    cellsUnavailable?: number;
+    /** Findings omitted by the bounded display caps. */
+    entriesOmitted?: number;
     /**
      * Route-wide "verify visually" advisories that aren't tied to a single
      * charted feature. Surfaced by the validator so a caveat on a route that
@@ -486,6 +493,8 @@ export async function findHazardsAlongRoute(
 
     // ── 2. For each cell, load its spatial index and bbox-search.
     const seen = new Map<string, RouteHazardReportEntry>();
+    let cellsConsulted = 0,
+        cellsUnavailable = 0;
 
     for (const cell of candidateCells) {
         let index;
@@ -493,9 +502,14 @@ export async function findHazardsAlongRoute(
             index = await getIndexForCell(cell.id, queryBBox);
         } catch (err) {
             log.warn(`could not load index for ${cell.id}`, err);
+            cellsUnavailable++;
             continue;
         }
-        if (!index) continue;
+        if (!index) {
+            cellsUnavailable++;
+            continue;
+        }
+        cellsConsulted++;
 
         try {
             const candidates: BBoxEntry[] = index.searchInBBox(queryBBox);
@@ -558,18 +572,39 @@ export async function findHazardsAlongRoute(
         }
     }
 
-    // Cap shoal entries (nearest-N) BEFORE the global cap so a shoal-dense
-    // estuary can't evict hard hazards (wreck/rock/obstruction) — re-audit #1.
-    const sorted = Array.from(seen.values()).sort((a, b) => a.distanceNm - b.distanceNm);
+    // Grade BEFORE either cap: a nearer deep feature cannot hide an on-track
+    // drying patch. Preserve the shoal quota without demoting dangerous findings.
+    const sorted = gradedRouteHazards({ entries: Array.from(seen.values()), requiredDepthM: shoalDepthM });
     const shoals = sorted.filter((e) => e.hazardType === 'shallow').slice(0, maxShoalEntries);
     const others = sorted.filter((e) => e.hazardType !== 'shallow');
-    const entries = [...others, ...shoals].sort((a, b) => a.distanceNm - b.distanceNm).slice(0, maxEntries);
+    const entries = gradedRouteHazards({ entries: [...others, ...shoals], requiredDepthM: shoalDepthM }).slice(
+        0,
+        maxEntries,
+    );
 
     log.info(
         `report: ${entries.length} hazards within ${bufferNm.toFixed(1)} NM of route ` +
             `(${candidateCells.length} cells consulted)`,
     );
-    return { cellsConsulted: candidateCells.length, bufferNm, entries };
+    return {
+        cellsConsulted,
+        cellsUnavailable,
+        bufferNm,
+        entries,
+        requiredDepthM: shoalDepthM,
+        entriesOmitted: seen.size - entries.length,
+        ...(cellsUnavailable
+            ? {
+                  advisories: [
+                      {
+                          severity: 'caution' as const,
+                          kind: 'cell-load-failed' as const,
+                          text: `${cellsUnavailable} chart cell${cellsUnavailable === 1 ? '' : 's'} could not be checked for nearby hazards. The list is incomplete.`,
+                      },
+                  ],
+              }
+            : {}),
+    };
 }
 
 // ── "Last report" singleton + React hook ──────────────────────────

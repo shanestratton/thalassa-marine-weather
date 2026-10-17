@@ -62,8 +62,17 @@ vi.mock('../services/routing/landBackstop', () => ({
 }));
 // The skipper has switched Settings → Preferences → "Auto route (trial)" on
 // (off by default since 2026-10-01; tests/AutorouteTrialSwitch.test.tsx).
+// These synthetic chart scenes have an explicitly empty private overlay library.
+// Keep the real exclusion admission, auth fences and retained-MPA checks.
+vi.mock('../services/userOverlays/store', async (original) => ({
+    ...(await original<typeof import('../services/userOverlays/store')>()),
+    loadUserOverlays: async () => ({ schema: 1, charts: true, position: 'boat', overlays: [] }),
+}));
 vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: true } }) },
+    useSettingsStore: {
+        getState: () => ({ settings: { autorouteTrialEnabled: true } }),
+        subscribe: vi.fn(() => () => undefined),
+    },
 }));
 
 import { calculateThalassaProposal, THALASSA_PLANNED_ONLY_WARNING } from '../services/autoroutingThalassa';

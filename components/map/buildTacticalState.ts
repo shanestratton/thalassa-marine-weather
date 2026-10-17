@@ -15,6 +15,12 @@ import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicenc
 export interface BuildTacticalStateDeps {
     aisVisible: boolean;
     setAisVisible: Dispatch<SetStateAction<boolean>>;
+    receiverCoverageVisible?: boolean;
+    setReceiverCoverageVisible?: Dispatch<SetStateAction<boolean>>;
+    measuredBuoysVisible?: boolean;
+    setMeasuredBuoysVisible?: Dispatch<SetStateAction<boolean>>;
+    ascatVisible?: boolean;
+    setAscatVisible?: Dispatch<SetStateAction<boolean>>;
     cycloneVisible: boolean;
     setCycloneVisible: Dispatch<SetStateAction<boolean>>;
     squallVisible: boolean;
@@ -29,8 +35,19 @@ export interface BuildTacticalStateDeps {
     setTideStationsVisible: Dispatch<SetStateAction<boolean>>;
     anchorageVisible: boolean;
     setAnchorageVisible: Dispatch<SetStateAction<boolean>>;
+    communityNotesVisible?: boolean;
+    setCommunityNotesVisible?: Dispatch<SetStateAction<boolean>>;
+    sshMode?: 'off' | 'sla' | 'adt';
+    setSshMode?: (mode: 'off' | 'sla' | 'adt') => void;
+    sharperSatelliteVisible?: boolean;
+    onToggleSharperSatellite?: () => void;
     mooringsVisible?: boolean;
     setMooringsVisible?: Dispatch<SetStateAction<boolean>>;
+    facilitiesVisible?: boolean;
+    setFacilitiesVisible?: Dispatch<SetStateAction<boolean>>;
+    boatPresenceVisible?: boolean;
+    setBoatPresenceVisible?: Dispatch<SetStateAction<boolean>>;
+    setBoatPresenceControlsOpen?: Dispatch<SetStateAction<boolean>>;
     lightningVisible: boolean;
     setLightningVisible: Dispatch<SetStateAction<boolean>>;
     weatherInspectMode: boolean;
@@ -47,6 +64,12 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
     const {
         aisVisible,
         setAisVisible,
+        receiverCoverageVisible,
+        setReceiverCoverageVisible,
+        measuredBuoysVisible,
+        setMeasuredBuoysVisible,
+        ascatVisible,
+        setAscatVisible,
         cycloneVisible,
         setCycloneVisible,
         squallVisible,
@@ -63,6 +86,17 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        facilitiesVisible,
+        setFacilitiesVisible,
+        communityNotesVisible,
+        setCommunityNotesVisible,
+        sshMode,
+        setSshMode,
+        sharperSatelliteVisible,
+        onToggleSharperSatellite,
+        boatPresenceVisible,
+        setBoatPresenceVisible,
+        setBoatPresenceControlsOpen,
         lightningVisible,
         setLightningVisible,
         weatherInspectMode,
@@ -73,7 +107,17 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
     } = deps;
 
     return {
+        sshMode,
+        onChangeSshMode: setSshMode,
+        sharperSatelliteVisible,
+        onToggleSharperSatellite,
         aisVisible,
+        receiverCoverageVisible,
+        onToggleReceiverCoverage: setReceiverCoverageVisible ? () => setReceiverCoverageVisible((v) => !v) : undefined,
+        measuredBuoysVisible,
+        onToggleMeasuredBuoys: setMeasuredBuoysVisible ? () => setMeasuredBuoysVisible((v) => !v) : undefined,
+        ascatVisible,
+        onToggleAscat: setAscatVisible ? () => setAscatVisible((v) => !v) : undefined,
         onToggleAis: () => {
             setAisVisible((v) => {
                 if (!v) {
@@ -208,7 +252,14 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         anchorageVisible,
         onToggleAnchorage: () => setAnchorageVisible((v) => !v),
         mooringsVisible,
+        communityNotesVisible,
+        onToggleCommunityNotes: setCommunityNotesVisible ? () => setCommunityNotesVisible((v) => !v) : undefined,
         onToggleMoorings: setMooringsVisible ? () => setMooringsVisible((v) => !v) : undefined,
+        facilitiesVisible,
+        onToggleFacilities: setFacilitiesVisible ? () => setFacilitiesVisible((v) => !v) : undefined,
+        boatPresenceVisible,
+        onToggleBoatPresence: setBoatPresenceVisible ? () => setBoatPresenceVisible((v) => !v) : undefined,
+        onOpenBoatPresence: setBoatPresenceControlsOpen ? () => setBoatPresenceControlsOpen(true) : undefined,
         mobActive,
         onOpenMob: () => setPage('mob'),
         // Marine Protected Areas — only surface in the

@@ -3,6 +3,9 @@ import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from
 import { API_BASE } from '../../native/apiBase';
 import { createLogger } from '../../../utils/createLogger';
 import { validateMarineManifest } from './marineManifestContract';
+import { registerVerifiedMpaRetainedOwner, MPA_CACHE_TTL_MS } from './mpaRetained';
+export { borrowRetainedMpaDataset, retainedMpaRoutingContextKey, MPA_CACHE_TTL_MS } from './mpaRetained';
+export type { RetainedMpaBorrow } from './mpaRetained';
 import {
     decodeUtf8Json,
     fetchBoundedPublisherBytes,
@@ -16,7 +19,6 @@ import {
 const log = createLogger('mpaDataset');
 
 export const MPA_ASSET_MAX_BYTES = 16 * 1024 * 1024;
-export const MPA_CACHE_TTL_MS = 30 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const GENERATION_RE = /^g-\d{8}T\d{6}Z-[0-9a-f]{12}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -343,6 +345,9 @@ let cache: MpaCacheEntry | null = null;
 let pending: { epoch: number; promise: Promise<VerifiedMpaCollection | null> } | null = null;
 let ownershipEpoch = 0;
 let activeController: AbortController | null = null;
+// Readers receive a closure over this private verified cache. Defining it is
+// inert: only an explicitly invoked loader operation registers the owner.
+const readRetainedOwner = () => ({ entry: cache, epoch: ownershipEpoch });
 
 /** Drop parsed GeoJSON ownership and abort any fetch that could repopulate it. */
 export function releaseMpaDataset(): void {
@@ -370,6 +375,7 @@ export async function fetchVerifiedMpaGeoJson(
     beforeGenerationAsset?: BeforeMpaGenerationAsset,
 ): Promise<VerifiedMpaCollection | null> {
     if (signal?.aborted) return null;
+    registerVerifiedMpaRetainedOwner(readRetainedOwner);
     const nowMs = Date.now();
     if (cache && nowMs - cache.checkedAt < MPA_CACHE_TTL_MS) return cache.data;
     if (pending) return pending.promise;

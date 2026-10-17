@@ -77,7 +77,7 @@ export function render(h,selected) {
             root,
             configFile: false,
             logLevel: 'silent',
-            plugins: enabled ? [shareClassNames(root)] : [],
+            plugins: enabled ? [shareClassNames(root, { standalone: true })] : [],
             build: {
                 write: false,
                 copyPublicDir: false,

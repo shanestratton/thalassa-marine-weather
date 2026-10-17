@@ -22,6 +22,7 @@ import type { AutoroutingVesselProfile } from '../types/autorouting';
 import type { SavedAutoroutingProposalEvidence } from './autoroutingProposalEvidence';
 import type { TraceLegVerdict } from './routeTracer';
 import type { VoyagePlan } from '../types/navigation';
+import { normaliseRouteConstraints } from './routing/routeConstraintTypes';
 
 export { anyProtectedChart, chartLicenceOf, isOpenChartCell, isProtectedChart } from './enc/chartLicence';
 
@@ -260,6 +261,11 @@ const CHART_FIGURE = /\d\s?k?m\b|°/;
  */
 export function chartFreeVoyagePlan(plan: VoyagePlan): VoyagePlan {
     if (!plan) return plan;
+    if (plan.routeConstraints !== undefined) {
+        const clean = normaliseRouteConstraints(plan.routeConstraints);
+        if (JSON.stringify(clean) !== JSON.stringify(plan.routeConstraints))
+            plan = { ...plan, routeConstraints: clean };
+    }
     const geo = plan.routeGeoJSON;
     const props = (geo?.properties ?? {}) as Record<string, unknown>;
     const routing = plan.__inshoreRouting;

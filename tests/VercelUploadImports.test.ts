@@ -88,6 +88,8 @@ describe('the Vercel upload builds on its own', () => {
     it('leaves out the test folders, and keeps the shared edge-function code the app imports', () => {
         for (const dir of ['tests/', 'e2e/', 'browser-tests/']) expect(rules.dirs).toContain(dir);
         expect(uploaded('supabase/functions/_shared/ww3/constants.ts', rules)).toBe(true);
+        expect(uploaded('supabase/functions/_shared/community-review-photo-codec.ts', rules)).toBe(true);
+        expect(uploaded('supabase/functions/community-review-photo/codec.ts', rules)).toBe(false);
         expect(uploaded('supabase/functions/proxy-openmeteo/index.ts', rules)).toBe(false);
         expect(uploaded('components/map/MapHub.tsx', rules)).toBe(true);
         expect(uploaded('components/map/MapHub.test.tsx', rules)).toBe(false);

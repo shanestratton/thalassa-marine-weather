@@ -21,6 +21,8 @@ import { getCountrySnippets } from './TripOverviewService';
 import type { ResolvedCountrySnippet } from './CountrySnippetService';
 import type { RouteHazardReport, RouteHazardReportEntry } from './enc/EncHazardReportService';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from './enc/types';
+import { routeHazardsForFile } from './enc/routeHazardGrade';
+import { getCell } from './enc/EncCellMetadata';
 
 const log = createLogger('TripPDF');
 
@@ -207,13 +209,22 @@ function hazardLatLon(p: { lat: number; lon: number }): string {
  */
 function renderHazardReportSection(b: PdfBuilder, report: RouteHazardReport): void {
     b.sectionTitle('ENC Hazards Along Route');
+    const printable = routeHazardsForFile(report, getCell);
+    const withheld = Object.values(printable.withheld).reduce((a, n) => a + n, 0);
+    if (withheld)
+        b.paragraph(
+            `${printable.withheld.danger} danger, ${printable.withheld.caution} caution and ${printable.withheld.note} note findings stay aboard. Licensed or unverified-source chart depths, names and positions are not printed. Recheck the full list in Thalassa aboard.`,
+            COLORS.amber,
+            8.5,
+        );
+    if (!printable.entries.length) return;
     b.paragraph(
         `Charted obstructions, wrecks, rocks, and coastline within ${report.bufferNm.toFixed(1)} NM of the planned route, derived from your imported S-57 ENC cells (${report.cellsConsulted} cell${report.cellsConsulted === 1 ? '' : 's'} consulted). Verify visually before relying on these positions — Pacific atolls and remote shores often have positional uncertainty of 100–500 m.`,
         COLORS.muted,
         8.5,
     );
 
-    for (const entry of report.entries) {
+    for (const entry of printable.entries) {
         b.ensureRoom(20);
 
         // Card background
@@ -223,7 +234,7 @@ function renderHazardReportSection(b: PdfBuilder, report: RouteHazardReport): vo
         // Type + description on first line
         b.doc.setFontSize(9.5);
         b.doc.setTextColor(...COLORS.amber);
-        const headline = entry.description ?? hazardTypeLabel(entry.hazardType);
+        const headline = `${entry.grade.toUpperCase()}: ${entry.description ?? hazardTypeLabel(entry.hazardType)}`;
         b.doc.text(headline, b.margin + 4, b.y + 6);
 
         // Distance + side on the right

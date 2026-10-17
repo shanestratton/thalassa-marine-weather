@@ -50,6 +50,34 @@ struct AnchorWatchView: View {
         }
     }
 
+    /// Drawing received from the phone, not another alarm implementation.
+    private func safeAreaDrawing(snapshot: AnchorSnapshot) -> some View {
+        Canvas { context, size in
+            let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = min(size.width, size.height) / 2
+            if let outline = snapshot.safeAreaOutline {
+                var path = Path()
+                for (index, point) in outline.enumerated() {
+                    let at = CGPoint(x: centre.x + CGFloat(point[0]) * radius, y: centre.y - CGFloat(point[1]) * radius)
+                    if index == 0 { path.move(to: at) } else { path.addLine(to: at) }
+                }
+                path.closeSubpath()
+                context.fill(path, with: .color(.cyan.opacity(0.12)))
+                context.stroke(path, with: .color(.cyan), lineWidth: 1.5)
+            }
+            for wedge in snapshot.safeAreaWedges ?? [] {
+                var path = Path()
+                path.move(to: centre)
+                path.addArc(center: centre, radius: radius,
+                            startAngle: .degrees(wedge[0] - 90),
+                            endAngle: .degrees(wedge[0] + wedge[1] - 90), clockwise: false)
+                path.closeSubpath()
+                context.fill(path, with: .color(.red.opacity(0.25)))
+                context.stroke(path, with: .color(.cyan), lineWidth: 1)
+            }
+        }
+    }
+
     // MARK: - State routing
 
     @ViewBuilder
@@ -185,6 +213,8 @@ struct AnchorWatchView: View {
                     Circle()
                         .stroke(ringColor.opacity(0.35), lineWidth: 2)
                         .frame(width: 98, height: 98)
+                    safeAreaDrawing(snapshot: snapshot)
+                        .frame(width: 98, height: 98)
                     Circle()
                         .trim(from: 0, to: fillFraction)
                         .stroke(ringColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -205,6 +235,13 @@ struct AnchorWatchView: View {
                     }
                 }
                 .frame(width: 98, height: 98)
+
+                if snapshot.safeAreaOutline != nil || snapshot.safeAreaWedges != nil {
+                    Text("PHONE AREA · WATCH CIRCLE CHECK ONLY")
+                        .font(.system(size: 8, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.cyan)
+                }
 
                 HStack(spacing: 7) {
                     Text("Max \(Int(max(snapshot.maxDistanceRecorded, shownDistance)))m")

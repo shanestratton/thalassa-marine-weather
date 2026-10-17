@@ -35,6 +35,7 @@ import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 import { withTimeout } from '../../../utils/deadline';
 import { createLogger } from '../../../utils/createLogger';
 import { calculateDistance } from '../../../utils/navigationCalculations';
+import { marineGridSnapKm } from '../../../utils/marineGrid';
 
 const log = createLogger('Marine');
 
@@ -43,8 +44,6 @@ const log = createLogger('Marine');
  * a request at -26.50,153.40 answered from -26.458336,153.37502 — cell centres
  * land on odd multiples of 1/24°, i.e. a 1/12° (~9.3 km) grid.
  */
-const GRID_DEG = 1 / 12;
-
 /** 15% over the theoretical maximum, for grid-spacing drift and rounding. */
 const SNAP_TOLERANCE = 1.15;
 
@@ -60,12 +59,10 @@ const SNAP_TOLERANCE = 1.15;
  * degree of longitude shrinks toward the poles.
  */
 export function maxLegitimateSnapKm(lat: number, tolerance: number = SNAP_TOLERANCE): number {
-    const ns = 0.5 * GRID_DEG * 111.32;
-    const ew = ns * Math.cos((lat * Math.PI) / 180);
     // `tolerance` defaults to this module's own pad, so the live report path is
     // unchanged. The passage strip's sea sampler passes a tighter one: measured
     // 2026-09-19, the default believed Mackay marina's 7.1 km snap.
-    return Math.hypot(ns, ew) * tolerance;
+    return marineGridSnapKm(lat, tolerance);
 }
 
 /** Per-hop budget. AbortSignal is a no-op under CapacitorHttp, so this is the

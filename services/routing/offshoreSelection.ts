@@ -5,10 +5,25 @@ import type { IsochroneEnvironment } from './isochroneEnvironment';
 import { verifiedIsochroneRoute } from './verifiedIsochroneRoute';
 import { inspectRouteEnvironment } from '../isochrone/routeComfort';
 import { summarizeOffshoreResult } from './offshoreJob';
+import { knownRouteAreaCaveats } from './routeAreaWords';
+import { assertRoutingSourceCurrent } from './routeSourceLifetime';
 
 export interface VerifiedOffshoreCandidate extends Omit<OffshoreCandidate, 'verification'> {
     verification: 'verified-final-geometry';
     hazardReport: RouteHazardReport | null;
+}
+
+// Only the exact result issued below carries the reader's weak lifetime proof.
+// DTO copies and saved metadata cannot reproduce it; no geometry is retained here.
+const sourceProofs = new WeakMap<VerifiedOffshoreCandidate, (() => boolean) | undefined>();
+export function assertVerifiedOffshoreSourceCurrent(candidate: VerifiedOffshoreCandidate): void {
+    if (!sourceProofs.has(candidate)) assertRoutingSourceCurrent(() => false);
+    try {
+        assertRoutingSourceCurrent(sourceProofs.get(candidate));
+    } catch (error) {
+        sourceProofs.delete(candidate);
+        throw error;
+    }
 }
 
 /** This is the only bridge from a public Worker candidate to an exportable passage. */
@@ -23,6 +38,8 @@ export async function verifyOffshoreSelection(options: {
         verified: boolean;
         reason?: string;
         hazardReport?: RouteHazardReport | null;
+        areaCaveats?: readonly string[];
+        sourceCurrent?: () => boolean;
     }>;
     isCurrent: () => boolean;
 }): Promise<VerifiedOffshoreCandidate> {
@@ -31,6 +48,8 @@ export async function verifyOffshoreSelection(options: {
     const checked = await options.validate(options.withTerminals(candidate.result.route));
     if (!isCurrent()) throw new Error('Comparison is no longer current.');
     if (!checked.verified) throw new Error(checked.reason ?? 'Chart and land verification did not complete.');
+    const sourceCurrent = checked.sourceCurrent;
+    assertRoutingSourceCurrent(sourceCurrent);
     const result = verifiedIsochroneRoute(candidate.result, checked.route, job.departureTime, options.cruisingSpeed);
     const inspected = inspectRouteEnvironment(
         result.route,
@@ -46,10 +65,19 @@ export async function verifyOffshoreSelection(options: {
             ? { relaxedFromM: result.comfort.relaxedFromM, usedLimitM: result.comfort.usedLimitM }
             : {}),
     };
-    result.environmentNotes = [...environment.notes, ...(result.environmentNotes ?? [])].filter(
-        (note, index, all) => all.indexOf(note) === index,
-    );
+    result.environmentNotes = [
+        ...environment.notes,
+        ...(result.environmentNotes ?? []),
+        ...knownRouteAreaCaveats(checked.areaCaveats),
+    ].filter((note, index, all) => all.indexOf(note) === index);
     const summary = summarizeOffshoreResult(job, result, isCurrent);
     if (!summary || !isCurrent()) throw new Error('Final route lacks forecast coverage or exceeds wind/gust limits.');
-    return { ...summary, verification: 'verified-final-geometry', hazardReport: checked.hazardReport ?? null };
+    assertRoutingSourceCurrent(sourceCurrent);
+    const selected: VerifiedOffshoreCandidate = {
+        ...summary,
+        verification: 'verified-final-geometry',
+        hazardReport: checked.hazardReport ?? null,
+    };
+    sourceProofs.set(selected, sourceCurrent);
+    return selected;
 }

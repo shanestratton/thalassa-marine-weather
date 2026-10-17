@@ -37,8 +37,10 @@
  * reported as a position.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AnchorWatchStore } from './anchorWatchStore.js';
+import { anchorSafeZoneContains, type AnchorSafeZone } from './anchorSafeZone.js';
+import { normalizeAnchorAssignment } from './anchorZoneContract.js';
 // trackSignalk imports fetchSelfDocument from here, so these two modules import
 // each other. Safe because neither touches the other's bindings at load time:
 // keep every use of these inside a function.
@@ -55,6 +57,9 @@ export const POSITION_MAX_AGE_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 
 export interface AnchorWatchAssignment {
+    safeZone?: AnchorSafeZone | null;
+    safeAreaRevision?: string;
+    safeAreaVesselId?: string | null;
     /** The channel the app authorised this relay to broadcast to. */
     sessionCode: string;
     anchorLat: number;
@@ -275,11 +280,27 @@ export function buildPositionPayload(
 ) {
     const distance = distanceMetres(assignment.anchorLat, assignment.anchorLon, fix.latitude, fix.longitude);
     return {
+        ...(assignment.safeZone ? { safeZone: assignment.safeZone, safeZoneWatch: 'pi' as const } : {}),
+        ...(assignment.safeAreaRevision
+            ? { safeAreaRevision: assignment.safeAreaRevision, safeAreaVesselId: assignment.safeAreaVesselId }
+            : {}),
         vessel: { latitude: fix.latitude, longitude: fix.longitude, timestamp: fix.timestamp },
         anchor: { latitude: assignment.anchorLat, longitude: assignment.anchorLon },
         distance,
         swingRadius: assignment.swingRadius,
-        isAlarm: alarm ?? distance > assignment.swingRadius,
+        isAlarm:
+            alarm ??
+            (assignment.safeZone
+                ? anchorSafeZoneContains(
+                      assignment.safeZone,
+                      {
+                          latitude: assignment.anchorLat,
+                          longitude: assignment.anchorLon,
+                          radiusM: assignment.swingRadius,
+                      },
+                      fix,
+                  ) !== true
+                : distance > assignment.swingRadius),
         // The shore view reads config.rodeLength and config.waterDepth. A
         // payload without them crashed that view on the Pi's FIRST broadcast
         // (found 2026-09-03 by comparing the two payload shapes rather than
@@ -535,7 +556,23 @@ export async function broadcastOnce(
         // Re-reading one frozen outlier is not three distinct GPS fixes.
         const next =
             fix.timestamp > (drag.lastTimestamp ?? -Infinity)
-                ? nextDragState(drag.outsideCount, distance, assignment.swingRadius)
+                ? nextDragState(
+                      drag.outsideCount,
+                      assignment.safeZone
+                          ? anchorSafeZoneContains(
+                                assignment.safeZone,
+                                {
+                                    latitude: assignment.anchorLat,
+                                    longitude: assignment.anchorLon,
+                                    radiusM: assignment.swingRadius,
+                                },
+                                fix,
+                            ) === true
+                              ? 0
+                              : assignment.swingRadius + 1
+                          : distance,
+                      assignment.swingRadius,
+                  )
                 : { outsideCount: drag.outsideCount, alarm: drag.outsideCount >= ALARM_CONFIRM_COUNT };
         drag.outsideCount = next.outsideCount;
         drag.lastTimestamp = Math.max(drag.lastTimestamp ?? -Infinity, fix.timestamp);
@@ -553,6 +590,10 @@ export async function broadcastOnce(
               timestamp: now,
               anchor: { latitude: assignment.anchorLat, longitude: assignment.anchorLon },
               swingRadius: assignment.swingRadius,
+              ...(assignment.safeZone ? { safeZone: assignment.safeZone, safeZoneWatch: 'pi' as const } : {}),
+              ...(assignment.safeAreaRevision
+                  ? { safeAreaRevision: assignment.safeAreaRevision, safeAreaVesselId: assignment.safeAreaVesselId }
+                  : {}),
           }
         : buildPositionPayload(assignment, fix!, alarm, readLiveConditions(document, now));
 
@@ -626,6 +667,7 @@ export interface RunnerDeps extends BroadcastDeps {
  * it never replays a position or claims to know what happened while offline.
  */
 export class AnchorWatchRunner {
+    private readonly bootRevision = randomUUID();
     private assignment: AnchorWatchAssignment | null = null;
     private credential: RelayCredential | null = null;
     private timer: ReturnType<typeof setInterval> | null = null;
@@ -643,12 +685,14 @@ export class AnchorWatchRunner {
     /** Replace whatever is running. Returns immediately; the first report is
      *  sent on the next tick so a caller is never blocked on the network. */
     start(assignment: AnchorWatchAssignment, credential: RelayCredential): void {
+        const normalized = normalizeAnchorAssignment(assignment, this.assignment);
+        if (!normalized) throw Error('The anchor assignment or safe area is invalid.');
         this.cancel();
         this.clearSaved();
         this.lease = null;
         this.lastPersistedAt = 0;
         this.lastOutcome = null;
-        this.run(assignment, credential);
+        this.run(normalized, credential);
     }
 
     private run(assignment: AnchorWatchAssignment, credential: RelayCredential): void {
@@ -678,9 +722,11 @@ export class AnchorWatchRunner {
 
     restore(credential: RelayCredential): boolean {
         const saved = this.deps.store?.read();
+        const normalized = saved && normalizeAnchorAssignment(saved.assignment);
         const now = this.deps.now?.() ?? Date.now();
         if (
             !saved ||
+            !normalized ||
             saved.relayId !== credential.relayId ||
             saved.expiresAt <= now ||
             saved.sessionExpiresAt <= now ||
@@ -693,7 +739,7 @@ export class AnchorWatchRunner {
         this.lease = { expiresAt: saved.expiresAt, sessionExpiresAt: saved.sessionExpiresAt };
         this.lastPersistedAt = 0;
         this.lastOutcome = null;
-        this.run(saved.assignment, credential);
+        this.run(normalized, credential);
         return true;
     }
 
@@ -741,6 +787,12 @@ export class AnchorWatchRunner {
 
     isRunning(): boolean {
         return this.timer !== null;
+    }
+    watchRevision(): string {
+        return `${this.bootRevision}:${this.generation}`;
+    }
+    isDragging(): boolean {
+        return this.drag.outsideCount >= ALARM_CONFIRM_COUNT;
     }
 
     /** The watch it keeps now, without its credential, or null (piCommandLock.ts reads it to tell a renewal from a move). */

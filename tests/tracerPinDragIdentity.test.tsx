@@ -68,9 +68,10 @@ vi.mock('../utils/system', async (importOriginal) => ({
 }));
 vi.mock('../services/routeTracer', () => ({ snapTraceTapToLead: () => null }));
 
-import { useTracerPinMarkers } from '../components/map/useTracerPinMarkers';
+import { useTracerPinMarkers, type TracerPinMarkerDeps } from '../components/map/useTracerPinMarkers';
+import type { TraceRoutePoint } from '../services/routing/traceRoutePoint';
 
-type Pin = { lat: number; lon: number };
+type Pin = TraceRoutePoint;
 
 function setup() {
     markers.length = 0;
@@ -88,12 +89,12 @@ function setup() {
         applied.push(typeof action === 'function' ? action(prev) : action);
     };
 
-    const props = {
+    const props: TracerPinMarkerDeps = {
         mapRef,
         tracerCtxRef: { current: null },
         coordCaptureMode: true,
         capturedCoords: [{ lat: 1, lon: 1 }] as Pin[],
-        setCapturedCoords: makeDispatcher('scope-A') as never,
+        setCapturedCoords: makeDispatcher('scope-A'),
         selectedPin: null,
         setSelectedPin: vi.fn(),
         setInsertAfter: vi.fn(),
@@ -115,6 +116,19 @@ function setup() {
 }
 
 describe('tracer pin drag survives an auth identity change', () => {
+    it('clears the current side choice explicitly when its passing point is dragged', () => {
+        const { view, props } = setup();
+        const point: Pin = {
+            lat: 1,
+            lon: 1,
+            constraint: { lat: 1, lon: 1.001, leaveSide: 'port', standOffM: 50, courseBearing: 90 },
+        };
+        const writes = vi.fn();
+        act(() => view.rerender({ ...props, capturedCoords: [point], setCapturedCoords: writes }));
+        act(() => markers[0].drop(2, 2));
+        expect(writes.mock.calls[0][0]([point])).toEqual([{ lat: 2, lon: 2 }]);
+        expect(props.flashTraceFeedback).toHaveBeenCalledWith('Pin moved — its leave-side choice was cleared.');
+    });
     it('applies a drag on the marker created under the current identity', () => {
         const { applied } = setup();
         expect(markers).toHaveLength(1);
@@ -131,7 +145,7 @@ describe('tracer pin drag survives an auth identity change', () => {
         // Sign-in: the old dispatcher is now a no-op and a new one arrives.
         signIn();
         act(() => {
-            view.rerender({ ...props, setCapturedCoords: makeDispatcher('scope-B') as never });
+            view.rerender({ ...props, setCapturedCoords: makeDispatcher('scope-B') });
         });
 
         // The record — and therefore its dragend listener — is REUSED, not

@@ -1,3 +1,5 @@
+import './helpers/noPrivateRoutingAreas';
+
 /**
  * The route job crosses to a worker as a structured clone, and its answer
  * comes back the same way (127-ROUTE-W). So neither may hold a function or a

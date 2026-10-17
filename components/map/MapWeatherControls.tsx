@@ -151,7 +151,7 @@ export function MapWeatherControls({
     const activeWeatherLayers = weatherKeys.filter((key) =>
         key === 'wind'
             ? weather.activeLayers.has('wind' as WeatherLayer) || weather.activeLayers.has('velocity')
-            : weather.activeLayers.has(key as WeatherLayer),
+            : weather.activeLayers.has(key as WeatherLayer) && !(key === 'pressure' && weather.pressureManaged),
     );
     // While the skipper is looking ahead along the route, the passage strip's
     // scrubber stands in this row and drives the wind timeline itself. Two time

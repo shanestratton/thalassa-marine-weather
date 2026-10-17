@@ -37,6 +37,81 @@ describe('useTraceDraft', () => {
 
     const key = (base: string) => authScopedStorageKey(base, getAuthIdentityScope());
 
+    it('commits a point-only edit only against the exact current draft epoch and source guard', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        act(() => result.current.setCapturedCoords([BAY_POINT, SANDY_COVE]));
+        const points = result.current.capturedCoords,
+            epoch = result.current.getTraceEditEpoch();
+        act(() => {
+            expect(
+                result.current.commitCheckedTracePoints(
+                    epoch,
+                    points,
+                    (p) => [p[0], { ...MIDWAY, name: 'Wait' }, p[1]],
+                    () => true,
+                ),
+            ).toBe(true);
+        });
+        expect(result.current.capturedCoords).toEqual([BAY_POINT, { ...MIDWAY, name: 'Wait' }, SANDY_COVE]);
+        act(() =>
+            expect(
+                result.current.commitCheckedTracePoints(
+                    epoch,
+                    points,
+                    () => [],
+                    () => true,
+                ),
+            ).toBe(false),
+        );
+        const current = result.current.capturedCoords,
+            currentEpoch = result.current.getTraceEditEpoch();
+        act(() =>
+            expect(
+                result.current.commitCheckedTracePoints(
+                    currentEpoch,
+                    current,
+                    () => [],
+                    () => false,
+                ),
+            ).toBe(false),
+        );
+        expect(result.current.capturedCoords).toBe(current);
+    });
+
+    it('refuses queued A/B/A draft edits and a source that retires inside the React updater', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        act(() => result.current.setCapturedCoords([BAY_POINT, SANDY_COVE]));
+        const points = result.current.capturedCoords,
+            epoch = result.current.getTraceEditEpoch();
+        act(() => {
+            result.current.setCapturedCoords([BAY_POINT, MIDWAY]);
+            result.current.setCapturedCoords(points);
+            expect(
+                result.current.commitCheckedTracePoints(
+                    epoch,
+                    points,
+                    () => [],
+                    () => true,
+                ),
+            ).toBe(false);
+        });
+        expect(result.current.capturedCoords).toBe(points);
+        const after = result.current.getTraceEditEpoch();
+        let guardReads = 0;
+        act(() =>
+            expect(
+                result.current.commitCheckedTracePoints(
+                    after,
+                    points,
+                    () => [],
+                    () => ++guardReads === 1,
+                ),
+            ).toBe(true),
+        );
+        expect(result.current.capturedCoords).toBe(points);
+        expect(guardReads).toBeGreaterThan(1);
+    });
+
     it('recovers only valid session-backed trace state', () => {
         sessionStorage.setItem(
             key(keys.pins),

@@ -1214,9 +1214,10 @@ describe('the sea she will be in (phase 4)', () => {
         render(<PassageHudPane />);
         await lookAhead();
         // 30 NM along a fixture that rises 0.01 m a mile from 1.4 m: 1.7 m, however the stations fall.
-        await waitFor(() => expect(text('hud-sea')).toBe('Sea 7s1.7m'));
+        await waitFor(() => expect(text('hud-sea')).toBe('Sea 7sUncomfortable1.7m'));
+        expect(screen.getByTestId('hud-sea-comfort')).toHaveTextContent('Uncomfortable');
         expect(label('hud-sea')).toBe(
-            'Forecast sea 1.7 metres, 7 second period, from 120 true, Météo-France wave model',
+            'Forecast sea 1.7 metres, 7 second period, from 120 true, Uncomfortable, big sea for her length, uncalibrated beta, comfort not safety, Météo-France wave model',
         );
         expect(screen.getByTestId('hud-sea').getAttribute('data-freshness')).toBe('forecast');
     });
@@ -1226,9 +1227,12 @@ describe('the sea she will be in (phase 4)', () => {
         render(<PassageHudPane />);
         await lookAhead();
         await waitFor(() => expect(text('hud-sea')).toMatch(/m$/));
-        const first = Number.parseFloat(text('hud-sea').replace(/^Sea \d+s/, ''));
+        // The physical value remains distinct from the new subjective comfort word.
+        const first = Number(text('hud-sea').match(/(\d+(?:\.\d+)?)m$/)?.[1]);
+        expect(Number.isFinite(first)).toBe(true);
         act(() => setPassageAheadMs(12 * HOUR));
-        const later = Number.parseFloat(text('hud-sea').replace(/^Sea \d+s/, ''));
+        const later = Number(text('hud-sea').match(/(\d+(?:\.\d+)?)m$/)?.[1]);
+        expect(Number.isFinite(later)).toBe(true);
         expect(later).toBeGreaterThan(first);
     });
 
@@ -1238,7 +1242,8 @@ describe('the sea she will be in (phase 4)', () => {
         underWay();
         render(<PassageHudPane />);
         await lookAhead();
-        await waitFor(() => expect(text('hud-sea')).toBe('Sea 7s4.9ft'));
+        await waitFor(() => expect(text('hud-sea')).toBe('Sea 7sUncomfortable4.9ft'));
+        expect(screen.getByTestId('hud-sea-comfort')).toHaveTextContent('Uncomfortable');
         expect(label('hud-sea')).toContain('4.9 feet');
     });
 

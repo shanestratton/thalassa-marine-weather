@@ -1,0 +1,77 @@
+name: Build140 isolated community review database proof
+on:
+    push:
+        branches: ['codex/build-140-community-validation']
+        paths:
+            - '.github/workflows/community-reviews-db.yml'
+            - 'supabase/tests/community-reviews-*'
+            - 'supabase/migrations/20261017030819_community_place_reviews.sql'
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source commit (40 hex characters)
+                required: true
+                type: string
+permissions:
+    contents: read
+jobs:
+    postgres:
+        if: github.repository == 'shanestratton/thalassa-marine-weather'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 12
+        services:
+            postgres:
+                image: postgres:17.6
+                env:
+                    POSTGRES_PASSWORD: fixture-only-password
+                    POSTGRES_DB: community_reviews140_test
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd pg_isready --health-interval 5s
+                    --health-timeout 5s --health-retries 10
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+            THALASSA_DISPOSABLE_COMMUNITY_TEST: '1'
+            COMMUNITY_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/community_reviews140_test
+        steps:
+            - name: Require exact source
+              shell: bash
+              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha || github.sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+            - name: Record exact source and PostgreSQL image
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/community140-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/community140-proof/SOURCE_SHA.txt"
+                  docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/community140-proof/POSTGRES_IMAGE_ID.txt"
+                  sha256sum supabase/tests/community-reviews-* supabase/migrations/20261017030819_community_place_reviews.sql > "$RUNNER_TEMP/community140-proof/SHA256SUMS"
+            - name: Install pinned isolated PostgreSQL client
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  npm install --prefix "$RUNNER_TEMP/community140-pg" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+                  test "$(node -p "require('$RUNNER_TEMP/community140-pg/node_modules/pg/package.json').version")" = 8.16.3
+                  sha256sum "$RUNNER_TEMP/community140-pg/package-lock.json" > "$RUNNER_TEMP/community140-proof/CLIENT_LOCK_SHA256.txt"
+            - name: Execute actual SQL ownership, moderation, deletion and competing transaction tests
+              env:
+                  PG_MODULE_PATH: ${{ runner.temp }}/community140-pg/node_modules/pg/lib/index.js
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  node supabase/tests/community-reviews-postgres.mjs 2>&1 | tee "$RUNNER_TEMP/community140-proof/POSTGRES.txt"
+            - name: Preserve success or failure
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build140-community-review-database-proof
+                  path: ${{ runner.temp }}/community140-proof/
+                  retention-days: 7
+                  if-no-files-found: error

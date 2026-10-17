@@ -34,7 +34,9 @@ interface AdminPanelProps {
     onChannelApproved?: () => void;
 }
 
-type AdminTab = 'users' | 'applications' | 'channels' | 'crew' | 'audit';
+const ChartNoteModeration = React.lazy(() => import('./admin/ChartNoteModeration'));
+const PlaceReviewModeration = React.lazy(() => import('./admin/PlaceReviewModeration'));
+type AdminTab = 'users' | 'applications' | 'channels' | 'crew' | 'audit' | 'places' | 'chart-notes';
 
 const ADMIN_TABS: ReadonlyArray<readonly [AdminTab, string]> = [
     ['users', '👥 Users'],
@@ -42,6 +44,8 @@ const ADMIN_TABS: ReadonlyArray<readonly [AdminTab, string]> = [
     ['channels', '📡 Channels'],
     ['crew', '⚓ Crew List'],
     ['audit', '📋 Audit'],
+    ['places', '⚓ Place notes'],
+    ['chart-notes', 'Chart notes'],
 ];
 
 const ROLE_STYLES: Record<ChatRole, { bg: string; text: string; label: string }> = {
@@ -763,6 +767,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                 )}
 
                 {/* ════════ CHANNELS TAB ════════ */}
+                {tab === 'places' && (
+                    <React.Suspense fallback={<p className="p-4">Opening moderation…</p>}>
+                        <PlaceReviewModeration />
+                    </React.Suspense>
+                )}
+                {tab === 'chart-notes' && (
+                    <React.Suspense fallback={<p className="p-4">Opening moderation…</p>}>
+                        <ChartNoteModeration />
+                    </React.Suspense>
+                )}
                 {tab === 'channels' && (
                     <div className="px-4 pt-4 space-y-4">
                         {/* Pending Proposals */}

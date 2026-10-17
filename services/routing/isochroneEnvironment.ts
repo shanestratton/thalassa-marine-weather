@@ -4,12 +4,15 @@ import { withDeadline } from '../../utils/deadline';
 import type { CurrentVector } from '../OceanCurrentService';
 import type { WaveFieldData } from '../weather/waveField';
 import type { ActiveCyclone } from '../weather/CycloneTrackingService';
+import type { CurrentComponents, CurrentModel, CurrentSeries } from '../weather/currentSeries';
 
 type Point = { lat: number; lon: number };
 /** Structured-clone inputs for the Worker; missing values stay missing, with no resampling. */
 export interface IsochroneEnvironmentSnapshot {
     departureMs: number;
     currentVectors: CurrentVector[] | null;
+    currentSeries?: CurrentSeries;
+    currentComponents?: CurrentComponents;
     waves: WaveFieldData | null;
     cyclones: ActiveCyclone[] | null;
 }
@@ -30,6 +33,8 @@ export async function loadIsochroneEnvironment(opts: {
     speedKts: number;
     currentNrtEnabled?: boolean;
     satelliteMode?: boolean;
+    currentModel?: CurrentModel;
+    includeModelTide?: boolean;
 }): Promise<IsochroneEnvironment> {
     const { origin, destination } = opts;
     const departureMs = Date.parse(opts.departureTime);
@@ -58,12 +63,51 @@ export async function loadIsochroneEnvironment(opts: {
     };
     const [current, waves, cyclone] = await Promise.allSettled([
         withDeadline(
-            (async () => {
-                if (crossesDateLine) return null;
-                const [{ OceanCurrentService }, { createCurrentFieldFromVectors }] = await Promise.all([
-                    import('../OceanCurrentService'),
+            (async (): Promise<{
+                field: CurrentField | null;
+                vectors: CurrentVector[] | null;
+                series?: CurrentSeries;
+                components?: CurrentComponents;
+            } | null> => {
+                const [
+                    { loadRegionalCurrentSeries, currentBoundsForPassage },
+                    { createCurrentFieldFromSeries, createCurrentFieldFromVectors },
+                ] = await Promise.all([
+                    import('../weather/api/currentRegionalLoader'),
                     import('../weather/CurrentFieldAdapter'),
                 ]);
+                const bounds = currentBoundsForPassage(origin, destination);
+                const components: CurrentComponents = opts.includeModelTide ? 'ocean+tide' : 'ocean';
+                const hours = Math.min(
+                    120,
+                    Math.max(
+                        1,
+                        Math.ceil(
+                            haversineNm(origin.lat, origin.lon, destination.lat, destination.lon) /
+                                Math.max(1, opts.speedKts) +
+                                12,
+                        ),
+                    ),
+                );
+                const series =
+                    bounds &&
+                    (await loadRegionalCurrentSeries({
+                        bounds,
+                        startMs: departureMs,
+                        endMs: departureMs + hours * 3_600_000,
+                        model: opts.currentModel,
+                        components,
+                    }));
+                if (series)
+                    return {
+                        field: createCurrentFieldFromSeries(series, departureMs, components),
+                        vectors: null,
+                        series,
+                        components,
+                    };
+                // An explicitly requested second model/tide never becomes a different snapshot silently.
+                if (crossesDateLine || opts.currentModel === 'RTOFS' || opts.includeModelTide) return null;
+                const [{ OceanCurrentService }] = await Promise.all([import('../OceanCurrentService')]);
                 const briefing = await OceanCurrentService.fetchCurrents(
                     bbox,
                     initialBearing(origin.lat, origin.lon, destination.lat, destination.lon),
@@ -122,13 +166,20 @@ export async function loadIsochroneEnvironment(opts: {
         snapshot: {
             departureMs,
             currentVectors: current.status === 'fulfilled' ? (current.value?.vectors ?? null) : null,
+            ...(current.status === 'fulfilled' && current.value?.series
+                ? { currentSeries: current.value.series, currentComponents: current.value.components }
+                : {}),
             waves: waves.status === 'fulfilled' ? (waves.value?.data ?? null) : null,
             cyclones: cyclone.status === 'fulfilled' ? (cyclone.value?.cyclones ?? null) : null,
         },
         notes: [
-            currentField
-                ? 'Ocean currents use one surface-current snapshot; tidal streams are not included.'
-                : 'Ocean-current data unavailable; route estimates use speed through water.',
+            current.status === 'fulfilled' && current.value?.series
+                ? current.value.components === 'ocean+tide'
+                    ? `${current.value.series.model} ocean plus model tide within verified cells/times; narrow passages and bars are unresolved.`
+                    : `${current.value.series.model} time-varying ocean currents within verified cells/times; tidal streams are not included.`
+                : currentField
+                  ? 'Ocean currents use one surface-current snapshot; tidal streams are not included.'
+                  : 'Ocean-current data unavailable; route estimates use speed through water.',
             waveField
                 ? 'Wave effects use available forecast cells; sheltered or out-of-range cells remain unknown.'
                 : 'Wave data unavailable; sea-state effects are not included.',
@@ -141,10 +192,25 @@ export async function loadIsochroneEnvironment(opts: {
 
 /** Reuse the same snapshot for later route legs without resetting its clock. */
 export function isochroneEnvironmentAt(environment: IsochroneEnvironment, departureTime: string): IsochroneEnvironment {
-    const offset = (Date.parse(departureTime) - environment.departureMs) / 3_600_000;
+    const departureMs = Date.parse(departureTime);
+    if (!Number.isFinite(departureMs))
+        return {
+            ...environment,
+            departureMs,
+            currentField: null,
+            waveField: null,
+            exclusionField: null,
+            snapshot: { departureMs, currentVectors: null, waves: null, cyclones: null },
+            notes: [...environment.notes, 'Routing environment unavailable: later-leg departure time is invalid.'],
+        };
+    const offset = (departureMs - environment.departureMs) / 3_600_000;
     return {
         ...environment,
-        currentField: environment.currentField,
+        departureMs,
+        snapshot: { ...environment.snapshot, departureMs },
+        currentField: environment.currentField && {
+            getCurrent: (lat, lon, hours) => environment.currentField!.getCurrent(lat, lon, hours + offset),
+        },
         waveField: environment.waveField && {
             sampleHours: environment.waveField.sampleHours?.map((hour) => hour - offset),
             getWave: (lat, lon, hours) => environment.waveField!.getWave(lat, lon, hours + offset),

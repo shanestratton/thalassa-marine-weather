@@ -86,6 +86,12 @@ export interface RadialHelmMenuProps {
         onOpenMob?: () => void;
         aisVisible?: boolean;
         onToggleAis?: () => void;
+        receiverCoverageVisible?: boolean;
+        onToggleReceiverCoverage?: () => void;
+        measuredBuoysVisible?: boolean;
+        onToggleMeasuredBuoys?: () => void;
+        ascatVisible?: boolean;
+        onToggleAscat?: () => void;
         cycloneVisible?: boolean;
         onToggleCyclones?: () => void;
         squallVisible?: boolean;
@@ -100,8 +106,19 @@ export interface RadialHelmMenuProps {
         onToggleTideStations?: () => void;
         anchorageVisible?: boolean;
         onToggleAnchorage?: () => void;
+        communityNotesVisible?: boolean;
+        onToggleCommunityNotes?: () => void;
+        sshMode?: 'off' | 'sla' | 'adt';
+        onChangeSshMode?: (mode: 'off' | 'sla' | 'adt') => void;
+        sharperSatelliteVisible?: boolean;
+        onToggleSharperSatellite?: () => void;
         mooringsVisible?: boolean;
         onToggleMoorings?: () => void;
+        facilitiesVisible?: boolean;
+        onToggleFacilities?: () => void;
+        boatPresenceVisible?: boolean;
+        onToggleBoatPresence?: () => void;
+        onOpenBoatPresence?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
         mpaVisible?: boolean;
         onToggleMpa?: () => void;
@@ -367,8 +384,36 @@ function buildCategories(
             action: tacticalState.onToggleAis,
         });
     }
+    if (tacticalState?.onToggleBoatPresence)
+        tactical.push({
+            id: 'boat-presence',
+            label: 'Thalassa boats',
+            icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="m12 2 10 10-10 10L2 12Z" />
+                    <circle cx="12" cy="12" r="4" />
+                </svg>
+            ),
+            action: tacticalState.onToggleBoatPresence,
+        });
+    if (tacticalState?.onOpenBoatPresence)
+        tactical.push({
+            id: 'boat-presence-controls',
+            label: 'Boat privacy',
+            icon: <span aria-hidden>⚙</span>,
+            action: tacticalState.onOpenBoatPresence,
+            dismissOnSelect: true,
+        });
 
     // ── Operational reference (lower in the fan) ──
+    if (tacticalState?.onToggleReceiverCoverage) {
+        tactical.push({
+            id: 'receiver-coverage',
+            label: 'Who’s listening',
+            icon: <AisIcon />,
+            action: tacticalState.onToggleReceiverCoverage,
+        });
+    }
     // Marks / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
     // Tide stations now live under Sea, beside the other water layers.
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
@@ -446,6 +491,45 @@ function buildCategories(
                               },
                           ]
                         : []),
+                    ...(tacticalState?.onToggleFacilities
+                        ? [
+                              {
+                                  id: 'facilities',
+                                  label: 'Facilities',
+                                  icon: (
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                          <path d="M4 21V8h12v13M2 21h20M7 4h6v4M7 12h6M7 16h6M16 10h3l2 4v4a2 2 0 0 1-4 0v-3" />
+                                      </svg>
+                                  ),
+                                  action: tacticalState.onToggleFacilities,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleCommunityNotes
+                        ? [
+                              {
+                                  id: 'community-notes',
+                                  label: 'Community notes',
+                                  icon: (
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                          <path d="M4 4h16v12H9l-5 4Z" />
+                                          <path d="M12 7v4m0 2v1" />
+                                      </svg>
+                                  ),
+                                  action: tacticalState.onToggleCommunityNotes,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleMeasuredBuoys
+                        ? [
+                              {
+                                  id: 'measured-buoys',
+                                  label: 'Measured seas',
+                                  icon: <WavesIcon />,
+                                  action: tacticalState.onToggleMeasuredBuoys,
+                              },
+                          ]
+                        : []),
                     ...(tacticalState?.onToggleTideStations
                         ? [
                               {
@@ -453,6 +537,24 @@ function buildCategories(
                                   label: 'Tides',
                                   icon: <TideIcon />,
                                   action: tacticalState.onToggleTideStations,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onChangeSshMode
+                        ? [
+                              {
+                                  id: 'ssh-sla',
+                                  label: 'Eddies · SLA',
+                                  icon: <CurrentsIcon />,
+                                  action: () =>
+                                      tacticalState.onChangeSshMode?.(tacticalState.sshMode === 'sla' ? 'off' : 'sla'),
+                              },
+                              {
+                                  id: 'ssh-adt',
+                                  label: 'Sea height · ADT',
+                                  icon: <SstIcon />,
+                                  action: () =>
+                                      tacticalState.onChangeSshMode?.(tacticalState.sshMode === 'adt' ? 'off' : 'adt'),
                               },
                           ]
                         : []),
@@ -528,6 +630,16 @@ function buildCategories(
                     icon: <WindIcon />,
                     layerKey: 'wind',
                 },
+                ...(tacticalState?.onToggleAscat
+                    ? [
+                          {
+                              id: 'ascat',
+                              label: 'Satellite wind',
+                              icon: <WindIcon />,
+                              action: tacticalState.onToggleAscat,
+                          },
+                      ]
+                    : []),
                 // The old "Flow" entry (layerKey: 'velocity') was a duplicate —
                 // both it and 'wind' pointed at the same particle engine +
                 // GRIB fetch. Removed from the menu for clarity; the
@@ -566,16 +678,33 @@ function buildCategories(
                     icon: <SatCloudIcon />,
                     layerKey: 'satIR',
                 },
+                ...(tacticalState?.onToggleSharperSatellite
+                    ? [
+                          {
+                              id: 'sharper-satellite',
+                              label: 'Sharper sat',
+                              icon: <SatCloudIcon />,
+                              action: tacticalState.onToggleSharperSatellite,
+                          },
+                      ]
+                    : []),
                 {
                     id: 'temperature',
                     label: 'Temp',
                     icon: <TempIcon />,
                     layerKey: 'temperature',
                 },
-                // Wind-gusts / Visibility / CAPE removed 2026-04-22 with
-                // the Xweather decommission — they were Xweather-raster-only
-                // and we don't have a free replacement. Add back when we
-                // wire up GFS-derived gusts or similar.
+                ...(import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true'
+                    ? [
+                          { id: 'gust', label: 'GFS gusts', icon: <WindIcon />, layerKey: 'gust' as const },
+                          {
+                              id: 'visibility',
+                              label: 'Model visibility',
+                              icon: <CloudsIcon />,
+                              layerKey: 'visibility' as const,
+                          },
+                      ]
+                    : []),
             ],
         },
         // ── Routes / charts (4th category) ──
@@ -860,6 +989,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             e.stopPropagation();
             toggleLayer('none');
             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
+            if (tacticalState?.receiverCoverageVisible) tacticalState.onToggleReceiverCoverage?.();
+            if (tacticalState?.measuredBuoysVisible) tacticalState.onToggleMeasuredBuoys?.();
+            if (tacticalState?.ascatVisible) tacticalState.onToggleAscat?.();
             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
             if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
@@ -867,7 +999,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
             if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
+            if (tacticalState?.communityNotesVisible) tacticalState.onToggleCommunityNotes?.();
+            if (tacticalState?.sshMode && tacticalState.sshMode !== 'off') tacticalState.onChangeSshMode?.('off');
+            if (tacticalState?.sharperSatelliteVisible) tacticalState.onToggleSharperSatellite?.();
             if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
+            if (tacticalState?.facilitiesVisible) tacticalState.onToggleFacilities?.();
+            if (tacticalState?.boatPresenceVisible) tacticalState.onToggleBoatPresence?.();
             // Also clear any chart sources.
             chartsState?.sources?.forEach((s) => {
                 if (!s.enabled) return;
@@ -999,6 +1136,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             // always-visible button, which reads tacticalState.mobActive
             // directly for its pulse.
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
+            if (item.id === 'receiver-coverage') return tacticalState?.receiverCoverageVisible ?? false;
+            if (item.id === 'measured-buoys') return tacticalState?.measuredBuoysVisible ?? false;
+            if (item.id === 'ascat') return tacticalState?.ascatVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
             if (item.id === 'lightning') return tacticalState?.lightningVisible ?? false;
@@ -1006,7 +1146,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'seamark') return tacticalState?.seamarkVisible ?? false;
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
             if (item.id === 'anchorages') return tacticalState?.anchorageVisible ?? false;
+            if (item.id === 'community-notes') return tacticalState?.communityNotesVisible ?? false;
+            if (item.id === 'ssh-sla') return tacticalState?.sshMode === 'sla';
+            if (item.id === 'ssh-adt') return tacticalState?.sshMode === 'adt';
+            if (item.id === 'sharper-satellite') return tacticalState?.sharperSatelliteVisible ?? false;
             if (item.id === 'moorings') return tacticalState?.mooringsVisible ?? false;
+            if (item.id === 'facilities') return tacticalState?.facilitiesVisible ?? false;
+            if (item.id === 'boat-presence') return tacticalState?.boatPresenceVisible ?? false;
             if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
             if (item.id.startsWith('chart-')) {
@@ -1022,6 +1168,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const totalActive = useMemo(() => {
         let count = activeLayers.size;
         if (tacticalState?.aisVisible) count++;
+        if (tacticalState?.receiverCoverageVisible) count++;
+        if (tacticalState?.measuredBuoysVisible) count++;
+        if (tacticalState?.ascatVisible) count++;
         if (tacticalState?.cycloneVisible) count++;
         if (tacticalState?.squallVisible) count++;
         if (tacticalState?.lightningVisible) count++;
@@ -1030,6 +1179,11 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.tideStationsVisible) count++;
         if (tacticalState?.anchorageVisible) count++;
         if (tacticalState?.mooringsVisible) count++;
+        if (tacticalState?.communityNotesVisible) count++;
+        if (tacticalState?.sshMode && tacticalState.sshMode !== 'off') count++;
+        if (tacticalState?.sharperSatelliteVisible) count++;
+        if (tacticalState?.facilitiesVisible) count++;
+        if (tacticalState?.boatPresenceVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
         if (chartsState?.sources) {
             for (const s of chartsState.sources) if (s.enabled) count++;

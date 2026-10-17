@@ -56,6 +56,8 @@ import { clearMergedData, retainMergedData } from '../../services/enc/mergedData
 import { encDisplayScale, ENC_MERGE_MIN_ZOOM } from './encDisplayScale';
 import { setEncDisplayState } from './encDisplayState';
 import { chartTurning } from './chartOrientation';
+import { registerEntryChartView } from '../../services/userOverlays/chartAreas';
+import { getVersion as chartRegistryVersion } from '../../services/enc/EncCellMetadata';
 
 const log = createLogger('useEncVectorLayer');
 
@@ -183,6 +185,18 @@ export function useEncVectorLayer(
      *  14 wholesale setData uploads for it was pure waste (2026-07-12
      *  audit; visible as a hitch on every FAB toggle too). */
     const lastAppliedRef = useRef<unknown>(null);
+    const entryVersionRef = useRef(-1);
+    const entryVisibleRef = useRef(visible);
+    entryVisibleRef.current = visible;
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapReady || !map) return;
+        return registerEntryChartView(map, () =>
+            mountedRef.current && entryVisibleRef.current && entryVersionRef.current === chartRegistryVersion()
+                ? (lastAppliedRef.current as EncMergedVectorData | null)
+                : null,
+        );
+    }, [mapRef, mapReady]);
 
     useEffect(() => {
         if (!mapReady) return;
@@ -542,6 +556,7 @@ export function useEncVectorLayer(
                     mountedRef.current = true;
                 }
                 lastAppliedRef.current = data;
+                entryVersionRef.current = chartRegistryVersion();
                 packageAppliedRef.current = packageView;
                 setEncOverviewMode(map, scale.overview);
                 // Always-on by default — explicit toggle from the FAB flips it.

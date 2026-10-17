@@ -55,8 +55,14 @@ class Pipeline(unittest.TestCase):
         parsed=c.parse_catalogue(raw)
         self.assertEqual(parsed['sourceAt'],'2026-10-16T04:59:07Z')
         with tempfile.TemporaryDirectory() as directory:
-            index=c.generate(parsed,{},Path(directory)/'generation','2026-10-16T06:00:00Z')
+            generation=Path(directory)/'generation'
+            index=c.generate(parsed,{},generation,'2026-10-16T06:00:00Z')
             self.assertEqual(index,json.loads((fixtures/'generated-index.json').read_bytes()))
+            wire=(generation/'revisions.json').read_bytes()
+            self.assertEqual(wire,(fixtures/'generated-revisions.json.txt').read_bytes())
+            self.assertEqual(index['revisions']['bytes'],len(wire))
+            self.assertEqual(index['revisions']['sha256'],hashlib.sha256(wire).hexdigest())
+            self.assertEqual(json.loads(wire)['generation'],index['generation'])
     def test_metadata_timestamp_requires_real_utc_calendar_values_and_preserves_issuance(self):
         for stamp in ['ENC Product Catalog','2026-02-30T00:00:00Z','2026-10-16','2026-10-16T25:00:00Z','2026-10-16T04:59:07+00:00','1970-01-01T00:00:00Z']:
             with self.assertRaises(ValueError): c.parse_catalogue(xml(record()).replace(b'2026-10-16T04:59:07Z',stamp.encode()))
@@ -175,6 +181,52 @@ class Pipeline(unittest.TestCase):
                 self.assertTrue(any(key.endswith('.zip') for key in store.data))
                 self.assertEqual(result['deletedObjects'],0)
                 self.assertEqual(json.loads(store.data[publish.PREFIX+'index.json'])['generation'],index['generation'])
+                self.assertIn(publish.PREFIX+index['revisions']['key'],store.data)
+                self.assertLess(store.puts.index(publish.PREFIX+index['revisions']['key']),len(store.puts)-1)
+
+    def test_revision_generation_hash_and_regional_truth_are_verified_before_any_put(self):
+        for mode in ['hash','generation','regional','partial','shape','cap']:
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory)
+                with patch.object(c,'AGREEMENT_SHA',hashlib.sha256(b'test government terms\n').hexdigest()):
+                    generation,agreement,index=self.staged(root); store=Store()
+                    root_key=publish.PREFIX+'index.json'; previous=b'{"generation":"old","sourceAt":"2026-01-01T00:00:00Z"}'
+                    store.data[root_key]=previous
+                    revisions=generation/'revisions.json'; body=json.loads(revisions.read_bytes())
+                    if mode=='hash': revisions.write_bytes(b'changed')
+                    elif mode=='cap': index['revisions']['bytes']=1024**2+1
+                    else:
+                        if mode=='generation': body['generation']='f'*24
+                        if mode=='regional': body['cells'][0]['update']+=1
+                        if mode=='partial': body['cells']=[]
+                        if mode=='shape': body={'schema':1,'generation':index['generation'],'cells':body['cells'],'geometry':[]}
+                        wire=c.json_bytes(body); revisions.write_bytes(wire)
+                        index['revisions'].update(bytes=len(wire),sha256=hashlib.sha256(wire).hexdigest())
+                    (generation/'index.json').write_bytes(c.json_bytes(index))
+                    with self.assertRaises(ValueError): publish.prepare(store,root,generation,agreement)
+                    self.assertEqual(store.puts,[])
+                    self.assertEqual(store.data[root_key],previous)
+
+    def test_failed_revision_put_keeps_previous_root_and_metadata_caps_prevent_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            with patch.object(c,'AGREEMENT_SHA',hashlib.sha256(b'test government terms\n').hexdigest()):
+                generation,agreement,index=self.staged(root); store=Store()
+                root_key=publish.PREFIX+'index.json'; previous=b'{"generation":"old","sourceAt":"2026-01-01T00:00:00Z"}'
+                store.data[root_key]=previous; plan=publish.prepare(store,root,generation,agreement)
+                store.fail_key=publish.PREFIX+index['revisions']['key']
+                with self.assertRaisesRegex(ValueError,'upload failure'): publish.apply(store,plan,root,generation,agreement)
+                self.assertEqual(store.data[root_key],previous)
+                self.assertNotIn(root_key,store.puts)
+            parsed=c.parse_catalogue(xml(record()))
+            with self.assertRaisesRegex(ValueError,'metadata cap'):
+                c.generate({**parsed,'cells':parsed['cells']*10001},{},root/'too-many','2026-10-16T06:00:00Z')
+            original=c.json_bytes
+            def oversized(value):
+                return b' '*(1024**2+1) if set(value)==set(('schema','generation','cells')) else original(value)
+            with patch.object(c,'json_bytes',side_effect=oversized):
+                with self.assertRaisesRegex(ValueError,'metadata cap'):
+                    c.generate(parsed,{},root/'too-large','2026-10-16T06:00:00Z')
     def test_failed_upload_keeps_previous_root_and_cas_blocks_competing_writer(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)

@@ -77,6 +77,9 @@ export type PiRouteClass = 'read' | 'raise' | 'command';
 export type PiLockMode = 'observe' | 'enforce';
 
 export interface AnchorWatchFact {
+    safeZone?: unknown;
+    safeAreaRevision?: string;
+    safeAreaVesselId?: string | null;
     sessionCode: string;
     anchorLat: number;
     anchorLon: number;
@@ -125,7 +128,10 @@ function anchorWatchClass(body: unknown, facts: PiRouteFacts): PiRouteClass {
         b.sessionCode.trim() === running.sessionCode &&
         Number(b.anchorLat) === running.anchorLat &&
         Number(b.anchorLon) === running.anchorLon &&
-        Number(b.swingRadius) === running.swingRadius;
+        Number(b.swingRadius) === running.swingRadius &&
+        JSON.stringify(b.safeZone ?? null) === JSON.stringify(running.safeZone ?? null) &&
+        (b.safeAreaRevision ?? null) === (running.safeAreaRevision ?? null) &&
+        (b.safeAreaVesselId ?? null) === (running.safeAreaVesselId ?? null);
     return unchanged ? 'raise' : 'command';
 }
 
@@ -178,6 +184,18 @@ const ROWS: Row[] = [
     ['POST /api/radar/watch/ack', 'command', 'chart'],
     ['POST /api/radar/watch/relay-review', 'command', 'chart'],
     ['GET /api/wake-rules/status', 'read'],
+    ['GET /api/fleet-sharing/status', 'read'],
+    ['POST /api/fleet-sharing/prepare', 'command'],
+    ['POST /api/fleet-sharing/confirm', 'command'],
+    ['POST /api/fleet-sharing/off', 'command'],
+    ['GET /api/own-boat-skill/capability', 'read'],
+    ['POST /api/own-boat-skill/prepare', 'command'],
+    ['POST /api/own-boat-skill/confirm', 'command'],
+    ['POST /api/own-boat-skill/enable', 'command'],
+    ['POST /api/own-boat-skill/open-read', 'read'],
+    ['POST /api/own-boat-skill/read', 'read'],
+    ['POST /api/own-boat-skill/off', 'command'],
+    ['POST /api/own-boat-skill/clear', 'command'],
     ['GET /api/wake-rules/sensors', 'read'],
     ['POST /api/wake-rules/configuration', 'command'],
     ['POST /api/wake-rules/relay-context', 'command'],

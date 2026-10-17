@@ -22,6 +22,7 @@ import {
 
 import { chartFreeVoyagePlan } from '../chartFacts';
 import type { VoyagePlan } from '../../types';
+import { routeConstraintNotes } from '../routing/routeConstraintNotes';
 
 const log = createLogger('PassagePlanSave');
 
@@ -550,7 +551,7 @@ export async function savePassagePlanToLogbookWithLinks(
             // useful.
             let firstNote: string | undefined;
             if (i === 0) {
-                const summary = `Planned: ${plan.origin} → ${plan.destination}${routeCaveatNotes(plan)}`;
+                const summary = `Planned: ${plan.origin} → ${plan.destination}${routeConstraintNotes(plan.routeConstraints)}${routeCaveatNotes(plan)}`;
                 if (plan.routeGeoJSON?.geometry?.coordinates) {
                     firstNote =
                         ROUTE_GEOMETRY_NOTES_PREFIX +

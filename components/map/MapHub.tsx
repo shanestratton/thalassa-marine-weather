@@ -19,6 +19,12 @@
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
+import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/worldFacilities';
+import type { AtmosCredit, AtmosPresentation } from './atmosPresentation';
+import type { SshMode } from './useSshObservation';
+import { pressureWindValidAt } from '../../services/weather/pressureProvenance';
+import type { BoatPresenceStatus } from './presence/BoatPresenceSurface';
+import { useTrackRouteRead } from './useTrackRouteRead';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -40,6 +46,8 @@ import { ZoomLevelFab } from './ZoomLevelFab';
 import { Capacitor } from '@capacitor/core';
 import { DESK_MAP_BASE_OPTIONS, MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
 import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase';
+import { effectiveChartContours, parseChartContours } from '../../services/enc/chartContours';
+import { setEncContourBands } from './encDepthStyleState';
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
 import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
@@ -74,6 +82,7 @@ import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { useSatelliteLayer } from './useSatelliteLayer';
+import { useSatellitePictureSelection } from './useSatellitePictureSelection';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 
 import {
@@ -154,12 +163,7 @@ import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { useBuoyageDirectionLayer } from './useBuoyageDirectionLayer';
 import { useChartLeadsLayer } from './useChartLeadsLayer';
 import { submitTracedRoute, listPendingRoutes, reviewRoute, type PendingRoute } from '../../services/communityRoutes';
-import {
-    fetchSeaVoyageChoices,
-    loadVoyageTrackPoints,
-    type RouteOrTrack,
-    type SeaVoyageChoice,
-} from '../../services/shiplog/RoutesAndTracks';
+import { fetchSeaVoyageChoices, type RouteOrTrack, type SeaVoyageChoice } from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselAirDraftMetres, vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
@@ -233,6 +237,7 @@ import { useTracerGhostLanes } from './useTracerGhostLanes';
 import { useTracerSessionEffects } from './useTracerSessionEffects';
 import { useTracerFrameMarkers } from './useTracerFrameMarkers';
 import { useTracerPinMarkers } from './useTracerPinMarkers';
+import { useTracerConstraintMarks } from './useTracerConstraintMarks';
 import { useTracerTraceLayer } from './useTracerTraceLayer';
 import { usePassageRouterEvents } from './usePassageRouterEvents';
 import { usePiTileAutoCache } from './usePiTileAutoCache';
@@ -281,6 +286,7 @@ import { ConnectivityChip } from './ConnectivityChip';
 import { PerfOverlay } from './PerfOverlay';
 import { PerfDowntierToast } from './PerfDowntierToast';
 import { TracerInputRows } from './tracer/TracerInputRows';
+import { commitPointOnlyWaitIntent } from '../../services/routing/passageTideWaitAcceptance';
 import { TracerWaypointList } from './tracer/TracerWaypointList';
 import { TracerSavedRoutePicker } from './tracer/TracerSavedRoutePicker';
 import { TracerPinEditor } from './tracer/TracerPinEditor';
@@ -341,12 +347,32 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const CommunityChartNotesLayer = React.lazy(() => import('./CommunityChartNotesLayer'));
+const PlaceReviewsHost = React.lazy(() => import('../community/PlaceReviewsHost'));
+const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
+const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
+const UserOverlayLayer = React.lazy(() => import('./UserOverlayLayer'));
+const UserOverlaysSheet = React.lazy(() => import('./UserOverlaysSheet'));
+const ChartDrawingTools = React.lazy(() => import('./drawing/ChartDrawingTools'));
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
+const WorldFacilitiesLayer = React.lazy(() => import('./WorldFacilitiesLayer'));
+const BoatPresenceSurface = React.lazy(() => import('./presence/BoatPresenceSurface'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
+const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
+const MeasuredBuoysLayer = React.lazy(() => import('./MeasuredBuoysLayer'));
+const AscatObservedLayer = React.lazy(() => import('./AscatObservedLayer'));
+const AtmosWeatherLayer =
+    import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
+const SshObservedLayer =
+    import.meta.env.VITE_ENABLE_OCEAN_EDDIES === 'true' ? React.lazy(() => import('./SshObservedLayer')) : null;
+const SharperSatelliteLayer =
+    import.meta.env.VITE_SHARPER_SATELLITE_ENABLED === 'true'
+        ? React.lazy(() => import('./SharperSatelliteLayer'))
+        : null;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -379,6 +405,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     const isOnline = useOnlineStatus();
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
+    const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
+    const [sshMode, setSshMode] = useState<SshMode>('off');
+    const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
+    const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
+    const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
+    const [ascatCredit, setAscatCredit] = useState<AtmosCredit | null>(null);
+    const [ascatCardOwnsChart, setAscatCardOwnsChart] = useState(false);
+    const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
+    const [sharperControls, setSharperControls] = useState<React.ReactNode | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings, updateSettings } = useSettings();
@@ -399,6 +434,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
     const [showVesselSearch, setShowVesselSearch] = useState(false);
     const [showAisTargets, setShowAisTargets] = useState(false);
+    const [receiverCoverageStatus, setReceiverCoverageStatus] = useState<
+        import('../../services/ais/receiverCoverage').ReceiverCoverageStatus
+    >({ state: 'off', partial: false, cells: 0, asOf: null });
     const vesselSearchMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const vesselSearchMarkerTimerRef = useRef<number | null>(null);
     useEffect(
@@ -436,6 +474,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const {
         capturedCoords,
         setCapturedCoords,
+        getTraceEditEpoch,
+        commitCheckedTracePoints,
         departureMs,
         setDepartureMs,
         traceName,
@@ -459,6 +499,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         fillSlotWithReversed,
         openReversedLeg,
     } = useTraceDraft();
+    const { read: readTrackRoute, cancel: cancelTrackRouteRead } = useTrackRouteRead(coordCaptureMode, capturedCoords);
+    const retireTrackChecksRef = useRef<() => void>(() => {});
 
     // Every pin edit feeds the same history hook, regardless of whether it
     // came from a tap, drag, auto-route, ghost lane, or saved route load.
@@ -823,6 +865,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // the dispatching click so the clipboard read keeps its iOS
             // user-activation.
             const action = consumeTracerAction();
+            cancelTrackRouteRead();
             if (action?.kind === 'paste') {
                 setLegAnchor(null);
                 void pasteTrace(requestScope);
@@ -1189,6 +1232,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         legAnchor,
         flashTraceFeedback,
     });
+    useTracerConstraintMarks(mapRef, coordCaptureMode, capturedCoords);
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
@@ -1949,7 +1993,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setFixBusyLeg,
         setAutoRouteDiag,
         flashTraceFeedback,
-        vessel: settings.vessel,
+        departureMs,
+        legEtaOffsetsMs,
+        enabled: coordCaptureMode,
     });
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
@@ -1957,6 +2003,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // tide margin. A grounding-risk line drawn against a fake draft is worse
     // than none, so this is the LIVE value, recomputed when the profile edits.
     const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
+    const contourSettings = useMemo(() => parseChartContours(settings.chartContours), [settings.chartContours]);
+    const activeContours = useMemo(
+        () => effectiveChartContours(contourSettings, encSafetyDepthM),
+        [contourSettings, encSafetyDepthM],
+    );
+    const reliefSafetyDepthM = activeContours?.reliefSafety ? activeContours.safetyM : null;
     // The ROUTER's grounding threshold (draft×1.5 + UKC), from its OWN function
     // so the satellite glaze's caution band and the router can't drift apart
     // (cycle-5 re-audit: the [safety, hazard) band read GO-white yet routed as
@@ -2015,8 +2067,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         },
         [flashTraceFeedback],
     );
-    // Track→trace: a sailed voyage, decimated to editable pins and re-graded.
-    // "Sail it once, save it forever."
+    // Own track → NEW unsaved draft. Historical water is not today's clearance.
     const openVoyagePicker = useCallback(async () => {
         triggerHaptic('light');
         setShowVoyagePicker((v) => !v);
@@ -2036,24 +2087,33 @@ export const MapHub: React.FC<MapHubProps> = ({
             flashTraceFeedback(`Loading ${t.label}…`);
             // Polyline fetched per-voyage on tap (paged, whole passage) —
             // the picker rows themselves carry no points now.
-            const points = await loadVoyageTrackPoints(t.voyageId);
-            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
-            if (points.length < 2) {
-                flashTraceFeedback('Could not load that track — try again online');
+            let draft;
+            try {
+                draft = await readTrackRoute(t.voyageId, expectedScope);
+            } catch (error) {
+                if (isAuthIdentityScopeCurrent(expectedScope))
+                    flashTraceFeedback(error instanceof Error ? error.message : 'Could not read that complete track.');
                 return;
             }
-            let pins = rdpTracePoints(points, 30);
-            // Cap at 80 pins — a 12-hour track at trawl speed can survive RDP
-            // with hundreds of vertices; coarsen until it's editable.
-            let eps = 30;
-            while (pins.length > 80 && eps < 500) {
-                eps *= 2;
-                pins = rdpTracePoints(points, eps);
-            }
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+            if (!draft) return;
+            const pins = draft.points;
+            retireTrackChecksRef.current();
             setShowVoyagePicker(false);
+            clearReturnContext();
             setLegAnchor(null);
             setSelectedPin(null);
             setOverwriteArm(null);
+            setAckedLegs(new Set());
+            setSailArmed(false);
+            setShareArmed(false);
+            setLegVerdicts([]);
+            setTideLabels({});
+            setTracerChartsWait(null);
+            setTracerStatus('loading');
+            setShowReport(false);
+            setDraftSource(null);
+            setTraceFrameKind(null);
             rebaseHistoryRef.current = true; // wholesale load → new Undo floor
             setCapturedCoords(pins);
             // A sailed track must not inherit the last open route's title or
@@ -2064,7 +2124,9 @@ export const MapHub: React.FC<MapHubProps> = ({
             setTraceDest(null);
             const mid = pins[Math.floor(pins.length / 2)];
             if (mapRef.current) tracerFlyTo(mapRef.current, mid, 11.5, 1000);
-            flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
+            flashTraceFeedback(
+                `${t.label}: ${draft.inputCount} positions → ${pins.length} pins, at most ${draft.toleranceM} m simplification. Fresh chart check required; past travel is not clearance today.`,
+            );
         },
         [
             flashTraceFeedback,
@@ -2075,6 +2137,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             setTraceOrigin,
             setTraceDest,
             setLegAnchor,
+            readTrackRoute,
+            clearReturnContext,
+            setDraftSource,
+            setTraceFrameKind,
         ],
     );
     // Historical planned-route mirror → editable tracer. Unlike sailed-voyage
@@ -2119,7 +2185,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Route Tracer validation ──
     // Context build + per-leg grading + sub-keel tide windows, all in
     // components/map/useTracerGrading.ts. Touches no map layer or marker.
-    const { regradeStubLegs } = useTracerGrading({
+    const { regradeStubLegs, retireChecks } = useTracerGrading({
         capturedCoords,
         coordCaptureMode,
         vessel: settings.vessel,
@@ -2139,6 +2205,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setShareArmed,
         setTracerChartsWait,
     });
+    retireTrackChecksRef.current = retireChecks;
     // Grade stubs (127-C-b) are checked again on her charts when she opens the
     // Route report; her tap on a stub row and a refused Save do the same.
     useEffect(() => {
@@ -2191,6 +2258,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setIsoProgress,
     });
     const planningSurface = shouldSuppressChartOverlays(cleanPlanningMap, coordCaptureMode, passage.showPassage);
+    useEffect(() => {
+        if (mapReady) mapRef.current?.resize();
+    }, [mapReady, planningSurface]);
     const ownshipStartup = !embedded && !pickerMode && !planningSurface && !isPinView;
     const planChartKeyVisible = shouldShowPlanChartKey(
         cleanPlanningMap,
@@ -2209,6 +2279,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     const {
         aisVisible,
         setAisVisible,
+        receiverCoverageVisible,
+        setReceiverCoverageVisible,
+        browseReceiverCoverageVisible,
+        measuredBuoysVisible,
+        setMeasuredBuoysVisible,
+        measuredBuoysLoaded,
+        browseMeasuredBuoysVisible,
+        ascatVisible,
+        setAscatVisible,
+        ascatLoaded,
+        browseAscatVisible,
         setChokepointVisible,
         cycloneVisible,
         setCycloneVisible,
@@ -2221,6 +2302,14 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAnchorageVisible,
         mooringsVisible,
         setMooringsVisible,
+        facilitiesVisible,
+        setFacilitiesVisible,
+        communityNotesVisible,
+        setCommunityNotesVisible,
+        boatPresenceVisible,
+        setBoatPresenceVisible,
+        boatPresenceControlsOpen,
+        setBoatPresenceControlsOpen,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -2240,9 +2329,18 @@ export const MapHub: React.FC<MapHubProps> = ({
         browseSeamarkVisible,
         browseAnchorageVisible,
         browseMooringsVisible,
+        browseFacilitiesVisible,
+        browseCommunityNotesVisible,
+        browseBoatPresenceVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     } = useMapHubLayerVisibility({ mapRef, planningSurface });
+    const [facilitiesStatus, setFacilitiesStatus] = useState<WorldFacilitiesStatus | null>(null);
+    const [boatPresenceStatus, setBoatPresenceStatus] = useState<BoatPresenceStatus | null>(null);
+    const closeBoatPresenceControls = useCallback(
+        () => setBoatPresenceControlsOpen(false),
+        [setBoatPresenceControlsOpen],
+    );
     // Browse charts are opt-in on every fresh OBS, unless Settings →
     // Preferences → Chart → "Show ENC charts when Obs opens" is on (W1-01,
     // off by default; only the Obs chart honours it). The map-base menu keeps
@@ -2322,6 +2420,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [declutter, setDeclutter] = useState(0);
     const [displayCategory, setDisplayCategory] = useState<ChartDisplayCategory | null>(null);
     const [paperChartsOpen, setPaperChartsOpen] = useState(false);
+    const [userOverlaysOpen, setUserOverlaysOpen] = useState(false);
+    const closeUserOverlays = useCallback(() => setUserOverlaysOpen(false), []);
+    const [chartDrawingLoaded, setChartDrawingLoaded] = useState(false);
+    const [chartDrawingOpen, setChartDrawingOpen] = useState(false);
+    const [chartDrawingOwnsChart, setChartDrawingOwnsChart] = useState(false);
+    const closeChartDrawing = useCallback(() => setChartDrawingOpen(false), []);
+    const [chartFindOpen, setChartFindOpen] = useState(false);
+    const closeChartFind = useCallback(() => setChartFindOpen(false), []);
     const [noaaCatalogueOpen, setNoaaCatalogueOpen] = useState(false);
     const closeNoaaCatalogue = useCallback(() => setNoaaCatalogueOpen(false), []);
     const closePaperCharts = useCallback(() => setPaperChartsOpen(false), []);
@@ -2334,6 +2440,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // pass can never race it.
     const shownBase: MapBaseKind = plannerMap ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
     const baseVisibility = mapBaseVisibility(shownBase);
+    const reliefSafetyNotice =
+        reliefSafetyDepthM !== null && baseVisibility.relief
+            ? `Relief safety marker ~${reliefSafetyDepthM.toFixed(1)} m · not for navigation`
+            : undefined;
     const satelliteVisible = baseVisibility.satellite;
     const hybridVisible = baseVisibility.hybrid;
     // EVERY base but Light keeps the ENC imagery treatment, which is the
@@ -2458,6 +2568,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setReliefPalette(
                         map,
                         nightMode ? 'night' : shownBase === 'light' ? 'light' : encDrawn ? 'enc' : 'day',
+                        reliefSafetyDepthM,
                     )
                 )
                     changed = true;
@@ -2715,6 +2826,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         encMaster,
         encChartDetail,
         coordCaptureMode,
+        reliefSafetyDepthM,
     ]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide plus the night-dim treatment, both in
@@ -2761,13 +2873,24 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        setEncPopupSuppression(map, pickerMode || browseWeatherInspectMode);
+        setEncPopupSuppression(
+            map,
+            pickerMode || browseWeatherInspectMode || chartDrawingOwnsChart || buoyCardOwnsChart || ascatCardOwnsChart,
+        );
         setEncDepthPopupEnabled(map, cleanPlanningMap);
         return () => {
             setEncPopupSuppression(map, false);
             setEncDepthPopupEnabled(map, true);
         };
-    }, [pickerMode, browseWeatherInspectMode, cleanPlanningMap, mapReady]);
+    }, [
+        pickerMode,
+        browseWeatherInspectMode,
+        chartDrawingOwnsChart,
+        buoyCardOwnsChart,
+        ascatCardOwnsChart,
+        cleanPlanningMap,
+        mapReady,
+    ]);
     // Picker mode pauses the ENC cloud-hydration walk. Panning the
     // location picker from home water to an un-synced coast (SE QLD →
     // GBR: 74 cells / 95 MB, none on-device) otherwise downloads
@@ -2998,7 +3121,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
                 // 40 m tolerance keeps every bend the engine chose while a
                 // 60-vertex line becomes ~15-25 editable pins, not pin soup.
-                const sparse = rdpTracePoints(pts, 40);
+                const sparse = rdpTracePoints(pts, 40).map((p, i, all) =>
+                    i > 0 && i < all.length - 1 ? { ...p, shape: true as const } : p,
+                );
                 // With pins down, sparse[0] duplicates the last pin — drop
                 // it. Frame-only (zero pins) keeps the origin as pin #1.
                 const add = capturedCoords.length > 0 ? sparse.slice(1) : sparse;
@@ -3022,6 +3147,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // legs then carry the bridge caveat themselves (routeTracer).
                     const caveats = inshoreRouteCaveats({
                         structuresUnknownCells: res.structuresUnknownCells,
+                        exclusionsUnchecked: res.exclusionsUnchecked,
+                        trafficLaneGuidance: res.trafficLaneGuidance,
+                        routeAreaCaveats: res.routeAreaCaveats,
                         pinOffWater: res.pinOffWater,
                         pinTail: res.pinTail,
                         depthBend: res.depthBend,
@@ -3300,6 +3428,25 @@ export const MapHub: React.FC<MapHubProps> = ({
     // known one, or the broad view, with one message (obsCentre). After Plan,
     // the picker or a shared pin had the map, Obs centres again (build 124).
     const obsShowing = ownshipStartup && currentView === 'map';
+    const chartDrawingAvailable =
+        obsShowing && mapReady && !mobActive && !coordCaptureMode && !browseWeatherInspectMode && !passage.settingPoint;
+    // The drawing tool's own gesture lease is deliberately excluded: including
+    // it would cancel the draft as soon as its first point claims the chart.
+    const chartDrawingCanDraw =
+        chartDrawingAvailable &&
+        !paperChartsOpen &&
+        !chartFindOpen &&
+        !noaaCatalogueOpen &&
+        !userOverlaysOpen &&
+        !buoyCardOwnsChart &&
+        !ascatCardOwnsChart;
+    useEffect(() => {
+        if (obsShowing) setChartDrawingLoaded(true);
+        else {
+            setUserOverlaysOpen(false);
+            setChartDrawingOpen(false);
+        }
+    }, [obsShowing]);
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
@@ -3310,7 +3457,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const clearView = useObsClearView({
         frameRef: obsFrameRef,
         available: obsShowing,
-        modeOwnsChart: mobActive || coordCaptureMode || browseWeatherInspectMode || !!passage.settingPoint,
+        modeOwnsChart:
+            mobActive ||
+            coordCaptureMode ||
+            browseWeatherInspectMode ||
+            !!passage.settingPoint ||
+            chartDrawingOwnsChart ||
+            buoyCardOwnsChart ||
+            ascatCardOwnsChart,
     });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
@@ -3439,6 +3593,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
     weatherRef.current = weather;
 
+    const toggleHourlySatellite = useCallback(() => weather.toggleLayer('satIR'), [weather.toggleLayer]);
+    const satellitePicture = useSatellitePictureSelection(
+        import.meta.env.VITE_SHARPER_SATELLITE_ENABLED === 'true',
+        weather.activeLayers.has('satIR'),
+        toggleHourlySatellite,
+    );
+
     // ── Observed satellite cloud (W1-10) ──
     // While rain is up and ready it shows the newest frame taken by the rain
     // scrubber's moment, so rain and cloud scrub together; otherwise the latest
@@ -3450,7 +3611,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const satellite = useSatelliteLayer(
         mapRef,
         mapReady,
-        weather.activeLayers.has('satIR') && !embedded && !pickerMode,
+        weather.activeLayers.has('satIR') && !satellitePicture.sharperVisible && !embedded && !pickerMode,
         satFollowTimeMs,
     );
 
@@ -3637,20 +3798,22 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
+            satellitePicture.weatherAction(layer);
             if ((layer === 'wind' || layer === 'velocity') && !wxActiveLayers.has(layer)) {
                 windOnGuards(layer);
             }
             wxToggleLayer(layer);
         },
-        [wxActiveLayers, wxToggleLayer, windOnGuards],
+        [wxActiveLayers, wxToggleLayer, windOnGuards, satellitePicture.weatherAction],
     );
 
     const helmSelectInGroup = useCallback(
         (layer: WeatherLayer, group: WeatherLayer[]) => {
+            satellitePicture.weatherAction(layer);
             if (layer === 'wind' || layer === 'velocity') windOnGuards(layer);
             wxSelectInGroup(layer, group);
         },
-        [wxSelectInGroup, windOnGuards],
+        [wxSelectInGroup, windOnGuards, satellitePicture.weatherAction],
     );
 
     // ── Lightning Strikes (Blitzortung) ──
@@ -3860,6 +4023,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // has to MOUNT while the tracer is up, or the plotting keel floor has no
     // layers to raise and the plot surface loses its depth read entirely.
     useEncVectorLayer(mapRef, mapReady, encMaster, encChartDetail, encSafetyDepthM, encHazardDepthM, coordCaptureMode);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (mapReady && map) setEncContourBands(map, contourSettings);
+    }, [mapReady, contourSettings]);
     // Planning-only chart furniture: a few chart-backed direction-of-buoyage
     // arrows at numbered laterals. OBS stays uncluttered, and a picker must
     // remain a pure location-selection surface.
@@ -3991,6 +4158,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         satelliteIr: weather.activeLayers.has('satIR'),
     };
     const obsKeyCount = !planningSurface && !embedded && !pickerMode && !isPinView ? obsLayerKeyCount(obsKeyProps) : 0;
+    const sharperLegend =
+        sharperControls ?? (satellitePicture.sharperVisible ? <p role="status">Loading satellite controls…</p> : null);
 
     return (
         <div
@@ -4012,6 +4181,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <div
                     ref={containerRef}
                     data-map-pane={isHelmSplit ? 'split' : undefined}
+                    data-map-credit-mode={planningSurface ? 'compact' : undefined}
                     className="thalassa-chart-map w-full h-full"
                 />
                 <ObsClearViewChrome view={clearView} />
@@ -4087,6 +4257,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else toggleEnc();
                     }}
                     onCharts={() => setPaperChartsOpen(true)}
+                    safetyDepthNotice={reliefSafetyNotice}
                     toggles={nightDimRow ? [nightDimRow] : []}
                     onClearView={clearView.available ? clearView.hide : undefined}
                 />
@@ -4102,6 +4273,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onChange={setDeskBase}
                     options={DESK_MAP_BASE_OPTIONS}
                     onCharts={() => setPaperChartsOpen(true)}
+                    safetyDepthNotice={reliefSafetyNotice}
                     encRow={false}
                     toggles={
                         deskSurface
@@ -4241,6 +4413,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         tacticalState={buildTacticalState({
                             aisVisible,
                             setAisVisible,
+                            receiverCoverageVisible,
+                            setReceiverCoverageVisible,
+                            measuredBuoysVisible,
+                            setMeasuredBuoysVisible,
+                            ascatVisible,
+                            setAscatVisible,
                             cycloneVisible,
                             setCycloneVisible,
                             squallVisible,
@@ -4257,6 +4435,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setAnchorageVisible,
                             mooringsVisible,
                             setMooringsVisible,
+                            facilitiesVisible,
+                            setFacilitiesVisible,
+                            communityNotesVisible,
+                            setCommunityNotesVisible,
+                            sshMode,
+                            setSshMode: import.meta.env.VITE_ENABLE_OCEAN_EDDIES === 'true' ? setSshMode : undefined,
+                            sharperSatelliteVisible: satellitePicture.sharperVisible,
+                            onToggleSharperSatellite:
+                                import.meta.env.VITE_SHARPER_SATELLITE_ENABLED === 'true'
+                                    ? satellitePicture.toggleSharper
+                                    : undefined,
+                            boatPresenceVisible,
+                            setBoatPresenceVisible,
+                            setBoatPresenceControlsOpen,
                             lightningVisible,
                             setLightningVisible,
                             weatherInspectMode,
@@ -4909,6 +5101,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 selectedPin={selectedPin}
                                                 setSelectedPin={setSelectedPin}
                                                 pinCount={capturedCoords.length}
+                                                point={capturedCoords[selectedPin]}
+                                                previous={capturedCoords[selectedPin - 1]}
+                                                next={capturedCoords[selectedPin + 1]}
                                                 setCapturedCoords={setCapturedCoords}
                                                 legAnchor={legAnchor}
                                                 insertAfter={insertAfter}
@@ -5060,9 +5255,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {/* ⚡ routes the leg INTO the highlighted pin (tap a
                                                     pin first) via the real inshore engine — follows
                                                     deep water, never crosses land, breaks long runs
-                                                    into depth-checkable, tide-aware pins. No pin
-                                                    selected → the last leg. PARKED for now
-                                                    (AUTO_ROUTE_BUTTON_VISIBLE) — engine stays wired. */}
+                                                    into depth-checkable curve vertices. No pin
+                                                    selected → the last leg. The final edited line
+                                                    must pass the strict cold sweep before applying. */}
                                                 {AUTO_ROUTE_BUTTON_VISIBLE && (
                                                     <button
                                                         onClick={autoRouteLeg}
@@ -5386,6 +5581,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             draftM={vesselDraftMetres(settings.vessel)}
                             cruisingSpeedKts={settings.vessel?.cruisingSpeed}
                             departureMs={departureMs}
+                            traceEditEpoch={getTraceEditEpoch()}
+                            onCommitTideWait={(intent) => commitPointOnlyWaitIntent(intent, commitCheckedTracePoints)}
                             onFlyTo={(pt) => {
                                 setShowReport(false);
                                 if (mapRef.current) tracerFlyTo(mapRef.current, pt, 15, 800);
@@ -5444,6 +5641,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         visible={chartKeyOpen && planChartKeyVisible}
                         imageryOn={imageryOn}
                         tideDepthMode={tideDepthMode}
+                        contours={activeContours}
+                        reliefSafetyDepthM={baseVisibility.relief ? reliefSafetyDepthM : null}
                         draftConfigured={Number(settings.vessel?.draft) > 0}
                         onClose={() => setChartKeyOpen(false)}
                     />
@@ -5530,6 +5729,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseSeamarkVisible ? 1 : 0) +
                             (browseMooringsVisible ? 1 : 0) +
                             (browseAnchorageVisible ? 1 : 0) +
+                            (browseFacilitiesVisible ? 1 : 0) +
+                            (browseBoatPresenceVisible ? 1 : 0) +
+                            (browseMeasuredBuoysVisible ? 1 : 0) +
+                            (browseAscatVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5612,8 +5815,77 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onShow={anchorageLayer.showAnchorage}
                 />
 
+                {obsShowing && obsCreditsVisible && browseFacilitiesVisible && (
+                    <Suspense fallback={null}>
+                        <WorldFacilitiesLayer map={mapRef.current} mapReady={mapReady} onStatus={setFacilitiesStatus} />
+                    </Suspense>
+                )}
+                {obsShowing && obsCreditsVisible && (
+                    <Suspense fallback={null}>
+                        <BoatPresenceSurface
+                            map={mapRef.current}
+                            mapReady={mapReady}
+                            viewing={browseBoatPresenceVisible}
+                            onViewingChange={setBoatPresenceVisible}
+                            controlsOpen={boatPresenceControlsOpen}
+                            onCloseControls={closeBoatPresenceControls}
+                            onStatus={setBoatPresenceStatus}
+                        />
+                    </Suspense>
+                )}
+                {measuredBuoysLoaded && (
+                    <Suspense fallback={null}>
+                        <MeasuredBuoysLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseMeasuredBuoysVisible}
+                            canInteract={
+                                chartDrawingCanDraw &&
+                                !chartDrawingOwnsChart &&
+                                !chartDrawingOpen &&
+                                !routePickerOpen &&
+                                !trackPickerOpen &&
+                                !boatPresenceControlsOpen &&
+                                !clearView.on
+                            }
+                            onCredit={setMeasuredBuoyCredit}
+                            onInteractionChange={setBuoyCardOwnsChart}
+                        />
+                    </Suspense>
+                )}
+                {ascatLoaded && (
+                    <Suspense fallback={null}>
+                        <AscatObservedLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseAscatVisible}
+                            canInteract={
+                                chartDrawingCanDraw &&
+                                !chartDrawingOwnsChart &&
+                                !chartDrawingOpen &&
+                                !routePickerOpen &&
+                                !trackPickerOpen &&
+                                !boatPresenceControlsOpen &&
+                                !clearView.on
+                            }
+                            onCredit={setAscatCredit}
+                            onInteractionChange={setAscatCardOwnsChart}
+                        />
+                    </Suspense>
+                )}
+                {receiverCoverageVisible && (
+                    <Suspense fallback={null}>
+                        <ReceiverCoverageLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={browseReceiverCoverageVisible && obsCreditsVisible && currentView === 'map'}
+                            onStatus={setReceiverCoverageStatus}
+                        />
+                    </Suspense>
+                )}
                 {obsCreditsVisible && (
                     <ObsCreditsRollup
+                        relief={shownBase === 'relief' || shownBase === 'reliefSat' || shownBase === 'light'}
                         rain={
                             rainCreditShown
                                 ? (weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type ?? null)
@@ -5625,10 +5897,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 : null
                         }
                         cmems={cmemsAttributionLayers}
+                        atmosphere={[
+                            ...atmosPresentation.credits,
+                            ...(sshCredit ? [sshCredit] : []),
+                            ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
+                            ...(ascatCredit ? [ascatCredit] : []),
+                            ...(sharperCredit ? [sharperCredit] : []),
+                        ]}
                         lightning={browseLightningVisible}
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
                         ais={browseAisVisible}
+                        facilities={obsShowing && browseFacilitiesVisible ? facilitiesStatus : null}
+                        boatPresence={obsShowing ? boatPresenceStatus : null}
+                        onOpenBoatPresence={() => setBoatPresenceControlsOpen(true)}
+                        receiverCoverage={browseReceiverCoverageVisible ? receiverCoverageStatus : undefined}
                     />
                 )}
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
@@ -6053,33 +6336,46 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {!isPinView && !embedded && !pickerMode && (weather.activeLayers.size > 0 || obsKeyCount > 0) && (
-                    <Suspense fallback={null}>
-                        <MapWeatherControls
-                            weather={weather}
-                            creditsInRollup={obsCreditsVisible}
-                            chartPoint={{ lat: location.lat, lon: location.lon }}
-                            cmemsLayerStates={cmemsLayerStates}
-                            visible
-                            embedded={embedded}
-                            controlsHidden={chartControlsHidden}
-                            onControlsHiddenChange={setChartControlsHidden}
-                            extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
-                            extraLegendCount={obsKeyCount}
-                            keepInClearView={clearView.available || clearView.on}
-                            desk={
-                                deskWind
-                                    ? {
-                                          palette: windPalette,
-                                          point: deskWindPoint,
-                                          pinned: capturedCoords.length > 0,
-                                          startMs: departureMs,
-                                      }
-                                    : undefined
-                            }
-                        />
-                    </Suspense>
-                )}
+                {!isPinView &&
+                    !embedded &&
+                    !pickerMode &&
+                    (weather.activeLayers.size > 0 || obsKeyCount > 0 || !!sharperLegend) && (
+                        <Suspense fallback={null}>
+                            <MapWeatherControls
+                                weather={weather}
+                                creditsInRollup={obsCreditsVisible}
+                                chartPoint={{ lat: location.lat, lon: location.lon }}
+                                cmemsLayerStates={cmemsLayerStates}
+                                visible
+                                embedded={embedded}
+                                controlsHidden={chartControlsHidden}
+                                onControlsHiddenChange={setChartControlsHidden}
+                                extraLegend={
+                                    obsKeyCount > 0 || atmosPresentation.legend || sharperLegend ? (
+                                        <>
+                                            {atmosPresentation.legend}
+                                            {sharperLegend}
+                                            {obsKeyCount > 0 && <ObsLayerKey {...obsKeyProps} />}
+                                        </>
+                                    ) : undefined
+                                }
+                                extraLegendCount={
+                                    obsKeyCount + atmosPresentation.credits.length + (sharperLegend ? 1 : 0)
+                                }
+                                keepInClearView={clearView.available || clearView.on}
+                                desk={
+                                    deskWind
+                                        ? {
+                                              palette: windPalette,
+                                              point: deskWindPoint,
+                                              pinned: capturedCoords.length > 0,
+                                              startMs: departureMs,
+                                          }
+                                        : undefined
+                                }
+                            />
+                        </Suspense>
+                    )}
                 {showEmbeddedRainViewerAttribution && (
                     <a
                         href="https://www.rainviewer.com/"
@@ -6091,8 +6387,69 @@ export const MapHub: React.FC<MapHubProps> = ({
                         Radar by RainViewer
                     </a>
                 )}
+                <Suspense fallback={null}>
+                    {SharperSatelliteLayer && !embedded && !pickerMode && (
+                        <SharperSatelliteLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={
+                                obsShowing &&
+                                !isPinView &&
+                                !planningSurface &&
+                                !mobActive &&
+                                obsCreditsVisible &&
+                                satellitePicture.sharperVisible
+                            }
+                            onCredit={setSharperCredit}
+                            onControls={setSharperControls}
+                            onFallback={satellitePicture.useHourly}
+                        />
+                    )}
+                    {SshObservedLayer && !embedded && !pickerMode && (
+                        <SshObservedLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && !isPinView && !planningSurface && !mobActive && obsCreditsVisible}
+                            mode={sshMode}
+                            onCredit={setSshCredit}
+                        />
+                    )}
+                    {AtmosWeatherLayer && !embedded && !pickerMode && (
+                        <AtmosWeatherLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            gust={obsShowing && !mobActive && weather.activeLayers.has('gust')}
+                            visibility={obsShowing && !mobActive && weather.activeLayers.has('visibility')}
+                            pressure={
+                                obsShowing &&
+                                !mobActive &&
+                                weather.pressureManaged &&
+                                weather.activeLayers.has('pressure')
+                            }
+                            pressureModel={weather.windModel}
+                            followWindMs={
+                                weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')
+                                    ? (pressureWindValidAt(
+                                          weather.windState.grid?.refTime,
+                                          weather.windForecastHours,
+                                          weather.windHour,
+                                      ) ?? NaN)
+                                    : null
+                            }
+                            standalonePressure={weather.activeLayers.size === 1}
+                            point={location}
+                            onPresentation={setAtmosPresentation}
+                        />
+                    )}
+                    {browseCommunityNotesVisible && !embedded && !pickerMode && !isPinView && (
+                        <CommunityChartNotesLayer mapRef={mapRef} mapReady={mapReady} />
+                    )}
+                </Suspense>
             </div>
 
+            <Suspense fallback={null}>
+                <PlaceReviewsHost />
+            </Suspense>
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
             <Suspense fallback={null}>
                 {isHelmSplit && (
@@ -6128,6 +6485,33 @@ export const MapHub: React.FC<MapHubProps> = ({
             </Suspense>
 
             <Suspense fallback={null}>
+                {obsShowing && (
+                    <ObsNoticesLayer
+                        map={mapRef.current}
+                        mapReady={mapReady}
+                        active={obsShowing}
+                        enabled={settings.obsNoticesVisible !== false}
+                    />
+                )}
+                {obsShowing && (
+                    <UserOverlayLayer
+                        map={mapRef.current}
+                        mapReady={mapReady}
+                        active={obsShowing}
+                        className="absolute bottom-32 left-3 right-3 z-40 max-h-[40%] overflow-y-auto"
+                    />
+                )}
+                {(obsShowing || chartDrawingLoaded) && (
+                    <ChartDrawingTools
+                        map={mapRef.current}
+                        mapReady={mapReady}
+                        active={obsShowing}
+                        canDraw={chartDrawingCanDraw}
+                        open={chartDrawingOpen && obsShowing}
+                        onClose={closeChartDrawing}
+                        onInteractionChange={setChartDrawingOwnsChart}
+                    />
+                )}
                 {paperChartsOpen && (
                     <PaperChartSheet
                         onClose={closePaperCharts}
@@ -6149,9 +6533,48 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                         satelliteMode={settings.satelliteMode === true}
                         onCatalogue={() => setNoaaCatalogueOpen(true)}
+                        onFindChart={() => setChartFindOpen(true)}
+                        onUserOverlays={obsShowing ? () => setUserOverlaysOpen(true) : undefined}
+                        onDrawingTools={
+                            obsShowing
+                                ? () => {
+                                      setChartDrawingOpen(true);
+                                      setPaperChartsOpen(false);
+                                  }
+                                : undefined
+                        }
+                        drawingToolsDisabled={!chartDrawingAvailable || chartDrawingOwnsChart}
+                        notices={{
+                            enabled: settings.obsNoticesVisible !== false,
+                            onChange: (enabled) => updateSettings({ obsNoticesVisible: enabled }),
+                        }}
+                        contours={{
+                            value: contourSettings,
+                            requiredM: encSafetyDepthM,
+                            draftAssumed: vesselDraftIsAssumed(settings.vessel),
+                            unit: settings.units.length,
+                            onChange: (value) => updateSettings({ chartContours: value }),
+                        }}
                     />
                 )}
+                {obsShowing && userOverlaysOpen && <UserOverlaysSheet onClose={closeUserOverlays} />}
                 {noaaCatalogueOpen && <NoaaCatalogueSheet onClose={closeNoaaCatalogue} bounds={chartCatalog.bounds} />}
+                <Suspense fallback={null}>
+                    {chartFindOpen && (
+                        <ChartFindSheet
+                            onClose={closeChartFind}
+                            bounds={chartCatalog.bounds}
+                            onFly={(result) => {
+                                const map = mapRef.current;
+                                if (!map) return;
+                                const lon = result.lon + 360 * Math.round((map.getCenter().lng - result.lon) / 360);
+                                map.flyTo({ center: [lon, result.lat], zoom: Math.max(map.getZoom(), 14) });
+                                setChartFindOpen(false);
+                                setPaperChartsOpen(false);
+                            }}
+                        />
+                    )}
+                </Suspense>
             </Suspense>
 
             {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}

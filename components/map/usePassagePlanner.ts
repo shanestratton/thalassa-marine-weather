@@ -14,14 +14,17 @@
  *   - Clear route
  */
 
-import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react';
+import { useState, useCallback, useRef, useEffect, type MutableRefObject, type SetStateAction } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { withDeadline, withTimeout } from '../../utils/deadline';
+import type { InshoreRouteResult } from '../../services/routing/routeJob';
+import type { TideShortcutView } from '../../services/routing/tideGatedPlanning';
 
 const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
 import {
     computeRoute,
+    computeRouteFromPolyline,
     type RouteWaypoint,
     type RouteAnalysis,
     type RouteSegment,
@@ -34,7 +37,8 @@ import {
 } from '../../services/IsochroneRouter';
 import type { IsochroneNode } from '../../services/isochrone/types';
 import { computeComfortIsochrones as computeIsochrones } from '../../services/routing/comfortRoute';
-import { cumulativeLegs } from '../../services/isochrone/geodesy';
+import { cumulativeLegs, haversineNm } from '../../services/isochrone/geodesy';
+import { isAutorouteTrialOn } from '../../services/autorouteTrialSwitch';
 import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { resolveRoutingPolar } from '../../services/routingPolar';
@@ -79,8 +83,37 @@ import { CAUTION_WHY } from '../../services/engine/types';
 import { chartFitBearing } from './chartOrientation';
 import { useOffshoreComparison, type OffshoreComparisonInputs } from './useOffshoreComparison';
 import type { RouteHazardReport } from '../../services/enc/EncHazardReportService';
+import { readRouteReplan, cancelRouteReplan, setRouteReplan } from '../../services/routing/routeReplanSession';
+import { sampleWindGrid } from '../../services/weather/importedGribSample';
+import { useRouteReplanPreview, clearRouteReplanReference } from './useRouteReplanPreview';
+import type { RouteConstraintPoint } from '../../services/routing/routeConstraints';
+import { knownRouteAreaCaveats } from '../../services/routing/routeAreaWords';
+import { assertRoutingSourceCurrent } from '../../services/routing/routeSourceLifetime';
+import type { VerifiedOffshoreCandidate } from '../../services/routing/offshoreSelection';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
+
+function routingConstraintReason(error: unknown): string | null {
+    if (!error || typeof error !== 'object' || !('code' in error)) return null;
+    if (error.code !== 'route-exclusion' && error.code !== 'exclusion-unavailable') return null;
+    return error instanceof Error && error.message
+        ? error.message
+        : 'Current hard routing constraints could not be checked. Review the source and replan.';
+}
+
+/** Queueing an edit retires a timed read before React can batch A→B→A back
+ * to the previous rendered value. This counter carries no source authority. */
+function usePassageInputState<T>(initial: T | (() => T), epoch: MutableRefObject<number>) {
+    const [value, commit] = useState(initial);
+    const set = useCallback(
+        (next: SetStateAction<T>) => {
+            epoch.current++;
+            commit(next);
+        },
+        [epoch],
+    );
+    return [value, set] as const;
+}
 
 function clearComfortZoneOverlay(map: mapboxgl.Map): void {
     for (const suffix of COMFORT_ZONE_SUFFIXES) {
@@ -94,7 +127,7 @@ function clearComfortZoneOverlay(map: mapboxgl.Map): void {
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
     arrival: { lat: number; lon: number; name: string } | null;
-    viaWaypoints: { lat: number; lon: number; name: string }[];
+    viaWaypoints: Array<RouteConstraintPoint & { name: string }>;
     departureTime: string;
     speed: number;
     routeAnalysis: RouteAnalysis | null;
@@ -228,11 +261,26 @@ function pushToPassageStore(
 }
 
 export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
-    const [departure, setDeparture] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [arrival, setArrival] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [viaWaypoints, setViaWaypoints] = useState<{ lat: number; lon: number; name: string }[]>([]);
-    const [departureTime, setDepartureTime] = useState('');
-    const [speed, setSpeed] = useState(6);
+    const liveTideInputEpoch = useRef(0);
+    const [departure, setDeparture] = usePassageInputState<{ lat: number; lon: number; name: string } | null>(
+        null,
+        liveTideInputEpoch,
+    );
+    const [arrival, setArrival] = usePassageInputState<{ lat: number; lon: number; name: string } | null>(
+        null,
+        liveTideInputEpoch,
+    );
+    const [viaWaypoints, setViaWaypoints] = usePassageInputState<Array<RouteConstraintPoint & { name: string }>>(
+        [],
+        liveTideInputEpoch,
+    );
+    const [departureTime, setDepartureTime] = usePassageInputState('', liveTideInputEpoch);
+    const [speed, setSpeed] = usePassageInputState(6, liveTideInputEpoch);
+    const [tideShortcutEnabled, setTideShortcutEnabled] = usePassageInputState(false, liveTideInputEpoch);
+    const [tideArrivalBufferMinutes, setTideArrivalBufferMinutes] = usePassageInputState(15, liveTideInputEpoch);
+    const [tideShortcutReview, setTideShortcutReview] = useState<TideShortcutView | null>(null);
+    const tidePreviewRef = useRef<InshoreRouteResult | null>(null);
+    const replanTokenRef = useRef<string | null>(peekPassageRequest()?.replanToken ?? null);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
     const [routeVerification, setRouteVerification] = useState<PassageRouteVerification>({
         status: 'idle',
@@ -254,11 +302,40 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // A RoutePlanner handoff is staged before the tab changes. Read it during
     // initial render (not in the mount effect) so the destination MapHub never
     // paints one frame of the skipper's Chart overlays before becoming Plan.
-    const [showPassage, setShowPassage] = useState(() => peekPassageRequest() !== null);
+    const [showPassage, setShowPassage] = usePassageInputState(() => peekPassageRequest() !== null, liveTideInputEpoch);
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
+    const routeConstraintsRef = useRef<RouteConstraintPoint[]>([]);
     const modelComparison = useOffshoreComparison(mapRef);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
+    const livePassageInputs = useRef({ key: '', visible: false });
+    const nextInputKey = JSON.stringify([
+        departure,
+        arrival,
+        viaWaypoints,
+        departureTime,
+        speed,
+        showPassage,
+        tideShortcutEnabled,
+        tideArrivalBufferMinutes,
+    ]);
+    if (livePassageInputs.current.key !== nextInputKey) liveTideInputEpoch.current++;
+    livePassageInputs.current = {
+        key: nextInputKey,
+        visible: showPassage,
+    };
+    const mounted = useRef(true);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+            const previous = tidePreviewRef.current;
+            if (previous)
+                void import('../../services/routing/tideGatedPlanning').then((m) =>
+                    m.retireTideShortcutPreview(previous),
+                );
+        };
+    }, []);
     const displayedRouteGeometryKeyRef = useRef<string | null>(null);
     const commitDisplayedRoute = useCallback(
         (
@@ -267,6 +344,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             status: Exclude<PassageRouteVerificationStatus, 'idle'>,
             reason?: string,
         ): void => {
+            const review = readRouteReplan();
+            if (
+                replanTokenRef.current &&
+                (review.base?.token !== replanTokenRef.current || !['computing', 'ready'].includes(review.phase))
+            )
+                return;
             const geometryKey = routeFeatureGeometryKey(features);
             const featureContractVerified =
                 features.length > 0 &&
@@ -303,7 +386,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         modelComparison.reset();
         // A different passage cannot inherit private model candidates or reference lines.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [departure, arrival, viaWaypoints, departureTime, speed, showPassage]);
+    }, [
+        departure,
+        arrival,
+        viaWaypoints,
+        departureTime,
+        speed,
+        showPassage,
+        tideShortcutEnabled,
+        tideArrivalBufferMinutes,
+    ]);
 
     // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
     // Owned here so every compute/clear path tears them down — a chip that
@@ -324,6 +416,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 modelComparison.reset();
                 isoResultRef.current = null;
                 turnWaypointsRef.current = [];
+                routeConstraintsRef.current = [];
                 setDeparture(null);
                 setArrival(null);
                 setViaWaypoints([]);
@@ -337,6 +430,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 dispatchPassageNotice(null);
 
                 const map = mapRef.current;
+                clearRouteReplanReference(map);
                 const empty: GeoJSON.FeatureCollection = {
                     type: 'FeatureCollection',
                     features: [],
@@ -354,6 +448,22 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage mode activation (from Ship's Office / RoutePlanner → MAP tab) ──
     useEffect(() => {
         const handlePassageMode = (e: Event) => {
+            const request = (e as CustomEvent)?.detail;
+            replanTokenRef.current = typeof request?.replanToken === 'string' ? request.replanToken : null;
+            if (readRouteReplan().base && readRouteReplan().base?.token !== replanTokenRef.current)
+                setRouteReplan({ phase: 'idle', base: null, candidate: null, message: null });
+            setDepartureTime(
+                typeof request?.departureTime === 'string' && Number.isFinite(Date.parse(request.departureTime))
+                    ? request.departureTime
+                    : '',
+            );
+            if (
+                typeof request?.speed === 'number' &&
+                Number.isFinite(request.speed) &&
+                request.speed > 0 &&
+                request.speed <= 50
+            )
+                setSpeed(request.speed);
             setShowPassage(true);
 
             // ── Kill Follow Route layers IMMEDIATELY on passage activation ──
@@ -417,7 +527,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             handlePassageMode(new CustomEvent('thalassa:passage-mode', { detail: pending }));
         }
         return () => window.removeEventListener('thalassa:passage-mode', handlePassageMode);
-    }, [mapRef]);
+    }, [mapRef, setArrival, setDeparture, setDepartureTime, setShowPassage, setSpeed, setViaWaypoints]);
 
     // ── Helper: project a point along bearing by distance ──
     const _project = (lat: number, lon: number, bearingDeg: number, distNM: number) => {
@@ -435,16 +545,30 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage Route Computation ──
     const computePassage = useCallback(async () => {
         if (!departure || !arrival) return;
+        const reviewedReplan = readRouteReplan();
+        const replanBase = replanTokenRef.current === reviewedReplan.base?.token ? reviewedReplan.base : null;
+        if (replanTokenRef.current && (!replanBase || reviewedReplan.phase !== 'computing')) return;
         const operationScope = getAuthIdentityScope();
         triggerHaptic('medium');
 
         // Increment generation — invalidates any previous in-flight computation
         const gen = ++computeGenRef.current;
+        const tideInputEpoch = liveTideInputEpoch.current;
+        const previousTidePreview = tidePreviewRef.current;
+        tidePreviewRef.current = null;
+        if (previousTidePreview)
+            void import('../../services/routing/tideGatedPlanning').then((m) =>
+                m.retireTideShortcutPreview(previousTidePreview),
+            );
+        setTideShortcutReview(
+            tideShortcutEnabled ? { kind: 'held', reason: 'Reading original tide evidence already aboard.' } : null,
+        );
         modelComparison.reset();
 
         // Clear previous results immediately so stale data isn't displayed
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        routeConstraintsRef.current = [];
         PassageStore.clear(operationScope);
         setRouteAnalysis(null);
         setRouteVerification({ status: 'pending', geometryKey: null, reason: 'route computation in progress' });
@@ -483,6 +607,199 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             } catch {
                 /* */
             }
+        }
+
+        // A VIA request is one ordered cohort. The existing direct-route
+        // shortcuts must never return a route that silently drops those pins.
+        // The NEW automatic berth approaches require the existing Auto opt-in.
+        // With it off, the manual path and its full terminal verifier below
+        // remain unchanged. VIA requests always retain their ordered contract.
+        const automaticBerth =
+            !viaWaypoints.length &&
+            isAutorouteTrialOn() &&
+            haversineNm(departure.lat, departure.lon, arrival.lat, arrival.lon) > 50;
+        if (viaWaypoints.length || automaticBerth) {
+            if (tideShortcutEnabled)
+                setTideShortcutReview({
+                    kind: 'held',
+                    reason: 'Tide shortcuts are limited to a single inshore leg up to 50 NM. Berth and ordered-waypoint qualification remains unchanged.',
+                });
+            const settingsSnapshot = structuredClone(useSettingsStore.getState().settings);
+            const selectedBoat = useSettingsStore.getState().activeVesselId;
+            const selectedModel = WindStore.getState().model;
+            const inputKey = livePassageInputs.current.key;
+            const depIso = departureTime || new Date().toISOString();
+            const policyKey = isochroneRoutingContext(depIso, settingsSnapshot);
+            const current = () =>
+                computeGenRef.current === gen &&
+                mounted.current &&
+                livePassageInputs.current.key === inputKey &&
+                WindStore.getState().model === selectedModel &&
+                mapRef.current === map &&
+                getAuthIdentityScope().key === operationScope.key &&
+                getAuthIdentityScope().generation === operationScope.generation &&
+                useSettingsStore.getState().activeVesselId === selectedBoat &&
+                isochroneRoutingContext(depIso, useSettingsStore.getState().settings) === policyKey;
+            const preview: GeoJSON.Feature<GeoJSON.LineString> = {
+                type: 'Feature',
+                properties: { safety: 'unverified', verification: 'unverified', dashed: true },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [departure, ...viaWaypoints, arrival].map((p) => [p.lon, p.lat]),
+                },
+            };
+            commitDisplayedRoute(
+                map,
+                [preview],
+                'pending',
+                'ordered waypoint legs and final chart verification are running',
+            );
+            dispatchPassageNotice({
+                severity: 'info',
+                title: automaticBerth ? 'Checking both harbour approaches…' : 'Checking every required waypoint…',
+                message: 'One bounded route job; every pin and the complete final line must pass verification.',
+            });
+            try {
+                const { computeConstrainedPassage } = await import('../../services/routing/constrainedPassage');
+                const common = {
+                    origin: departure,
+                    destination: arrival,
+                    departureTime: depIso,
+                    speed,
+                    settings: settingsSnapshot,
+                    model: selectedModel,
+                    privateWind: replanBase?.wind,
+                    deadlineMs: replanBase?.deadlineMs ?? Date.now() + (automaticBerth ? 90000 : 60000),
+                    stillCurrent: current,
+                };
+                const route = automaticBerth
+                    ? await (await import('../../services/routing/berthProposal')).computeBerthPassage(common)
+                    : await computeConstrainedPassage({
+                          ...common,
+                          vias: viaWaypoints,
+                          inshoreEvidence: (r) => ({
+                              masksVerified: !!inshoreSegmentStates(r),
+                              caveats: inshoreRouteCaveats({
+                                  ...r,
+                                  nearShallow: nearShallowSummary(r.chartedShallowSpans),
+                              }),
+                          }),
+                      });
+                if (!current()) return;
+                const base = computeRouteFromPolyline(route.result.routeCoordinates, {
+                    speed,
+                    departureTime: new Date(depIso),
+                });
+                const analysis = withRouteEstimates(
+                    {
+                        ...base,
+                        totalDistance: route.result.totalDistanceNM,
+                        estimatedDuration: route.result.totalDurationHours,
+                        arrivalTime: route.result.arrivalTime,
+                        averageSpeed:
+                            route.result.totalDurationHours > 0
+                                ? route.result.totalDistanceNM / route.result.totalDurationHours
+                                : speed,
+                    },
+                    route.result.sailingStats,
+                    settingsSnapshot.vessel,
+                    route.result.comfort,
+                );
+                setRouteAnalysis(analysis);
+                setRouteCaveats(route.result.environmentNotes ?? []);
+                setRoutingPolarLabel(route.polarLabel);
+                routeCellsRef.current = route.cells;
+                isoResultRef.current = route.result;
+                turnWaypointsRef.current = route.turns;
+                routeConstraintsRef.current = route.constraints;
+                commitDisplayedRoute(
+                    map,
+                    'disclosure' in route
+                        ? inshoreRouteFeatures(
+                              inshoreRoutePieces(
+                                  route.result.routeCoordinates,
+                                  route.disclosure.stateMask ?? [],
+                                  route.disclosure.surveyRuns,
+                                  route.disclosure.chartedShallowSpans,
+                              ),
+                          )
+                        : route.result.routeCoordinates.slice(1).map((point, i) => ({
+                              type: 'Feature',
+                              properties: {
+                                  safety:
+                                      route.result.shallowFlags[i] || route.result.shallowFlags[i + 1]
+                                          ? 'danger'
+                                          : 'safe',
+                                  verification: 'verified',
+                              },
+                              geometry: { type: 'LineString', coordinates: [route.result.routeCoordinates[i], point] },
+                          })),
+                    'verified',
+                );
+                pushToPassageStore(
+                    route.result,
+                    route.turns,
+                    departure,
+                    arrival,
+                    analysis,
+                    depIso,
+                    speed,
+                    operationScope,
+                );
+                dispatchPassageNotice(null);
+                const source = map.getSource('waypoints') as mapboxgl.GeoJSONSource | undefined;
+                source?.setData({
+                    type: 'FeatureCollection',
+                    features: route.points.map((p, i) => ({
+                        type: 'Feature',
+                        properties: {
+                            name:
+                                p.name ??
+                                (i === 0 ? 'Departure' : i === route.points.length - 1 ? 'Arrival' : `VIA${i}`),
+                            color: i === 0 ? '#10b981' : i === route.points.length - 1 ? '#ef4444' : '#fbbf24',
+                        },
+                        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+                    })),
+                });
+            } catch (error) {
+                if (!current()) return;
+                isoResultRef.current = null;
+                turnWaypointsRef.current = [];
+                setRouteAnalysis(null);
+                PassageStore.clear(operationScope);
+                const reason =
+                    error instanceof Error ? error.message : 'The complete waypoint route could not be verified.';
+                commitDisplayedRoute(map, [preview], 'unverified', reason);
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: automaticBerth ? 'Berth approaches not verified' : 'Waypoint route not verified',
+                    message: reason + ' Every required point stays in the request; no direct shortcut was substituted.',
+                });
+            } finally {
+                if (
+                    !current() &&
+                    mounted.current &&
+                    computeGenRef.current === gen &&
+                    mapRef.current === map &&
+                    livePassageInputs.current.visible &&
+                    getAuthIdentityScope().key === operationScope.key &&
+                    getAuthIdentityScope().generation === operationScope.generation
+                ) {
+                    commitDisplayedRoute(
+                        map,
+                        [preview],
+                        'unverified',
+                        'The waypoint request changed. Compute it again before using the line.',
+                    );
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Waypoint request changed',
+                        message:
+                            'The previous job cannot apply to the changed points, clock, boat, model or policy. Compute the complete route again.',
+                    });
+                }
+            }
+            return;
         }
 
         // Forward bearing (needed for both short and long route paths)
@@ -561,7 +878,47 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // route (owner decision 11, 2026-10-01: water no tide
                     // clears is avoided) — the chips' own window, so they
                     // read the same curves from the cache afterwards.
-                    { departureMs: departureTime ? new Date(departureTime).getTime() : Date.now() },
+                    {
+                        departureMs: departureTime ? new Date(departureTime).getTime() : Date.now(),
+                        ...(tideShortcutEnabled
+                            ? {
+                                  tideShortcut: {
+                                      speedKts: speed,
+                                      uncertaintyMs: tideArrivalBufferMinutes * 60000,
+                                      assertCurrent: () => {
+                                          if (
+                                              !mounted.current ||
+                                              gen !== computeGenRef.current ||
+                                              tideInputEpoch !== liveTideInputEpoch.current
+                                          )
+                                              throw new DOMException('Timed route inputs retired.', 'AbortError');
+                                      },
+                                      onReview: (view: TideShortcutView) => {
+                                          if (
+                                              !mounted.current ||
+                                              gen !== computeGenRef.current ||
+                                              tideInputEpoch !== liveTideInputEpoch.current
+                                          )
+                                              return;
+                                          setTideShortcutReview(view);
+                                          if (view.kind === 'held' && tidePreviewRef.current) {
+                                              tidePreviewRef.current = null;
+                                              setRouteVerification({
+                                                  status: 'unverified',
+                                                  geometryKey: displayedRouteGeometryKeyRef.current,
+                                                  reason: view.reason,
+                                              });
+                                              const source = map.getSource('route-line') as
+                                                  | mapboxgl.GeoJSONSource
+                                                  | undefined;
+                                              source?.setData({ type: 'FeatureCollection', features: [] });
+                                              setRouteAnalysis(null);
+                                          }
+                                      },
+                                  },
+                              }
+                            : {}),
+                    },
                 ),
                 {
                     error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
@@ -599,6 +956,25 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                           chartVerdicts: inshoreRes.chartVerdicts,
                       });
                 if (gen !== computeGenRef.current) return; // user moved on, abort
+                if (
+                    inshoreRes.tideShortcut?.kind === 'preview' &&
+                    (!backstop || backstop.status !== 'verified' || backstop.crossesLand)
+                ) {
+                    const { retireTideShortcutPreview } = await import('../../services/routing/tideGatedPlanning');
+                    retireTideShortcutPreview(inshoreRes);
+                    if (gen !== computeGenRef.current) return;
+                    setTideShortcutReview({
+                        kind: 'held',
+                        reason: 'The final land check did not verify this exact timed geometry. No timed route was accepted.',
+                    });
+                    setRouteAnalysis(null);
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Timed preview held',
+                        message: 'The exact candidate failed or lacks its final land verification. Replan to retry.',
+                    });
+                    return;
+                }
                 if (!backstop) {
                     log.warn(
                         `[Passage][BAYLEG] FELL THROUGH (charted-land) — ${Math.round(inshoreRes.hardLand?.awayM ?? 0)} m of charted land away from the pins`,
@@ -626,6 +1002,87 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             : `${landBackstopFinding(backstop)} Unverified reference packs cannot clear this warning. Falling back to offshore planning.`,
                     });
                 } else {
+                    if (inshoreRes.tideShortcut?.kind === 'preview') {
+                        const { finalizeTideShortcutPreview, retireTideShortcutPreview } =
+                            await import('../../services/routing/tideGatedPlanning');
+                        const valid = await finalizeTideShortcutPreview(inshoreRes);
+                        if (gen !== computeGenRef.current || tideInputEpoch !== liveTideInputEpoch.current) {
+                            retireTideShortcutPreview(inshoreRes);
+                            return;
+                        }
+                        if (!valid) {
+                            setTideShortcutReview({
+                                kind: 'held',
+                                reason: 'The exact timed source review retired during the final land check. Replan to retry.',
+                            });
+                            dispatchPassageNotice({
+                                severity: 'warn',
+                                title: 'Timed preview held',
+                                message: 'Current original tide, chart and no-go evidence could not be reverified.',
+                            });
+                            return;
+                        }
+                        const view = inshoreRes.tideShortcut;
+                        tidePreviewRef.current = inshoreRes;
+                        setTideShortcutReview(view);
+                        setRouteAnalysis({
+                            waypoints: [
+                                { id: 'dep', ...departure },
+                                { id: 'arr', ...arrival },
+                            ],
+                            segments: [],
+                            totalDistance: inshoreRes.distanceNM,
+                            estimatedDuration: (view.arrivalMs - view.departureMs) / 3600000,
+                            departureTime: new Date(view.departureMs).toISOString(),
+                            arrivalTime: new Date(view.arrivalMs).toISOString(),
+                            averageSpeed: view.speedKts,
+                            fuelEstimate: null,
+                            maxWindSpeed: null,
+                            maxWaveHeight: null,
+                            headwindPercentage: 0,
+                            favorablePercentage: 0,
+                            minDepth: null,
+                            shallowSegments: inshoreRes.cautionMask?.filter(Boolean).length ?? 0,
+                            depthSamplesKnown: 0,
+                            depthSampleSpacingNm: null,
+                            routeCoordinates: inshoreRes.polyline,
+                        });
+                        setRouteCaveats([
+                            'Temporary tide-window preview; source authority stays in memory and expires. No departure watch, wait or saved route was changed.',
+                        ]);
+                        commitDisplayedRoute(
+                            map,
+                            [
+                                {
+                                    type: 'Feature',
+                                    properties: {
+                                        safety: 'tide',
+                                        verification: 'unverified',
+                                        source: 'inshore-router',
+                                        dashed: true,
+                                    },
+                                    geometry: { type: 'LineString', coordinates: inshoreRes.polyline },
+                                },
+                            ],
+                            'unverified',
+                            'A temporary timed preview does not authorize save, export or departure.',
+                        );
+                        const bounds = new mapboxgl.LngLatBounds();
+                        for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
+                        map.fitBounds(bounds, {
+                            padding: 80,
+                            duration: 1000,
+                            retainPadding: false,
+                            bearing: chartFitBearing(map),
+                        });
+                        dispatchPassageNotice({
+                            severity: 'warn',
+                            title: 'Tide-window preview',
+                            message:
+                                'Amber geometry uses the exact planned departure and speed with the selected arrival buffer. Its original source review is temporary; departure actions remain held.',
+                        });
+                        return;
+                    }
                     // Build a RouteAnalysis from the polyline so the rest of
                     // the UI (save/export/banner buttons) lights up. Save
                     // and Export are gated on routeAnalysis !== null — without
@@ -922,6 +1379,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         stateMaskOk: !!stateMask,
                         destinationInlandTrimM: inshoreRes.destinationInlandTrimM,
                         structuresUnknownCells: inshoreRes.structuresUnknownCells,
+                        exclusionsUnchecked: inshoreRes.exclusionsUnchecked,
+                        trafficLaneGuidance: inshoreRes.trafficLaneGuidance,
+                        routeAreaCaveats: inshoreRes.routeAreaCaveats,
                         pinOffWater: inshoreRes.pinOffWater,
                         pinTail: inshoreRes.pinTail,
                         depthBend: inshoreRes.depthBend,
@@ -1057,6 +1517,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
+                if (inshoreRes.code === 'route-exclusion' || inshoreRes.code === 'exclusion-unavailable') {
+                    setRouteAnalysis(null);
+                    setRouteVerification({ status: 'unverified', geometryKey: null, reason: inshoreRes.error });
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Routing constraints held',
+                        message: inshoreRes.error,
+                    });
+                    return;
+                }
                 // A bridge verdict is FINAL — no offshore fallback, no green
                 // line, no cross-country workaround. The pin is behind a fixed
                 // structure this vessel cannot pass; the only fixes are moving
@@ -1097,6 +1567,33 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // too-short check will bail with the friendly message.
             }
         } catch (err) {
+            const constraintReason = routingConstraintReason(err);
+            if (constraintReason) {
+                if (gen !== computeGenRef.current || !mounted.current) return;
+                setRouteAnalysis(null);
+                setRouteVerification({ status: 'unverified', geometryKey: null, reason: constraintReason });
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Routing constraints held',
+                    message: constraintReason,
+                });
+                return;
+            }
+            if (tideShortcutEnabled) {
+                if (gen !== computeGenRef.current || !mounted.current) return;
+                setTideShortcutReview({
+                    kind: 'held',
+                    reason: err instanceof Error ? err.message : 'Current timed route evidence is unavailable.',
+                });
+                setRouteAnalysis(null);
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Timed route held',
+                    message:
+                        'Current source or hard routing-policy evidence could not be read. Replan after reviewing the data.',
+                });
+                return;
+            }
             log.warn(
                 `[Passage][BAYLEG] FELL THROUGH (threw) → unverified offshore preview will draw — inshore routing exception`,
                 err,
@@ -1624,36 +2121,83 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 stillCurrent: () => boolean;
                 onHazardReport: (report: RouteHazardReport | null) => void;
             },
-        ): Promise<{ route: IsochroneNode[]; verified: boolean; reason?: string }> => {
-            const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
+        ): Promise<{
+            route: IsochroneNode[];
+            verified: boolean;
+            reason?: string;
+            areaCaveats?: readonly string[];
+            sourceCurrent?: () => boolean;
+        }> => {
+            const [{ validateRouteSegments }, { routingExclusionContextKey }] = await Promise.all([
+                import('../../services/isochrone/landAvoidance'),
+                import('../../services/routing/routingExclusions'),
+            ]);
+            const areaContext = routingExclusionContextKey();
             const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
             let timedOut = false;
+            let areaCaveats: readonly string[] = [];
+            let sourceCurrent: (() => boolean) | undefined;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const abort = new AbortController();
+            const current = () =>
+                !timedOut &&
+                mounted.current &&
+                mapRef.current === map &&
+                computeGenRef.current === gen &&
+                liveTideInputEpoch.current === tideInputEpoch &&
+                routingExclusionContextKey() === areaContext &&
+                (reportOptions?.stillCurrent() ?? true);
             const outcomeRef: {
                 current: { status: 'verified' | 'unverified'; reason?: string } | null;
             } = { current: null };
-            const validated = await Promise.race([
-                validateRouteSegments(candidate, {
-                    vesselDraftM,
-                    draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
-                    departureTimeMs,
-                    stillCurrent: () =>
-                        !timedOut && computeGenRef.current === gen && (reportOptions?.stillCurrent() ?? true),
-                    ...(reportOptions ? { publishReport: false, onHazardReport: reportOptions.onHazardReport } : {}),
-                    onVerificationOutcome: (nextOutcome) => {
-                        outcomeRef.current = nextOutcome;
-                    },
-                }),
-                new Promise<null>((resolve) =>
-                    setTimeout(() => {
-                        timedOut = true;
-                        resolve(null);
-                    }, timeoutMs),
-                ),
-            ]);
+            let validated: IsochroneNode[] | null = null;
+            try {
+                validated = await Promise.race([
+                    validateRouteSegments(candidate, {
+                        vesselDraftM,
+                        draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
+                        departureTimeMs,
+                        signal: abort.signal,
+                        stillCurrent: current,
+                        onRouteAreaCaveats: (notes, currentSource) => {
+                            if (current()) {
+                                areaCaveats = knownRouteAreaCaveats(notes);
+                                sourceCurrent = currentSource;
+                            }
+                        },
+                        ...(reportOptions
+                            ? { publishReport: false, onHazardReport: reportOptions.onHazardReport }
+                            : {}),
+                        onVerificationOutcome: (nextOutcome) => {
+                            if (current()) outcomeRef.current = nextOutcome;
+                        },
+                    }),
+                    new Promise<null>(
+                        (resolve) =>
+                            (timer = setTimeout(() => {
+                                timedOut = true;
+                                resolve(null);
+                                abort.abort(new DOMException(timeoutReason, 'AbortError'));
+                            }, timeoutMs)),
+                    ),
+                ]);
+            } finally {
+                if (timer !== undefined) clearTimeout(timer);
+                // The reader releases its leases internally. A successful
+                // caller signal must remain valid for final source adoption.
+                if (!validated) abort.abort();
+            }
 
             if (!validated) return { route: candidate, verified: false, reason: timeoutReason };
-            if (computeGenRef.current !== gen || !(reportOptions?.stillCurrent() ?? true)) {
+            if (routingExclusionContextKey() !== areaContext)
+                throw Object.assign(
+                    new Error('The route’s current area restrictions changed during final acceptance.'),
+                    {
+                        code: 'exclusion-unavailable',
+                    },
+                );
+            if (!current()) {
                 return { route: validated, verified: false, reason: 'route was superseded by a newer plan' };
             }
             const outcome = outcomeRef.current;
@@ -1664,12 +2208,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     reason: outcome?.reason ?? 'chart and depth verification did not complete',
                 };
             }
-            return { route: validated, verified: true };
+            assertRoutingSourceCurrent(sourceCurrent);
+            return { route: validated, verified: true, areaCaveats, sourceCurrent };
         };
 
-        const applyValidatedRoute = (candidate: IsochroneResult, validated: IsochroneNode[]): IsochroneResult => {
+        const applyValidatedRoute = (
+            candidate: IsochroneResult,
+            validated: IsochroneNode[],
+            areaCaveats?: readonly string[],
+        ): IsochroneResult => {
             const departureIso = departureTime || new Date().toISOString();
-            return verifiedIsochroneRoute(candidate, validated, departureIso, speed);
+            const result = verifiedIsochroneRoute(candidate, validated, departureIso, speed);
+            result.environmentNotes = [
+                ...new Set([...(result.environmentNotes ?? []), ...knownRouteAreaCaveats(areaCaveats)]),
+            ];
+            return result;
         };
 
         const markRouteUnverified = (coords: [number, number][], reason: string, terminalsIncluded: boolean): void => {
@@ -1779,6 +2332,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         lon,
                     }));
                     let shortRouteVerified = false;
+                    let shortRouteAreaCaveats: readonly string[] = [];
+                    let shortRouteSourceCurrent: (() => boolean) | undefined;
                     let shortRouteVerificationReason = 'depth validation did not complete';
                     try {
                         // Feed the validator just the [origin, destination]
@@ -1820,6 +2375,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         );
                         validatedRoute = validation.route.map((n) => ({ lat: n.lat, lon: n.lon }));
                         shortRouteVerified = validation.verified;
+                        if (validation.verified) {
+                            assertRoutingSourceCurrent(validation.sourceCurrent);
+                            shortRouteAreaCaveats = validation.areaCaveats ?? [];
+                            shortRouteSourceCurrent = validation.sourceCurrent;
+                        }
                         shortRouteVerificationReason = validation.reason ?? shortRouteVerificationReason;
                         if (validation.verified) {
                             if (validation.route.length !== seedNodes.length) {
@@ -1834,6 +2394,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             publishRouteNotValidated(shortRouteVerificationReason);
                         }
                     } catch (e) {
+                        if (routingConstraintReason(e)) throw e;
                         log.warn('[Passage] Short route: GEBCO validation failed — using great-circle:', e);
                         shortRouteVerificationReason = 'final chart and coarse depth validation failed';
                         try {
@@ -1873,6 +2434,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const validatedCoords: [number, number][] = validatedRoute.map((p) => [p.lon, p.lat]);
 
                     if (shortRouteVerified) {
+                        assertRoutingSourceCurrent(shortRouteSourceCurrent);
+                        setRouteCaveats([...shortRouteAreaCaveats]);
                         commitDisplayedRoute(
                             map,
                             buildFeatures(
@@ -1908,6 +2471,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         arrivalTime: arrIso,
                         isochrones: [],
                         engineFlags: { stallRecovery: false, finalApproach: false },
+                        environmentNotes: shortRouteVerified ? [...shortRouteAreaCaveats] : [],
                     } as unknown as IsochroneResult;
                     const minimalWps: TurnWaypoint[] = [
                         {
@@ -1939,6 +2503,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     setRouteAnalysis(updatedResultShort);
 
                     if (shortRouteVerified) {
+                        assertRoutingSourceCurrent(shortRouteSourceCurrent);
                         turnWaypointsRef.current = minimalWps;
                         isoResultRef.current = minimalIsoResult;
                         pushToPassageStore(
@@ -1962,7 +2527,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.warn('[Passage] Short-route bypass push failed:', e);
                     markRouteUnverified(
                         waterAwareCoords as [number, number][],
-                        'the verified short route could not be prepared for display and export',
+                        routingConstraintReason(e) ??
+                            'the verified short route could not be prepared for display and export',
                         false,
                     );
                     window.dispatchEvent(
@@ -1998,6 +2564,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     computeGenRef.current === gen && mapRef.current === map && comparisonFingerprint() === settingsKey;
                 let comparisonInputs: OffshoreComparisonInputs | null = null;
                 let publishComparisonReport: ((report: RouteHazardReport | null) => void) | null = null;
+                let assertComparisonSourceCurrent: ((candidate: VerifiedOffshoreCandidate) => void) | null = null;
                 const makeComparisonInputs = (
                     bathymetry: NonNullable<Awaited<ReturnType<typeof preloadBathymetry>>>,
                     environment: Awaited<ReturnType<typeof loadIsochroneEnvironment>>,
@@ -2056,11 +2623,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         return comparisonInputs;
                     },
                     verify: async (candidate, job, environment, isCurrent) => {
-                        const [{ verifyOffshoreSelection }, { setLastReport }] = await Promise.all([
-                            import('../../services/routing/offshoreSelection'),
-                            import('../../services/enc/EncHazardReportService'),
-                        ]);
+                        const [{ verifyOffshoreSelection, assertVerifiedOffshoreSourceCurrent }, { setLastReport }] =
+                            await Promise.all([
+                                import('../../services/routing/offshoreSelection'),
+                                import('../../services/enc/EncHazardReportService'),
+                            ]);
                         publishComparisonReport = setLastReport;
+                        assertComparisonSourceCurrent = assertVerifiedOffshoreSourceCurrent;
                         return verifyOffshoreSelection({
                             candidate,
                             job,
@@ -2088,6 +2657,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     commit: (selected, model) => {
                         if (!comparisonCurrent() || selected.verification !== 'verified-final-geometry')
                             throw new Error('Comparison is no longer current.');
+                        if (!assertComparisonSourceCurrent) throw new Error('Comparison source proof is unavailable.');
+                        assertComparisonSourceCurrent(selected);
                         const chosen = selected.result;
                         const features = buildFeatures(chosen.routeCoordinates, chosen.shallowFlags, 'verified', true);
                         if (
@@ -2112,6 +2683,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             useSettingsStore.getState().settings.vessel,
                             chosen.comfort,
                         );
+                        assertComparisonSourceCurrent(selected);
                         commitDisplayedRoute(map, features, 'verified');
                         isoResultRef.current = chosen;
                         turnWaypointsRef.current = wps;
@@ -2134,6 +2706,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 geometry: { type: 'Point', coordinates: [wp.lon, wp.lat] },
                             })),
                         });
+                        assertComparisonSourceCurrent(selected);
                         pushToPassageStore(
                             chosen,
                             wps,
@@ -2181,7 +2754,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             15_000,
                             'fresh verification of the cached route timed out after 15 seconds',
                         );
-                        const checkedCached = applyValidatedRoute(cached, cachedValidation.route);
+                        if (cachedValidation.verified) assertRoutingSourceCurrent(cachedValidation.sourceCurrent);
+                        const checkedCached = applyValidatedRoute(
+                            cached,
+                            cachedValidation.route,
+                            cachedValidation.verified ? cachedValidation.areaCaveats : undefined,
+                        );
                         setRouteCaveats(checkedCached.environmentNotes ?? []);
                         const updatedResult2 = withRouteEstimates(
                             {
@@ -2209,6 +2787,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             return;
                         }
 
+                        assertRoutingSourceCurrent(cachedValidation.sourceCurrent);
                         commitDisplayedRoute(
                             map,
                             buildFeatures(checkedCached.routeCoordinates, checkedCached.shallowFlags, 'verified', true),
@@ -2217,7 +2796,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         dispatchPassageNotice(null);
                         isoResultRef.current = checkedCached;
                         const depTimeStr2 = departureTime || new Date().toISOString();
-                        const { detectTurnWaypoints } = await import('../../services/IsochroneRouter');
                         const wps = detectTurnWaypoints(checkedCached.route, depTimeStr2);
                         turnWaypointsRef.current = wps;
                         const wpSource2 = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
@@ -2239,6 +2817,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         }
                         // Push only after a fresh verification pass. Cache
                         // provenance is never itself a safety verdict.
+                        assertRoutingSourceCurrent(cachedValidation.sourceCurrent);
                         pushToPassageStore(
                             checkedCached,
                             wps,
@@ -2262,6 +2841,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         return; // Done — skip fresh computation
                     }
                 } catch (cacheError) {
+                    if (routingConstraintReason(cacheError)) throw cacheError;
                     log.warn('[Isochrone BG] Cached candidate could not be verified — computing fresh:', cacheError);
                     isoResultRef.current = null;
                     turnWaypointsRef.current = [];
@@ -2293,7 +2873,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
 
                 const windState = WindStore.getState();
-                let windGrid = windState.grid;
+                let windGrid = replanBase?.wind ?? windState.grid;
 
                 if (!windGrid && map) {
                     log.info('[Isochrone BG] Loading wind data...');
@@ -2316,7 +2896,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     windGrid.west <= routeMinLon - 5 &&
                     windGrid.east >= routeMaxLon + 5;
 
-                if (!gridCoversRoute) {
+                if (!gridCoversRoute && !replanBase) {
                     log.info('[Isochrone BG] Wind grid does not cover full route — fetching route-covering grid...');
                     try {
                         const supabaseUrl =
@@ -2415,7 +2995,19 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return;
                 }
 
-                const windField = createWindFieldFromGrid(windGrid);
+                const windField = replanBase
+                    ? {
+                          getWind: (lat: number, lon: number, hours: number) => {
+                              const value = sampleWindGrid(
+                                  windGrid!,
+                                  lat,
+                                  lon,
+                                  Date.parse(replanBase.departureTime) + hours * 3600000,
+                              );
+                              return value ? { speed: value.speedKts, direction: value.directionFromDeg } : null;
+                          },
+                      }
+                    : createWindFieldFromGrid(windGrid);
                 const polar = routingPolar.polar;
                 const depTimeStr = departureTime || new Date().toISOString();
 
@@ -2540,7 +3132,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         15_000,
                         'final chart and coarse depth validation timed out after 15 seconds',
                     );
-                    isoResult = applyValidatedRoute(isoResult, directValidation.route);
+                    if (directValidation.verified) assertRoutingSourceCurrent(directValidation.sourceCurrent);
+                    isoResult = applyValidatedRoute(
+                        isoResult,
+                        directValidation.route,
+                        directValidation.verified ? directValidation.areaCaveats : undefined,
+                    );
                     setRouteCaveats(isoResult.environmentNotes ?? []);
                     const directEnvironment = inspectRouteEnvironment(
                         isoResult.route,
@@ -2579,6 +3176,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         return;
                     }
 
+                    assertRoutingSourceCurrent(directValidation.sourceCurrent);
                     commitDisplayedRoute(
                         map,
                         buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'verified', true),
@@ -2624,6 +3222,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     setRoutingPolarLabel(routingPolar.label);
 
                     // Push isochrone route to global PassageStore for Nav Station
+                    assertRoutingSourceCurrent(directValidation.sourceCurrent);
                     pushToPassageStore(
                         isoResult,
                         wps,
@@ -2871,7 +3470,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 15_000,
                                 'whole-route verification of the stitched multi-leg route timed out after 15 seconds',
                             );
-                            isoResult = applyValidatedRoute(isoResult, multiValidation.route);
+                            if (multiValidation.verified) assertRoutingSourceCurrent(multiValidation.sourceCurrent);
+                            isoResult = applyValidatedRoute(
+                                isoResult,
+                                multiValidation.route,
+                                multiValidation.verified ? multiValidation.areaCaveats : undefined,
+                            );
                             setRouteCaveats(isoResult.environmentNotes ?? []);
                             const multiEnvironment = inspectRouteEnvironment(
                                 isoResult.route,
@@ -2921,6 +3525,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 return;
                             }
 
+                            assertRoutingSourceCurrent(multiValidation.sourceCurrent);
                             commitDisplayedRoute(
                                 map,
                                 buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'verified', true),
@@ -2934,6 +3539,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             const multiDepTime = departureTime || new Date().toISOString();
                             const multiWps = detectTurnWaypoints(isoResult.route, multiDepTime);
                             turnWaypointsRef.current = multiWps;
+                            assertRoutingSourceCurrent(multiValidation.sourceCurrent);
                             pushToPassageStore(
                                 isoResult,
                                 multiWps,
@@ -2991,7 +3597,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
         }, 100);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [departure, arrival, departureTime, speed, showPassage]);
+    }, [
+        departure,
+        arrival,
+        viaWaypoints,
+        departureTime,
+        speed,
+        showPassage,
+        tideShortcutEnabled,
+        tideArrivalBufferMinutes,
+    ]);
 
     // Auto-compute when both points set + map ready
     useEffect(() => {
@@ -3033,6 +3648,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
     // Clear route
     const clearRoute = useCallback(() => {
+        replanTokenRef.current = null;
+        cancelRouteReplan();
         clearPassageRequest(); // don't resurrect a dismissed passage on the next MapHub mount
         setDeparture(null);
         setArrival(null);
@@ -3044,6 +3661,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setDepartureTime('');
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        routeConstraintsRef.current = [];
         computeGenRef.current++; // Invalidate any running computation
         modelComparison.reset();
         PassageStore.clear();
@@ -3073,6 +3691,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeVerification.status === 'verified' &&
         routeVerification.geometryKey !== null &&
         routeVerification.geometryKey === displayedRouteGeometryKeyRef.current;
+    const invalidateReplan = useCallback(() => {
+        computeGenRef.current++;
+    }, []);
+    useRouteReplanPreview({
+        mapRef,
+        mapReady,
+        tokenRef: replanTokenRef,
+        show: showPassage,
+        verified: routeActionsAvailable,
+        geometryKey: routeVerification.geometryKey,
+        departureTime,
+        speed,
+        result: isoResultRef,
+        turns: turnWaypointsRef,
+        caveats: routeCaveats,
+        cells: routeCellsRef,
+        invalidate: invalidateReplan,
+    });
 
     return {
         departure,
@@ -3089,6 +3725,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis,
         routeVerification,
         routeActionsAvailable,
+        tideShortcutEnabled,
+        setTideShortcutEnabled,
+        tideArrivalBufferMinutes,
+        setTideArrivalBufferMinutes,
+        tideShortcutReview,
         routeCaveats,
         routeCellsRef,
         modelComparison: modelComparison.view,
@@ -3099,6 +3740,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setShowPassage,
         isoResultRef,
         turnWaypointsRef,
+        routeConstraintsRef,
         computePassage,
         clearRoute,
     };

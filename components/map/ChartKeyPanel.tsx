@@ -4,6 +4,8 @@ import { seamarkIconDataUri } from './seamarkIcons';
 import { LIGHT_COLOUR_HEX } from '../../services/enc/types';
 import { BLOCKED_LEAD_DASH, NEEDS_TIDE_AMBER, SURVEY_DASH, UNVERIFIED_ROUTE_DASH } from './inshoreRouteState';
 import { SKETCH_LEG_DASH } from './traceLegInk';
+import type { ChartContours } from '../../services/enc/chartContours';
+const metres = (n: number) => Number(n.toFixed(2)).toString();
 
 /**
  * The planned route's colours (owner decision 10, Shane 2026-09-30: "Amber if
@@ -72,6 +74,8 @@ export interface ChartKeyPanelProps {
     /** Reuse the same chart vocabulary inside OBS's combined key. */
     inline?: boolean;
     tideTimeLabel?: string;
+    contours?: ChartContours | null;
+    reliefSafetyDepthM?: number | null;
 }
 
 /**
@@ -87,6 +91,8 @@ export function ChartKeyPanel({
     onClose,
     inline = false,
     tideTimeLabel = 'RIGHT NOW',
+    contours = null,
+    reliefSafetyDepthM = null,
 }: ChartKeyPanelProps) {
     if (!visible) return null;
 
@@ -118,16 +124,23 @@ export function ChartKeyPanel({
 
             {!imageryOn && (
                 <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
-                    {(
-                        [
-                            [DEPARE_BAND_COLORS.drying, 'dries'],
-                            [DEPARE_BAND_COLORS.b0to2, '0–2'],
-                            [DEPARE_BAND_COLORS.b2to5, '2–5'],
-                            [DEPARE_BAND_COLORS.b5to10, '5–10'],
-                            [DEPARE_BAND_COLORS.b10to20, '10–20'],
-                            [DEPARE_BAND_COLORS.b20to50, '20–50'],
-                            [DEPARE_BAND_COLORS.b50plus, '50+'],
-                        ] as const
+                    {(contours
+                        ? [
+                              [DEPARE_BAND_COLORS.drying, 'dries'],
+                              [DEPARE_BAND_COLORS.b0to2, `0–${metres(contours.shallowM)}`],
+                              [DEPARE_BAND_COLORS.b2to5, `${metres(contours.shallowM)}–${metres(contours.safetyM)}`],
+                              [DEPARE_BAND_COLORS.b10to20, `${metres(contours.safetyM)}–${metres(contours.deepM)}`],
+                              [DEPARE_BAND_COLORS.b50plus, `${metres(contours.deepM)}+`],
+                          ]
+                        : ([
+                              [DEPARE_BAND_COLORS.drying, 'dries'],
+                              [DEPARE_BAND_COLORS.b0to2, '0–2'],
+                              [DEPARE_BAND_COLORS.b2to5, '2–5'],
+                              [DEPARE_BAND_COLORS.b5to10, '5–10'],
+                              [DEPARE_BAND_COLORS.b10to20, '10–20'],
+                              [DEPARE_BAND_COLORS.b20to50, '20–50'],
+                              [DEPARE_BAND_COLORS.b50plus, '50+'],
+                          ] as const)
                     ).map(([hex, label]) => (
                         <div key={label} className="flex-1">
                             <div style={{ background: hex, height: 14 }} />
@@ -140,6 +153,12 @@ export function ChartKeyPanel({
             )}
 
             <div className="space-y-1 text-[10px] leading-snug text-gray-300">
+                {reliefSafetyDepthM !== null && (
+                    <div className="text-amber-100">
+                        Relief safety marker ~{reliefSafetyDepthM.toFixed(1)} m · not for navigation. Approximate model
+                        depth; no chart-datum clearance is established.
+                    </div>
+                )}
                 {!imageryOn && (
                     <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
                 )}
@@ -161,7 +180,10 @@ export function ChartKeyPanel({
                     </div>
                 ) : (
                     <div>
-                        The <span className="font-bold text-orange-400">amber</span> contour is your keel&apos;s limit;
+                        The <span className="font-bold text-orange-400">amber</span> contour{' '}
+                        {contours
+                            ? `is the next charted line at or deeper than ${metres(contours.safetyM)} m;`
+                            : 'is your keel’s limit;'}
                         thin slate-grey lines join equal depths.
                     </div>
                 )}

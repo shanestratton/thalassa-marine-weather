@@ -115,9 +115,9 @@ export const NEAR_DIRECT_CAP = 1.15;
 /** Adopt a tide-direct route only when it materially improves the safe route. */
 export const TIDE_ADOPT_FACTOR = 0.7;
 
-// Parked presentation flags. Wiring stays compiled and tested so the features
-// can be deliberately reintroduced without reviving dead code.
-export const AUTO_ROUTE_BUTTON_VISIBLE = false;
+// Per-leg Auto has a cold final-geometry sweep; other parked entries keep their
+// independent presentation gates.
+export const AUTO_ROUTE_BUTTON_VISIBLE = true;
 export const TRACER_COPY_BUTTON_VISIBLE = false;
 export const SAIL_IT_BUTTON_VISIBLE = false;
 export const CHARTS_FAB_CATEGORY_VISIBLE = false;

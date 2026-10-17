@@ -23,6 +23,7 @@ import React, { useState } from 'react';
 
 import { useLastHazardReport } from '../../services/enc/EncHazardReportService';
 import type { RouteHazardReportEntry } from '../../services/enc/EncHazardReportService';
+import { gradedRouteHazards } from '../../services/enc/routeHazardGrade';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -234,7 +235,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                             })}
                         </div>
                     )}
-                    {report.entries.map((entry, i) => {
+                    {gradedRouteHazards(report).map((entry, i) => {
                         const lowConf = isLowConfidenceCatzoc(entry.catzoc);
                         const interactive = !!onHazardClick;
                         const Wrapper: React.ElementType = interactive ? 'button' : 'div';
@@ -258,6 +259,11 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                                     <span className="text-sm shrink-0 mt-0.5">{hazardIcon(entry.hazardType)}</span>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-[12px] font-bold text-amber-100 leading-tight">
+                                            <span
+                                                className={entry.grade === 'danger' ? 'text-red-300' : 'text-amber-300'}
+                                            >
+                                                {entry.grade.toUpperCase()} ·{' '}
+                                            </span>
                                             {entry.description ?? hazardLabel(entry.hazardType)}
                                             <span className="ml-1.5 font-normal text-amber-300/80">
                                                 {formatDistance(entry.distanceNm)} {sideLabel(entry.side)}
@@ -296,6 +302,8 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                         <p className="mt-2 text-[12px] text-amber-300/70 italic">
                             From {report.cellsConsulted} ENC cell{report.cellsConsulted === 1 ? '' : 's'}. Verify
                             visually before relying on these positions.
+                            {!!report.entriesOmitted &&
+                                ` ${report.entriesOmitted} additional findings omitted by the display limit.`}
                         </p>
                     )}
                 </div>

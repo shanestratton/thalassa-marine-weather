@@ -1,3 +1,4 @@
 # Preserve the captured public NOAA source/derived proof bytes across hosts.
 browser-tests/fixtures/noaa/US5CA1LK.json -text
 browser-tests/fixtures/noaa/US5CA1LK.zip -text
+tests/fixtures/noaa-publisher/generated-revisions.json.txt -text

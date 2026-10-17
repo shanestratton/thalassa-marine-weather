@@ -29,7 +29,7 @@ async function production(shared: boolean, handlerProof = false) {
         plugins: [
             react(),
             shareSvgProps(root),
-            ...(shared ? [shareSvgPaths(root)] : []),
+            ...(shared ? [shareSvgPaths(root, { standalone: true })] : []),
             {
                 name: 'svg-path-proof-entry',
                 resolveId(id) {

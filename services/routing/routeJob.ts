@@ -30,6 +30,11 @@
  */
 import type { FeatureCollection } from 'geojson';
 import { routeInshore, type InshoreLayers } from '../inshoreRouterEngine';
+import {
+    auditFinishedRouteExclusions,
+    finishedTrafficLaneGuidance,
+    isRouteStackOverflow,
+} from '../engine/exclusionField';
 import type {
     CautionNearShallow,
     ChartedShallowSpan,
@@ -391,7 +396,16 @@ export interface InshoreOrigin {
 }
 
 export interface InshoreRouteResult {
+    /** RAM disclosure only; serialized fields never carry source authority. */
+    tideShortcut?: import('./tideGatedPlanning').TideShortcutView;
+    /** RAM worker hint only; source/clock admission is checked on main. */
+    _tideCandidatePath?: import('../engine/tideGatedSearch').TideGridPath;
+    trafficLaneGuidance?: import('../engine/trafficLanes').TrafficLaneGuidance;
+    /** Actual current manual/MPA context only; filled by the main service after lease checks. */
+    routeAreaCaveats?: string[];
     polyline: [number, number][]; // [lon, lat]
+    /** At least one intersected chart did not extract the area-restriction classes. */
+    exclusionsUnchecked?: boolean;
     /**
      * Per-segment caution flag, length `polyline.length - 1`.
      * true = the segment crosses water that reads too shallow for this
@@ -592,6 +606,8 @@ export interface RouteJob {
     /** Cells with no bridge / overhead layers, and each one's extent (as entries, not a Map). */
     structuresUnknownCells: string[];
     structuresUnknownBboxes: [string, [number, number, number, number]][];
+    /** Missing classes are unknown, distinct from an extracted empty collection. */
+    exclusionsUnknownBboxes?: [number, number, number, number][];
     /** The regional marker file's accepted port/starboard pairs (the Seaway graph's tier 2). */
     regionalPairs: RegionalPair[];
     /** The chart overlay's compiled lead graph for the route's corridor, or null (telemetry only). */
@@ -690,9 +706,38 @@ export function runRouteJob(job: RouteJob): RouteJobOutput {
     const output: RouteJobOutput = { result: null, timings };
     try {
         output.result = routeJobResult(job, timings);
+        if (output.result && 'polyline' in output.result) {
+            const finished = output.result;
+            const failure = auditFinishedRouteExclusions(job.layers, finished.polyline);
+            if (failure) output.result = { ...failure, cellsUsed: job.cellsUsed };
+            else {
+                try {
+                    const trafficLaneGuidance = finishedTrafficLaneGuidance(job.layers, finished.polyline);
+                    const unchecked = job.exclusionsUnknownBboxes?.some((bbox) =>
+                        polylineTouchesBbox(finished.polyline, bbox),
+                    );
+                    if (trafficLaneGuidance || unchecked || finished.trafficLaneGuidance !== undefined) {
+                        const current = { ...finished, ...(unchecked ? { exclusionsUnchecked: true } : {}) };
+                        if (trafficLaneGuidance) current.trafficLaneGuidance = trafficLaneGuidance;
+                        else delete current.trafficLaneGuidance;
+                        output.result = current;
+                    }
+                } catch (error) {
+                    if (isRouteStackOverflow(error)) throw error;
+                    output.result = {
+                        error: 'The finished route’s traffic-lane guidance could not be fully checked. Review the chart and route again.',
+                        code: 'exclusion-unavailable',
+                        cellsUsed: job.cellsUsed,
+                    };
+                }
+            }
+        }
     } catch (err) {
+        // A candidate assigned before its final audit is never an answer after
+        // any thrown audit. A stack retry must recompute and re-audit the job.
+        output.result = null;
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
-        if (err instanceof RangeError && /stack/i.test(err.message)) output.outOfStack = true;
+        if (isRouteStackOverflow(err)) output.outOfStack = true;
     }
     timings.endedAt = Date.now();
     return output;
@@ -744,6 +789,27 @@ function routeJobResult(job: RouteJob, timings: RouteJobTimings): InshoreRouteRe
             error: result.error,
             code: result.code,
             cellsUsed,
+        };
+    }
+    if (routeOpts._tideCandidate?.enabled) {
+        // This exact geometry/clock must reach the private main-thread source
+        // verifier. No lead/Seaway promotion or smoothing inherits its window.
+        if (!result._tideCandidatePath)
+            return {
+                error: 'The tide worker returned no exact candidate clock.',
+                code: 'tide-window-unavailable',
+                cellsUsed,
+            };
+        timings.shadowMs = 0;
+        return {
+            polyline: result.polyline,
+            distanceNM: result.distanceNM,
+            cellsUsed,
+            elapsedMs,
+            channelMask: result.channelMask,
+            cautionMask: result.cautionMask,
+            _tideCandidatePath: result._tideCandidatePath,
+            ...routeChartVerdicts(job.layers, result.polyline),
         };
     }
 

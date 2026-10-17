@@ -19,6 +19,8 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useDraggable } from '@dnd-kit/core';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { MODEL_COMPARE_EVENT, type ModelCompareRequest } from './hero/heroSlideHelpers';
+import { usePersonalComfort } from '../../hooks/usePersonalComfort';
+import { comfortForMarine } from '../../utils/marineComfort';
 
 const ModelComparisonMatrix = lazyRetry(
     () => import('./ModelComparisonMatrix').then((module) => ({ default: module.ModelComparisonMatrix })),
@@ -337,7 +339,7 @@ const InstrumentCell: React.FC<{
     const reading = value === '--' ? ', no reading' : ` ${spokenValue ?? spokenReading(value, unit)}`;
     return (
         <div
-            className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
+            className={`glass-instrument-cell flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
             onClick={onClick}
             title={tooltip}
             // Value and trend only: the glossary is the description
@@ -468,6 +470,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const [showBarometer, setShowBarometer] = useState(false);
     // Both rows now use the same data (activeDayData — updates on scroll)
     const topRowData = data;
+    const personalComfort = usePersonalComfort();
+    const comfortVessel = useSettingsStore((s) => s.settings.vessel);
+    const seaFeel = comfortForMarine(data.marine, comfortVessel, personalComfort, isLive);
 
     // Computed values
     const windSpeed =
@@ -667,6 +672,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         <MetricTapContext.Provider
             value={(id) => {
                 if (Date.now() < suppressTapUntilRef.current) return;
+                if (id === 'wave' || id === 'period') {
+                    setDeepDive(id);
+                    return;
+                }
                 // HPA opens the barometer breakout from ANY card, live or
                 // not — the instrument always reads "now", and offshore is
                 // where the phone's own sensor matters most (Shane,
@@ -700,6 +709,15 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 }${emptyDayNote ? `. ${emptyDayNote}` : ''}`}
                 onClick={gridOnClick}
             >
+                {/* The caption borrows the existing top row's bottom padding;
+                    both80px rows and the enclosing page keep their bounds. */}
+                <span
+                    className="pointer-events-none absolute left-[60%] right-0 top-[67px] z-1 text-center text-[10px] leading-none text-sky-200"
+                    data-testid="glass-sea-comfort"
+                    title={seaFeel?.reason ?? 'No admitted local sea'}
+                >
+                    {seaFeel?.word ? `${seaFeel.word} β` : 'Comfort unknown'}
+                </span>
                 {/* TOP ROW: Wind, Dir, Gust, Wave, Per
                 Icons carry a `metric-anim-*` class that plays a CSS
                 animation for ~60 seconds after the card mounts, then
@@ -708,7 +726,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 cap is the fix. See index.css → "METRIC GRID ICON
                 ANIMATIONS" for the full keyframe details. */}
                 <div
-                    className={`w-full grid grid-cols-5 divide-x divide-white/12 h-[80px] ${emptyDayNote ? 'opacity-40' : ''}`}
+                    className={`w-full grid grid-cols-5 divide-x divide-white/12 h-[80px] [&_.glass-instrument-cell]:pb-4 ${emptyDayNote ? 'opacity-40' : ''}`}
                 >
                     {/* Wind Speed — or TEMP if wind is pinned to hero */}
                     <DraggableMetricCell
@@ -1026,6 +1044,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         timeZone={timeZone}
                         utcOffset={utcOffset}
                         offshore={isOffshore}
+                        marine={data.marine}
+                        comfortVessel={comfortVessel}
+                        comfortPreference={personalComfort}
+                        currentMarine={isLive}
                     />
                 </Suspense>
             )}

@@ -426,7 +426,7 @@ describe('what the skipper is told when a passage lacks charts', () => {
     // for licensed charts.
     const read = (path: string) => readFileSync(path, 'utf8');
 
-    it.each(['services/autoroutingThalassa.ts', 'components/map/useAutoRouteLeg.ts'])(
+    it.each(['services/autoroutingThalassa.ts', 'services/routing/autoTraceLeg.ts'])(
         '%s points at the Pi, not the chart cloud',
         (path) => {
             const source = read(path);

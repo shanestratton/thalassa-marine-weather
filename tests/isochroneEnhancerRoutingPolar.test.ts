@@ -171,3 +171,96 @@ describe('enhanceVoyagePlanWithIsochrone routes on the resolved polar', () => {
         expect(await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).toBeNull();
     });
 });
+
+describe('enhancer final area-policy failures never become corridor fallback', () => {
+    it.each(['route-exclusion', 'exclusion-unavailable'])(
+        'propagates structured %s out of both catch boundaries',
+        async (code) => {
+            mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+            mocks.getPrecomputedRoute.mockReturnValue(candidate());
+            const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+            vi.mocked(validateRouteSegments).mockRejectedValueOnce(Object.assign(Error('held'), { code }));
+            await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({ code });
+        },
+    );
+    it('carries result-local area caveats into accepted enhancement reasoning', async () => {
+        mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+        mocks.getPrecomputedRoute.mockReturnValue(candidate());
+        const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+        vi.mocked(validateRouteSegments).mockImplementationOnce(async (route, options) => {
+            options?.onRouteAreaCaveats?.(['Indicative park fixture; check current local rules.']);
+            return route;
+        });
+        const out = await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART);
+        expect(out?.routeReasoning).toContain('Indicative park fixture; check current local rules.');
+    });
+});
+
+it('enhancer holds an actual auth A/B/A key retirement at the validator return seam', async () => {
+    const { getAuthIdentityScope, setAuthIdentityScope } = await import('../services/authIdentityScope');
+    const original = getAuthIdentityScope().userId;
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    const validate = vi.mocked(validateRouteSegments);
+    validate.mockImplementationOnce(async (route, options) => {
+        setAuthIdentityScope('fictional-other-policy-owner');
+        setAuthIdentityScope(original);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    try {
+        await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+            code: 'exclusion-unavailable',
+        });
+    } finally {
+        setAuthIdentityScope(original);
+    }
+});
+
+it('enhancer holds a retired weak original-chart proof at final adoption', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    const validate = vi.mocked(validateRouteSegments);
+    validate.mockImplementationOnce(async (route, options) => {
+        options?.onRouteAreaCaveats?.([], () => false);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+        code: 'exclusion-unavailable',
+    });
+});
+
+it('enhancer keeps a successful validator signal current until final adoption', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    let signal: AbortSignal | undefined;
+    vi.mocked(validateRouteSegments).mockImplementationOnce(async (route, options) => {
+        signal = options?.signal;
+        options?.onRouteAreaCaveats?.([], () => !signal?.aborted);
+        return route;
+    });
+    const out = await enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART);
+    expect(out?.routeGeoJSON?.properties).toMatchObject({ source: 'isochrone' });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(false);
+});
+
+it('enhancer still aborts a failed final validator', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    let signal: AbortSignal | undefined;
+    vi.mocked(validateRouteSegments).mockImplementationOnce(async (_route, options) => {
+        signal = options?.signal;
+        throw Error('Synthetic validation failure');
+    });
+    await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+        code: 'exclusion-unavailable',
+    });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(true);
+});

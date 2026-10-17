@@ -114,6 +114,7 @@ const route: TracePoint[] = [
 const vessel = { draft: 1.8 * FT, estimatedFields: [] as string[] };
 
 interface Probe {
+    retire?: () => void;
     verdicts: ReadonlyArray<TraceLegVerdict | null>;
     status: TracerStatus;
     wait: TracerChartsWait | null;
@@ -151,7 +152,7 @@ function makeHarness(useTracerGrading: Hook) {
                 }),
             [tracerStatus, legVerdicts, acks, wait],
         );
-        useTracerGrading({
+        const grading = useTracerGrading({
             capturedCoords: route,
             coordCaptureMode: true,
             vessel,
@@ -171,6 +172,7 @@ function makeHarness(useTracerGrading: Hook) {
             setShareArmed: noop,
             setTracerChartsWait,
         });
+        probe.retire = grading.retireChecks;
         probe.verdicts = legVerdicts;
         probe.status = tracerStatus;
         probe.wait = wait;
@@ -249,6 +251,19 @@ describe('the Route tracer waits for the boat registry', () => {
     afterEach(() => {
         vi.useRealTimers();
         setAuthIdentityScope(null);
+    });
+
+    it('a new track draft explicitly retires same-geometry cached verdicts and re-earns its chart check', async () => {
+        setBoat('loaded');
+        await mountHook();
+        await waitFor(() => expect(probe.status).toBe('ready'));
+        expect(probe.verdicts.every((v) => v?.grade === 'clear')).toBe(true);
+        h.graded = [];
+        h.gradeByLat.set(route[0].lat, 'danger');
+        act(() => probe.retire!());
+        await waitFor(() => expect(graded()).toBeGreaterThan(0));
+        await waitFor(() => expect(probe.verdicts[0]?.grade).toBe('danger'));
+        expect(probe.release?.allowed).toBe(false);
     });
 
     it('paired + pending: nothing built, graded or persisted; rows wait, the card says it is opening, release refuses', async () => {

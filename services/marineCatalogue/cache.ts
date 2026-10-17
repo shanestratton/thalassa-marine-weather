@@ -12,6 +12,14 @@ let rows = new Map<string, Entry>();
 let loaded: Promise<void> | undefined;
 let queue: Promise<unknown> = Promise.resolve();
 let epoch = 0;
+const clearListeners = new Set<() => void>();
+/** Visible public layers retire immediately when their optional cache is deleted. */
+export function subscribeCatalogueCacheCleared(listener: () => void): () => void {
+    clearListeners.add(listener);
+    return () => {
+        clearListeners.delete(listener);
+    };
+}
 const bytes = (s: string) => new TextEncoder().encode(s).byteLength;
 function serial<T>(job: () => Promise<T>): Promise<T> {
     const next = queue.catch(() => undefined).then(job);
@@ -116,6 +124,13 @@ export async function catalogueCacheStats() {
 }
 export async function clearCatalogueCache(): Promise<void> {
     epoch++;
+    for (const listener of [...clearListeners]) {
+        try {
+            listener();
+        } catch {
+            /* A view cannot prevent deletion. */
+        }
+    }
     await hydrateCatalogueCache();
     return serial(async () => {
         await disk('[]');

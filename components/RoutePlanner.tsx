@@ -33,7 +33,7 @@ import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
 import { SwipeableSavedRouteRow } from './routes/SwipeableSavedRouteRow';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
-import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/deepLink';
+import { consumeSavedRoutesLibraryOpen, consumeTrackRouteLibraryOpen, requestTracerOpen } from '../services/deepLink';
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
@@ -531,6 +531,13 @@ export const RoutePlanner: React.FC<{
     // open this existing library immediately. Consume on mount rather than
     // adding another route list (or another control over the planning map).
     const autoOpenSavedRoutesRef = useRef<boolean | null>(null);
+    const autoOpenTrackRouteRef = useRef<boolean | null>(null);
+    useEffect(() => {
+        autoOpenTrackRouteRef.current ??= consumeTrackRouteLibraryOpen();
+        if (!autoOpenTrackRouteRef.current) return;
+        const timer = window.setTimeout(() => void openRoutePicker('voyage'), 0);
+        return () => window.clearTimeout(timer);
+    }, [openRoutePicker]);
     useEffect(() => {
         // React StrictMode replays effect setup/cleanup. Retain the consumed
         // answer in a ref so the replay can supersede a cancelled first load

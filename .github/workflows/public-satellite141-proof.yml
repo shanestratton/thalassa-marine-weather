@@ -1,0 +1,64 @@
+name: Build141 one bounded public satellite observation
+on:
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed clean source
+                required: true
+                type: string
+            allow_public_reads:
+                description: After deployment review only, eighteen bounded public reads, no activation
+                required: true
+                default: false
+                type: boolean
+permissions:
+    contents: read
+concurrency:
+    group: public-satellite141-proof-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    public-source:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1 && inputs.allow_public_reads == true
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha }}
+            NODE_OPTIONS: --max-old-space-size=512
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+            - name: Install only existing locked tools
+              shell: bash
+              run: npm ci --ignore-scripts --no-audit --no-fund
+            - name: Preserve exact source and tool identities
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  test -z "$(git status --porcelain)"
+                  mkdir "$RUNNER_TEMP/public-satellite141-control"
+                  git rev-parse HEAD > "$RUNNER_TEMP/public-satellite141-control/SOURCE_SHA.txt"
+                  node --version > "$RUNNER_TEMP/public-satellite141-control/NODE_VERSION.txt"
+                  npm ls --depth=0 tsx fast-png > "$RUNNER_TEMP/public-satellite141-control/TOOLS.txt"
+                  sha256sum .github/workflows/public-satellite141-proof.yml scripts/prove-public-satellite141.mjs scripts/prove-sharper-satellite-source.mjs services/weather/satelliteViewEndpoint.ts services/weather/satelliteViewContract.ts services/weather/satelliteViewBytes.ts services/weather/api/boundedPublisherResponse.ts api/satellite-view.ts supabase/functions/satellite-view/index.ts supabase/functions/satellite-view/handler.ts supabase/functions/_shared/auth-rate-limit.ts supabase/functions/_shared/http-security.ts supabase/config.toml package.json package-lock.json > "$RUNNER_TEMP/public-satellite141-control/SHA256SUMS"
+            - name: One current public observation with original clock and detail holds
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  node --import tsx scripts/prove-public-satellite141.mjs --read-reviewed-public "$RUNNER_TEMP/public-satellite141-source" 2>&1 | tee "$RUNNER_TEMP/public-satellite141-control/PROOF.txt"
+            - name: Preserve actual success or failure
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build141-public-satellite-real-source-proof
+                  path: |
+                      ${{ runner.temp }}/public-satellite141-source/
+                      ${{ runner.temp }}/public-satellite141-control/
+                  retention-days: 7
+                  if-no-files-found: error

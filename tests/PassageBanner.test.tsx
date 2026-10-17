@@ -189,6 +189,32 @@ describe('PassageBanner', () => {
 
     // Round-3 review (2026-09-30): saving from the map dropped the route's
     // caveats (bridges not checked, a pin off the water, survey quality).
+    it('Save keeps the exact verified curve and the distinct user constraint list', async () => {
+        shipLog.savePassagePlanToLogbook.mockResolvedValue('voyage-1');
+        const constraints = [{ lat: -25, lon: 150, name: 'Required user point' }];
+        const coordinates = [
+            [153, -27.5],
+            [150, -25],
+            [148.7, -20],
+        ];
+        render(
+            <PassageBanner
+                {...baseProps}
+                isoProgress={null}
+                passage={{
+                    ...baseProps.passage,
+                    routeConstraintsRef: { current: constraints },
+                    isoResultRef: { current: { routeCoordinates: coordinates } },
+                }}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Save to Log' }));
+        await waitFor(() => expect(shipLog.savePassagePlanToLogbook).toHaveBeenCalledOnce());
+        expect(shipLog.savePassagePlanToLogbook.mock.calls[0][0]).toMatchObject({
+            routeConstraints: constraints,
+            routeGeoJSON: { geometry: { coordinates } },
+        });
+    });
     it('Save to Log keeps the drawn route’s caveats with the plan', async () => {
         shipLog.savePassagePlanToLogbook.mockResolvedValue('voyage-1');
         const caveats = ['Bridges and power lines not checked on this chart — known bridges are.'];

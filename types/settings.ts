@@ -7,6 +7,7 @@ import type { NotificationPreferences, WeatherModel, OffshoreModel } from './wea
 import type { VesselProfile, VesselDimensionUnits } from './vessel';
 import type { PolarData } from './navigation';
 import type { AisDisplayFilters } from '../services/ais/aisFilter';
+import type { ChartContours } from '../services/enc/chartContours';
 
 /**
  * Preferred wind angle bands — used as a multi-select set so users can
@@ -229,6 +230,10 @@ export interface UserSettings {
      * picked. components/map/useMapBase.ts reads it.
      */
     obsChartBase?: ObsChartBase;
+    /** Mariner colour/contour display targets only; never routing/alarm policy. */
+    chartContours?: ChartContours | null;
+    /** Default-on public notice anchors in the visible Obs viewport at z>=9. */
+    obsNoticesVisible?: boolean;
     /**
      * Settings → Preferences → Chart: "Show ENC charts when Obs opens"
      * (build 123, W1-01). Off by default, so browse charts keep starting off

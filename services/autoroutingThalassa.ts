@@ -322,10 +322,15 @@ export async function calculateThalassaProposal(
 
     // The two gates the engine answers with a silent null, said first.
     const directNM = distanceNM(departure, destination);
-    if (directNM > MAX_INSHORE_NM)
-        throw new Error(
-            `Auto routes inshore passages up to ${MAX_INSHORE_NM} NM; this one is ${directNM.toFixed(1)} NM. Split it, or plot it in Manual.`,
-        );
+    if (directNM > MAX_INSHORE_NM) {
+        const { calculateBerthProposal } = await import('./routing/berthProposal');
+        assertCurrent();
+        return calculateBerthProposal(input, {
+            signal,
+            onProgress,
+            stillCurrent: () => !signal?.aborted && isAuthIdentityScopeCurrent(scope),
+        });
+    }
     // Her licensed charts open from the boat's Pi first (127-C-c decision 8c):
     // in memory only, so after a launch the gates below would otherwise see
     // only the open charts. Counts in the log, never a position.
@@ -528,6 +533,9 @@ export async function calculateThalassaProposal(
     const engineCaveats = inshoreRouteCaveats({
         destinationInlandTrimM: ok.destinationInlandTrimM,
         structuresUnknownCells: ok.structuresUnknownCells,
+        exclusionsUnchecked: ok.exclusionsUnchecked,
+        trafficLaneGuidance: ok.trafficLaneGuidance,
+        routeAreaCaveats: ok.routeAreaCaveats,
         pinOffWater: ok.pinOffWater,
         pinTail: ok.pinTail,
         // Why the route leaves the straight line for deeper water (2026-10-04).
@@ -596,6 +604,9 @@ export async function calculateThalassaProposal(
         ...(ok.surveyRuns ? { surveyRuns: copy(ok.surveyRuns) } : {}),
         ...(ok.surveyUncheckedCells ? { surveyUncheckedCells: [...ok.surveyUncheckedCells] } : {}),
         ...(ok.structuresUnknownCells ? { structuresUnknownCells: [...ok.structuresUnknownCells] } : {}),
+        ...(ok.exclusionsUnchecked ? { exclusionsUnchecked: true } : {}),
+        ...(ok.trafficLaneGuidance ? { trafficLaneGuidance: ok.trafficLaneGuidance } : {}),
+        ...(ok.routeAreaCaveats?.length ? { routeAreaCaveats: [...ok.routeAreaCaveats] } : {}),
         ...(ok.pinOffWater ? { pinOffWater: { ...ok.pinOffWater } } : {}),
         ...(ok.tideCheck ? { tideCheck: ok.tideCheck } : {}),
         ...(ok.destinationInlandTrimM ? { destinationInlandTrimM: ok.destinationInlandTrimM } : {}),

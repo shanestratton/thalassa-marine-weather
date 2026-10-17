@@ -6,26 +6,56 @@ manifest. Upload immutable generation objects first; swap manifest LAST only
 after every uploaded size/SHA256 has been checked. Deletions require review.
 """
 import argparse
+import datetime as dt
 import hashlib
 import json
 from pathlib import Path
 import re
+import world_policy
 
 PREFIX = "marine-catalogue/v1/"
 MAX_OBJECTS = 100000
 MAX_GENERATION_BYTES = 2 * 1024**3
 
 def owned(key):
-    return bool(re.fullmatch(r"marine-catalogue/v1/(places|osm|noaa)/(?:manifest\.json|[a-z0-9-]{8,48}/(?:manifest\.json|SOURCE\.json|LICENCE\.txt|NOAA-AGREEMENT\.txt|(?:areas/\d{1,2}_\d{1,3}(?:-[0-3]{1,8})?|names/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json))", key))
+    return bool(re.fullmatch(r"marine-catalogue/v1/(places|osm|noaa|facilities|facilities-world)/(?:manifest\.json|[a-z0-9-]{8,48}/(?:manifest\.json|SOURCE\.json|LICENCE\.txt|NOAA-AGREEMENT\.txt|(?:areas/\d{1,2}_\d{1,3}(?:-[0-3]{1,8})?|names/(?:[a-f0-9]{1,6}-){2,23}[a-f0-9]{1,6}(?:-end)?)\.json))", key))
 
 def plan(generation, inventory, current):
     generation = Path(generation).resolve()
     m = json.loads((generation / "manifest.json").read_text(encoding="utf-8"))
     dataset, version = m["dataset"], m["generation"]
-    if dataset not in ("places", "osm", "noaa") or generation.name != version or not re.fullmatch(r"[a-z0-9-]{8,48}", version):
+    if dataset not in ("places", "osm", "noaa", "facilities", "facilities-world") or generation.name != version or not re.fullmatch(r"[a-z0-9-]{8,48}", version):
         raise ValueError("Invalid generation")
     if current and (current.get("dataset") != dataset or not re.fullmatch(r"[a-z0-9-]{8,48}", current.get("generation", ""))):
         raise ValueError("Invalid active manifest")
+    if dataset in ("facilities", "facilities-world"):
+        def cohorts(value):
+            rows = value.get("cohorts")
+            if not isinstance(rows, list) or not 1 <= len(rows) <= 32 or not all(isinstance(v, dict) and set(v) == {"id", "sourceAt", "sha256"} and isinstance(v["id"], str) and re.fullmatch(r"https://download\.geofabrik\.de/[a-z0-9/_-]+", v["id"]) and isinstance(v["sha256"], str) and re.fullmatch(r"[a-f0-9]{64}", v["sha256"]) and isinstance(v["sourceAt"], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", v["sourceAt"]) for v in rows):
+                raise ValueError("Invalid facilities regional inventory")
+            ids = {v["id"] for v in rows}
+            if dataset == "facilities-world": world_policy.validate_cohorts(rows)
+            if len(ids) != len(rows): raise ValueError("Duplicate facilities regional inventory")
+            return ids
+        included = cohorts(m)
+        try:
+            for value in [m, *([current] if current else [])]:
+                for row in value["cohorts"]:
+                    stamp = dt.datetime.fromisoformat(row["sourceAt"].replace("Z", "+00:00"))
+                    if stamp > dt.datetime.fromisoformat(value["builtAt"].replace("Z", "+00:00")):
+                        raise ValueError("Future facilities regional clock")
+                if value["sourceAt"] != min(row["sourceAt"] for row in value["cohorts"]):
+                    raise ValueError("Facilities source clock cannot hide an older regional cohort")
+        except (KeyError, TypeError) as error:
+            raise ValueError("Invalid facilities regional source clocks") from error
+        if current and not cohorts(current).issubset(included):
+            raise ValueError("Facilities publication cannot withdraw an existing regional cohort")
+        if current:
+            next_rows = {v["id"]: v for v in m["cohorts"]}
+            for previous in current["cohorts"]:
+                following = next_rows[previous["id"]]
+                if following["sourceAt"] < previous["sourceAt"] or (following["sourceAt"] == previous["sourceAt"] and following["sha256"] != previous["sha256"]):
+                    raise ValueError("Facilities regional source cannot regress or change under an unchanged clock")
     if len(inventory) > MAX_OBJECTS or any(not owned(row["key"]) or not isinstance(row["bytes"], int) or row["bytes"] < 0 for row in inventory):
         raise ValueError("Refused listing outside exact owned prefix / invalid size")
     uploads, total = [], 0

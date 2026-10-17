@@ -71,11 +71,20 @@ import {
     CAUTION,
     UNCHARTED_MAX_RUN_M,
 } from './engine/constants.js';
+import { applyTrackPriors } from './engine/trackPriors.js';
+import { routeTideGatedCandidate } from './engine/tideGatedRoute.js';
+import { auditTrafficLaneRoute } from './engine/trafficLanes.js';
+import {
+    applyExclusionField,
+    buildExclusionField,
+    exclusionRefusal,
+    isRouteStackOverflow,
+    routeExclusionConflict,
+} from './engine/exclusionField.js';
 import type {
     DepthBend,
     DryPinTail,
     InshoreLayers,
-    NavGrid,
     RouteRequest,
     RouteDebug,
     RouteResult,
@@ -489,6 +498,56 @@ const noTideCrossingOf = (r: RouteResult | RouteFailure): NonNullable<RouteDebug
 const NO_TIDE_RETRY_ROUNDS = 2;
 
 export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    let field: ReturnType<typeof buildExclusionField>;
+    const unavailable = (error: unknown): RouteFailure => {
+        if (isRouteStackOverflow(error)) throw error;
+        return {
+            error: `Route exclusions could not be fully checked: ${error instanceof Error ? error.message : 'source unavailable'}`,
+            code: 'exclusion-unavailable',
+        };
+    };
+    try {
+        // Always rebuild from original current layers. A request payload cannot
+        // bypass chart restrictions by supplying its own compiled/empty field.
+        field = buildExclusionField({
+            RESARE: rawLayers.RESARE,
+            TSEZNE: rawLayers.TSEZNE,
+            TSSLPT: rawLayers.TSSLPT,
+            manual: rawLayers.USER_NOGO,
+            marineParks: rawLayers.MPA_CAUTION,
+        });
+        for (const pin of [
+            [req.fromLon, req.fromLat],
+            [req.toLon, req.toLat],
+        ] as [number, number][]) {
+            const conflict = routeExclusionConflict([pin, pin], field);
+            if (conflict) return { error: exclusionRefusal(conflict), code: 'route-exclusion' };
+        }
+    } catch (error) {
+        return unavailable(error);
+    }
+    const checkedRequest = { ...req, _exclusionField: field };
+    const result = req._tideCandidate?.enabled
+        ? routeTideGatedCandidate(rawLayers, checkedRequest)
+        : routeInshoreWithExclusions(rawLayers, checkedRequest);
+    if ('error' in result) return result;
+    try {
+        const conflict = routeExclusionConflict(result.polyline, field);
+        if (conflict) return { error: exclusionRefusal(conflict), code: 'route-exclusion', debug: result.debug };
+        const guidance = auditTrafficLaneRoute(result.polyline, field.trafficLanes).guidance;
+        if (guidance) return { ...result, trafficLaneGuidance: guidance };
+        if (result.trafficLaneGuidance !== undefined) {
+            const current = { ...result };
+            delete current.trafficLaneGuidance;
+            return current;
+        }
+        return result;
+    } catch (error) {
+        return unavailable(error);
+    }
+}
+
+function routeInshoreWithExclusions(rawLayers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
     const layers = withNavLineLeadsOnly(rawLayers);
     const ceilings = tideCeilingLookup(req.tideCeilings);
     // The route without the ceilings — today's — is read at most once, by
@@ -1094,7 +1153,7 @@ function routeInshoreOnceEnds(
     // lookup — read the last route's 60 m bubble and bridged land as real 5 m
     // water, and decision 7's tail could end early on a fake deep cell. Every
     // other array (and the centring field) is only read, and is shared.
-    const grid: NavGrid = { ...cachedGrid, cells: cachedGrid.cells.slice(), preferred: cachedGrid.preferred.slice() };
+    const grid = applyExclusionField(cachedGrid, req._exclusionField ?? { areas: [] });
     if (grid.width === 0 || grid.height === 0) {
         return { error: 'Empty grid', code: 'empty-grid' };
     }
@@ -1150,11 +1209,13 @@ function routeInshoreOnceEnds(
     const tideLookup = tideCeilingLookup(req.tideCeilings);
     const noTideAt = noTideClearsAt(layers, tideLookup, deepFloorM);
     const isNoTideCell = (idx: number): boolean => grid.noTideClears?.[idx] === 1;
+    const isExcludedCell = (idx: number): boolean => grid.exclusionBlocked?.[idx] === 1;
     const isDeepEnough = (idx: number): boolean => {
         const d = grid.cells[idx];
-        return !Number.isNaN(d) && d >= deepFloorM;
+        return !isExcludedCell(idx) && !Number.isNaN(d) && d >= deepFloorM;
     };
-    const isChartedCaution = (idx: number): boolean => grid.chartedShallow?.[idx] === 1 && grid.cells[idx] < 0;
+    const isChartedCaution = (idx: number): boolean =>
+        !isExcludedCell(idx) && grid.chartedShallow?.[idx] === 1 && grid.cells[idx] < 0;
     /** Step weight through a tail cell: 1 in deep water, and 1 + the metres
      * its charted depth falls short of the keel floor in charted-shallow water
      * — so the tail takes the deeper way to deep water when one is about as
@@ -1164,7 +1225,7 @@ function routeInshoreOnceEnds(
         const s = grid.shallowDepthM?.[idx];
         return s === undefined || Number.isNaN(s) || isDeepEnough(idx) ? 1 : 1 + Math.max(0, deepFloorM - s);
     };
-    const isBlockedIdx = (idx: number): boolean => Number.isNaN(grid.cells[idx]);
+    const isBlockedIdx = (idx: number): boolean => isExcludedCell(idx) || Number.isNaN(grid.cells[idx]);
     /** Cells from the pin cell through its charted caution water to the
      * cheapest deep-enough cell to reach — by distance weighted by
      * shallowness (8-connected, diagonal steps √2, never squeezing
@@ -1358,7 +1419,7 @@ function routeInshoreOnceEnds(
                 // hazard and may still be carved, as before.
                 if (isChartedHazardCell(idx)) continue;
                 // …nor over water no tide clears (decision 11, 2026-10-01).
-                if (isNoTideCell(idx)) continue;
+                if (isNoTideCell(idx) || isExcludedCell(idx)) continue;
                 grid.cells[idx] = carveDepth;
                 grid.preferred[idx] = 1; // attract A* to enter via the bubble
             }
@@ -1558,7 +1619,7 @@ function routeInshoreOnceEnds(
                         // Never tunnel a charted hazard's buffer or a berth's
                         // pontoons (round-3 review, 2026-09-30) — the carve
                         // was built for thin land slivers.
-                        if (isChartedHazardCell(idx) || grid.berthBlocked?.[idx] === 1) continue;
+                        if (isExcludedCell(idx) || isChartedHazardCell(idx) || grid.berthBlocked?.[idx] === 1) continue;
                         // Only fill blocked/unknown/caution cells — never
                         // downgrade real charted water along the corridor.
                         if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0 || grid.cells[idx] === UNKNOWN_OPEN) {
@@ -1853,6 +1914,7 @@ function routeInshoreOnceEnds(
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
     // grid has a path-cost edge case I haven't anticipated.
+    applyTrackPriors(grid, req.trackPriors, req.draftM + (req.safetyM ?? 1));
     const aStarCells = aStar(grid, startCell, endCell);
     tPhase = mark('aStar', tPhase);
     if (!aStarCells) {

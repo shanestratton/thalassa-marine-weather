@@ -15,6 +15,7 @@ import { LICENCES, placeSourceUrl, type MarinePlace } from '../../services/marin
 const ObservedNearbyCard = React.lazy(() => import('../observations/ObservedNearbyCard'));
 const SpotTides = React.lazy(() => import('./MarineSpotTides'));
 const NoaaAgreementSheet = React.lazy(() => import('../map/NoaaAgreementSheet'));
+const PlaceReviewsSheet = React.lazy(() => import('../community/PlaceReviewsSheet'));
 const button = 'min-h-[44px] rounded-lg border border-white/15 px-3 py-2 text-sm text-sky-200 disabled:opacity-40';
 
 export default function MarinePlacesSheet({ onClose }: { onClose: () => void }) {
@@ -72,7 +73,7 @@ export function MarinePlacesView({
     );
     const [busy, setBusy] = React.useState(false);
     const [stats, setStats] = React.useState({ entries: 0, bytes: 0 });
-    const [detail, setDetail] = React.useState<'observed' | 'tides' | null>(null);
+    const [detail, setDetail] = React.useState<'observed' | 'tides' | 'reviews' | null>(null);
     const [agreementOpen, setAgreementOpen] = React.useState(false);
     const request = React.useRef<AbortController | null>(null);
     React.useEffect(() => {
@@ -174,6 +175,11 @@ export function MarinePlacesView({
                                 <button className={button} onClick={() => setDetail('tides')}>
                                     Nearby tides
                                 </button>
+                                {['anchorage', 'marina'].includes(spot.kind) && (
+                                    <button className={button} onClick={() => setDetail('reviews')}>
+                                        Skipper notes / add review
+                                    </button>
+                                )}
                             </div>
                             <a
                                 className="block text-xs text-sky-300 underline"
@@ -186,6 +192,16 @@ export function MarinePlacesView({
                             <React.Suspense fallback={<p>Opening details…</p>}>
                                 {detail === 'observed' && <ObservedNearbyCard point={spot} />}
                                 {detail === 'tides' && <SpotTides point={spot} />}
+                                {detail === 'reviews' && ['anchorage', 'marina'].includes(spot.kind) && (
+                                    <PlaceReviewsSheet
+                                        place={{
+                                            id: spot.id,
+                                            name: spot.name,
+                                            kind: spot.kind as 'anchorage' | 'marina',
+                                        }}
+                                        onClose={() => setDetail(null)}
+                                    />
+                                )}
                             </React.Suspense>
                         </>
                     ) : (

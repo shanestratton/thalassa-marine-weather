@@ -1,0 +1,110 @@
+name: Thalassa139 unsigned native compile
+
+# Review/dispatch only. This exact source compile has no signing or upload path.
+on:
+    workflow_dispatch:
+    push:
+        branches: [codex/build-139-unsigned-native]
+        paths: [.github/workflows/unsigned-native-139.yml]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: thalassa139-unsigned-native
+    cancel-in-progress: false
+
+jobs:
+    unsigned:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/codex/build-139-unsigned-native'))
+        runs-on: macos-26
+        timeout-minutes: 90
+        defaults:
+            run:
+                shell: bash
+                working-directory: source
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            NODE_OPTIONS: --max-old-space-size=4096
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+            VITE_APP_BUILD: '139'
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.sha }}
+                  path: controls
+                  persist-credentials: false
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: 57a5d8eb02b4aa4c7a8f2117c0dcaa1cf5d5932e
+                  path: source
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+                  cache: npm
+                  cache-dependency-path: source/package-lock.json
+            - name: Prove exact native source and toolchain
+              run: |
+                  set -euo pipefail
+                  mkdir -p "$RUNNER_TEMP/native139-evidence"
+                  node ../controls/scripts/native-identity139.mjs "$PWD" > "$RUNNER_TEMP/native139-evidence/native-source.json"
+                  test -d "$DEVELOPER_DIR"
+                  xcodebuild -version > "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  cat "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  grep -q '^Xcode 26\.6$' "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  node_version=$(node --version)
+                  printf '%s\n' "$node_version" >> "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  case "$node_version" in v24.*) ;; *) exit 1 ;; esac
+                  printf '%s\n' '${{ github.sha }}' > "$RUNNER_TEMP/native139-evidence/WORKFLOW_SHA.txt"
+            - name: Install pinned dependencies without Apple credentials
+              run: |
+                  set -euo pipefail
+                  node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/npm-ci.txt" npm ci
+                  pinned=$(awk '/^BUNDLED WITH/{getline; gsub(/ /,""); print}' ios/App/Gemfile.lock)
+                  gem install bundler -v "$pinned" --no-document --user-install
+                  export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+                  echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+                  echo "BUNDLER_VERSION=$pinned" >> "$GITHUB_ENV"
+                  echo "BUNDLE_PATH=$RUNNER_TEMP/gems" >> "$GITHUB_ENV"
+                  echo "BUNDLE_APP_CONFIG=$RUNNER_TEMP/bundle-config" >> "$GITHUB_ENV"
+                  echo 'BUNDLE_FROZEN=true' >> "$GITHUB_ENV"
+                  BUNDLER_VERSION="$pinned" BUNDLE_PATH="$RUNNER_TEMP/gems" BUNDLE_APP_CONFIG="$RUNNER_TEMP/bundle-config" BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
+            - name: Build production web and sync Capacitor
+              run: |
+                  set -euo pipefail
+                  GITHUB_SHA="$(git rev-parse HEAD)" node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/ship-beta.txt" npm run ship:beta
+                  node ../controls/scripts/native-identity139.mjs "$PWD"
+                  node ../controls/scripts/public-copy-proof139.mjs dist ios/App/App/public "$RUNNER_TEMP/native139-evidence/capacitor-public-copy.json"
+            - name: Compile unsigned iOS Simulator
+              run: |
+                  set -euo pipefail
+                  node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/ios-simulator.txt" xcodebuild -quiet -workspace ios/App/App.xcworkspace -scheme App -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/native139-dd" CODE_SIGNING_ALLOWED=NO build
+                  apps=("$RUNNER_TEMP/native139-dd/Build/Products/Release-iphonesimulator/"*.app)
+                  test "${#apps[@]}" -eq 1
+                  node ../controls/scripts/public-copy-proof139.mjs dist "${apps[0]}/public" "$RUNNER_TEMP/native139-evidence/compiled-public-copy.json"
+            - name: Compile unsigned actual Watch target
+              run: |
+                  set -euo pipefail
+                  node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/watch-simulator.txt" xcodebuild -quiet -project ios/App/App.xcodeproj -target 'ThalassaWatch Watch App' -configuration Release -sdk watchsimulator -destination 'generic/platform=watchOS Simulator' SYMROOT="$RUNNER_TEMP/native139-watch" OBJROOT="$RUNNER_TEMP/native139-watch-obj" CODE_SIGNING_ALLOWED=NO build
+                  node ../controls/scripts/native-identity139.mjs "$PWD"
+                  echo 'Unsigned iOS and separate compiled Watch targets passed. Public web-copy digests passed. No signing, upload, native runtime or physical-device acceptance is asserted.' >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve bounded text and public digest evidence only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: unsigned-native139-text-proof
+                  path: |
+                      ${{ runner.temp }}/native139-evidence/*.txt
+                      ${{ runner.temp }}/native139-evidence/*.json
+                  if-no-files-found: error
+                  retention-days: 7

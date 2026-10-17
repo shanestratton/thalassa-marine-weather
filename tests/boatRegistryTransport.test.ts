@@ -71,7 +71,7 @@ vi.mock('../services/PiPairingService', async (importOriginal) => ({
     getPairing: () => ({ deviceId: 'pi-fixture', publicKeySpki: 'key', boatName: 'Moana Nui' }),
 }));
 vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: { getState: () => ({ settings: {}, updateSettings: vi.fn() }) },
+    useSettingsStore: { subscribe: () => () => undefined, getState: () => ({ settings: {}, updateSettings: vi.fn() }) },
 }));
 vi.mock('@capacitor/filesystem', () => {
     const op = () => async () => {

@@ -26,18 +26,25 @@
  */
 
 import { piCache } from '../PiCacheService';
-import { fetchVerifiedFromPi, getPairing } from '../PiPairingService';
+import { fetchVerifiedFromPi, getPairing, getPiEquipmentReadRevision } from '../PiPairingService';
 import { subscribeAuthIdentityScope, getAuthIdentityScope } from '../authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './types';
-import type { EncConversionBatch } from './types';
+import type { EncCell, EncConversionBatch } from './types';
+import { encCellContentIdentity } from './cellContentIdentity';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
 import { PI_INTEGRATION_ENABLED } from '../piPublicBetaBoundary';
 import { BOAT_CELLS_ON_PHONE } from './boatCellVault';
 import * as vault from './boatCellVault';
 import { isProtectedChart } from './chartLicence';
-import { cellsForBBox, clearBoatRecords, getRegisteredCell } from './EncCellMetadata';
+import {
+    cellsForBBox,
+    clearBoatRecords,
+    getCell,
+    getRegisteredCell,
+    subscribe as subscribeCells,
+} from './EncCellMetadata';
 import type { BoatChartsState } from './boatChartsWords';
 
 const log = createLogger('piCellSync');
@@ -46,6 +53,145 @@ const log = createLogger('piCellSync');
  *  natively, but the web fetch fallback needs a deadline too. A detail cell is
  *  a few MB over boat wifi; 30 s is generous without hanging a route forever. */
 const PI_PULL_DEADLINE_MS = 30_000;
+
+/** Transport evidence only: this is neither tide/datum authority nor proof that
+ * the chart blob is still held. A route must retain and check its real cohort. */
+export interface PiChartReadEvidence {
+    readonly cellContentKey: string;
+    readonly readAtMs: number;
+    readonly expiresAtMs: number;
+}
+
+interface ReadContext {
+    ownerKey: string;
+    ownerGeneration: number;
+    boatId: string;
+    boatGeneration: number;
+    pairingKey: string;
+    pairingRevision: number;
+    vaultClearRevision: number;
+}
+interface PendingRead {
+    context: ReadContext;
+    id: string;
+    signedKey: string;
+    startedAtMs: number;
+    deadlineMs: number;
+    retired: boolean;
+}
+const READ_EVIDENCE_TTL_MS = 5 * 60_000;
+const readEvidence = new Map<string, { evidence: PiChartReadEvidence; context: ReadContext; signedKey: string }>();
+const pendingReads = new Set<PendingRead>();
+let boatGeneration = 0;
+
+// No record is restored from storage, serialized JSON or a caller's hash. Only
+// the successful verified download/import transaction below can issue one.
+function readContext(): ReadContext | null {
+    const owner = getAuthIdentityScope();
+    const boatId = useSettingsStore.getState().activeVesselId;
+    const pairing = getPairing();
+    if (!owner.userId || !boatId || !pairing?.deviceId || !pairing.publicKeySpki) return null;
+    return {
+        ownerKey: owner.key,
+        ownerGeneration: owner.generation,
+        boatId,
+        boatGeneration,
+        pairingKey: JSON.stringify([pairing.deviceId, pairing.publicKeySpki, pairing.fingerprint, pairing.pairedAt]),
+        pairingRevision: getPiEquipmentReadRevision(),
+        vaultClearRevision: vault.boatCellVaultClearRevision(),
+    };
+}
+function sameReadContext(a: ReadContext, b: ReadContext | null): boolean {
+    return b !== null && Object.keys(a).every((key) => a[key as keyof ReadContext] === b[key as keyof ReadContext]);
+}
+function signedCellKey(cell: EncCell | null): string | null {
+    if (!cell || !/^[a-f0-9]{64}$/i.test(cell.contentSha256 ?? '')) return null;
+    return JSON.stringify([
+        encCellStorageIdentity(cell.id),
+        cell.sourceHO,
+        cell.edition,
+        cell.updateNumber,
+        cell.issued,
+        cell.contentSha256?.toLowerCase(),
+        cell.bbox,
+        cell.usage ?? 'navigation',
+        cell.licence,
+    ]);
+}
+function retireReadEvidence(): void {
+    readEvidence.clear();
+    for (const pending of pendingReads) pending.retired = true;
+}
+function beginCellRead(cell: EncCell | null): PendingRead | null {
+    wire();
+    const context = readContext();
+    const signedKey = signedCellKey(cell);
+    if (!context || !signedKey || !cell || pendingReads.size >= 128) return null;
+    const startedAtMs = Date.now();
+    const pending: PendingRead = {
+        context,
+        signedKey,
+        id: canonicalEncCellId(cell.id),
+        startedAtMs,
+        deadlineMs: startedAtMs + PI_PULL_DEADLINE_MS * 2,
+        retired: false,
+    };
+    pendingReads.add(pending);
+    return pending;
+}
+function completeCellRead(pending: PendingRead | null, imported: EncCell): void {
+    if (!pending || !pendingReads.delete(pending)) return;
+    const now = Date.now();
+    const current = getCell(pending.id);
+    if (
+        pending.retired ||
+        !Number.isFinite(now) ||
+        now < pending.startedAtMs ||
+        now > pending.deadlineMs ||
+        !sameReadContext(pending.context, readContext()) ||
+        signedCellKey(imported) !== pending.signedKey ||
+        signedCellKey(current) !== pending.signedKey ||
+        !current
+    )
+        return;
+    const evidence = Object.freeze({
+        cellContentKey: encCellContentIdentity(current),
+        readAtMs: now,
+        expiresAtMs: now + READ_EVIDENCE_TTL_MS,
+    });
+    const identity = encCellStorageIdentity(current.id);
+    readEvidence.delete(identity);
+    readEvidence.set(identity, { evidence, context: pending.context, signedKey: pending.signedKey });
+    while (readEvidence.size > 128) readEvidence.delete(readEvidence.keys().next().value!);
+}
+
+/** No I/O, refresh or persistence. Missing/legacy/expired evidence stays unknown. */
+export function readPiChartReadEvidence(cell: EncCell, now = Date.now()): PiChartReadEvidence | null {
+    wire();
+    const record = readEvidence.get(encCellStorageIdentity(cell.id));
+    if (!record) return null;
+    const current = getCell(cell.id);
+    if (
+        !Number.isFinite(now) ||
+        now < record.evidence.readAtMs ||
+        now >= record.evidence.expiresAtMs ||
+        !sameReadContext(record.context, readContext()) ||
+        !current ||
+        signedCellKey(current) !== record.signedKey ||
+        signedCellKey(cell) !== record.signedKey ||
+        encCellContentIdentity(current) !== record.evidence.cellContentKey ||
+        encCellContentIdentity(cell) !== record.evidence.cellContentKey
+    ) {
+        readEvidence.delete(encCellStorageIdentity(cell.id));
+        return null;
+    }
+    return record.evidence;
+}
+
+/** Identity comparison rejects a spread, parsed or fabricated receipt. */
+export function isPiChartReadEvidenceCurrent(evidence: PiChartReadEvidence, cell: EncCell, now = Date.now()): boolean {
+    return readPiChartReadEvidence(cell, now) === evidence;
+}
 
 // ── The boat registry (decision 7a) ───────────────────────────────
 
@@ -123,7 +269,29 @@ function wire(): void {
     wired = true;
     // Sign-out (decision 9): her licensed charts leave this phone's memory.
     subscribeAuthIdentityScope(() => {
+        retireReadEvidence();
         if (!getAuthIdentityScope().userId) forgetBoatCharts();
+    });
+    useSettingsStore.subscribe((next, previous) => {
+        if (next.activeVesselId === previous.activeVesselId) return;
+        boatGeneration++;
+        retireReadEvidence();
+    });
+    subscribeCells(() => {
+        // A cell's A→B→A transition must retire A, while opening a different
+        // member of a complete cohort must leave its earlier members intact.
+        for (const pending of pendingReads) {
+            if (signedCellKey(getRegisteredCell(pending.id)) !== pending.signedKey) pending.retired = true;
+        }
+        for (const [identity, record] of readEvidence) {
+            const cell = getCell(identity);
+            if (
+                !cell ||
+                signedCellKey(cell) !== record.signedKey ||
+                encCellContentIdentity(cell) !== record.evidence.cellContentKey
+            )
+                readEvidence.delete(identity);
+        }
     });
     // The charts come back without a tap when the Pi does (Wi-Fi on again).
     try {
@@ -209,6 +377,7 @@ export function boatChartsNow(): BoatChartsState | null {
 /** Unpair or sign-out (decision 9): her licensed charts leave this phone's memory. Unpair also
  *  clears the account flag; another paired device re-asserts it at its next registration. */
 export function forgetBoatCharts(unpaired = false): void {
+    retireReadEvidence();
     clearBoatRecords();
     void import('./EncCellStore').then(({ clearProtectedBlobs }) => clearProtectedBlobs());
     vault.clear();
@@ -264,6 +433,7 @@ export async function downloadPiCell(cellId: string): Promise<boolean> {
     const identity = encCellStorageIdentity(canonicalId);
     const existing = inflight.get(identity);
     if (existing) return existing;
+    const read = beginCellRead(held);
     const p = withPiPullSlot(async () => {
         try {
             // Asked again in the slot: the queue can outlast a turn to the tailnet.
@@ -295,13 +465,15 @@ export async function downloadPiCell(cellId: string): Promise<boolean> {
             const { importCell } = await import('./EncHazardService');
             // No index row here: keep the held record's Pi identity when these
             // are the same revision (2026-10-01 review; 127-C-c decision 7).
-            await importCell(validated[0], { keepPiRevisionWhenUnchanged: true });
+            const imported = await importCell(validated[0], { keepPiRevisionWhenUnchanged: true });
+            completeCellRead(read, imported);
             log.warn(`pi cell ${canonicalId} pulled on demand`);
             return true;
         } catch (err) {
             log.warn(`pi cell ${canonicalId} pull failed: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
+            if (read) pendingReads.delete(read);
             inflight.delete(identity);
         }
     });

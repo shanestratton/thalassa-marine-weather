@@ -13,9 +13,14 @@ import type { UnitPreferences } from '../../../types';
 import { convertTemp, convertSpeed, convertLength } from '../../../utils/units';
 import { degreesToCardinal } from '../../../utils/format';
 import { TideCurveIcon } from '../../Icons';
-import { AGREEMENT_GLYPH, AGREEMENT_WORDS, type AgreementLevel } from '../../../services/weather/dayAgreement';
+import {
+    AGREEMENT_GLYPH,
+    AGREEMENT_WORDS,
+    type AgreementComponent,
+    type AgreementLevel,
+} from '../../../services/weather/dayAgreement';
 
-/** The models' wind verdict for the card's day (W1-09, services/weather/dayAgreement). */
+/** The models' scoped verdict for the card's day (services/weather/dayAgreement). */
 export interface DayAgreementChip {
     /** null: fewer than two models reach the day, so there is nothing to compare. */
     level: AgreementLevel | null;
@@ -25,6 +30,9 @@ export interface DayAgreementChip {
     peak: number;
     /** Judged with fewer than min(5, peak) models: say "only". */
     thin: boolean;
+    /** Optional multi-variable Glass verdict; legacy wind consumers stay scoped. */
+    driver?: 'wind' | 'dir' | 'rain' | 'wave' | null;
+    components?: AgreementComponent[];
 }
 
 interface DailySummaryCardProps {
@@ -276,18 +284,50 @@ const CHIP_TONE: Record<AgreementLevel | 'none', string> = {
 
 /** What the chip says: its words on screen, its count, and its spoken name. */
 export function agreementChipWords(chip: DayAgreementChip): { words: string; count: string; spoken: string } {
+    const compared = chip.components?.filter((component) => component.level != null) ?? [];
+    const driver = chip.driver === 'rain' ? 'Rain' : chip.driver === 'wave' ? 'Waves' : 'Wind';
     if (!chip.level) {
         return {
             words: `${chip.members} model only`,
             count: '',
-            spoken: `Wind: only ${chip.members} model reaches this day, nothing to compare`,
+            spoken: `${driver}: only ${chip.members} model reaches this day, nothing to compare`,
         };
     }
     const words = AGREEMENT_WORDS[chip.level];
     // Fewer than the comparison fields (runs end after day 7): say how many of
     // how many, as agreement among fewer can only look tighter; "only" when thin.
     const count = chip.members < chip.peak ? `${chip.members} of ${chip.peak} models` : `${chip.members} models`;
-    return { words, count, spoken: `Wind: ${words.toLowerCase()}, ${chip.thin ? 'only ' : ''}${count}` };
+    if (chip.components && compared.length > 0 && (compared.length > 1 || compared[0].metric !== 'wind')) {
+        const componentWords = chip.components
+            .map((component) => {
+                const label =
+                    component.metric === 'wave' ? 'waves' : component.metric === 'rain' ? 'precipitation' : 'wind';
+                const members =
+                    component.members < component.peak
+                        ? `${component.members} of ${component.peak}`
+                        : `${component.members}`;
+                return component.level
+                    ? `${label}: ${AGREEMENT_WORDS[component.level].toLowerCase()}, ${component.thin ? 'only ' : ''}${members} models`
+                    : `${label}: insufficient complete-day models`;
+            })
+            .join('; ');
+        return {
+            words,
+            count: `${chip.members < chip.peak ? `${chip.members}/${chip.peak}` : chip.members} ${driver === 'Waves' ? 'wave' : driver.toLowerCase()}`,
+            spoken: `${driver}: ${words.toLowerCase()}; ${componentWords}`,
+        };
+    }
+    return {
+        words: chip.components
+            ? chip.level === 'agree'
+                ? 'Wind agrees'
+                : chip.level === 'split'
+                  ? 'Wind splits'
+                  : 'Wind spread'
+            : words,
+        count,
+        spoken: `Wind: ${words.toLowerCase()}, ${chip.thin ? 'only ' : ''}${count}`,
+    };
 }
 
 /**
@@ -314,6 +354,7 @@ const AgreementChip: React.FC<{
             strokeLinecap="round"
             strokeLinejoin="round"
             className={corner ? 'w-3 h-3' : 'w-3.5 h-3.5 shrink-0'}
+            style={corner ? { width: 12, height: 12 } : undefined}
             aria-hidden="true"
         >
             <path d={AGREEMENT_GLYPH[chip.level]} />
@@ -344,6 +385,7 @@ const AgreementChip: React.FC<{
                 onCompare();
             }}
             aria-label={spoken}
+            title={spoken}
             aria-haspopup="dialog"
             aria-describedby={hintId}
             data-placement={corner ? 'corner' : 'line'}
@@ -351,7 +393,12 @@ const AgreementChip: React.FC<{
             // The passage stylesheet floors every button at 44 px, unlayered,
             // so no utility can undo it: a 44 px chip line cost 393 pt phones
             // their full card. hit-target-44 keeps the 44 px to the finger.
-            style={{ minHeight: 0 }}
+            style={{
+                minHeight: 0,
+                // Keep the corner glyph's original footprint when text grows:
+                // a rem-scaled 21px icon touched WIND at 300px/130%.
+                ...(corner ? { width: 16, height: 16, left: 4, top: 6 } : {}),
+            }}
         >
             {body}
         </button>
@@ -488,6 +535,9 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
                 data-density={drawnDensity}
                 data-chip-line={chipLine ? '1' : '0'}
                 className={`flex flex-col items-center justify-start px-5 ${full ? 'pt-3 gap-2.5' : 'pt-1.5 gap-1'}`}
+                // The fluid 13px root shrinks px-5 below the fixed corner
+                // glyph's gutter on 300px phones; keep its 20px design floor.
+                style={cornerChip ? { paddingInline: 'max(20px, 1.25rem)' } : undefined}
             >
                 {/* Day of week + date — anchored to the top so it's never clipped.
                 Not on a short slot: the day label row above already names it. */}

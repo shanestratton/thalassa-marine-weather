@@ -167,7 +167,7 @@ function validateMetadata(value: unknown): void {
 }
 
 /** Dependency-free SHA-256 for the tiny canonical generation identity input. */
-function sha256Hex(input: Uint8Array): string {
+export function sha256Hex(input: Uint8Array): string {
     const constants = new Uint32Array([
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
         0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
@@ -240,6 +240,12 @@ export function canonicalMarineGeneration(
 }
 
 export function marineAssetShardTag(dataset: MarineDatasetKey, generation: string): string {
+    return releaseAssetShardTag(MARINE_DATASET_CONTRACTS[dataset].releaseTag, generation);
+}
+
+/** The same ISO-week naming for separately validated, explicitly allowlisted new codecs. */
+export function releaseAssetShardTag(releaseTag: string, generation: string): string {
+    requireContract(/^[a-z0-9-]+-latest$/.test(releaseTag), 'invalid release tag for shard');
     requireContract(GENERATION_PATTERN.test(generation), 'invalid generation for shard');
     const compact = generation.slice(2, 18);
     const timestamp = Date.parse(
@@ -256,7 +262,7 @@ export function marineAssetShardTag(dataset: MarineDatasetKey, generation: strin
     const isoYear = thursday.getUTCFullYear();
     const yearStart = new Date(Date.UTC(isoYear, 0, 1));
     const isoWeek = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
-    return `${MARINE_DATASET_CONTRACTS[dataset].releaseTag}-assets-${isoYear}-W${String(isoWeek).padStart(2, '0')}`;
+    return `${releaseTag}-assets-${isoYear}-W${String(isoWeek).padStart(2, '0')}`;
 }
 
 export function validateMarineManifest(

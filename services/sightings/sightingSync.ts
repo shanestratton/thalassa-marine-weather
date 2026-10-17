@@ -37,6 +37,7 @@ import {
 import { isNotPushedYet } from '../crew/floatPlanPeople';
 import { clearSightingsOutboxFlag } from './outboxFlag';
 import { createLogger } from '../../utils/createLogger';
+import { drainPrivateCatches } from './privateCatch';
 import {
     deleteLocalSighting,
     getLocalSighting,
@@ -578,7 +579,9 @@ async function sessionUserId(): Promise<string | null> {
 /** Nothing of this account's is waiting any more: app start need not load the outbox. */
 async function clearFlagIfIdle(userId: string): Promise<void> {
     const waiting = (await listLocalSightings(userId)).some(
-        (r) => r.sync.op !== null && (r.sync.state === 'pending' || r.sync.state === 'held'),
+        (r) =>
+            (r.sync.op !== null && (r.sync.state === 'pending' || r.sync.state === 'held')) ||
+            !!r.privateCatchSync?.pending,
     );
     if (!waiting) clearSightingsOutboxFlag(userId);
 }
@@ -589,10 +592,12 @@ async function runDrain(): Promise<DrainResult> {
     const result: DrainResult = { sent: 0, remaining: 0, stopped: null };
     if (!supabase || !userId) return { ...result, stopped: 'signed-out' };
     const queued = (await listLocalSightings(userId)).filter((r) => isDue(r, Date.now()));
+    if (!isAuthIdentityScopeCurrent(scope)) return { ...result, stopped: 'scope-changed' };
     result.remaining = queued.length;
     if (queued.length === 0) {
+        const catches = await drainPrivateCatches();
         await clearFlagIfIdle(userId);
-        return result;
+        return { ...result, sent: catches.sent, remaining: catches.remaining };
     }
     if (sightingsServerUnavailable()) return { ...result, stopped: 'not-pushed' };
     // The boot scope is provisional: send only under a real session for this account.
@@ -618,7 +623,12 @@ async function runDrain(): Promise<DrainResult> {
             return { ...result, stopped: 'offline' };
         }
     }
-    if (isAuthIdentityScopeCurrent(scope)) await clearFlagIfIdle(userId);
+    if (isAuthIdentityScopeCurrent(scope)) {
+        const catches = await drainPrivateCatches();
+        result.sent += catches.sent;
+        result.remaining += catches.remaining;
+        await clearFlagIfIdle(userId);
+    }
     return result;
 }
 

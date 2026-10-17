@@ -1,0 +1,28 @@
+[Unit]
+Description=Thalassa reviewed monthly worldwide public OSM facilities preparation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=thalassa-catalogue
+Group=thalassa-catalogue
+EnvironmentFile=/etc/thalassa/facilities-world.env
+WorkingDirectory=/opt/thalassa/scripts/marine-catalogue
+# Shares the existing catalogue OS lock. This unit never publishes or deletes.
+ExecStart=/usr/bin/python3 monthly.py --plan ${CATALOGUE_SOURCE_PLAN} --root /srv/thalassa-catalogue --execute --plan-sha256 ${CATALOGUE_SOURCE_PLAN_SHA256}
+TimeoutStartSec=24h
+TimeoutStopSec=2min
+MemoryMax=2G
+TasksMax=16
+CPUQuota=50%
+Nice=15
+IOSchedulingClass=idle
+LimitFSIZE=40G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/thalassa-catalogue
+UMask=0077
+# Not installed/enabled by source delivery. Requires explicit resource/quota review.

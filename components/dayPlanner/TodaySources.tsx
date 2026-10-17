@@ -18,6 +18,7 @@ import {
 import type { RouteWindModels, TodayBase } from '../../services/dayPlanner/todayLoader';
 import type { TideCurve } from '../../services/TideHeightService';
 import { TodayModal } from './TodayModal';
+import { MarineDataCredit } from '../weather/MarineDataCredit';
 
 /** The short names the card's credit line uses; the full licence credit is in Sources. */
 const SHORT_PROVIDER: Record<string, string> = {
@@ -162,7 +163,11 @@ export function TodaySources({
             <h3 className="today-h3">Credits</h3>
             <ul className="today-credits">
                 {credit && <li>{credit}</li>}
-                {seaAnswered(legs) && <li>Waves: Météo-France (MFWAM)</li>}
+                {seaAnswered(legs) && (
+                    <li>
+                        <MarineDataCredit />
+                    </li>
+                )}
                 <li>
                     {base.tidesStatus === 'ok'
                         ? `Tides: WorldTides, ${base.tideStation ?? 'nearest station'}, metres above LAT, approx. ±0.3 m`

@@ -26,6 +26,8 @@
  * V Brazil, …) behind the same shape.
  */
 import { createLogger } from '../utils/createLogger';
+import { satelliteModeBlocks } from './networkPolicy';
+import { noticeSource } from './obsNotices';
 
 const log = createLogger('NoticeToMariners');
 
@@ -289,7 +291,7 @@ function normalise(raw: RawBroadcastWarn): Notice {
         authority: raw.authority || '',
         text,
         title: buildTitle(text),
-        coordinates: extractCoords(text),
+        coordinates: extractCoords(text).slice(0, 64),
         status: raw.status || 'A',
     };
 }
@@ -302,17 +304,69 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 interface CachePayload {
     fetchedAt: number;
     notices: Notice[];
+    sources?: Record<string, { notices: Notice[]; fetchedAt: number; failing: boolean }>;
+}
+const CACHE_BYTES = 6 * 1024 * 1024;
+function boundedNotices(value: unknown): value is Notice[] {
+    return (
+        Array.isArray(value) &&
+        value.length <= 10000 &&
+        value.every(
+            (n) =>
+                n &&
+                typeof n.id === 'string' &&
+                n.id.length <= 100 &&
+                typeof n.text === 'string' &&
+                n.text.length <= 16000 &&
+                typeof n.title === 'string' &&
+                n.title.length <= 160 &&
+                typeof n.navArea === 'string' &&
+                n.navArea.length <= 16 &&
+                Array.isArray(n.coordinates) &&
+                n.coordinates.length <= 64 &&
+                n.coordinates.every(
+                    (c: { lat: number; lon: number }) =>
+                        c &&
+                        Number.isFinite(c.lat) &&
+                        Math.abs(c.lat) <= 90 &&
+                        Number.isFinite(c.lon) &&
+                        Math.abs(c.lon) <= 180,
+                ),
+        )
+    );
 }
 
 function loadCache(): CachePayload | null {
     try {
         const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return null;
+        if (!raw || raw.length > CACHE_BYTES) return null;
         const parsed = JSON.parse(raw) as CachePayload;
-        if (!parsed?.notices || !Array.isArray(parsed.notices)) return null;
+        if (
+            !boundedNotices(parsed?.notices) ||
+            !Number.isFinite(parsed.fetchedAt) ||
+            parsed.fetchedAt <= 0 ||
+            parsed.fetchedAt > Date.now()
+        )
+            return null;
+        if (
+            parsed.sources &&
+            (typeof parsed.sources !== 'object' ||
+                Object.keys(parsed.sources).length > 5 ||
+                Object.entries(parsed.sources).some(
+                    ([name, s]) =>
+                        !['nga', 'amsa', 'ukho', 'linz', 'legacy'].includes(name) ||
+                        !s ||
+                        !boundedNotices(s.notices) ||
+                        typeof s.failing !== 'boolean' ||
+                        !Number.isFinite(s.fetchedAt) ||
+                        s.fetchedAt < 0 ||
+                        s.fetchedAt > Date.now(),
+                ))
+        )
+            return null;
         // JSON.parse turns Date fields back into strings — rehydrate so the
         // Notice type contract holds for consumers that call Date methods.
-        for (const n of parsed.notices) {
+        for (const n of [parsed.notices, ...Object.values(parsed.sources ?? {}).map((s) => s.notices)].flat()) {
             if (n.issueDateParsed && !(n.issueDateParsed instanceof Date)) {
                 const d = new Date(n.issueDateParsed as unknown as string);
                 n.issueDateParsed = Number.isNaN(d.getTime()) ? null : d;
@@ -326,7 +380,8 @@ function loadCache(): CachePayload | null {
 
 function saveCache(payload: CachePayload): void {
     try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+        const text = JSON.stringify(payload);
+        if (text.length <= CACHE_BYTES) localStorage.setItem(CACHE_KEY, text);
     } catch {
         /* quota exceeded, ignore */
     }
@@ -339,6 +394,7 @@ const NOTICE_REQUEST_TIMEOUT_MS = 15_000;
 type NoticeEndpoint = { url: string; headers?: Record<string, string> };
 
 async function fetchBroadcastWarnings(endpoint: NoticeEndpoint, source: string): Promise<RawBroadcastWarn[]> {
+    if (satelliteModeBlocks('offline-download')) throw new Error('Satellite Mode: notice refresh paused');
     // One stalled hydrographic source used to hold the complete parallel
     // refresh open indefinitely. Each source has its own deadline so a slow
     // bulletin degrades to the remaining authorities rather than freezing the
@@ -346,10 +402,52 @@ async function fetchBroadcastWarnings(endpoint: NoticeEndpoint, source: string):
     const res = await fetch(endpoint.url, {
         headers: endpoint.headers,
         signal: AbortSignal.timeout(NOTICE_REQUEST_TIMEOUT_MS),
+        redirect: 'error',
+        credentials: 'omit',
     });
     if (!res.ok) throw new Error(`${source} MSI returned ${res.status}`);
-    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
-    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('Notice response body unavailable');
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+        for (;;) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > 1024 * 1024) throw new Error('Notice source exceeds1MiB');
+            chunks.push(part.value);
+        }
+    } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.length;
+    }
+    const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as {
+        'broadcast-warn': RawBroadcastWarn[];
+    };
+    const rows = body?.['broadcast-warn'];
+    if (
+        !Array.isArray(rows) ||
+        rows.length > 2500 ||
+        rows.some(
+            (n) =>
+                !n ||
+                !Number.isInteger(n.msgYear) ||
+                !Number.isInteger(n.msgNumber) ||
+                typeof n.navArea !== 'string' ||
+                n.navArea.length > 16 ||
+                typeof n.text !== 'string' ||
+                n.text.length > 16000,
+        )
+    )
+        throw new Error('Invalid or excessive notice source');
+    return rows;
 }
 
 async function fetchNga(): Promise<RawBroadcastWarn[]> {
@@ -409,6 +507,13 @@ class NoticeToMarinersServiceClass {
             if (cached) {
                 this.notices = cached.notices;
                 this.lastFetchAt = cached.fetchedAt;
+                if (cached.sources) this.bySource = cached.sources;
+                else
+                    for (const n of cached.notices) {
+                        const name = noticeSource(n.navArea) ?? 'legacy';
+                        const group = (this.bySource[name] ??= { notices: [], fetchedAt: 0, failing: true });
+                        group.notices.push(n);
+                    }
             }
             this.loadedFromCache = true;
         }
@@ -418,6 +523,7 @@ class NoticeToMarinersServiceClass {
     /** Fetch from the network, honouring the cache TTL unless `force`. */
     async refresh(force = false): Promise<Notice[]> {
         this.getCached();
+        if (satelliteModeBlocks('offline-download')) return this.notices;
 
         const fresh = Date.now() - this.lastFetchAt < CACHE_TTL_MS;
         if (!force && fresh && this.notices.length > 0) {
@@ -475,7 +581,7 @@ class NoticeToMarinersServiceClass {
 
                 this.notices = notices;
                 this.lastFetchAt = Date.now();
-                saveCache({ fetchedAt: this.lastFetchAt, notices });
+                saveCache({ fetchedAt: this.lastFetchAt, notices, sources: this.bySource });
                 this.emit();
                 log.info(
                     `Fetched ${notices.length} notices across ${sources.filter((s) => s.status === 'fulfilled').length} source(s)`,

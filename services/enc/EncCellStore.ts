@@ -37,6 +37,14 @@ import { prepareChartStore, purgeWebDiskCache } from '../nativeStorage';
 import * as vault from './boatCellVault';
 import { chartLicenceOf, isOpenChartCell } from './chartLicence';
 import { getRegisteredCell, listRegisteredCells, putCell } from './EncCellMetadata';
+import {
+    captureChartFindCell,
+    dropChartFindCell,
+    indexChartFindCell,
+    retireChartFindCell,
+    retireChartFindMemory,
+    type ChartFindToken,
+} from './chartFindMemory';
 import type { ChartLicence, EncConversionResult } from './types';
 import {
     canonicalEncCellId,
@@ -393,12 +401,14 @@ export function blobCacheStats(): { entries: number; textMB: number } {
 
 /** Unpair or sign-out (127-C-c decision 9): forget every licensed cell held in memory. */
 export function clearProtectedBlobs(): void {
+    retireChartFindMemory();
     for (const key of [...blobCache.keys()]) if (!isOpenId(key)) dropBlob(key);
     vault.clear();
 }
 
 /** An iOS memory warning: the parse cache goes, the vault keeps half. */
 export function shedCellMemory(): void {
+    retireChartFindMemory();
     blobCache.clear();
     blobCacheBytes = 0;
     vault.trim(0.5);
@@ -434,8 +444,15 @@ export function peekCellGeoJSON(cellId: string): EncConversionResult | undefined
     if (getRegisteredCell(cellId)?.noaaPackage) return undefined;
     return blobCache.get(encCellStorageIdentity(cellId))?.blob;
 }
+/** Actual existing parse-cache accounting, bound to this borrowed object.
+ * Metadata byte counts cannot mint a resident-view proof. No read/LRU touch. */
+export function readRetainedCellGeoJSONBytes(cellId: string, blob: EncConversionResult): number | null {
+    const held = blobCache.get(encCellStorageIdentity(cellId));
+    return held?.blob === blob && Number.isSafeInteger(held.sizeBytes) && held.sizeBytes > 0 ? held.sizeBytes : null;
+}
 
 function dropBlob(cellId: string): void {
+    dropChartFindCell(cellId);
     const key = encCellStorageIdentity(cellId);
     const hit = blobCache.get(key);
     if (hit) {
@@ -444,7 +461,12 @@ function dropBlob(cellId: string): void {
     }
 }
 
-function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number): void {
+function cacheBlob(
+    cellId: string,
+    blob: EncConversionResult,
+    sizeBytes: number,
+    findToken: ChartFindToken | null = null,
+): void {
     const key = encCellStorageIdentity(cellId);
     dropBlob(key);
     blobCache.set(key, { blob, sizeBytes });
@@ -462,6 +484,12 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
         if (oldest === undefined) break;
         dropBlob(oldest);
     }
+    if (blobCache.has(key))
+        indexChartFindCell(
+            findToken,
+            blob,
+            chartLicenceOf(getRegisteredCell(cellId) ?? { id: cellId, sourceHO: blob.sourceHO }),
+        );
 }
 
 /**
@@ -493,6 +521,7 @@ export async function saveCellGeoJSON(
         );
     }
     assertAuthority?.();
+    retireChartFindCell(cellId);
     // The string built above goes to the vault as it is: no second stringify.
     let path = 'vault';
     if (chartLicenceOf({ id: cellId, sourceHO: normalizedBlob.sourceHO, licence }) === 'protected')
@@ -526,14 +555,15 @@ export async function readCellRaw(
     cellId: string,
 ): Promise<
     | { kind: 'cached'; blob: EncConversionResult }
-    | { kind: 'text'; text: string }
+    | { kind: 'text'; text: string; findToken?: ChartFindToken | null }
     | { kind: 'missing'; notFound: boolean }
 > {
+    const findToken = captureChartFindCell(cellId);
     if (getRegisteredCell(cellId)?.noaaPackage) return { kind: 'missing', notFound: false };
     const cached = touchBlob(cellId);
     if (cached) return { kind: 'cached', blob: cached };
     const held = await vault.getText(cellId);
-    if (held !== null) return { kind: 'text', text: held };
+    if (held !== null) return { kind: 'text', text: held, findToken };
     // A licensed cell not in memory is missing: the Pi rung refills it.
     if (!isOpenId(cellId)) return { kind: 'missing', notFound: true };
     try {
@@ -544,7 +574,7 @@ export async function readCellRaw(
             encoding: Encoding.UTF8,
         });
         const text = typeof result.data === 'string' ? result.data : await result.data.text();
-        return { kind: 'text', text };
+        return { kind: 'text', text, findToken };
     } catch (err) {
         // notFound distinguishes ENOENT (remote ladder may hydrate) from a
         // real read error (loadCellGeoJSON warns + stays local).
@@ -636,13 +666,17 @@ export async function parseNoaaPartOffThread(
  *  pays only the (much cheaper) structured clone in. Falls back to the
  *  sync path when workers are unavailable or the worker died. Same
  *  shape-gate + LRU-cache semantics as parseAndCacheCellText. */
-export async function parseAndCacheCellTextAsync(cellId: string, text: string): Promise<EncConversionResult | null> {
+export async function parseAndCacheCellTextAsync(
+    cellId: string,
+    text: string,
+    findToken: ChartFindToken | null = captureChartFindCell(cellId),
+): Promise<EncConversionResult | null> {
     if (!textWithinCellLimit(text)) {
         log.warn(`parseAndCacheCellTextAsync ${cellId}: blob exceeds the per-cell limit`);
         return null;
     }
     const worker = getParseWorker();
-    if (!worker) return parseAndCacheCellText(cellId, text);
+    if (!worker) return parseAndCacheCellText(cellId, text, findToken);
     const blob = await new Promise<unknown>((resolve) => {
         const seq = ++parseSeq;
         parseWaiters.set(seq, resolve);
@@ -656,14 +690,14 @@ export async function parseAndCacheCellTextAsync(cellId: string, text: string): 
     if (!blob || typeof blob !== 'object' || !(blob as EncConversionResult).cellId) {
         // Worker path failed/malformed — one sync retry keeps behaviour
         // identical to the old path (and logs there).
-        return parseAndCacheCellText(cellId, text);
+        return parseAndCacheCellText(cellId, text, findToken);
     }
     const parsed = normalizeBlobForCell(cellId, blob);
     if (!parsed) {
         log.warn(`parseAndCacheCellTextAsync ${cellId}: blob identity mismatch`);
         return null;
     }
-    cacheBlob(cellId, parsed, text.length);
+    cacheBlob(cellId, parsed, text.length, findToken);
     return parsed;
 }
 
@@ -696,7 +730,11 @@ export async function parseJsonOffThread(text: string): Promise<unknown> {
 
 /** The serial half of the pipeline: parse + shape-gate + LRU-cache one cell's
  *  text (exactly loadCellGeoJSON's semantics). Null on malformed. */
-export function parseAndCacheCellText(cellId: string, text: string): EncConversionResult | null {
+export function parseAndCacheCellText(
+    cellId: string,
+    text: string,
+    findToken: ChartFindToken | null = captureChartFindCell(cellId),
+): EncConversionResult | null {
     try {
         if (!textWithinCellLimit(text)) {
             log.warn(`parseAndCacheCellText ${cellId}: blob exceeds the per-cell limit`);
@@ -707,7 +745,7 @@ export function parseAndCacheCellText(cellId: string, text: string): EncConversi
             log.warn(`parseAndCacheCellText ${cellId}: malformed JSON or blob identity mismatch`);
             return null;
         }
-        cacheBlob(cellId, parsed, text.length);
+        cacheBlob(cellId, parsed, text.length, findToken);
         return parsed;
     } catch (err) {
         log.warn(`parseAndCacheCellText ${cellId} failed`, err);
@@ -774,7 +812,7 @@ export async function loadCellGeoJSON(
     // three parse/shape-gate/cache sites to keep in sync).
     const raw = await readCellRaw(cellId);
     if (raw.kind === 'cached') return raw.blob;
-    if (raw.kind === 'text') return parseAndCacheCellTextAsync(cellId, raw.text);
+    if (raw.kind === 'text') return parseAndCacheCellTextAsync(cellId, raw.text, raw.findToken);
     if (!raw.notFound) {
         log.warn(`loadCellGeoJSON ${cellId} failed (read error, staying local)`);
         return null;
@@ -799,6 +837,7 @@ export async function loadCellGeoJSON(
  * file is missing.
  */
 export async function deleteCellGeoJSON(cellId: string): Promise<void> {
+    retireChartFindCell(cellId);
     dropBlob(cellId);
     vault.drop(cellId);
     if (!isOpenId(cellId)) return;
@@ -821,6 +860,7 @@ export async function deleteCellGeoJSON(cellId: string): Promise<void> {
  * charts" admin action and by tests.
  */
 export async function clearAllGeoJSON(): Promise<void> {
+    retireChartFindMemory();
     blobCache.clear();
     blobCacheBytes = 0;
     vault.clear();

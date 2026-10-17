@@ -1,9 +1,9 @@
 /**
  * seaComfort — one beta word for how the sea will feel aboard (build 130,
  * 130-04): Comfortable, Lively, Uncomfortable or Hard going, with the one
- * input that set it. It describes COMFORT, never safety, and it is shown only
- * in the map's weather bubble: not on the Glass, the HUD or departure scoring
- * (141-06 calibrates it and decides where else it may go).
+ * input that set it. It describes COMFORT, never safety. Glass, the HUD and
+ * departure comparisons share this pure model. The optional141-06 personal
+ * preference is bounded and qualified from private genuine passage reports.
  *
  * The inputs, each a level 0-3, the word being the highest any reaches:
  *   - Hs / LWL, the total sea against her waterline: Lively from 0.06,
@@ -16,13 +16,69 @@
  *     +1 level.
  *   - WMO code 3700 sets floors: Rough (2.5 m or more) is never better than
  *     Uncomfortable; Very rough or worse (4 m or more) is always Hard going.
- * Provisional and uncalibrated: the thresholds are beta.
+ * Provisional beta thresholds; uncalibrated until the explicit report floor.
  *
  * No profile, or an observer's: a labelled generic 38 ft boat, waterline 10 m.
  * A profile: LWL ≈ 0.85 × her length overall (`length` is LOA in feet).
  * No period: no word ("Comfort needs a wave period"), never a guess.
  */
 import type { VesselProfile } from '../types';
+/** Bounded private subjective preference. No identity, storage or service dependency;
+ * safe as an explicit routing-worker input. This is never weather skill. */
+export const PERSONAL_COMFORT_INPUTS = ['size', 'steepness', 'pitching', 'cross'] as const;
+export type PersonalComfortInput = (typeof PERSONAL_COMFORT_INPUTS)[number];
+export interface ComfortPreference {
+    schema: 1;
+    profile: { type: 'sail' | 'power'; length: number; revision: number };
+    adjustments: Record<PersonalComfortInput, -1 | 0 | 1>;
+    qualified: Record<PersonalComfortInput, { reports: number; voyages: number }>;
+}
+export function comfortPreferenceLabel(
+    preference: ComfortPreference | null | undefined,
+    input: string | null | undefined,
+): string {
+    const count =
+        input && PERSONAL_COMFORT_INPUTS.includes(input as PersonalComfortInput)
+            ? preference?.qualified[input as PersonalComfortInput]
+            : null;
+    return count && count.reports >= 6 && count.voyages >= 3 ? 'personal preference beta' : 'uncalibrated beta';
+}
+export function validComfortPreference(
+    value: unknown,
+    vessel?: { type: string; length: number } | null,
+): value is ComfortPreference {
+    if (!value || typeof value !== 'object' || !vessel) return false;
+    const p = value as Partial<ComfortPreference>;
+    if (
+        p.schema !== 1 ||
+        !p.profile ||
+        !['sail', 'power'].includes(p.profile.type) ||
+        p.profile.type !== vessel.type ||
+        p.profile.length !== vessel.length ||
+        !Number.isFinite(p.profile.length) ||
+        !(p.profile.length > 0 && p.profile.length <= 1000) ||
+        !Number.isSafeInteger(p.profile.revision) ||
+        p.profile.revision < 1 ||
+        !p.adjustments ||
+        !p.qualified
+    )
+        return false;
+    return PERSONAL_COMFORT_INPUTS.every((key) => {
+        const count = p.qualified![key],
+            adjustment = p.adjustments![key];
+        return (
+            [-1, 0, 1].includes(adjustment) &&
+            !!count &&
+            Number.isInteger(count.reports) &&
+            count.reports >= 0 &&
+            count.reports <= 120 &&
+            Number.isInteger(count.voyages) &&
+            count.voyages >= 0 &&
+            count.voyages <= count.reports &&
+            (adjustment === 0 || (count.reports >= 6 && count.voyages >= 3))
+        );
+    });
+}
 
 export type ComfortWord = 'Comfortable' | 'Lively' | 'Uncomfortable' | 'Hard going';
 
@@ -31,6 +87,21 @@ export interface ComfortPart {
     hM: number;
     periodS: number | null;
     fromDeg: number | null;
+}
+export function validComfortPart(value: unknown): value is ComfortPart | null {
+    if (value === null) return true;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const p = value as Partial<ComfortPart>;
+    return (
+        typeof p.hM === 'number' &&
+        Number.isFinite(p.hM) &&
+        p.hM >= 0 &&
+        p.hM <= 50 &&
+        (p.periodS === null ||
+            (typeof p.periodS === 'number' && Number.isFinite(p.periodS) && p.periodS > 0 && p.periodS <= 60)) &&
+        (p.fromDeg === null ||
+            (typeof p.fromDeg === 'number' && Number.isFinite(p.fromDeg) && p.fromDeg >= 0 && p.fromDeg <= 360))
+    );
 }
 
 export interface ComfortParts {
@@ -69,7 +140,13 @@ const wavelengthM = (periodS: number): number => 1.56 * periodS * periodS;
 
 /** Her estimated waterline, metres; null for no boat to judge (no profile, an observer, no length). */
 export function waterlineM(vessel?: Pick<VesselProfile, 'type' | 'length'> | null): number | null {
-    if (!vessel || vessel.type === 'observer' || !(vessel.length > 0)) return null;
+    if (
+        !vessel ||
+        vessel.type === 'observer' ||
+        !Number.isFinite(vessel.length) ||
+        !(vessel.length > 0 && vessel.length <= 1000)
+    )
+        return null;
     return 0.85 * vessel.length * FT_TO_M;
 }
 
@@ -81,9 +158,12 @@ function apartDeg(a: number, b: number): number {
 export function seaComfort(
     parts: ComfortParts,
     vessel?: Pick<VesselProfile, 'type' | 'length'> | null,
+    preference?: ComfortPreference | null,
 ): SeaComfort | null {
+    if (!parts) return null;
     const { total } = parts;
-    if (!total) return null;
+    if (!total || !validComfortPart(total) || !validComfortPart(parts.windSea) || !validComfortPart(parts.swell))
+        return null;
     const own = waterlineM(vessel);
     const lwlM = own ?? GENERIC_LWL_M;
     const generic = own === null;
@@ -140,6 +220,15 @@ export function seaComfort(
         input = 'cross';
     }
 
+    // A bounded personal preference may change the dominant physical input
+    // by one word. The rough-sea floors below always remain authoritative.
+    if (validComfortPreference(preference, vessel)) {
+        const adjustment = preference.adjustments[input];
+        if (adjustment) {
+            level = Math.max(0, Math.min(3, level + adjustment));
+            reason += ' · personal preference';
+        }
+    }
     // WMO 3700's two comfort floors, directly in metres. This pure helper
     // also runs in the routing Worker; importing the display formatters
     // would couple the route-job closure back to everyday app screens.

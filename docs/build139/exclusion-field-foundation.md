@@ -1,0 +1,19 @@
+# 139-04 route-area integration checkpoint
+
+The actual inshore request now borrows current private no-go polygons and retained marine-park context before preparing its job. It retains that lease until the actual computation ends. The read window covers the engine grid and lead-overlay envelope; a finished route outside it is refused. Request deduplication and every source/worker wait bind private-policy generation, authentication and lease validity. Corrupt hard policy, changed sources and expiry return an explicit exclusion-unavailable failure.
+
+Original RESARE entry restrictions (RESTRN 7/8), TSEZNE and TSSLPT collections come from the held chart cohort. Missing classes remain unknown and produce a persistent restriction-check caveat where the route crosses their chart extent. Empty extracted collections retain their different meaning. Private no-go polygons are hard constraints; indicative marine-park polygons add caution only. Anchoring, fishing and no-wake restrictions do not become transit prohibitions.
+
+The shared field takes independent RAM geometry without chart names or identifiers. It bounds selection to 2,000 features / 50,000 vertices / 4 MiB, scans at most 16,000 source objects and caps topology comparisons at two million. Malformed hard sources and unsupported unsplit dateline geometry refuse review. Rasterization includes interiors, holes, tiny islands and closed-cell boundary supercovers; the ceilings are 2.5 million cells and eight million operations. Route-private masks never change cached water, depths or preference arrays. Hard masks survive endpoint/component rescues, A\*, smoothing and all final splices.
+
+The worker checks the actual completed line against original geometry after cloud, shadow, lead and tail processing. The main thread repeats the audit with its retained original cohort. Both use complete segments with independent bounded work, rather than relying on sampled vertices or a grid mask alone. A hosted direction claim is discarded and recomputed from original TSSLPT geometry/ORIENT after the final source audit.
+
+Traffic-lane guidance uses original finite ORIENT only. Missing, conflicting or boundary-ambiguous direction remains explicit. Shared A\* and smoothing costs keep the existing heuristic bound; the final complete-segment audit refuses opposing or oblique known courses. Planning tolerances do not establish actual-heading or COLREG compliance. See traffic-lane-guidance.md for the separate 87-case engine/Pi source packet.
+
+The planner, tracer, Auto proposal and saved route now retain the applicable lane and park caveats. Saved park prose passes a fixed number-free whitelist; arbitrary persisted chart prose is not accepted as a source caveat. Actual route serialization/reload and a malicious extra chart string are tested. Direction and park disclosures convey no permission, depth or clearance.
+
+The current application-source/disclosure packet passes 124 cases across six suites, including actual original-cell collection, known/unknown direction, rejection of a forged hosted claim, missing coverage, source edits/expiry and saved-route caveats. Scoped lint has zero errors and the three unchanged MapHub baseline warnings. Earlier module/engine and parent/prep packets retain their own logs. Synthetic routing scenes explicitly declare their empty private context; genuine store/retained-source tests use their actual trust boundaries.
+
+This is not the complete 139-04 release. Passage-wide/offshore enforcement and all caller fallback guards are being integrated separately. Whole-app compiler, configured bundle budget, final composed goldens, release CI and native TestFlight proof are pending. No Pi installation, new chart authority or navigation activation is claimed.
+
+Restriction meanings use the existing canonical s57Restrn.ts table and [IHO S-57 Appendix A, chapter 2](https://iho.int/uploads/user/pubs/standards/s-57/31ApAch2.pdf).

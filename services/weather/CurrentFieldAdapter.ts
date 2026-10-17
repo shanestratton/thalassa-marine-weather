@@ -19,6 +19,28 @@
 
 import type { CurrentField } from '../isochrone/types';
 import type { CurrentVector } from '../OceanCurrentService';
+import { createCurrentSeriesSampler, type CurrentComponents, type CurrentSeries } from './currentSeries';
+
+/** Hourly forecast adapter. Forecast and later-leg clocks remain absolute UTC. */
+export function createCurrentFieldFromSeries(
+    series: CurrentSeries,
+    departureMs: number,
+    components: CurrentComponents = 'ocean',
+): CurrentField | null {
+    if (!Number.isFinite(departureMs)) return null;
+    const sample = createCurrentSeriesSampler(series, components);
+    return {
+        getCurrent(lat, lon, hours) {
+            const vector = sample(lat, lon, departureMs + hours * 3_600_000);
+            return vector
+                ? {
+                      speed: Math.hypot(vector.u, vector.v) * 1.9438444924406,
+                      direction: ((Math.atan2(vector.u, vector.v) * 180) / Math.PI + 360) % 360,
+                  }
+                : null;
+        },
+    };
+}
 
 /**
  * IDW search radius in degrees. 2° at the equator ~ 120 NM — well
@@ -50,7 +72,7 @@ export function createCurrentFieldFromVectors(vectors: CurrentVector[]): Current
 
             for (const vec of vectors) {
                 const dLat = vec.lat - lat;
-                const dLon = vec.lon - lon;
+                const dLon = ((vec.lon - lon + 540) % 360) - 180;
                 if (Math.abs(dLat) > SEARCH_RADIUS_DEG || Math.abs(dLon) > SEARCH_RADIUS_DEG) continue;
 
                 // True spherical distance not necessary here — the IDW

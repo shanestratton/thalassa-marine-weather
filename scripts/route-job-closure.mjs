@@ -42,7 +42,8 @@ function resolveSpecifier(repo, fromRel, spec) {
     throw new Error(`${fromRel} imports '${spec}', which does not resolve to a file`);
 }
 
-function importsOf(ts, rel, source) {
+/** Shared runtime-only collector: ImportTypeNode expressions are erased. */
+export function importsOf(ts, rel, source) {
     const kind = rel.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
     const file = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, kind);
     const values = [];
@@ -174,6 +175,11 @@ export const ROUTE_ENGINE_SHARED_LEAVES = [
     'services/isochrone/polar.ts',
     'services/isochrone/geodesy.ts',
     'services/isochrone/routeSailingStats.ts',
+    // The ETA adapter and worker share this import-free DTO/validator/sampler.
+    // Lazy Today/RoutePlanner chunks must not fetch the router for current vectors.
+    'services/weather/currentSeries.ts',
+    // Shared physical comfort + bounded preference rule; no runtime imports.
+    'utils/seaComfort.ts',
 ];
 
 const clean = (id) => id.replaceAll('\\', '/');

@@ -15,7 +15,7 @@
  * Crew needs a boat; a sighting logged ashore has no boat; signed out is
  * Private and stays on the phone until adopted at sign-in.
  */
-import { getAuthIdentityScope } from '../authIdentityScope';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import { captureSightingContext, type CloudOwner, type SightingContext } from './sightingContext';
 import {
     deleteLocalSighting,
@@ -26,6 +26,7 @@ import {
     putSightingMeta,
     savePhotoBlob,
     deletePhotoBlob,
+    updateLocalSighting,
 } from './sightingStore';
 import { ensureSightingSyncTriggers, isSightingInFlight, photoPath, scheduleSightingDrain } from './sightingSync';
 import {
@@ -438,7 +439,25 @@ export async function editSighting(id: string, edit: SightingEdit): Promise<Loca
             : 'private';
         row.client_version = SIGHTINGS_CLIENT_VERSION;
         const vernacularName = edit.scientific_name !== undefined ? null : record.vernacularName;
-        return { ...record, row, vernacularName, visibilityChosen: chosen };
+        const clearCatch = record.row.taxon_group === 'fish' && row.taxon_group !== 'fish';
+        return {
+            ...record,
+            row,
+            vernacularName,
+            visibilityChosen: chosen,
+            ...(clearCatch
+                ? {
+                      privateCatch: null,
+                      privateCatchSync: {
+                          revision: Math.max(Date.now(), (record.privateCatchSync?.revision ?? 0) + 1),
+                          pending: !!record.ownerUserId,
+                          attempts: 0,
+                          retryAt: null,
+                          error: null,
+                      },
+                  }
+                : {}),
+        };
     });
 }
 
@@ -571,35 +590,55 @@ export async function signedOutSightingCount(): Promise<number> {
  * yours, Private, with no boat, and sync.
  */
 export async function adoptSignedOutSightings(): Promise<number> {
-    const userId = getAuthIdentityScope().userId;
+    const scope = getAuthIdentityScope(),
+        userId = scope.userId;
     if (!userId) return 0;
     let adopted = 0;
     for (const record of await listLocalSightings(null)) {
-        if (record.sync.op === 'delete') continue;
-        const hasPosition = record.row.decimal_latitude !== null && record.row.decimal_longitude !== null;
-        await putLocalSighting({
-            ...record,
-            ownerUserId: userId,
-            row: {
-                ...record.row,
-                observer_id: userId,
-                vessel_owner_id: null,
-                boat_id: null,
-                visibility: 'private',
+        if (!isAuthIdentityScopeCurrent(scope)) break;
+        const saved = await updateLocalSighting(
+            record.id,
+            scope,
+            (current) => {
+                if (current.sync.op === 'delete') return null;
+                const hasPosition = current.row.decimal_latitude !== null && current.row.decimal_longitude !== null;
+                return {
+                    ...current,
+                    ownerUserId: userId,
+                    ...(current.privateCatch
+                        ? {
+                              privateCatchSync: {
+                                  revision: Math.max(Date.now(), (current.privateCatchSync?.revision ?? 0) + 1),
+                                  pending: true,
+                                  attempts: 0,
+                                  retryAt: null,
+                                  error: null,
+                              },
+                          }
+                        : {}),
+                    row: {
+                        ...current.row,
+                        observer_id: userId,
+                        vessel_owner_id: null,
+                        boat_id: null,
+                        visibility: 'private',
+                    },
+                    updatedAtLocal: Math.max(Date.now(), current.updatedAtLocal + 1),
+                    sync: {
+                        ...current.sync,
+                        state: hasPosition ? 'pending' : 'needs-position',
+                        op: 'insert',
+                        serverKnown: false,
+                        lastError: null,
+                        nextAttemptAt: null,
+                    },
+                };
             },
-            updatedAtLocal: Math.max(Date.now(), record.updatedAtLocal + 1),
-            sync: {
-                ...record.sync,
-                state: hasPosition ? 'pending' : 'needs-position',
-                op: 'insert',
-                serverKnown: false,
-                lastError: null,
-                nextAttemptAt: null,
-            },
-        });
-        adopted += 1;
+            true,
+        );
+        if (saved) adopted += 1;
     }
-    if (adopted > 0) {
+    if (adopted > 0 && isAuthIdentityScopeCurrent(scope)) {
         ensureSightingSyncTriggers();
         scheduleSightingDrain(0);
     }
