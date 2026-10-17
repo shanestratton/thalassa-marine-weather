@@ -441,6 +441,8 @@ export class DiaryRelayOutbox {
     private readonly entryAbortControllers = new Map<string, AbortController>();
     private retryTimer: NodeJS.Timeout | null = null;
     private closed = false;
+    /** Process-local read/publisher leases retire even across an A→B→A configuration change. */
+    private authorityGeneration = 0;
 
     constructor(cacheDir: string, options: DiaryRelayOutboxOptions) {
         this.trustedRelayEndpoint = canonicalDiaryRelayEndpoint(options.trustedSupabaseOrigin);
@@ -732,6 +734,14 @@ export class DiaryRelayOutbox {
                  WHERE singleton = 1`,
             )
             .run(nextUrl, nextRelayId, nextToken, nextOwnerId, allowInternet ? 1 : 0, now);
+        if (
+            nextUrl !== current.url ||
+            nextRelayId !== current.relayId ||
+            nextToken !== current.token ||
+            nextOwnerId !== current.ownerId ||
+            allowInternet !== current.allowInternet
+        )
+            this.authorityGeneration++;
         // A refreshed relay token or an explicit opt-in may make old entries
         // immediately deliverable. Wake the worker without waiting 15 seconds.
         void this.flushDue().catch(() => {});
@@ -755,6 +765,11 @@ export class DiaryRelayOutbox {
             relayId: current.relayId && RELAY_ID_RE.test(current.relayId) ? current.relayId : null,
             ownerId: relay?.ownerId ?? null,
         };
+    }
+
+    /** No credentials leave through this fence; duplicate policy confirmations keep their current generation. */
+    readAuthorityGeneration(): number | null {
+        return this.closed ? null : this.authorityGeneration;
     }
 
     enqueue(envelope: DiaryRelayEnvelope): DiaryRelayPublicRecord {
