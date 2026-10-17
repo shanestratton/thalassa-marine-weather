@@ -227,7 +227,9 @@ export function shareLiteralClassNames(code, id, { root, values, parse }) {
     };
 }
 
-/** @param {string} root @returns {import('vite').Plugin} */
+/** @param {string} root
+ * @param {{ data?: ReturnType<typeof import('./inert-ui-data.mjs').inertUiData>, standalone?: boolean }} [options]
+ * @returns {import('vite').Plugin} */
 export function shareClassNames(root, { data, standalone = false } = {}) {
     if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone class packing');
     let enabled = false,

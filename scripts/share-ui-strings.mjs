@@ -93,7 +93,9 @@ export function collectUiStrings(root) {
 }
 
 /** Every table retains the existing decoder limits; the aggregate is bounded
- * to four tables, 16,384 entries and 960,000 restored UTF-16 code units. */
+ * to four tables, 16,384 entries and 960,000 restored UTF-16 code units.
+ * @param {string[][]} pools
+ * @param {{ data?: ReturnType<typeof import('./inert-ui-data.mjs').inertUiData>, standalone?: boolean }} [options] */
 export function packUiStringPools(pools, { data, standalone = false } = {}) {
     if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone UI packing');
     if (
@@ -182,7 +184,9 @@ export function shareUiStringLiterals(code, id, { root, values, parse }) {
     };
 }
 
-/** @param {string} root @returns {import('vite').Plugin} */
+/** @param {string} root
+ * @param {{ data?: ReturnType<typeof import('./inert-ui-data.mjs').inertUiData>, standalone?: boolean }} [options]
+ * @returns {import('vite').Plugin} */
 export function shareUiStrings(root, { data, standalone = false } = {}) {
     if (!data && !standalone) throw Error('Choose inert HTML data or explicit standalone UI packing');
     let enabled = false,

@@ -10,6 +10,8 @@ const OWNERS = new Map([
 const clean = (id) => id.replaceAll('\\', '/').split('?')[0];
 const reader = (root) => clean(path.resolve(root, 'utils/readPackedUiData.ts'));
 
+/** @param {string} root
+ * @returns {{ moduleSource(owner: string, packed: { encoded: string, bytes: number, count: number, checksum: number }[]): string, plugin: import('vite').Plugin }} */
 export function inertUiData(root) {
     const tables = new Map(),
         documents = new Map();
@@ -134,7 +136,9 @@ export function inertUiData(root) {
     };
 }
 
-/** Independent worker builds must never acquire a document-only reader. */
+/** Independent worker builds must never acquire a document-only reader.
+ * @param {string} root
+ * @returns {import('vite').Plugin} */
 export function inertUiDataWorkerFence(root) {
     const runtime = reader(root);
     return {
