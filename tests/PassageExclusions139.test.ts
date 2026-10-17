@@ -16,7 +16,10 @@ const h = vi.hoisted(() => ({
     notes: [] as string[],
     coverage: true,
 }));
-vi.mock('../services/routing/routingExclusions', () => ({ readCurrentRoutingExclusions: h.read }));
+vi.mock('../services/routing/routingExclusions', () => ({
+    readCurrentRoutingExclusions: h.read,
+    routingExclusionContextKey: () => `fixture:${h.generation}:${h.valid}`,
+}));
 vi.mock('../services/HazardQueryService', () => ({
     GEBCO_MSL_TO_LAT_PESSIMISM_M: 1.3,
     regionalGebcoDatumDeltaM: () => 1.3,
@@ -28,7 +31,7 @@ vi.mock('../services/HazardQueryService', () => ({
     querySegmentCautions: async (segments: unknown[]) => segments.map(() => []),
 }));
 vi.mock('../services/enc/EncHazardReportService', () => ({ setLastReport: h.publish, findHazardsAlongRoute: h.find }));
-vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => [] }));
+vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => [], getVersion: () => 0 }));
 vi.mock('../services/enc/encIndexCache', () => ({ failedCellIds: () => [] }));
 import { validateRouteSegments } from '../services/isochrone/landAvoidance';
 import { ROUTING_AREA_CAVEATS, knownRouteAreaCaveats } from '../services/routing/routeAreaWords';

@@ -17,7 +17,7 @@ vi.mock('../services/enc/EncHazardReportService', () => ({
     setLastReport: mocks.setReport,
     findHazardsAlongRoute: mocks.findReport,
 }));
-vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => [] }));
+vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: () => [], getVersion: () => 0 }));
 vi.mock('../services/enc/encIndexCache', () => ({ failedCellIds: () => [] }));
 import { validateRouteSegments } from '../services/isochrone/landAvoidance';
 const route: IsochroneNode[] = [0, 0.01].map((lon) => ({

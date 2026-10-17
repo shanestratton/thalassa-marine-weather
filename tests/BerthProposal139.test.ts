@@ -237,3 +237,13 @@ it('berth proposal holds an actual auth A/B/A key retirement at the validator re
         setAuthIdentityScope(original);
     }
 });
+
+it('berth proposal holds a retired weak original-chart proof at final adoption', async () => {
+    const validate = h.validate;
+    validate.mockImplementationOnce(async (route, options) => {
+        options?.onRouteAreaCaveats?.([], () => false);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    await expect(calculateBerthProposal(request())).rejects.toMatchObject({ code: 'exclusion-unavailable' });
+});

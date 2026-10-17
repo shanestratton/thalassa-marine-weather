@@ -8,6 +8,9 @@ export const ROUTING_AREA_CAVEATS = [
     'No verified marine park dataset is retained; marine park caution is unavailable.',
     'The finished passage intersects an indicative marine park footprint. Check current local rules; the footprint grants no permission or clearance.',
     'Offshore charted restricted areas, traffic separation zones and traffic-lane direction have not been fully checked; review original charts and local rules.',
+    'Planned course follows charted traffic-lane flow or crosses near a right angle. Check traffic and the applicable rules before proceeding.',
+    'Traffic-lane direction is missing, conflicting or ambiguous on this route. Review the current chart and plan the crossing yourself.',
+    'Wind and current can make the boat’s actual heading differ from this planned course. Check the crossing from aboard.',
 ] as const;
 
 export function knownRouteAreaCaveats(value: unknown): string[] {
