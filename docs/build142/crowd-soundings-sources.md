@@ -80,3 +80,22 @@ check exposed a stream generic mismatch; a copied ArrayBuffer-backed input
 fixed the type while retaining the same2MiB output ceiling. Browser geometry,
 actual PostgreSQL/RLS/races, wx native QA and public/DCDB admission remain
 separate pending proofs. No production function or schema was deployed.
+
+The final consent lifetime guard admits a boat SHARE lock without waiting, then
+tries the account-deletion authority instead of waiting while holding the boat.
+The new `aaa_crowd_permission_retirement` BEFORE trigger sorts before the actual
+blocking `account_deletion_write_fence`. It tries old/new owner authority for
+every update, including ordinary metadata edits; only owner, archive or release
+changes delete permission. This prevents a busy account deletion from trapping
+a boat row before the older presence/comfort AFTER hooks. Permission clocks are
+sampled after all consent waits; expired calibration is excluded from candidate
+pages. A/B/A cannot revive a deleted revision.
+
+The prepared `crowd-soundings-db.yml` uses only an empty loopback PostgreSQL17.6
+container, pinned isolated pg8.16.3 and no product credentials. Its runner
+replays the full unchanged private seabed migration and byte-checked original
+account fence, presence/comfort retirement and boat-policy subsets. It includes
+owner RLS, future-only/30day admission, independent permissions, CAS, actual
+blocking observations and archive/deletion/release/owner A/B/A tests. This
+workflow is prepared, **not dispatched**; Node syntax and disposable-connection
+refusals pass locally. These are not yet actual PostgreSQL proof results.

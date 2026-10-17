@@ -65,26 +65,43 @@ CREATE TRIGGER account_deletion_write_fence BEFORE INSERT OR UPDATE ON public.se
 -- revision from a deleted row, even if an old phone still has its former copy.
 CREATE OR REPLACE FUNCTION private_crowd.retire_boat_permission()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+DECLARE candidate uuid; next_owner uuid;
 BEGIN
-    IF NEW.owner_id IS DISTINCT FROM OLD.owner_id OR NEW.archived_at IS NOT NULL THEN
+    IF TG_OP='UPDATE' THEN next_owner:=NEW.owner_id; END IF;
+    -- Even a metadata-only update reaches the old blocking account fence.
+    -- Acquire its authority nonblockingly first, before the no-op return.
+    FOR candidate IN SELECT DISTINCT value FROM unnest(ARRAY[OLD.owner_id,next_owner]) AS owners(value) WHERE value IS NOT NULL ORDER BY value LOOP
+        IF NOT pg_try_advisory_xact_lock(hashtextextended(candidate::text,20260806)) THEN
+            RAISE EXCEPTION 'Owner retirement is busy; retry' USING ERRCODE='55P03';
+        END IF;
+    END LOOP;
+    IF TG_OP='DELETE' THEN
+        DELETE FROM public.seabed_publication_consents WHERE boat_id=OLD.id;
+        RETURN OLD;
+    END IF;
+    IF NEW.owner_id IS DISTINCT FROM OLD.owner_id OR NEW.archived_at IS DISTINCT FROM OLD.archived_at
+        OR NEW.released_at IS DISTINCT FROM OLD.released_at THEN
         DELETE FROM public.seabed_publication_consents WHERE boat_id = NEW.id;
     END IF;
     RETURN NEW;
 END;
 $$;
 REVOKE ALL ON FUNCTION private_crowd.retire_boat_permission() FROM PUBLIC, anon, authenticated, service_role;
-CREATE TRIGGER retire_crowd_permission AFTER UPDATE OF owner_id, archived_at ON public.boats
+-- PostgreSQL executes equal-kind triggers by name. This must precede the
+-- existing blocking account_deletion_write_fence on boats, not merely the
+-- AFTER presence/comfort hooks, so a busy owner is refused before any wait.
+CREATE TRIGGER aaa_crowd_permission_retirement BEFORE UPDATE OR DELETE ON public.boats
     FOR EACH ROW EXECUTE FUNCTION private_crowd.retire_boat_permission();
 
 CREATE OR REPLACE FUNCTION public.set_seabed_publication(
     p_boat_id uuid, p_expected_revision uuid, p_map_enabled boolean,
     p_dcdb_enabled boolean, p_terms_version text, p_calibration jsonb
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog SET lock_timeout='2s' AS $$
 DECLARE
     caller uuid := auth.uid();
     current_row public.seabed_publication_consents%ROWTYPE;
     owned uuid;
-    stamp timestamptz := clock_timestamp();
+    stamp timestamptz;
     stamp_ms numeric;
     measured numeric;
     next_calibration jsonb;
@@ -94,14 +111,21 @@ BEGIN
     IF caller IS NULL OR p_boat_id IS NULL OR p_map_enabled IS NULL OR p_dcdb_enabled IS NULL THEN
         RAISE EXCEPTION 'Signed-in owner and explicit separate choices required' USING ERRCODE='42501';
     END IF;
+    -- Real presence/comfort retirement holds boat row then owner authority;
+    -- deletion holds owner authority then deletes boat. Neither order may wait
+    -- for the other here. Busy admission is an explicit retry, never a grant.
+    SELECT id INTO owned FROM public.boats
+        WHERE id=p_boat_id AND owner_id=caller AND archived_at IS NULL AND released_at IS NULL FOR SHARE NOWAIT;
+    IF NOT pg_try_advisory_xact_lock(hashtextextended(caller::text,20260806)) THEN
+        RAISE EXCEPTION 'Owner authority is busy; retry' USING ERRCODE='55P03';
+    END IF;
     IF EXISTS (SELECT 1 FROM public.account_deletion_jobs WHERE user_id=caller) THEN
         RAISE EXCEPTION 'Account is retired' USING ERRCODE='42501';
     END IF;
     PERFORM pg_advisory_xact_lock(hashtextextended('thalassa:crowd-permission:' || caller::text || ':' || p_boat_id::text,0));
-    SELECT id INTO owned FROM public.boats
-        WHERE id=p_boat_id AND owner_id=caller AND archived_at IS NULL FOR SHARE;
     SELECT * INTO current_row FROM public.seabed_publication_consents
         WHERE owner_id=caller AND boat_id=p_boat_id FOR UPDATE;
+    stamp := clock_timestamp();
     -- An existing owner can always revoke their own row, including after a
     -- permission/selection change. Enabling requires current actual ownership.
     IF owned IS NULL AND (p_map_enabled OR p_dcdb_enabled OR current_row.owner_id IS NULL) THEN
@@ -161,7 +185,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog 
         'mapEnabled',c.map_enabled,'dcdbEnabled',c.dcdb_enabled,'calibration',c.calibration,
         'effectiveFrom',CASE WHEN p_purpose='map' THEN c.map_effective_from ELSE c.dcdb_effective_from END)
     FROM public.seabed_batches b
-    JOIN public.boats boat ON boat.id=b.boat_id AND boat.owner_id=b.owner_id AND boat.archived_at IS NULL
+    JOIN public.boats boat ON boat.id=b.boat_id AND boat.owner_id=b.owner_id AND boat.archived_at IS NULL AND boat.released_at IS NULL
     JOIN public.seabed_platforms p ON p.id=b.platform_id AND p.owner_id=b.owner_id AND p.boat_id=b.boat_id
     JOIN public.seabed_publication_consents c ON c.owner_id=b.owner_id AND c.boat_id=b.boat_id
     WHERE b.id=p_batch_id AND p_purpose IN ('map','dcdb')
@@ -171,7 +195,14 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog 
         AND b.t_start >= CASE WHEN p_purpose='map' THEN c.map_effective_from ELSE c.dcdb_effective_from END
         AND b.eligible_after >= b.t_end+interval '30 days' AND b.eligible_after<=now()
         AND b.bytes BETWEEN 1 AND 2097152 AND b.row_count BETWEEN 1 AND 7200
-        AND private_crowd.valid_calibration(c.calibration) AND public.seabed_zones_valid(p.privacy_zones);
+        AND CASE WHEN private_crowd.valid_calibration(c.calibration) THEN
+            (c.calibration->>'measuredAt')::numeric BETWEEN
+                floor(extract(epoch FROM clock_timestamp())*1000)-366::numeric*86400000
+                AND floor(extract(epoch FROM clock_timestamp())*1000)
+            AND (c.calibration->>'measuredAt')::numeric <= floor(extract(epoch FROM
+                CASE WHEN p_purpose='map' THEN c.map_effective_from ELSE c.dcdb_effective_from END)*1000)
+            ELSE false END
+        AND public.seabed_zones_valid(p.privacy_zones);
 $$;
 REVOKE ALL ON FUNCTION public.read_crowd_sounding_candidate(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.read_crowd_sounding_candidate(uuid,text) TO service_role;
