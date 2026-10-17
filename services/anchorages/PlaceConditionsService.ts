@@ -1,4 +1,5 @@
 import { fetchOpenMeteoPoints } from '../weather/openMeteoProxy';
+import { currentCommunityNote } from '../community/communitySummary';
 import {
     assessPlaceConditions,
     distanceNM,
@@ -106,7 +107,9 @@ export function cachedConditionsForecast(
 }
 
 export function cachedPlaceConditions(p: ConditionsPlace, now = Date.now()): PlaceConditions {
-    return assessPlaceConditions(p, cachedConditionsForecast(p), now);
+    const conditions = assessPlaceConditions(p, cachedConditionsForecast(p), now);
+    const note = currentCommunityNote(p.id, now);
+    return note ? { ...conditions, reasons: [...conditions.reasons, note] } : conditions;
 }
 
 /** At most 24 cells per viewport. Two batched weather calls, shared between

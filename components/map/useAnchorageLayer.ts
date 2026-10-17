@@ -28,6 +28,9 @@ import { placeConditionsHtml } from './placeConditionsPresentation';
 import { watchPlaceConditions } from './watchPlaceConditions';
 import { createLogger } from '../../utils/createLogger';
 import { currentHoldingGroundAt } from '../../services/enc/holdingGround';
+import { openPlaceReviews } from '../../services/community/PlaceReviewsService';
+import { validReviewPlaceId } from '../../services/community/placeReviewsModel';
+import { COMMUNITY_NOTES_CHANGED } from '../../services/community/communitySummary';
 
 const log = createLogger('AnchorageLayer');
 
@@ -65,6 +68,17 @@ const KIND_LABEL: Record<string, string> = {
 
 function shell(inner: string): string {
     return `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:240px;color:#16242c">${inner}</div>`;
+}
+
+function attachReviewButton(popup: mapboxgl.Popup | null, p: AnchorageProps) {
+    if (!popup || !validReviewPlaceId(p.id)) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Skipper notes / add review';
+    button.style.cssText =
+        'min-height:44px;max-width:100%;margin-top:6px;border:1px solid #64748b;border-radius:6px;padding:8px 12px;background:white;color:#0369a1';
+    button.addEventListener('click', () => openPlaceReviews(p));
+    popup.getElement()?.querySelector('.mapboxgl-popup-content>div')?.append(button);
 }
 
 function pointPopupHtml(p: AnchorageProps): string {
@@ -161,6 +175,16 @@ export function useAnchorageLayer(
     const supplementRef = useRef(supplement);
     supplementRef.current = supplement;
     const weatherRefresh = useRef<(() => void) | null>(null);
+    useEffect(() => {
+        const changed = () => {
+            const feature = dataRef.current?.points.features.find((p) => p.properties.id === popupId.current);
+            const node = popupRef.current?.getElement()?.querySelector('.anch-verdict');
+            if (feature && node)
+                node.innerHTML = placeConditionsHtml(cachedPlaceConditions(conditionsPlaceForAnchorage(feature)));
+        };
+        window.addEventListener(COMMUNITY_NOTES_CHANGED, changed);
+        return () => window.removeEventListener(COMMUNITY_NOTES_CHANGED, changed);
+    }, []);
     const popupId = useRef<string | null>(null);
     const handleRef = useRef<AnchorageLayerHandle>({
         showAnchorage: (id) => showImplRef.current?.(id) ?? false,
@@ -293,6 +317,7 @@ export function useAnchorageLayer(
                 const p = f.properties as unknown as AnchorageProps;
                 popupAt(e.lngLat, pointPopupHtml(p) + verdictShellHtml(), 10);
                 popupId.current = p.id;
+                attachReviewButton(popupRef.current, p);
                 void fillVerdict(popupRef, p.id, dataRef.current);
             };
             const onAreaClick = (e: mapboxgl.MapLayerMouseEvent) => {
@@ -336,6 +361,7 @@ export function useAnchorageLayer(
                 map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 12.2), duration: 1200 });
                 popupAt(new mapboxgl.LngLat(lon, lat), pointPopupHtml(f.properties) + verdictShellHtml(), 10);
                 popupId.current = id;
+                attachReviewButton(popupRef.current, f.properties);
                 void fillVerdict(popupRef, id, data);
                 return true;
             };
