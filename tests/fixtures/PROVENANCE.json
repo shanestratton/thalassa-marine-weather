@@ -460,6 +460,11 @@
             "source": "Thalassa public weather-evidence projection of Queensland Government coastal wave observations (CC BY4.0) and, in the index, NOAA-operated NDBC public data, collected17 October2026. Provider/owner/licence/sourceUrl remain in every original row. This licence applies to the Queensland data and combined projection; NOAA data remain US Government work.",
             "credit": "© State of Queensland(CC BY4.0); NOAA National Data Buoy Center; Thalassa projection."
         },
+        "tests/fixtures/ascat141-packet.json": {
+            "licence": "synthetic",
+            "source": "Thalassa fictional ASCAT Coastal protocol packet, explicitly synthetic:true, generated from two hand-authored wind rows and an all-a raw-original digest. No KNMI/EUMETSAT original was downloaded, and no real swath or provider-native compatibility is claimed.",
+            "credit": "Thalassa test fixture; provider names are protocol labels only."
+        },
         "tests/fixtures/weather-evidence141/detail-buoys-qld-des.txt": {
             "licence": "cc-by-4.0",
             "source": "Thalassa public weather-evidence projection of Queensland Government coastal wave observations (CC BY4.0) and, in the index, NOAA-operated NDBC public data, collected17 October2026. Provider/owner/licence/sourceUrl remain in every original row. This licence applies to the Queensland data and combined projection; NOAA data remain US Government work.",
