@@ -54,7 +54,13 @@ unexpected snapshots and retired runtime/source identities hold the run.
 The root-reviewed JSON policy has exactly:
 
 ```json
-{"schema":1,"executable":"/opt/<reviewed>/osmium","files":[{"path":"/absolute/resolved/file","bytes":1,"sha256":"<64 hex>"}],"bindings":[{"path":"/actual/loader/alias","target":"/reviewed/resolved/file"}],"libraryPath":""}
+{
+    "schema": 1,
+    "executable": "/opt/<reviewed>/osmium",
+    "files": [{ "path": "/absolute/resolved/file", "bytes": 1, "sha256": "<64 hex>" }],
+    "bindings": [{ "path": "/actual/loader/alias", "target": "/reviewed/resolved/file" }],
+    "libraryPath": ""
+}
 ```
 
 This illustrates the schema; it is not an executable policy. The actual
@@ -166,14 +172,14 @@ Losing either file or crashing between these writes holds before HTTP, including
 the pre-body state that has no large file yet. Orphan filter/sequence/public
 bytes without their original receipt also hold, rather than being replaced.
 
-| Primary metadata | Deleted-file result with recorded artifacts |
-| --- | --- |
-| job | Hold; no identity recapture. |
-| transfers | Hold against the durable job reservation, including before body creation. |
-| raw | Active original holds; a complete cohort's embedded original proof remains sufficient after its source was retired. |
-| cohort | Hold when the source was already retired; never download it again implicitly. |
-| promoted | Hold after work links retired; complete still-linked proof can repeat normal promotion. |
-| final input | Hold against the promoted digest; original source clocks are not renewed. |
+| Primary metadata | Deleted-file result with recorded artifacts                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| job              | Hold; no identity recapture.                                                                                        |
+| transfers        | Hold against the durable job reservation, including before body creation.                                           |
+| raw              | Active original holds; a complete cohort's embedded original proof remains sufficient after its source was retired. |
+| cohort           | Hold when the source was already retired; never download it again implicitly.                                       |
+| promoted         | Hold after work links retired; complete still-linked proof can repeat normal promotion.                             |
+| final input      | Hold against the promoted digest; original source clocks are not renewed.                                           |
 
 All 88 earlier tests are retained. Eleven additional tests exercise missing
 metadata, the two-write crash gap, all six final-input empty values, paired/triple
