@@ -371,6 +371,7 @@ const LicensedLightningLayer =
         ? React.lazy(() => import('./LicensedLightningLayer'))
         : null;
 const AscatObservedLayer = React.lazy(() => import('./AscatObservedLayer'));
+const OpticalLightningLayer = React.lazy(() => import('./OpticalLightningLayer'));
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
 const SshObservedLayer =
@@ -418,6 +419,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
     const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
     const [ascatCredit, setAscatCredit] = useState<AtmosCredit | null>(null);
+    const [opticalLightningCredit, setOpticalLightningCredit] = useState<AtmosCredit | null>(null);
     const [ascatCardOwnsChart, setAscatCardOwnsChart] = useState(false);
     const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
     const [localLibraryCredit, setLocalLibraryCredit] = useState<AtmosCredit | null>(null);
@@ -2302,6 +2304,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAscatVisible,
         ascatLoaded,
         browseAscatVisible,
+        opticalLightningVisible,
+        setOpticalLightningVisible,
+        opticalLightningLoaded,
+        browseOpticalLightningVisible,
         setChokepointVisible,
         cycloneVisible,
         setCycloneVisible,
@@ -4446,6 +4452,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setMeasuredBuoysVisible,
                             ascatVisible,
                             setAscatVisible,
+                            opticalLightningVisible,
+                            setOpticalLightningVisible,
                             cycloneVisible,
                             setCycloneVisible,
                             squallVisible,
@@ -5769,6 +5777,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseBoatPresenceVisible ? 1 : 0) +
                             (browseMeasuredBuoysVisible ? 1 : 0) +
                             (browseAscatVisible ? 1 : 0) +
+                            (browseOpticalLightningVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5909,6 +5918,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {opticalLightningLoaded && (
+                    <Suspense fallback={null}>
+                        <OpticalLightningLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseOpticalLightningVisible}
+                            onCredit={setOpticalLightningCredit}
+                        />
+                    </Suspense>
+                )}
                 {receiverCoverageVisible && (
                     <Suspense fallback={null}>
                         <ReceiverCoverageLayer
@@ -5937,6 +5956,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ...atmosPresentation.credits,
                             ...(sshCredit ? [sshCredit] : []),
                             ...(licensedLightningCredit ? [licensedLightningCredit] : []),
+                            ...(opticalLightningCredit ? [opticalLightningCredit] : []),
                             ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
                             ...(ascatCredit ? [ascatCredit] : []),
                             ...(sharperCredit ? [sharperCredit] : []),
