@@ -2,6 +2,13 @@
 import hashlib,json,os,subprocess,sys,shutil
 from pathlib import Path
 root=Path(sys.argv[1]).resolve();root.mkdir(exist_ok=False)
+group=next(line.split(':',2)[2] for line in Path('/proc/self/cgroup').read_text().splitlines() if line.startswith('0::'))
+cg=Path('/sys/fs/cgroup')/group.lstrip('/')
+assert cg.resolve().is_relative_to(Path('/sys/fs/cgroup').resolve())
+limits={n:(cg/n).read_text().strip() for n in ['memory.max','memory.swap.max','pids.max','cpu.max']}
+assert limits['memory.max']=='2147483648' and limits['memory.swap.max']=='0' and limits['pids.max']=='16'
+quota,period=map(int,limits['cpu.max'].split());assert quota*2==period
+(root/'actual-cgroup-limits.json').write_text(json.dumps({'path':group,'limits':limits},indent=2)+'\n')
 baseline=Path(sys.argv[2]).resolve();candidate=Path(sys.argv[3]).resolve()
 # Osmium selects a command from argv[0] when its basename is osmium-COMMAND.
 # Keep exact reviewed executable bytes, using the canonical name in two dirs.
@@ -44,5 +51,6 @@ assert results['candidate']['peakRssKiB']<results['baseline']['peakRssKiB']/2
 opl=(root/'candidate.opl').read_text()
 assert all(('n'+str(n)+' ') in opl for n in ids)
 assert 'w1234567891 ' in opl and 'r23456789 ' in opl and 'r23456790 ' in opl
-results.update(originalNodeIds=ids,originalNodeCount=len(ids),referenceClosure=True,canonicalExportParity=True,sourceAndSemanticsUnchanged=True,network=False)
+peak=int((cg/'memory.peak').read_text());assert peak<=2147483648
+results.update(originalNodeIds=ids,originalNodeCount=len(ids),referenceClosure=True,canonicalExportParity=True,sourceAndSemanticsUnchanged=True,network=False,actualCgroup={'path':group,'limits':limits,'peakBytes':peak})
 (root/'proof.json').write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results))

@@ -1,4 +1,4 @@
-name: Facilities140 exact compiled tool native canonical argv0 replay
+name: Facilities140 exact compiled tool native live cgroup witness
 on:
   push:
     branches: [codex/build-140-osmium-native-replay]
@@ -49,7 +49,7 @@ jobs:
       - name: Run unchanged original dataset and allocation proof with visible native diagnostics
         run: |
           set -euo pipefail
-          sudo systemd-run --quiet --pipe --unit=facilities140-small-chunk-replay --wait -p Type=exec -p User="$(id -un)" -p MemoryMax=2147483648 -p MemorySwapMax=0 -p TasksMax=16 -p CPUQuota=50% -p RuntimeMaxSec=240 -p LimitCORE=0 -p LimitFSIZE=268435456 /usr/bin/python3 "$PWD/app/ci/facilities140/low-memory-fixture.py" "$PWD/evidence/native-replay" "$PWD/evidence/original/osmium-baseline" "$PWD/evidence/original/osmium-small-chunks"
+          sudo systemd-run --quiet --pipe --unit=facilities140-small-chunk-replay --wait -p Type=exec -p RemainAfterExit=yes -p MemoryAccounting=yes -p User="$(id -un)" -p MemoryMax=2147483648 -p MemorySwapMax=0 -p TasksMax=16 -p CPUQuota=50% -p RuntimeMaxSec=240 -p LimitCORE=0 -p LimitFSIZE=268435456 /usr/bin/python3 "$PWD/app/ci/facilities140/low-memory-fixture.py" "$PWD/evidence/native-replay" "$PWD/evidence/original/osmium-baseline" "$PWD/evidence/original/osmium-small-chunks"
       - name: Preserve actual native cgroup and journal diagnostics
         if: always()
         run: |
