@@ -1,5 +1,6 @@
 import type { WeatherModel } from '../../types';
 import { getForecastModelInfo, OFFSHORE_MODELS } from './forecastModels';
+import { aromeDomain } from './aromeDomains';
 
 /**
  * The display name of whatever served the Glass, from the pipeline's model
@@ -15,6 +16,8 @@ import { getForecastModelInfo, OFFSHORE_MODELS } from './forecastModels';
 export function servedModelDisplayName(tag: string | null | undefined): string | null {
     if (!tag) return null;
     if (/\bspitfire\b/i.test(tag)) return 'Spitfire';
+    const own = /(?:^|\+)arome:([a-z0-9_]+)/.exec(tag);
+    if (own && aromeDomain(own[1])) return 'AROME 2.5 km';
     const grid = /(?:^|\+)(?:om|wx):([a-z0-9_]+)/.exec(tag) ?? /^(?:openmeteo|wx)_([a-z0-9_]+)/.exec(tag);
     if (grid) return getForecastModelInfo(grid[1] as WeatherModel)?.label ?? null;
     const sg = /^stormglass_([a-z]+)/.exec(tag);

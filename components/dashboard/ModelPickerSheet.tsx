@@ -16,6 +16,7 @@ import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
 import {
     AUTO_MODEL,
+    BEST_LOCAL_MODEL,
     selectableForecastModels,
     MODEL_ATTRIBUTION_LINE,
     SPITFIRE_MODEL,
@@ -24,10 +25,12 @@ import {
     getOffshoreModelInfo,
     providerLicence,
     offshoreAtmosphericModel,
+    AROME_LICENCE_URL,
 } from '../../services/weather/forecastModels';
 import { MarineDataCredit } from '../weather/MarineDataCredit';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
+import { aromeDomain, aromeDomainAt } from '../../services/weather/aromeDomains';
 import { PartlyCloudyIcon, XIcon } from '../Icons';
 const NearbyModelSkill = lazy(() => import('./NearbyModelSkill'));
 const OwnBoatSkill = lazy(() => import('./OwnBoatSkill'));
@@ -59,6 +62,7 @@ interface ModelPickerSheetProps {
      */
     publishedModels?: string[];
     samplingDescription?: string;
+    servedTag?: string;
     /** Used only locally to find nearby public measurement stations. */
     coordinates?: { lat: number; lon: number };
 }
@@ -80,9 +84,18 @@ const CREDIT_NAMES: Readonly<Record<string, string>> = {
  * attribution line (UX scorecard run 7). Blends and Auto credit every source;
  * offshore selection credits its actual named atmospheric domain.
  */
-export function forecastCreditLine(model: WeatherModel, offshoreModel?: OffshoreModel): string {
+export function forecastCreditLine(model: WeatherModel, offshoreModel?: OffshoreModel, servedTag?: string): string {
     if (offshoreModel) {
         return forecastCreditLine(offshoreAtmosphericModel(offshoreModel));
+    }
+    if (model === BEST_LOCAL_MODEL) {
+        const own = /(?:^|\+)arome:([a-z0-9_]+)/.exec(servedTag ?? '');
+        const domain = own ? aromeDomain(own[1]) : undefined;
+        if (domain)
+            return `Forecast: Météo-France ${domain.name} · Etalab-2.0${servedTag?.includes('+context') ? ' · UV/visibility: independent forecast' : ''}`;
+        const grid = /(?:^|\+)(?:om|wx):([a-z0-9_]+)/.exec(servedTag ?? '');
+        if (grid) return `Local unavailable. ${forecastCreditLine(grid[1] as WeatherModel)}`;
+        return `Local unavailable. ${MODEL_ATTRIBUTION_LINE}`;
     }
     const info = getForecastModelInfo(model);
     if (!info) return MODEL_ATTRIBUTION_LINE;
@@ -167,6 +180,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     spitfireAvailable = false,
     spitfireLocationName,
     samplingDescription,
+    servedTag,
     coordinates,
 }) => {
     const portalTarget = usePanePortalTarget();
@@ -176,6 +190,8 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     // Publisher rows do not prove the proxy's model vocabulary or a sea-cell
     // request. In particular an ifs025 row must not hide the live 9 km pick.
     const grids = selectableForecastModels();
+    const localDomain = coordinates ? aromeDomainAt(coordinates) : undefined;
+    const nativeDomain = servedTag?.startsWith('arome:') ? aromeDomain(servedTag.slice(6).split('+')[0]) : undefined;
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, { initialFocusRef: closeButtonRef, onEscape: onClose });
 
@@ -325,6 +341,15 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         )
                     ) : (
                         <>
+                            {(currentModel === BEST_LOCAL_MODEL || localDomain) &&
+                                atmosphericRow(
+                                    BEST_LOCAL_MODEL,
+                                    'Best local',
+                                    localDomain
+                                        ? 'AROME region · qualified 2.5 km data when available; named global fallback'
+                                        : 'No local AROME here; showing a named global fallback',
+                                    '#22d3ee',
+                                )}
                             {spitfireAvailable && (
                                 <>
                                     {atmosphericRow(
@@ -361,6 +386,21 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         <p className="pb-2">
                             <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
                         </p>
+                        {nativeDomain && (
+                            <p className="pb-2" data-testid="regional-source-credit">
+                                {forecastCreditLine(BEST_LOCAL_MODEL, undefined, servedTag)}
+                            </p>
+                        )}
+                        {servedTag?.startsWith('arome:') && (
+                            <a
+                                href={AROME_LICENCE_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex min-h-11 items-center underline underline-offset-2"
+                            >
+                                AROME-OM · Etalab-2.0
+                            </a>
+                        )}
                         <MarineDataCredit />
                         <p className="pb-3">
                             Ocean models do not resolve berths or enclosed water. Missing values stay unknown.
@@ -399,7 +439,13 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         data-testid="forecast-credit"
                     >
                         <p className="font-semibold text-slate-300">
-                            {forecastCreditLine(currentModel, offshore ? offshore.currentModel : undefined)}
+                            {currentModel === BEST_LOCAL_MODEL && !offshore && nativeDomain
+                                ? 'Forecast: Météo-France AROME-OM · Etalab-2.0'
+                                : forecastCreditLine(
+                                      currentModel,
+                                      offshore ? offshore.currentModel : undefined,
+                                      servedTag,
+                                  )}
                         </p>
                         <p>Full credits in Data sources above.</p>
                     </div>

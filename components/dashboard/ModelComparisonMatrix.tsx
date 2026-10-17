@@ -46,7 +46,12 @@ import {
     type AtmosVar,
     type MarineVar,
 } from '../../services/weather/ModelSpreadService';
-import { ECCC_LICENCE, ECCC_LICENCE_URL, forecastDataCredit } from '../../services/weather/forecastModels';
+import {
+    AROME_LICENCE_URL,
+    ECCC_LICENCE,
+    ECCC_LICENCE_URL,
+    forecastDataCredit,
+} from '../../services/weather/forecastModels';
 import {
     AGREEMENT_GLYPH,
     AGREEMENT_WORDS,
@@ -772,9 +777,10 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             .join(', ')}`;
 
         // Each provider on screen, credited under its own licence.
+        const ownArome = series.some((series) => series.provider === 'Météo-France AROME-OM');
         const credit = forecastDataCredit(
             series.map((s) => s.provider),
-            'Data via Open-Meteo',
+            ownArome ? 'Forecast data' : 'Data via Open-Meteo',
         );
 
         // The headline covers the next three days; the day bars carry the rest.
@@ -1351,6 +1357,16 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                     </React.Fragment>
                                 ))}
                             </p>
+                            {ownArome && (
+                                <a
+                                    href={AROME_LICENCE_URL}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex min-h-11 items-center justify-center text-xs text-gray-400 underline underline-offset-2"
+                                >
+                                    AROME-OM · Etalab-2.0
+                                </a>
+                            )}
                         </div>
                     )}
                 </div>

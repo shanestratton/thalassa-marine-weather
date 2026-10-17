@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     AUTO_MODEL,
+    BEST_LOCAL_MODEL,
     SELECTABLE_MODELS,
     COMPARE_MODELS,
     SPREAD_EXTRA_MODELS,
@@ -23,6 +24,14 @@ import {
 } from './forecastModels';
 
 describe('forecastModels', () => {
+    it('keeps Best local as an explicit preference rather than a paid provider id', () => {
+        expect(resolveForecastModel(BEST_LOCAL_MODEL)).toBe(BEST_LOCAL_MODEL);
+        expect(isConcreteModel(BEST_LOCAL_MODEL)).toBe(false);
+        expect(SELECTABLE_MODELS.some((m) => m.id === BEST_LOCAL_MODEL)).toBe(false);
+        expect(providerLicence('Météo-France AROME-OM')).toBe('Etalab-2.0');
+        expect(providerLicence('Météo-France')).toBe('CC BY 4.0');
+        expect(forecastDataCredit(['Météo-France AROME-OM'])).toBe('Forecast data: Météo-France AROME-OM (Etalab-2.0)');
+    });
     it('keeps supported offshore source keys separate from atmospheric model domains', () => {
         expect(OFFSHORE_MODELS.map((model) => model.id)).toEqual(['auto', 'ecmwf', 'gfs', 'icon']);
         for (const model of OFFSHORE_MODELS) {

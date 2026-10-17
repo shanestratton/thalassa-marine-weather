@@ -27,7 +27,7 @@ export const REGIONAL_MODELS: readonly RegionalModel[] = [
     ...AROME_DOMAINS.map((domain) => ({
         id: domain.id,
         name: domain.name,
-        provider: 'Météo-France',
+        provider: 'Météo-France AROME-OM',
         resolutionKm: 2.5,
         horizonHours: AROME_HORIZON_HOURS,
         region: domain.region,
