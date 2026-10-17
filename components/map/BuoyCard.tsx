@@ -63,10 +63,10 @@ export default function BuoyCard({
                             aria-label="72-hour measured waves and available forecasts captured before their valid hours, in metres"
                         >
                             <path d="M35 20V120H310M35 70H310" fill="none" stroke="#475569" strokeWidth="0.6" />
-                            <text x="1" y="24" fill="#cbd5e1" fontSize="12">
+                            <text x="28" y="24" textAnchor="end" fill="#cbd5e1" fontSize="12">
                                 {graph.top.toFixed(1)}
                             </text>
-                            <text x="14" y="123" fill="#cbd5e1" fontSize="12">
+                            <text x="28" y="123" textAnchor="end" fill="#cbd5e1" fontSize="12">
                                 0
                             </text>
                             <text x="35" y="145" fill="#cbd5e1" fontSize="12">
