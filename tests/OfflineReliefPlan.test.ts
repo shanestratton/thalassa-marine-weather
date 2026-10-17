@@ -39,13 +39,14 @@ describe('owned offline relief plan', () => {
             true,
         );
     });
-    it('never allocates an unbounded world request and omits AU terrain outside Queensland', () => {
+    it('never allocates an unbounded world request, omits GBR outside Queensland and retains sparse NZ', () => {
         const world = planReliefArea({ north: 90, south: -90, west: -180, east: 180 }, 13);
         expect(world.tooLarge).toBe(true);
         expect(world.tileCount).toBeGreaterThan(4096);
         expect(world.tiles).toEqual([]);
         const nz = planReliefArea({ north: -36, south: -36.01, west: 175, east: 175.01 }, 13);
-        expect(nz.tiles.every((t) => t.url.includes('relief-global'))).toBe(true);
+        expect(nz.tiles.every((t) => /\/relief-(global|nz)\//.test(t.url))).toBe(true);
+        expect(nz.tiles.some((t) => t.url.includes('/relief-nz/'))).toBe(true);
         const polar = planReliefArea({ north: 90, south: 89, west: 10, east: 11 }, 4);
         expect(polar.tiles.length).toBeGreaterThan(0);
         expect(polar.tiles.every((t) => Number(t.url.split('/')[8].split('.')[0]) === 0)).toBe(true);

@@ -5767,6 +5767,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
                 {obsCreditsVisible && (
                     <ObsCreditsRollup
+                        relief={shownBase === 'relief' || shownBase === 'reliefSat' || shownBase === 'light'}
                         rain={
                             rainCreditShown
                                 ? (weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type ?? null)

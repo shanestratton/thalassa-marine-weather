@@ -17,6 +17,7 @@ import {
     type WorldFacilitiesStatus,
 } from '../../services/marineCatalogue/worldFacilities';
 import { receiverCoverageWords, type ReceiverCoverageStatus } from '../../services/ais/receiverCoverage';
+import { RELIEF_DISPLAY_REGIONS } from '../../services/reliefDisplayRegions';
 
 export interface ObsCreditsRollupProps {
     rain: 'radar' | 'forecast' | null;
@@ -30,6 +31,7 @@ export interface ObsCreditsRollupProps {
     facilities?: WorldFacilitiesStatus | null;
     boatPresence?: BoatPresenceStatus | null;
     onOpenBoatPresence?: () => void;
+    relief?: boolean;
 }
 /** Presentation only: subscribes to existing feed status, never starts a layer or makes a data request. */
 export default function ObsCreditsRollup({
@@ -44,6 +46,7 @@ export default function ObsCreditsRollup({
     facilities,
     boatPresence,
     onOpenBoatPresence,
+    relief,
 }: ObsCreditsRollupProps) {
     const [open, setOpen] = React.useState(false),
         [now, setNow] = React.useState(Date.now),
@@ -103,7 +106,8 @@ export default function ObsCreditsRollup({
         ais ||
         !!facilities ||
         !!boatPresence ||
-        !!receiverCoverage;
+        !!receiverCoverage ||
+        !!relief;
     React.useEffect(() => {
         if (!active) setOpen(false);
     }, [active]);
@@ -204,6 +208,37 @@ export default function ObsCreditsRollup({
                             <section aria-label="Wind source">
                                 <h4 className="font-bold text-sky-200">Wind</h4>
                                 <p>{wind}</p>
+                            </section>
+                        )}
+                        {relief && (
+                            <section aria-label="Relief sources">
+                                <h4 className="font-bold text-sky-200">Illustrative relief · where available</h4>
+                                <p>
+                                    Global GEBCO 2026 and existing Geoscience Australia GBR 30 m terrain remain beneath
+                                    regional coverage. Gaps do not establish safe depth. Not for navigation or depth
+                                    sampling.
+                                </p>
+                                {RELIEF_DISPLAY_REGIONS.filter((r) => r.availability).map((r) => (
+                                    <div key={r.id} className="mt-3">
+                                        <a href={r.sourceUrl} className="underline">
+                                            {r.label}
+                                        </a>
+                                        <p>{r.datum}</p>
+                                        <p>{r.coverage}</p>
+                                    </div>
+                                ))}
+                                <p className="mt-2">
+                                    Derived, exaggerated, smoothed and land-masked by Thalassa. © Commonwealth of
+                                    Australia / Geoscience Australia; LINZ; GEBCO Compilation Group 2026; ©
+                                    OpenStreetMap contributors. No endorsement or warranty of fitness.
+                                </p>
+                                <a href="https://creativecommons.org/licenses/by/4.0/" className="underline">
+                                    CC BY 4.0 (section 5 disclaimer)
+                                </a>
+                                {' · '}
+                                <a href="https://opendatacommons.org/licenses/odbl/1-0/" className="underline">
+                                    OSM land mask · ODbL
+                                </a>
                             </section>
                         )}
                         {cmems.length > 0 && <CmemsAttribution layers={cmems} inline />}

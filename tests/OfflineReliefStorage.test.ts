@@ -512,7 +512,7 @@ describe('browser terrain cache matching the service worker', () => {
         expect(open.mock.calls.every(([name]) => name === RELIEF_WEB_CACHE)).toBe(true);
         expect(fetch).toHaveBeenCalledWith(
             expect.stringContaining(base),
-            expect.objectContaining({ redirect: 'error', credentials: 'omit', cache: 'reload' }),
+            expect.objectContaining({ redirect: 'error', credentials: 'omit', cache: 'no-store' }),
         );
         const count = service.reliefStorage().tiles;
         cache.entries.set('https://tile.openstreetmap.org/0/0/0.png', new Response('viewed tile'));
