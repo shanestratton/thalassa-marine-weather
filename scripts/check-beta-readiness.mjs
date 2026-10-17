@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from 'vite';
 import { isReviewedUnsignedNative139Workflow } from './unsigned-native139-policy.mjs';
+import { resolveBoundedReaderSource } from './bounded-reader-source-policy.mjs';
 import {
     PUBLIC_BETA_ENDPOINT_KEYS,
     PUBLIC_BETA_FEATURE_ARTIFACT_FILE,
@@ -850,10 +851,8 @@ check(
             'expect(onToggleMpa).toHaveBeenCalledOnce()',
         ]),
 );
-const cmemsBoundedReadBoundary = cmemsGridTrust.slice(
-    cmemsGridTrust.indexOf('export async function readBoundedResponse'),
-    cmemsGridTrust.indexOf('export async function fetchBoundedPublisherBytes'),
-);
+const cmemsBoundedReadBinding = resolveBoundedReaderSource(cmemsGridTrust, read);
+const cmemsBoundedReadBoundary = cmemsBoundedReadBinding.reader;
 const cmemsHashBoundary = cmemsGridTrust.slice(
     cmemsGridTrust.indexOf('export async function sha256Hex'),
     cmemsGridTrust.indexOf('export async function publisherGenerationSuffix'),
@@ -911,11 +910,29 @@ check(
             'sourceStep,',
         ]) &&
         !cmemsGridTrust.includes('/manifest.json') &&
+        cmemsBoundedReadBinding.bound &&
         includesAll(cmemsBoundedReadBoundary, [
+            'Number.isSafeInteger(maxBytes)',
+            'maxBytes <= 0',
+            "response.headers.get('content-length')",
+            'Number(declared) > maxBytes',
             'const output = new Uint8Array(maxBytes)',
             'requireTrust(total + value.byteLength <= maxBytes',
             'output.set(value, total)',
             'return total === output.byteLength ? output : output.slice(0, total)',
+            'signal?.throwIfAborted()',
+            'await waitForPublisherRead(reader.read(), signal,',
+            'void cancelOnce()',
+            'if (signal?.aborted) void cancelOnce()',
+            'else await waitForPublisherRead(cancelOnce(), signal)',
+            'reader.releaseLock()',
+        ]) &&
+        includesAll(cmemsBoundedReadBinding.module, [
+            'function waitForPublisherRead',
+            "signal.addEventListener('abort', abort, { once: true })",
+            "signal.removeEventListener('abort', abort)",
+            'onAbort?.()',
+            'if (signal.aborted) abort()',
         ]) &&
         !cmemsBoundedReadBoundary.includes('const chunks') &&
         !cmemsBoundedReadBoundary.includes('new Uint8Array(total)') &&
