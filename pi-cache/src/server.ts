@@ -23,6 +23,9 @@ import fs from 'fs';
 import http from 'http';
 import https from 'https';
 import path from 'path';
+import { startCabinRuntime } from './cabin/runtime.js';
+import { refuseCabinViewerOnMainApi } from './cabin/server.js';
+import { cabinOwnerBinding } from './cabin/access.js';
 import { Cache } from './cache.js';
 import { Barometer } from './barometer.js';
 import { WindHistory } from './windHistory.js';
@@ -633,6 +636,9 @@ let vaultLink: VaultLink | null = null;
 /** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
 const ANCHOR_SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const app = express();
+// This credential has a separate listener and no command/enrolment authority,
+// even while the historical main command lock is in observe mode.
+app.use(refuseCabinViewerOnMainApi);
 
 app.use(
     cors({
@@ -1456,6 +1462,34 @@ if (UNSAFE_ADMIN_API_ENABLED && fs.existsSync(path.join(APP_DIST, 'index.html'))
 
 // ── Start ──
 
+const cabinRuntime = startCabinRuntime({
+    enabled: process.env.THALASSA_CABIN_ENABLED === '1',
+    host: BIND_HOST,
+    port: Number(process.env.THALASSA_CABIN_PORT || 3002),
+    mainPort: PORT,
+    cacheDirectory: CACHE_DIR,
+    assets: path.join(process.cwd(), 'cabin-dist'),
+    anchor: () => ({ running: anchorWatch.isRunning(), dragging: anchorWatch.isDragging() }),
+    context: () => {
+        const generation = diaryRelayOutbox.readOwnerGeneration(),
+            config = diaryRelayOutbox.getConfiguration();
+        return generation !== null && config.configured && config.ownerId && config.relayId
+            ? `${identity.deviceId}|${config.ownerId}|${config.relayId}|${generation}`
+            : null;
+    },
+    binding: () => cabinOwnerBinding(diaryRelayOutbox.lendFleetCredentials()),
+    read: () =>
+        readLanTelemetry({
+            fetchImpl: fetch,
+            signalkOrigin: SIGNALK_ORIGIN,
+            selfDocument,
+            deviceLabel: os.hostname(),
+            supplement: onboardSupplement,
+            documents: () => signalkDocuments.read(),
+            aisWatch: () => aisWatch.describe(),
+        }),
+});
+
 const server = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.2' }, app);
 server.listen(PORT, BIND_HOST, () => {
     ownSkillKeeper.start();
@@ -1590,6 +1624,7 @@ function shutdown() {
     stopScheduler();
     void stopEncWatcher();
     plaintextSignpost.close();
+    cabinRuntime?.close();
     server.close(() => {
         void reconvertStopped.finally(() => {
             diaryRelayOutbox.close();
