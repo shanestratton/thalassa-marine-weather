@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 
 export const INSTALL = '/opt/thalassa-pi-cache';
 export const CONTROL = '/opt/thalassa-update8';
+export const UPDATE8_NUMBER = 8;
 export const CODE = Object.freeze([
     'src',
     'scripts',
@@ -79,7 +80,7 @@ export function verifyBundle(directory) {
         m.sourceBranch !== 'master' ||
         !/^[0-9a-f]{40}$/.test(m.sourceMasterCommit) ||
         m.sourceMasterCommit !== m.sourceCommit ||
-        m.update !== 8 ||
+        m.update !== UPDATE8_NUMBER ||
         !UPDATE8_APP_BUILDS.includes(m.appBuild) ||
         !/^[0-9a-f]{40}$/.test(m.sourceCommit) ||
         m.payloadSha256 !== sha256(fs.readFileSync(path.join(root, 'source.tar.gz'))) ||
@@ -290,7 +291,7 @@ export async function applyBundle(bundle, { cacheDir = `${INSTALL}/cache`, port 
         copyCode(INSTALL, backup);
         if (!fs.existsSync(path.join(backup, 'dist/server.js'))) throw new Error('Prior server code is missing');
         const vault = active('thalassa-chart-vault');
-        const record = { schema: 1, update: 8, sourceCommit: manifest.sourceCommit, backup, vault };
+        const record = { schema: 1, update: UPDATE8_NUMBER, sourceCommit: manifest.sourceCommit, backup, vault };
         fs.writeFileSync(path.join(CONTROL, 'last-backup.json'), JSON.stringify(record), { mode: 0o600 });
         run('systemctl', ['stop', 'thalassa-cache']);
         if (vault) run('systemctl', ['stop', 'thalassa-chart-vault']);
@@ -302,7 +303,7 @@ export async function applyBundle(bundle, { cacheDir = `${INSTALL}/cache`, port 
             await waitHealthy(port);
             fs.writeFileSync(path.join(CONTROL, 'installed.json'), JSON.stringify(manifest), { mode: 0o600 });
             return {
-                installed: 7,
+                installed: UPDATE8_NUMBER,
                 commit: manifest.sourceCommit,
                 rollback: `sudo ${shellArgument(path.join(bundle, 'rollback.sh'))} --apply --cache-dir ${shellArgument(cacheDir)} --port ${port}`,
                 backup,
@@ -319,6 +320,15 @@ export async function applyBundle(bundle, { cacheDir = `${INSTALL}/cache`, port 
         }
     });
 }
+/** Shared by rollback and its filesystem-only admission controls; this never installs code. */
+export function update8RollbackBackup(record, backupRoot = path.join(CONTROL, 'backups')) {
+    if (!record || typeof record !== 'object' || typeof record.backup !== 'string')
+        throw new Error('Complete prior code was not proven');
+    const backup = inside(backupRoot, record.backup);
+    if (record.schema !== 1 || record.update !== UPDATE8_NUMBER || !fs.existsSync(path.join(backup, 'dist/server.js')))
+        throw new Error('Complete prior code was not proven');
+    return backup;
+}
 export async function rollback({ cacheDir = `${INSTALL}/cache`, port = 3001 } = {}) {
     rootOnly();
     if (
@@ -333,9 +343,7 @@ export async function rollback({ cacheDir = `${INSTALL}/cache`, port = 3001 } = 
     const info = plain(filename);
     if (info.uid !== 0 || info.mode & 0o022) throw new Error('Rollback record is not protected');
     const record = JSON.parse(fs.readFileSync(filename, 'utf8'));
-    const backup = inside(path.join(CONTROL, 'backups'), record.backup);
-    if (record.schema !== 1 || record.update !== 7 || !fs.existsSync(path.join(backup, 'dist/server.js')))
-        throw new Error('Complete prior code was not proven');
+    const backup = update8RollbackBackup(record);
     return guarded(cacheDir, port, async () => {
         run('systemctl', ['stop', 'thalassa-cache']);
         if (record.vault) run('systemctl', ['stop', 'thalassa-chart-vault']);
@@ -346,6 +354,6 @@ export async function rollback({ cacheDir = `${INSTALL}/cache`, port = 3001 } = 
         if (record.vault) run('systemctl', ['start', 'thalassa-chart-vault']);
         run('systemctl', ['start', 'thalassa-cache']);
         await waitHealthy(port);
-        return { rolledBack: 7, displaced };
+        return { rolledBack: UPDATE8_NUMBER, displaced };
     });
 }
