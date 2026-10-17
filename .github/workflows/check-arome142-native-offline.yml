@@ -1,0 +1,157 @@
+name: AROME 142 immutable static native offline proof
+
+on:
+    push:
+        branches: [codex/build-142-arome-native-offline]
+        paths: [.github/workflows/check-arome142-native-offline.yml]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: arome142-static-native-offline
+    cancel-in-progress: false
+
+jobs:
+    native:
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/build-142-arome-native-offline' && github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        env:
+            PROOF_SOURCE_SHA: 9f2364baa85ed1ef4b796379789b8140616fa721
+            PYTHONFAULTHANDLER: '1'
+            PYTHONDONTWRITEBYTECODE: '1'
+            OPENBLAS_NUM_THREADS: '1'
+            OMP_NUM_THREADS: '1'
+        steps:
+            - name: Checkout exact frozen source
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: 9f2364baa85ed1ef4b796379789b8140616fa721
+                  persist-credentials: false
+            - name: Set up Python 3.11.15
+              uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+              with:
+                  python-version: '3.11.15'
+            - name: Set up Node 24 for pure TypeScript stripping
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '24'
+            - name: Record immutable source and fresh external evidence paths
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$PROOF_SOURCE_SHA"
+                  test -z "$(git status --porcelain)"
+                  test ! -e "$RUNNER_TEMP/arome142-native-evidence"
+                  test ! -e "$RUNNER_TEMP/arome142-native-fixture"
+                  mkdir "$RUNNER_TEMP/arome142-native-evidence"
+                  printf 'AROME_NATIVE_FIXTURE_DIR=%s/arome142-native-fixture\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+                  printf '%s\n' "$PROOF_SOURCE_SHA" > "$RUNNER_TEMP/arome142-native-evidence/source.txt"
+                  printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/arome142-native-evidence/control.txt"
+                  python --version > "$RUNNER_TEMP/arome142-native-evidence/python.txt"
+                  node --version > "$RUNNER_TEMP/arome142-native-evidence/node.txt"
+                  sha256sum services/weather/aromeDomains.ts services/weather/aromePointContract.ts services/weather/aromeStaticContract.ts supabase/functions/_shared/arome-upstream.ts tools/arome142/catalogue.py tools/arome142/native.py tools/arome142/static_tiles.py tools/arome142/prepare_static.py tools/arome142/test_catalogue.py tools/arome142/test_static.py tools/arome142/native-tests/test_native.py tools/arome142/prove_static_interop.mjs tools/arome142/native-requirements.lock > "$RUNNER_TEMP/arome142-native-evidence/source-sha256.txt"
+                  test "$(sha256sum tools/arome142/native-requirements.lock | cut -d' ' -f1)" = cfd6e6ae3863ee58bd40f780df1fbf86443790989f050e2063163f2f96df2f64
+            - name: Install only the already reviewed native hash lock
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r tools/arome142/native-requirements.lock 2>&1 | tee "$RUNNER_TEMP/arome142-native-evidence/install.log"
+                  python -m pip check 2>&1 | tee "$RUNNER_TEMP/arome142-native-evidence/pip-check.txt"
+                  python -m pip freeze > "$RUNNER_TEMP/arome142-native-evidence/packages.txt"
+            - name: Prove all scalar and generated native fixtures under original 2GiB limit
+              env:
+                  NO_PROXY: '127.0.0.1,localhost,::1'
+                  HTTPS_PROXY: 'http://127.0.0.1:9'
+                  HTTP_PROXY: 'http://127.0.0.1:9'
+                  ALL_PROXY: 'http://127.0.0.1:9'
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  export no_proxy="$NO_PROXY" https_proxy="$HTTPS_PROXY" http_proxy="$HTTP_PROXY" all_proxy="$ALL_PROXY"
+                  cat > "$RUNNER_TEMP/arome142-native-evidence/run-native.py" <<'PY'
+                  import json, os, resource, socket, sys, unittest
+                  from pathlib import Path
+                  def refused(*args, **kwargs):
+                      raise RuntimeError('offline proof refuses all Python socket connections')
+                  socket.create_connection = refused
+                  socket.socket.connect = refused
+                  evidence = Path(os.environ['RUNNER_TEMP'], 'arome142-native-evidence')
+                  memory_limit = resource.getrlimit(resource.RLIMIT_AS)
+                  assert memory_limit == (2147483648, 2147483648), memory_limit
+                  import eccodes
+                  print('Actual ecCodes API:', eccodes.codes_get_api_version())
+                  results = []
+                  for directory, expected in [('tools/arome142', 17), ('tools/arome142/native-tests', 4)]:
+                      suite = unittest.TestLoader().discover(directory, pattern='test_*.py')
+                      if suite.countTestCases() != expected:
+                          raise SystemExit(f'Unexpected cardinality: {directory}: {suite.countTestCases()} != {expected}')
+                      result = unittest.TextTestRunner(verbosity=2).run(suite)
+                      results.append({'suite': directory, 'expected': expected, 'run': result.testsRun,
+                                      'errors': len(result.errors), 'failures': len(result.failures),
+                                      'skipped': len(result.skipped), 'success': result.wasSuccessful()})
+                  forbidden = sorted({'xarray', 'netCDF4', 'h5py', 'rasterio'}.intersection(sys.modules))
+                  libraries = sorted({line.split()[-1] for line in Path('/proc/self/maps').read_text().splitlines() if '.so' in line and '/' in line})
+                  (evidence/'loaded-libraries.json').write_text(json.dumps(libraries, indent=2)+'\n')
+                  (evidence/'imported-modules.json').write_text(json.dumps(sorted(sys.modules), indent=2)+'\n')
+                  (evidence/'result.json').write_text(json.dumps({'source': os.environ['PROOF_SOURCE_SHA'],
+                      'control': os.environ['GITHUB_SHA'], 'fixtureOnly': True, 'providerRequests': 0,
+                      'published': False, 'actualVirtualMemoryLimitBytes': memory_limit, 'results': results,
+                      'forbiddenImports': forbidden, 'processExit': 'pending'}, indent=2)+'\n')
+                  if forbidden or any(not r['success'] or r['skipped'] or r['run'] != r['expected'] for r in results):
+                      raise SystemExit(1)
+                  PY
+                  /usr/bin/time -v -o "$RUNNER_TEMP/arome142-native-evidence/native-resources.txt" bash -c 'ulimit -v 2097152; exec timeout --signal=TERM --kill-after=10s 1200s python -B "$RUNNER_TEMP/arome142-native-evidence/run-native.py"' 2>&1 | tee "$RUNNER_TEMP/arome142-native-evidence/native.log"
+                  printf '0\n' > "$RUNNER_TEMP/arome142-native-evidence/native-process-exit.txt"
+            - name: Prove actual native files through the unchanged bounded Edge reader
+              env:
+                  NO_PROXY: '127.0.0.1,localhost,::1'
+                  HTTPS_PROXY: 'http://127.0.0.1:9'
+                  HTTP_PROXY: 'http://127.0.0.1:9'
+                  ALL_PROXY: 'http://127.0.0.1:9'
+                  NODE_OPTIONS: '--max-old-space-size=256'
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  timeout --signal=TERM --kill-after=5s 60s node tools/arome142/prove_static_interop.mjs 2>&1 | tee "$RUNNER_TEMP/arome142-native-evidence/interop.log"
+                  printf '0\n' > "$RUNNER_TEMP/arome142-native-evidence/interop-process-exit.txt"
+            - name: Preserve bounded partial or complete actual evidence
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  python - <<'PY'
+                  import hashlib, json, os, shutil
+                  from pathlib import Path
+                  evidence = Path(os.environ['RUNNER_TEMP'], 'arome142-native-evidence')
+                  evidence.mkdir(exist_ok=True)
+                  native = Path(os.environ['RUNNER_TEMP'], 'arome142-native-fixture')
+                  names = ['proof.json', 'interop-proof.json', 'cohort/manifest.json', 'cohort/prepared-slot.json',
+                           'cohort/native-proof.json', 'input/000.grib2', 'input/constant.grib2']
+                  manifest = native/'cohort/manifest.json'
+                  if manifest.is_file() and manifest.stat().st_size <= 262144:
+                      data = json.loads(manifest.read_text())
+                      selected = [t for t in data['tiles'] if t['id'] == '12-12']
+                      if len(selected) == 1:
+                          names.append('cohort/tiles/'+selected[0]['sha256']+'.bin.gz')
+                  copied = []
+                  for name in names:
+                      source = native/name
+                      if source.is_file() and not source.is_symlink() and source.stat().st_size <= 16*1024**2:
+                          target = evidence/'fixture'/name
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          shutil.copyfile(source, target)
+                          copied.append({'path': 'fixture/'+name, 'bytes': target.stat().st_size,
+                                         'sha256': hashlib.sha256(target.read_bytes()).hexdigest()})
+                  (evidence/'fixture-artifacts.json').write_text(json.dumps(copied, indent=2)+'\n')
+                  assert sum(p.stat().st_size for p in evidence.rglob('*') if p.is_file()) <= 64*1024**2
+                  PY
+            - name: Upload immutable offline source and native proof on every outcome
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: arome142-static-native-${{ github.run_id }}
+                  path: ${{ runner.temp }}/arome142-native-evidence
+                  if-no-files-found: warn
+                  retention-days: 14
