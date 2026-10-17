@@ -22,7 +22,9 @@ export const generateTacticalAdvice = (
     sunsetTime?: string,
 ): string => {
     const wind = metrics.windSpeed || 0;
-    const wave = metrics.waveHeight || 0;
+    const waveKnown =
+        typeof metrics.waveHeight === 'number' && Number.isFinite(metrics.waveHeight) && metrics.waveHeight >= 0;
+    const wave = waveKnown ? metrics.waveHeight! : 0;
     const vis = metrics.visibility;
     const _gust = metrics.windGust || wind * 1.3;
     const cond = (metrics.condition || '').toLowerCase();
@@ -93,6 +95,8 @@ export const generateTacticalAdvice = (
             vesselStatus += `DANGER: Seas > ${maxWave}ft exceed handling limits. Do not proceed. `;
         } else if (wind > maxWind * 0.75 || wave > maxWave * 0.75) {
             vesselStatus += `Conditions are rough. Expect spray and uncomfortable motion. Experienced crew only recommended today. `;
+        } else if (!waveKnown && !isLandlocked) {
+            vesselStatus += 'Sea state unavailable; the vessel sea limit cannot be assessed. ';
         } else {
             if (wind < maxWind * 0.4 && wave < maxWave * 0.3) {
                 vesselStatus += `Conditions are excellent. Smooth sailing expected. Perfect for guests or easy cruising. `;
@@ -105,7 +109,7 @@ export const generateTacticalAdvice = (
     // --- COMPOSE SUMMARY ---
 
     // Wind Analysis
-    if (wind < 5) summary += 'The air is nearly still. Mirror-like conditions prevail with light airs only. ';
+    if (wind < 5) summary += 'The air is nearly still, with light airs only. ';
     else if (wind < 10)
         summary += `A light breeze (${wind.toFixed(0)} kts) ripples the water, coming from the ${expandCompassDirection(metrics.windDirection)}. Perfect for gentle drifting. `;
     else if (wind < 15)
@@ -122,7 +126,8 @@ export const generateTacticalAdvice = (
     else summary += 'STORM CONDITIONS. Survival weather. Seek urgent shelter. ';
 
     // Sea State
-    if (!isLandlocked && wave > 0) {
+    if (!isLandlocked && !waveKnown) summary += 'Sea state unavailable. Check local sea conditions. ';
+    else if (!isLandlocked && waveKnown) {
         if (wave < 1) summary += 'Seas are flat to calm. ';
         else if (wave < 3) summary += `Slight chop (${wave.toFixed(1)} ft) on the open water. `;
         else if (wave < 6) summary += `Moderate seas (${wave.toFixed(1)} ft) rolling through. `;
@@ -154,7 +159,9 @@ export const generateTacticalAdvice = (
             const cause =
                 wind > 20 && wave > 6 ? 'Strong wind and heavy seas' : wind > 20 ? 'Strong wind' : 'Heavy seas';
             summary += `${cause} forecast. Only suitable for capable vessels and experienced hands.`;
-        } else if (wind > 10) summary += 'Good conditions for sailing or planing. Enjoy the water.';
+        } else if (!waveKnown && !isLandlocked)
+            summary += 'Sea state unavailable; check local conditions and vessel limits.';
+        else if (wind > 10) summary += 'Good conditions for sailing or planing. Enjoy the water.';
         else summary += 'Tranquil conditions. Excellent for all activities.';
     }
 

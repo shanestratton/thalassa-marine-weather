@@ -10,23 +10,28 @@ afterEach(() => {
 });
 
 describe('regional terrain publication and navigation boundary', () => {
-    it('keeps every unapproved provider proof inactive and preserves the current published layers', async () => {
+    it('admits only completely published AU/NZ plus the existing layers, keeping NOAA/EMODnet held', async () => {
         const { RELIEF_DISPLAY_REGIONS, ownedReliefFile } = await import('../services/reliefDisplayRegions');
         const { reliefTile, planReliefArea } = await import('../services/offlineReliefPlan');
         const { RELIEF_LAYER_IDS } = await import('../components/map/reliefBase');
-        expect(RELIEF_DISPLAY_REGIONS.map((region) => region.id)).toEqual(['global', 'au']);
+        expect(RELIEF_DISPLAY_REGIONS.map((region) => region.id)).toEqual(['global', 'au250', 'au', 'nz']);
         expect(RELIEF_LAYER_IDS).toEqual([
             'relief-global-tint',
             'relief-global-shade',
+            'relief-au250-tint',
+            'relief-au250-shade',
             'relief-au-tint',
             'relief-au-shade',
+            'relief-nz-tint',
+            'relief-nz-shade',
         ]);
-        for (const id of ['eu', 'us', 'pr', 'nz', 'au250']) {
+        for (const id of ['eu', 'us', 'pr']) {
             expect(reliefTile(`https://tiles.thalassatiles.com/v2/relief-${id}/idx/8/80/120.png`)).toBeNull();
             expect(ownedReliefFile(`v2_${id}_idx_8_80_120.png`)).toBe(false);
         }
         const plan = planReliefArea({ north: -31.9, south: -32.1, west: 115.5, east: 115.7 }, 13);
-        expect(plan.tiles.every((tile) => tile.url.includes('/relief-global/'))).toBe(true);
+        expect(plan.tiles.some((tile) => tile.url.includes('/v2/relief-au250/'))).toBe(true);
+        expect(plan.tiles.every((tile) => /\/relief-(global|au250)\//.test(tile.url))).toBe(true);
         expect(ownedReliefFile('unrelated-user-chart.mbtiles')).toBe(false);
         expect(ownedReliefFile('../v1_global_idx_1_0_0.png')).toBe(false);
     });

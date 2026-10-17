@@ -44,7 +44,8 @@ describe('relief-only offline workflow', () => {
         expect(screen.getByText(/Mapbox imagery, place labels and public OSM tiles are not stored/)).toBeVisible();
         expect(screen.getByText(/licensed charts require your boat Pi connection/)).toBeVisible();
         expect(screen.getByText(/persistent app storage/)).toBeVisible();
-        expect(screen.getByRole('slider', { name: 'Maximum relief detail' })).toHaveAttribute('max', '13');
+        expect(screen.getByRole('slider', { name: 'Maximum relief detail' })).toHaveAttribute('max', '14');
+        expect(screen.getByText(/New Zealand retains native NZVD2016 heights, not MSL/)).toBeVisible();
     });
     it('passes only scoped relief bounds and cancels the active operation', async () => {
         let report: ((p: ReliefProgress) => void) | undefined, finish: (() => void) | undefined;

@@ -87,6 +87,11 @@ declare module '*.png' {
     const src: string;
     export default src;
 }
+/** Vite's raw-text loader, also used by browser replay fixtures. */
+declare module '*.txt?raw' {
+    const text: string;
+    export default text;
+}
 declare const __BUILD_STAMP__: string;
 /** True only in a THALASSA_DEBUG_AIS_INJECTOR=1 device-smoke build (125-01); false in every release. */
 declare const __THALASSA_DEBUG_AIS_INJECTOR__: boolean;

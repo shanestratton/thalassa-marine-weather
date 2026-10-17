@@ -14,6 +14,7 @@ import {
     OFFSHORE_MODELS,
     resolveOffshoreModel,
     getOffshoreModelInfo,
+    offshoreAtmosphericModel,
     MODEL_ATTRIBUTION_LINE,
     forecastDataCredit,
     providerLicence,
@@ -23,7 +24,7 @@ import {
 
 describe('forecastModels', () => {
     it('keeps supported offshore source keys separate from atmospheric model domains', () => {
-        expect(OFFSHORE_MODELS.map((model) => model.id)).toEqual(['sg', 'ecmwf', 'gfs', 'icon']);
+        expect(OFFSHORE_MODELS.map((model) => model.id)).toEqual(['auto', 'ecmwf', 'gfs', 'icon']);
         for (const model of OFFSHORE_MODELS) {
             expect(resolveOffshoreModel(model.id)).toBe(model.id);
             expect(getOffshoreModelInfo(model.id)).toEqual(model);
@@ -31,12 +32,18 @@ describe('forecastModels', () => {
         }
     });
 
-    it.each([undefined, null, '', 'ecmwf_aifs025_single', 'dwd_icon', 'spitfire', 'best_match'])(
-        'defaults invalid offshore choice %s to the supported blend',
+    it.each([undefined, null, '', 'sg', 'ecmwf_aifs025_single', 'dwd_icon', 'spitfire', 'best_match'])(
+        'migrates legacy or invalid offshore choice %s to Auto',
         (stored) => {
-            expect(resolveOffshoreModel(stored)).toBe('sg');
+            expect(resolveOffshoreModel(stored)).toBe('auto');
         },
     );
+    it('uses exact offshore atmosphere domains independently from fine-domain rollout', () => {
+        for (const value of ['auto', 'sg', 'ecmwf'] as const)
+            expect(offshoreAtmosphericModel(value)).toBe('ecmwf_ifs025');
+        expect(offshoreAtmosphericModel('gfs')).toBe('gfs_seamless');
+        expect(offshoreAtmosphericModel('icon')).toBe('dwd_icon');
+    });
 
     it('offers the model domains that actually carry wind', () => {
         expect(SELECTABLE_MODELS.map((m) => m.id)).toEqual([

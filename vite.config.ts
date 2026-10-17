@@ -34,6 +34,8 @@ import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
 import { shareSvgProps } from './scripts/share-svg-props.mjs';
 import { shareSvgPaths } from './scripts/share-svg-paths.mjs';
 import { packPolarArguments } from './scripts/pack-polar-arguments.mjs';
+import { packReliefInventories } from './scripts/pack-relief-rows.mjs';
+import { packMapboxShaders } from './scripts/pack-mapbox-shaders.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 import { handler as handleNoaaChart } from './api/noaa-chart';
@@ -631,6 +633,8 @@ export default defineConfig(({ mode }) => {
             jspdfPrimitives(__dirname),
             packTimezoneData(__dirname),
             packPolarArguments(__dirname),
+            packReliefInventories(__dirname),
+            packMapboxShaders(__dirname),
             shareSvgProps(__dirname),
             packedUiData.plugin,
             shareSvgPaths(__dirname, { data: packedUiData }),

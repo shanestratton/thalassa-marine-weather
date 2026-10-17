@@ -24,24 +24,30 @@ import { ECMWF_9KM } from './regionalModels';
  * separate so returning inshore restores the skipper's atmospheric choice. */
 export const OFFSHORE_MODELS: { id: OffshoreModel; label: string; provider: string; blurb: string; hex: string }[] = [
     {
-        id: 'sg',
+        id: 'auto',
         // 'Auto', not the internal 'SG BLEND': Preferences led with an
         // abbreviation while the Glass's own picker says 'Auto' for the source
         // the app picks (UX scorecard run 10). Not 'Auto blend': at 85 px its
         // capitals overran the 128 px model pill.
         label: 'Auto',
-        provider: 'StormGlass',
-        blurb: 'Automatic offshore source selection',
+        provider: 'ECMWF / Météo-France',
+        blurb: 'ECMWF atmosphere with Météo-France sea forecast',
         hex: '#34d399',
     },
     {
         id: 'ecmwf',
         label: 'ECMWF',
         provider: 'ECMWF',
-        blurb: 'European offshore forecast via StormGlass',
+        blurb: 'European global atmosphere with Météo-France sea forecast',
         hex: '#38bdf8',
     },
-    { id: 'gfs', label: 'GFS', provider: 'NOAA', blurb: 'Global offshore forecast via StormGlass', hex: '#fbbf24' },
+    {
+        id: 'gfs',
+        label: 'GFS',
+        provider: 'NOAA',
+        blurb: 'American atmosphere with Météo-France sea forecast',
+        hex: '#fbbf24',
+    },
     {
         id: 'icon',
         label: 'ICON',
@@ -52,11 +58,18 @@ export const OFFSHORE_MODELS: { id: OffshoreModel; label: string; provider: stri
 ];
 
 export function resolveOffshoreModel(stored: unknown): OffshoreModel {
-    return OFFSHORE_MODELS.find((model) => model.id === stored)?.id ?? 'sg';
+    return OFFSHORE_MODELS.find((model) => model.id === stored)?.id ?? 'auto';
+}
+
+/** Offshore Auto deliberately means the named global ECMWF domain, independent
+ * of the inshore picker and any optional finer-domain rollout. */
+export function offshoreAtmosphericModel(stored: OffshoreModel): WeatherModel {
+    const model = resolveOffshoreModel(stored);
+    return model === 'gfs' ? 'gfs_seamless' : model === 'icon' ? 'dwd_icon' : 'ecmwf_ifs025';
 }
 
 export function getOffshoreModelInfo(model: OffshoreModel) {
-    return OFFSHORE_MODELS.find((entry) => entry.id === model)!;
+    return OFFSHORE_MODELS.find((entry) => entry.id === resolveOffshoreModel(model))!;
 }
 
 export interface ForecastModelInfo {

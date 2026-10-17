@@ -10,7 +10,7 @@ import {
     VesselDimensionUnits,
 } from '../types';
 import { convertLength, convertSpeed } from '../utils';
-import { fetchStormGlassWeather } from './weather/api/stormglass';
+import { fetchFastWeather } from './weather';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 const log = createLogger('Gemini');
 
@@ -631,14 +631,10 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
         if (diffDays >= -1 && diffDays <= 10) {
             try {
                 const pOrigin = plan.originCoordinates
-                    ? fetchStormGlassWeather(plan.originCoordinates.lat, plan.originCoordinates.lon, 'Origin')
+                    ? fetchFastWeather('Origin', plan.originCoordinates)
                     : Promise.resolve(null);
                 const pDest = plan.destinationCoordinates
-                    ? fetchStormGlassWeather(
-                          plan.destinationCoordinates.lat,
-                          plan.destinationCoordinates.lon,
-                          'Destination',
-                      )
+                    ? fetchFastWeather('Destination', plan.destinationCoordinates)
                     : Promise.resolve(null);
 
                 const [wOrigin, wDest] = await Promise.all([pOrigin, pDest]);

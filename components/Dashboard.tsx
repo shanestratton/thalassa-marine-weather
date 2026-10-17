@@ -341,7 +341,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const forecastModelLabel = useMemo(() => {
         if (isOffshore) {
             const model = resolveOffshoreModel(pinnedOffshoreModel);
-            return model === 'sg' ? null : getOffshoreModelInfo(model).label;
+            return model === 'auto' ? null : getOffshoreModelInfo(model).label;
         }
         const model = resolveForecastModel(pinnedForecastModel);
         if (isSpitfire(model)) return 'SPITFIRE';

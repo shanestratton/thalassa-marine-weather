@@ -16,8 +16,13 @@ import { Router, Request, Response } from 'express';
 import { Cache } from '../cache.js';
 import { ProxyConfig, cachedJsonFetch, supabaseEdgeUrl, supabaseHeaders, openMeteoProxyRequest } from '../proxy.js';
 import { TTL } from '../scheduler.js';
+import { readMarineEnvelopeV2 } from '../marine/marine-v2.js';
 
-export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
+export function createWeatherRoutes(
+    cache: Cache,
+    config: ProxyConfig,
+    dependencies: { marineFetch?: typeof cachedJsonFetch } = {},
+): Router {
     const router = Router();
 
     /**
@@ -97,6 +102,42 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
         try {
             const { lat, lon } = req.query;
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
+
+            const schema = req.query.schema;
+            if (schema !== undefined && schema !== '2')
+                return res.status(400).json({ error: 'Unsupported marine schema' });
+            if (schema === '2') {
+                const latitude = typeof lat === 'string' && lat.trim() ? Number(lat) : NaN;
+                const longitude = typeof lon === 'string' && lon.trim() ? Number(lon) : NaN;
+                if (
+                    !Number.isFinite(latitude) ||
+                    Math.abs(latitude) > 90 ||
+                    !Number.isFinite(longitude) ||
+                    Math.abs(longitude) > 180
+                )
+                    return res.status(400).json({ error: 'lat/lon must be valid coordinates' });
+                const point = { latitude: Number(latitude.toFixed(4)), longitude: Number(longitude.toFixed(4)) };
+                const result = await (dependencies.marineFetch ?? cachedJsonFetch)(cache, {
+                    url: supabaseEdgeUrl(config, 'get-marine', {
+                        lat: point.latitude.toFixed(4),
+                        lon: point.longitude.toFixed(4),
+                        schema: 2,
+                    }),
+                    headers: supabaseHeaders(config),
+                    cacheKey: `weather:marine:v2:${point.latitude.toFixed(4)}:${point.longitude.toFixed(4)}`,
+                    ttlMs: 5 * 60_000,
+                    staleWindowMs: 0,
+                    timeout: 4000,
+                    source: 'marine-schema-2',
+                });
+                const admitted = readMarineEnvelopeV2(result.data, point, Date.now());
+                // Generic weather caching may serve expired data after an upstream
+                // failure even with a zero SWR window. Schema 2 keeps this lane fresh.
+                if (result.stale || !admitted || (!admitted.waves && !admitted.motion))
+                    return res.status(502).json({ error: 'Marine schema unavailable' });
+                res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
+                return res.json(admitted);
+            }
 
             // Round to 2dp like /combined does (~1 km grid). Without it, GPS
             // drift on a moored boat produced a new cache key on every request

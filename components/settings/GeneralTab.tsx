@@ -29,7 +29,7 @@ import type { LengthUnit } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
 import { canAccess } from '../../services/SubscriptionService';
 import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
-import { OFFSHORE_MODELS } from '../../services/weather/forecastModels';
+import { OFFSHORE_MODELS, resolveOffshoreModel } from '../../services/weather/forecastModels';
 import { offshoreModelHelper } from '../dashboard/ModelPickerSheet';
 import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 import { sanitiseCollisionPrefs, type CollisionPair, type CollisionPrefs } from '../../utils/collisionRule';
@@ -407,10 +407,10 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             {OFFSHORE_MODELS.map((m) => ({
                                 value: m.id,
                                 label: m.label,
-                                tag: m.id === 'sg' ? 'Default' : undefined,
+                                tag: m.id === 'auto' ? 'Default' : undefined,
                                 desc: offshoreModelHelper(m.id),
                             })).map((opt) => {
-                                const isActive = (settings.offshoreModel || 'sg') === opt.value;
+                                const isActive = resolveOffshoreModel(settings.offshoreModel) === opt.value;
                                 return (
                                     <button
                                         key={opt.value}

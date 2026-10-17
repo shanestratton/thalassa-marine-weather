@@ -295,7 +295,9 @@ async function fetchTile(tile: ReliefTile, signal: AbortSignal): Promise<Uint8Ar
             signal: controller.signal,
             redirect: 'error',
             credentials: 'omit',
-            cache: 'reload',
+            // Distinguish explicit consent from Mapbox/browser hard reloads.
+            // The SW must never substitute saved bytes for this fresh read.
+            cache: 'no-store',
         });
         checkAbort(signal);
         if (response.redirected || (response.url && response.url !== tile.url))

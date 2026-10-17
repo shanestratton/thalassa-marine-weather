@@ -51,6 +51,8 @@ const ANONYMOUS_KEY = 'anonymous';
  * only synchronous one, and this value is an identifier, not a credential.
  */
 const LAST_USER_KEY = 'thalassa_last_user_id_v1';
+/** Independent private Pi access; never retain it through an account transition. */
+export const OWN_BOAT_SKILL_CAPABILITY_KEY = 'thalassa_own_boat_skill_capability_v1';
 
 function readLastUserId(): string | null {
     try {
@@ -103,6 +105,12 @@ export function setAuthIdentityScope(userId: string | null): AuthIdentityScope {
     if (key === currentScope.key) return currentScope;
 
     const previous = currentScope;
+    try {
+        if (typeof localStorage !== 'undefined')
+            localStorage.removeItem(authScopedStorageKey(OWN_BOAT_SKILL_CAPABILITY_KEY, previous));
+    } catch {
+        // Unavailable storage never prevents the synchronous account fence.
+    }
     currentScope = Object.freeze({
         key,
         userId: normalizedUserId,

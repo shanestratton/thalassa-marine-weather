@@ -30,6 +30,7 @@ const exactEncryptedKeys = new Set([
     'thalassa_synoptic_charts_v1',
 ]);
 const scopedEncryptedBaseKeys = [
+    'thalassa_private_comfort_pending_v1',
     'thalassa_offline_tides_v1',
     DATA_CACHE_KEY,
     VOYAGE_CACHE_KEY,

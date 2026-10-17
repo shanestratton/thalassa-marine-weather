@@ -52,11 +52,11 @@ describe('Glass chooses the source that serves the selected environment', () => 
         for (const model of ['AIFS', 'UKMO', 'JMA', 'Spitfire']) {
             expect(within(sheet).queryByRole('button', { name: `Use the ${model} forecast model` })).toBeNull();
         }
-        // The offshore list's own 'Auto' (StormGlass source selection, named
-        // so since UX scorecard run 10), not the inshore Auto blend.
+        // Offshore Auto is exact ECMWF atmosphere, independently paired with
+        // marine data; the inshore Auto blend remains a separate preference.
         expect(within(sheet).queryByText('Blend of sources — no single model chosen')).toBeNull();
         expect(within(sheet).getByRole('button', { name: 'Use the Auto forecast model' })).toHaveTextContent(
-            /StormGlass/,
+            /ECMWF.*Météo-France/,
         );
         fireEvent.click(within(sheet).getByRole('button', { name: 'Use the GFS forecast model' }));
         expect(mocks.updateSettings).toHaveBeenCalledExactlyOnceWith({ offshoreModel: 'gfs' });

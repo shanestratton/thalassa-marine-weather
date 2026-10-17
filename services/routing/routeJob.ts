@@ -30,7 +30,11 @@
  */
 import type { FeatureCollection } from 'geojson';
 import { routeInshore, type InshoreLayers } from '../inshoreRouterEngine';
-import { auditFinishedRouteExclusions, finishedTrafficLaneGuidance } from '../engine/exclusionField';
+import {
+    auditFinishedRouteExclusions,
+    finishedTrafficLaneGuidance,
+    isRouteStackOverflow,
+} from '../engine/exclusionField';
 import type {
     CautionNearShallow,
     ChartedShallowSpan,
@@ -718,7 +722,8 @@ export function runRouteJob(job: RouteJob): RouteJobOutput {
                         else delete current.trafficLaneGuidance;
                         output.result = current;
                     }
-                } catch {
+                } catch (error) {
+                    if (isRouteStackOverflow(error)) throw error;
                     output.result = {
                         error: 'The finished route’s traffic-lane guidance could not be fully checked. Review the chart and route again.',
                         code: 'exclusion-unavailable',
@@ -728,8 +733,11 @@ export function runRouteJob(job: RouteJob): RouteJobOutput {
             }
         }
     } catch (err) {
+        // A candidate assigned before its final audit is never an answer after
+        // any thrown audit. A stack retry must recompute and re-audit the job.
+        output.result = null;
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
-        if (err instanceof RangeError && /stack/i.test(err.message)) output.outOfStack = true;
+        if (isRouteStackOverflow(err)) output.outOfStack = true;
     }
     timings.endedAt = Date.now();
     return output;

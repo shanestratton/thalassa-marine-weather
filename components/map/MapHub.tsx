@@ -365,6 +365,7 @@ const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
+const MeasuredBuoysLayer = React.lazy(() => import('./MeasuredBuoysLayer'));
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
 const SshObservedLayer =
@@ -408,6 +409,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
     const [sshMode, setSshMode] = useState<SshMode>('off');
     const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
+    const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
+    const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
     const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
     const [localLibraryCredit, setLocalLibraryCredit] = useState<AtmosCredit | null>(null);
     const [localLibraryRequested, setLocalLibraryRequested] = useState(false);
@@ -2280,6 +2283,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         receiverCoverageVisible,
         setReceiverCoverageVisible,
         browseReceiverCoverageVisible,
+        measuredBuoysVisible,
+        setMeasuredBuoysVisible,
+        measuredBuoysLoaded,
+        browseMeasuredBuoysVisible,
         setChokepointVisible,
         cycloneVisible,
         setCycloneVisible,
@@ -2869,13 +2876,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        setEncPopupSuppression(map, pickerMode || browseWeatherInspectMode || chartDrawingOwnsChart);
+        setEncPopupSuppression(
+            map,
+            pickerMode || browseWeatherInspectMode || chartDrawingOwnsChart || buoyCardOwnsChart,
+        );
         setEncDepthPopupEnabled(map, cleanPlanningMap);
         return () => {
             setEncPopupSuppression(map, false);
             setEncDepthPopupEnabled(map, true);
         };
-    }, [pickerMode, browseWeatherInspectMode, chartDrawingOwnsChart, cleanPlanningMap, mapReady]);
+    }, [pickerMode, browseWeatherInspectMode, chartDrawingOwnsChart, buoyCardOwnsChart, cleanPlanningMap, mapReady]);
     // Picker mode pauses the ENC cloud-hydration walk. Panning the
     // location picker from home water to an un-synced coast (SE QLD →
     // GBR: 74 cells / 95 MB, none on-device) otherwise downloads
@@ -3427,7 +3437,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // The drawing tool's own gesture lease is deliberately excluded: including
     // it would cancel the draft as soon as its first point claims the chart.
     const chartDrawingCanDraw =
-        chartDrawingAvailable && !paperChartsOpen && !chartFindOpen && !noaaCatalogueOpen && !userOverlaysOpen;
+        chartDrawingAvailable &&
+        !paperChartsOpen &&
+        !chartFindOpen &&
+        !noaaCatalogueOpen &&
+        !userOverlaysOpen &&
+        !buoyCardOwnsChart;
     useEffect(() => {
         if (obsShowing) setChartDrawingLoaded(true);
         else {
@@ -3450,7 +3465,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             coordCaptureMode ||
             browseWeatherInspectMode ||
             !!passage.settingPoint ||
-            chartDrawingOwnsChart,
+            chartDrawingOwnsChart ||
+            buoyCardOwnsChart,
     });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
@@ -4400,6 +4416,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setAisVisible,
                             receiverCoverageVisible,
                             setReceiverCoverageVisible,
+                            measuredBuoysVisible,
+                            setMeasuredBuoysVisible,
                             cycloneVisible,
                             setCycloneVisible,
                             squallVisible,
@@ -5721,6 +5739,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseAnchorageVisible ? 1 : 0) +
                             (browseFacilitiesVisible ? 1 : 0) +
                             (browseBoatPresenceVisible ? 1 : 0) +
+                            (browseMeasuredBuoysVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5821,6 +5840,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {measuredBuoysLoaded && (
+                    <Suspense fallback={null}>
+                        <MeasuredBuoysLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseMeasuredBuoysVisible}
+                            canInteract={
+                                chartDrawingCanDraw &&
+                                !chartDrawingOwnsChart &&
+                                !chartDrawingOpen &&
+                                !routePickerOpen &&
+                                !trackPickerOpen &&
+                                !boatPresenceControlsOpen &&
+                                !clearView.on
+                            }
+                            onCredit={setMeasuredBuoyCredit}
+                            onInteractionChange={setBuoyCardOwnsChart}
+                        />
+                    </Suspense>
+                )}
                 {receiverCoverageVisible && (
                     <Suspense fallback={null}>
                         <ReceiverCoverageLayer
@@ -5833,6 +5872,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
                 {obsCreditsVisible && (
                     <ObsCreditsRollup
+                        relief={shownBase === 'relief' || shownBase === 'reliefSat' || shownBase === 'light'}
                         rain={
                             rainCreditShown
                                 ? (weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type ?? null)
@@ -5847,6 +5887,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         atmosphere={[
                             ...atmosPresentation.credits,
                             ...(sshCredit ? [sshCredit] : []),
+                            ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
                             ...(sharperCredit ? [sharperCredit] : []),
                             ...(localLibraryCredit ? [localLibraryCredit] : []),
                         ]}
