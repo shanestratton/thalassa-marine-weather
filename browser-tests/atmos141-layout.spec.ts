@@ -153,6 +153,9 @@ for (const width of [300, 375])
         await extent();
         expect(errors).toEqual([]);
         expect(outbound).toEqual([]);
+        expect(
+            ((await page.evaluate(() => window.__atmos141.evidence())) as { mapErrors: string[] }).mapErrors,
+        ).toEqual([]);
         await info.attach('source-and-extent.json', {
             body: JSON.stringify(await page.evaluate(() => window.__atmos141.evidence()), null, 2),
             contentType: 'application/json',

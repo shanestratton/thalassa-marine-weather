@@ -147,3 +147,41 @@ key and reopening it after all layers were off), and a synthetic glyph bitmap
 border correction. The pre-extraction four-case receipt is retained at
 `work/atmos141-browser-pre-extraction-pass.json`; shared vector extraction will
 require another actual four-case run, including source-cleanup map errors.
+
+## Shared bounded GeoJSON owner
+
+`components/map/useOwnedGeoJsonOverlay.ts` exports
+`useOwnedGeoJsonOverlay(mapRef, mapReady, options)`. Options bind a fixed namespace,
+label/credit, enabled state, original owner object/revision/current-source proof,
+stable `createData(map)` factory, fixed `{suffix, specification}` line/symbol
+layers and caller feature/vertex caps. Optional `refreshOnMoveEnd` coalesces a
+viewport burst for 100 ms, replaces one frame and requires a new actual worker
+completion. The hook neither fetches nor retains a geometry history. It installs
+`${namespace}-source` and `${namespace}-${suffix}`; callers must reserve distinct
+image/vector namespaces.
+
+The owned snapshot accepts only bounded Point/LineString/MultiLineString
+coordinates and plain bounded properties, rejects latitude beyond Mercator
+±85.05112878 and caps aggregate serialization at 4 MiB. It checks original source
+currentness before and after construction and before every presentation/adoption.
+Readiness requires an owned successful GeoJSON worker metadata/content event,
+current original proof, matching dependent layers and a loaded source. No such
+event within ten seconds retires the presentation. Restyle/removal/foreign source
+and layer behavior retains the existing conservative ownership rules.
+
+Pressure is a thin adapter using `atmos-pressure-symbols`; its standalone image
+retains `atmos-pressure`. The first extraction browser run caught a collision
+between those two sources and is preserved. A regression now installs the image
+owner first and proves that vector mounting/retirement never mutates it. Shared
+retirement removes or verifies hidden every dependent layer before attempting
+the source; it never attempts source removal while another owned layer uses it.
+Uncertain removal still retains the attributed persistent warning after unmount.
+
+Final extraction proof passed 81 cases across five focused suites, scoped lint,
+format/diff checks, then all four actual Chrome/WebKit phone cases at 300/375 px
+and 130% text. Those cases now also require zero native Mapbox errors throughout
+model, UTC, user-off and late-response transitions. Both selected screenshots
+were inspected again. The generic arrow shape in unit tests is synthetic;
+actual SSH source/arrows are integrated separately by the parent. Full compiler,
+configured bundle, native device memory and real atmosphere publication remain
+separate requirements.
