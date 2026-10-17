@@ -57,7 +57,7 @@ function fixture() {
         now: () => now,
         installed: async () => [{ cellId: 'US5TEST1', sourceHO: 'US', licence: 'open', edition: 1, updateNumber: 0 }],
         store: {
-            load: async (namespace: string) =>
+            load: async (namespace: string): Promise<NoaaEditionState> =>
                 structuredClone(
                     saved ?? {
                         schema: 1,
