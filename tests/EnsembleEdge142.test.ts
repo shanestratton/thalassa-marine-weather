@@ -63,7 +63,9 @@ describe('142 bounded ensemble edge', () => {
         p.fetch = vi.fn(async () => new Response('secret-url-and-error', { status: 403 }));
         const response = await handleEnsemble(request(), p);
         expect(response.status).toBe(503);
-        expect((await response.json()).error).toContain('Existing weather plan');
+        expect((await response.json()).error).toBe(
+            'Ensemble access unavailable with the configured weather credential',
+        );
         expect(p.fetch).toHaveBeenCalledTimes(1);
     });
     it('refuses a declared oversized body before JSON allocation', async () => {

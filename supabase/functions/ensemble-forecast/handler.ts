@@ -73,7 +73,7 @@ export async function handleEnsemble(req: Request, ports: EnsemblePorts): Promis
             await upstream.body?.cancel();
             return reply({
                 error: upstream.status === 401 || upstream.status === 403
-                    ? 'Existing weather plan could not supply this ensemble product'
+                    ? 'Ensemble access unavailable with the configured weather credential'
                     : 'Ensemble upstream unavailable',
             }, 503);
         }

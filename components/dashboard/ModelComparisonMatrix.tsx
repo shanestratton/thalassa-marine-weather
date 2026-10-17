@@ -857,7 +857,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-4 pt-2 pb-1">
+                    <div className="sticky top-0 z-10 flex items-center justify-between bg-slate-900 px-4 pt-2 pb-1">
                         <div>
                             <h2
                                 id="model-comparison-title"
@@ -878,7 +878,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                             ref={closeButtonRef}
                             onClick={onClose}
                             aria-label="Close"
-                            className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                            className="hit-target-44 min-h-[44px] min-w-[44px] shrink-0 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                         >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path

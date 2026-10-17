@@ -1,7 +1,7 @@
 # 142-04 genuine ensemble bands
 
 Source-only implementation; the new Edge function has not been deployed or
-admitted against the existing credential. No purchase, subscription change,
+admitted against the production credential. No purchase, subscription change,
 provider bulk read, forecast-model switch or routing adoption is included.
 
 The reachable Glass Model Convergence sheet has an explicit 44 px opener. Its
@@ -40,13 +40,22 @@ Primary sources checked 17 October 2026:
 - [Official seasonal OpenAPI](https://github.com/open-meteo/open-meteo/blob/main/openapi/seasonal.yml)
 - [Professional-plan product access](https://open-meteo.com/en/pricing)
 
-The user has already stated that Professional is active. The existence of
-`OPEN_METEO_KEY` in wx `/etc/thalassa/capture.env` was checked without exporting
-values; that is presence evidence, not proof that this Edge credential can access
-both products. An exact bounded capability/deployment/readback review remains.
+The user has already stated that Professional is active. Two explicitly bounded
+requests using wx `/etc/thalassa/capture.env`'s `OPEN_METEO_KEY` each returned
+403, with no qualified original member payload. This is refusal of that saved
+credential, not evidence of a lost plan or of the production proxy's access.
+There were no retries. The separate, actual live `proxy-openmeteo` version 20
+readback names `OPEN_METEO_API_KEY`; this new function uses that same existing
+secret name. Neither value was exported. A reviewed deployment and authenticated
+readback using the production credential remain necessary.
 
 Focused proof: 109 cases in five suites, including the original model matrix and
 commercial-secret boundary, pass. These are fictional payload/UI fixtures,
-not live provider acceptance or physical-phone proof. Browser phone geometry,
-Deno checking and final configured byte measurement remain before release.
+not live provider acceptance or physical-phone proof. Four Chrome/WebKit cases
+at 300/375 px, 130% type and 667 px height pass with fictional fetches only:
+default-collapsed performs no ensemble read, controls and persistent Close have
+44 px targets and real centre hit tests, and neither page extent nor modal width
+grows. The Close's previous pseudo target was replaced with an actual 44 px box.
+Deno 2.9.4 checks the actual index with the existing frozen dependency lock.
+Final configured byte measurement remains before release.
 The existing JavaScript/asset ceilings are unchanged.
