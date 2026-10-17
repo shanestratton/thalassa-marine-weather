@@ -342,6 +342,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 const PaperChartSheet = React.lazy(() => import('./PaperChartSheet'));
+const PlaceReviewsHost = React.lazy(() => import('../community/PlaceReviewsHost'));
 const ChartFindSheet = React.lazy(() => import('./ChartFindSheet'));
 const ObsNoticesLayer = React.lazy(() => import('./ObsNoticesLayer'));
 const UserOverlayLayer = React.lazy(() => import('./UserOverlayLayer'));
@@ -6192,6 +6193,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
             </div>
 
+            <Suspense fallback={null}>
+                <PlaceReviewsHost />
+            </Suspense>
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
             <Suspense fallback={null}>
                 {isHelmSplit && (
