@@ -410,12 +410,16 @@ export async function loadToday(
                     /* cancelled: the sheet closed or the account changed */
                 },
             );
-            // The bounded own OSM cells complement the atlas worldwide. Keep
-            // the atlas's early delivery and actual-ID deduplication unchanged.
-            const namesPart = Promise.all(
-                tiles.map((tile) =>
-                    f.part(() => deps.loadNamedPlaces(tile, f.signal), null, PART_DEADLINE_MS, 'place names'),
-                ),
+            // Names complement places where the atlas has none. Keep its own
+            // Queensland names and avoid redundant owned OSM requests there.
+            const namesPart = atlasPart.then((atlas) =>
+                atlas?.length
+                    ? []
+                    : Promise.all(
+                          tiles.map((tile) =>
+                              f.part(() => deps.loadNamedPlaces(tile, f.signal), null, PART_DEADLINE_MS, 'place names'),
+                          ),
+                      ),
             );
             const [atlas, cells, coastline, names] = await Promise.all([
                 atlasPart,

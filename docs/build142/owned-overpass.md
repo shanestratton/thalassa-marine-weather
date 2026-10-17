@@ -2,7 +2,7 @@
 
 This packet prepares the owned Overpass query path and retires app, Edge and Pi public-mirror calls. It does **not** install or admit a global database, open ingress, deploy an Edge, start a download/timer, or prove worldwide availability. Missing admission returns unavailable; it never manufactures an empty inventory. The separate facilities extract is partial and cannot qualify this database.
 
-The actual app paths are SeamarkService, CruisingReferenceService (including named bays/towns), coastline shelter reference, cloud/Pi route overlays and pilotage/seamarks. The existing Today plan combines its atlas with at most four bounded name cells; missing or sentinel-limited cells remain partial. Existing land/water selection, route geometry and the no-coastline/undamped-wave fallback remain unchanged. Main Glass best-local-model selection is a separate remaining integration; this packet does not label global coarse data as AROME.
+The actual app paths are SeamarkService, CruisingReferenceService (including named bays/towns), coastline shelter reference, cloud/Pi route overlays and pilotage/seamarks. The existing Today plan asks at most four bounded name cells where the atlas has no places; missing or sentinel-limited cells remain partial. Existing land/water selection, route geometry and the no-coastline/undamped-wave fallback remain unchanged. Main Glass best-local-model selection is a separate remaining integration; this packet does not label global coarse data as AROME.
 
 ## Prepared boundary
 
