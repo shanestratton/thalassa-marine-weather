@@ -175,6 +175,9 @@ export const ROUTE_ENGINE_SHARED_LEAVES = [
     'services/isochrone/polar.ts',
     'services/isochrone/geodesy.ts',
     'services/isochrone/routeSailingStats.ts',
+    // The ETA adapter and worker share this import-free DTO/validator/sampler.
+    // Lazy Today/RoutePlanner chunks must not fetch the router for current vectors.
+    'services/weather/currentSeries.ts',
 ];
 
 const clean = (id) => id.replaceAll('\\', '/');

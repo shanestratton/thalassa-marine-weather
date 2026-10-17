@@ -20,7 +20,8 @@ import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, use
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
 import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/worldFacilities';
-import type { AtmosPresentation } from './atmosPresentation';
+import type { AtmosCredit, AtmosPresentation } from './atmosPresentation';
+import type { SshMode } from './useSshObservation';
 import { pressureWindValidAt } from '../../services/weather/pressureProvenance';
 import type { BoatPresenceStatus } from './presence/BoatPresenceSurface';
 import { useTrackRouteRead } from './useTrackRouteRead';
@@ -81,6 +82,7 @@ import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { useSatelliteLayer } from './useSatelliteLayer';
+import { useSatellitePictureSelection } from './useSatellitePictureSelection';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 
 import {
@@ -363,6 +365,12 @@ const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOve
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
+const SshObservedLayer =
+    import.meta.env.VITE_ENABLE_OCEAN_EDDIES === 'true' ? React.lazy(() => import('./SshObservedLayer')) : null;
+const SharperSatelliteLayer =
+    import.meta.env.VITE_SHARPER_SATELLITE_ENABLED === 'true'
+        ? React.lazy(() => import('./SharperSatelliteLayer'))
+        : null;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -396,6 +404,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
+    const [sshMode, setSshMode] = useState<SshMode>('off');
+    const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
+    const [sharperCredit, setSharperCredit] = useState<AtmosCredit | null>(null);
+    const [sharperControls, setSharperControls] = useState<React.ReactNode | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings, updateSettings } = useSettings();
@@ -3545,6 +3557,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
     weatherRef.current = weather;
 
+    const toggleHourlySatellite = useCallback(() => weather.toggleLayer('satIR'), [weather.toggleLayer]);
+    const satellitePicture = useSatellitePictureSelection(
+        import.meta.env.VITE_SHARPER_SATELLITE_ENABLED === 'true',
+        weather.activeLayers.has('satIR'),
+        toggleHourlySatellite,
+    );
+
     // ── Observed satellite cloud (W1-10) ──
     // While rain is up and ready it shows the newest frame taken by the rain
     // scrubber's moment, so rain and cloud scrub together; otherwise the latest
@@ -3556,7 +3575,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const satellite = useSatelliteLayer(
         mapRef,
         mapReady,
-        weather.activeLayers.has('satIR') && !embedded && !pickerMode,
+        weather.activeLayers.has('satIR') && !satellitePicture.sharperVisible && !embedded && !pickerMode,
         satFollowTimeMs,
     );
 
@@ -3743,20 +3762,22 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
+            satellitePicture.weatherAction(layer);
             if ((layer === 'wind' || layer === 'velocity') && !wxActiveLayers.has(layer)) {
                 windOnGuards(layer);
             }
             wxToggleLayer(layer);
         },
-        [wxActiveLayers, wxToggleLayer, windOnGuards],
+        [wxActiveLayers, wxToggleLayer, windOnGuards, satellitePicture.weatherAction],
     );
 
     const helmSelectInGroup = useCallback(
         (layer: WeatherLayer, group: WeatherLayer[]) => {
+            satellitePicture.weatherAction(layer);
             if (layer === 'wind' || layer === 'velocity') windOnGuards(layer);
             wxSelectInGroup(layer, group);
         },
-        [wxSelectInGroup, windOnGuards],
+        [wxSelectInGroup, windOnGuards, satellitePicture.weatherAction],
     );
 
     // ── Lightning Strikes (Blitzortung) ──
@@ -4101,6 +4122,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         satelliteIr: weather.activeLayers.has('satIR'),
     };
     const obsKeyCount = !planningSurface && !embedded && !pickerMode && !isPinView ? obsLayerKeyCount(obsKeyProps) : 0;
+    const sharperLegend =
+        sharperControls ?? (satellitePicture.sharperVisible ? <p role="status">Loading satellite controls…</p> : null);
 
     return (
         <div
@@ -4375,6 +4398,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setFacilitiesVisible,
                             communityNotesVisible,
                             setCommunityNotesVisible,
+                            sshMode,
+                            setSshMode: import.meta.env.VITE_ENABLE_OCEAN_EDDIES === 'true' ? setSshMode : undefined,
+                            sharperSatelliteVisible: satellitePicture.sharperVisible,
+                            onToggleSharperSatellite:
+                                import.meta.env.VITE_SHARPER_SATELLITE_ENABLED === 'true'
+                                    ? satellitePicture.toggleSharper
+                                    : undefined,
                             boatPresenceVisible,
                             setBoatPresenceVisible,
                             setBoatPresenceControlsOpen,
@@ -5783,7 +5813,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 : null
                         }
                         cmems={cmemsAttributionLayers}
-                        atmosphere={atmosPresentation.credits}
+                        atmosphere={[
+                            ...atmosPresentation.credits,
+                            ...(sshCredit ? [sshCredit] : []),
+                            ...(sharperCredit ? [sharperCredit] : []),
+                        ]}
                         lightning={browseLightningVisible}
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
@@ -6216,40 +6250,46 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {!isPinView && !embedded && !pickerMode && (weather.activeLayers.size > 0 || obsKeyCount > 0) && (
-                    <Suspense fallback={null}>
-                        <MapWeatherControls
-                            weather={weather}
-                            creditsInRollup={obsCreditsVisible}
-                            chartPoint={{ lat: location.lat, lon: location.lon }}
-                            cmemsLayerStates={cmemsLayerStates}
-                            visible
-                            embedded={embedded}
-                            controlsHidden={chartControlsHidden}
-                            onControlsHiddenChange={setChartControlsHidden}
-                            extraLegend={
-                                obsKeyCount > 0 || atmosPresentation.legend ? (
-                                    <>
-                                        {atmosPresentation.legend}
-                                        {obsKeyCount > 0 && <ObsLayerKey {...obsKeyProps} />}
-                                    </>
-                                ) : undefined
-                            }
-                            extraLegendCount={obsKeyCount + atmosPresentation.credits.length}
-                            keepInClearView={clearView.available || clearView.on}
-                            desk={
-                                deskWind
-                                    ? {
-                                          palette: windPalette,
-                                          point: deskWindPoint,
-                                          pinned: capturedCoords.length > 0,
-                                          startMs: departureMs,
-                                      }
-                                    : undefined
-                            }
-                        />
-                    </Suspense>
-                )}
+                {!isPinView &&
+                    !embedded &&
+                    !pickerMode &&
+                    (weather.activeLayers.size > 0 || obsKeyCount > 0 || !!sharperLegend) && (
+                        <Suspense fallback={null}>
+                            <MapWeatherControls
+                                weather={weather}
+                                creditsInRollup={obsCreditsVisible}
+                                chartPoint={{ lat: location.lat, lon: location.lon }}
+                                cmemsLayerStates={cmemsLayerStates}
+                                visible
+                                embedded={embedded}
+                                controlsHidden={chartControlsHidden}
+                                onControlsHiddenChange={setChartControlsHidden}
+                                extraLegend={
+                                    obsKeyCount > 0 || atmosPresentation.legend || sharperLegend ? (
+                                        <>
+                                            {atmosPresentation.legend}
+                                            {sharperLegend}
+                                            {obsKeyCount > 0 && <ObsLayerKey {...obsKeyProps} />}
+                                        </>
+                                    ) : undefined
+                                }
+                                extraLegendCount={
+                                    obsKeyCount + atmosPresentation.credits.length + (sharperLegend ? 1 : 0)
+                                }
+                                keepInClearView={clearView.available || clearView.on}
+                                desk={
+                                    deskWind
+                                        ? {
+                                              palette: windPalette,
+                                              point: deskWindPoint,
+                                              pinned: capturedCoords.length > 0,
+                                              startMs: departureMs,
+                                          }
+                                        : undefined
+                                }
+                            />
+                        </Suspense>
+                    )}
                 {showEmbeddedRainViewerAttribution && (
                     <a
                         href="https://www.rainviewer.com/"
@@ -6262,6 +6302,32 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </a>
                 )}
                 <Suspense fallback={null}>
+                    {SharperSatelliteLayer && !embedded && !pickerMode && (
+                        <SharperSatelliteLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={
+                                obsShowing &&
+                                !isPinView &&
+                                !planningSurface &&
+                                !mobActive &&
+                                obsCreditsVisible &&
+                                satellitePicture.sharperVisible
+                            }
+                            onCredit={setSharperCredit}
+                            onControls={setSharperControls}
+                            onFallback={satellitePicture.useHourly}
+                        />
+                    )}
+                    {SshObservedLayer && !embedded && !pickerMode && (
+                        <SshObservedLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && !isPinView && !planningSurface && !mobActive && obsCreditsVisible}
+                            mode={sshMode}
+                            onCredit={setSshCredit}
+                        />
+                    )}
                     {AtmosWeatherLayer && !embedded && !pickerMode && (
                         <AtmosWeatherLayer
                             mapRef={mapRef}

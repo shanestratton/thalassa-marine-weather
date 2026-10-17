@@ -126,3 +126,92 @@ Network/Mapbox boundaries are mocked in these unit cases. The failed first vecto
 ownership receipt remains outside Git. Phone browser layout, full compiler,
 configured bundle and real provider/cohort publication are still pending; no
 readiness or live-source availability is inferred from these focused checks.
+
+## Phone fixture before generic vector extraction
+
+The actual Mapbox 3.19 local-fixture check passed Chrome and WebKit at 300/375 px
+and 130% text (four cases). The app kept the same 780 px document/canvas extent,
+44 px credit opener and internally scrolling chart panel. Tests exercised actual
+source installation, both selected-model endpoints, refused out-of-coverage UTC,
+unsupported model, credits, and delayed old response after user-off. Provider
+manifests/bytes and glyph bitmaps were synthetic loopback fixtures; there were no
+provider requests, publication checks or device-memory measurements. Screenshots
+were visually inspected at 300 px Chrome and 375 px WebKit.
+
+The first native run exposed distinct image and GeoJSON readiness assumptions.
+Image content can precede metadata/loading completion; a first successful GeoJSON
+worker parse emits metadata and subsequent parses emit content. Exact source,
+layer and original-lifetime checks remain mandatory. The preserved failed runs
+also include two fixture interaction corrections (opening the collapsed layer
+key and reopening it after all layers were off), and a synthetic glyph bitmap
+border correction. The pre-extraction four-case receipt is retained at
+`work/atmos141-browser-pre-extraction-pass.json`; shared vector extraction will
+require another actual four-case run, including source-cleanup map errors.
+
+## Shared bounded GeoJSON owner
+
+`components/map/useOwnedGeoJsonOverlay.ts` exports
+`useOwnedGeoJsonOverlay(mapRef, mapReady, options)`. Options bind a fixed namespace,
+label/credit, enabled state, original owner object/revision/current-source proof,
+stable `createData(map)` factory, fixed `{suffix, specification}` line/symbol
+layers and caller feature/vertex caps. Optional `refreshOnMoveEnd` coalesces a
+viewport burst for 100 ms, replaces one frame and requires a new actual worker
+completion. The hook neither fetches nor retains a geometry history. It installs
+`${namespace}-source` and `${namespace}-${suffix}`; callers must reserve distinct
+image/vector namespaces.
+
+The owned snapshot accepts only bounded Point/LineString/MultiLineString
+coordinates and plain bounded properties, rejects latitude beyond Mercator
+±85.05112878 and caps aggregate serialization at 4 MiB. It checks original source
+currentness before and after construction and before every presentation/adoption.
+Readiness requires an owned successful GeoJSON worker metadata/content event,
+current original proof, matching dependent layers and a loaded source. No such
+event within ten seconds retires the presentation. Restyle/removal/foreign source
+and layer behavior retains the existing conservative ownership rules.
+
+Pressure is a thin adapter using `atmos-pressure-symbols`; its standalone image
+retains `atmos-pressure`. The first extraction browser run caught a collision
+between those two sources and is preserved. A regression now installs the image
+owner first and proves that vector mounting/retirement never mutates it. Shared
+retirement removes or verifies hidden every dependent layer before attempting
+the source; it never attempts source removal while another owned layer uses it.
+Uncertain removal still retains the attributed persistent warning after unmount.
+
+Final extraction proof passed 81 cases across five focused suites, scoped lint,
+format/diff checks, then all four actual Chrome/WebKit phone cases at 300/375 px
+and 130% text. Those cases now also require zero native Mapbox errors throughout
+model, UTC, user-off and late-response transitions. Both selected screenshots
+were inspected again. The generic arrow shape in unit tests is synthetic;
+actual SSH source/arrows are integrated separately by the parent. Full compiler,
+configured bundle, native device memory and real atmosphere publication remain
+separate requirements.
+
+## Shared prepared-image owner
+
+`useOwnedImageOverlay` now owns the same ImageSource lifecycle as the scalar
+renderer. `useScalarGridOverlay` is a grid→512² PNG adapter; its original 51
+renderer/ownership cases and assertions are byte-unchanged and pass. A prepared
+image has bounded dimensions, local PNG/data or same-origin blob URL, Mercator-safe
+rectangular corners, original owner/revision/current-source proof and an optional
+idempotent release. No remote URL reaches Mapbox. The source still needs actual
+content followed by loaded/owned presentation, with the original ten-second
+deadline. Equivalent inline proof callbacks do not recreate a healthy image.
+
+The generic owner prepares one frame and reuses it after a style replacement.
+A blob release transfers to the renderer and occurs only after proven source
+absence or scene removal; proven-hidden residual sources retain their URL until
+resource absence too. Failed factories release unpresented URLs. Foreign or
+stuck-visible ownership retains its original attributed warning after unmount.
+Twelve added unit cases cover these URL, lifetime, bounds and handoff paths.
+
+The final actual browser run passed six cases: the original four atmospheric
+phone cases plus a real local PNG/blob ImageSource lifetime case in Chrome and
+WebKit. It requires exact native release after source absence, continued blob
+readability while removal/hiding are deliberately stuck, and scene-removal
+release. A fresh never-read URL revoked before its first read must fail in both
+engines. Cached post-revocation reads are attached as diagnostics: WebKit can
+serve a previously read blob response after revocation, so this proof does not
+claim browser cache erasure. The first cached-read and missing fixture-token
+failures remain preserved. Fictional Mapbox session/telemetry requests are handled
+locally as in the accepted atmosphere fixture; no provider request was made.
+The final log is `work/validation141-owned-image-final-six.log`.

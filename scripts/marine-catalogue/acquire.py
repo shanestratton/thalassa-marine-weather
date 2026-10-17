@@ -61,7 +61,9 @@ def verify_noaa_agreement(opener=None):
     if len(body) > 65536 or hashlib.sha256(body).hexdigest() != expected:
         raise ValueError("NOAA agreement changed: review source terms and app acceptance version before publication")
 
-def download(source, target, opener=None):
+def download(source, target, opener=None, *, timeout_seconds=3600):
+    if type(timeout_seconds) is not int or not 3600 <= timeout_seconds <= 10800:
+        raise ValueError("Download deadline outside bounded1–3 hour envelope")
     url = urlparse(source["url"])
     dated = re.search(r"-(\d{6})\.osm\.pbf$", url.path) if url.hostname == "download.geofabrik.de" else None
     if dated:
@@ -71,7 +73,7 @@ def download(source, target, opener=None):
             raise ValueError("Old/future OSM snapshot; review a current dated source before acquisition")
     opener = opener or urllib.request.build_opener(NoRedirect())
     request = urllib.request.Request(source["url"], headers={"User-Agent": "ThalassaPublicCatalogue/135", "Accept-Encoding": "identity"})
-    deadline, total = time.monotonic() + 3600, 0
+    deadline, total = time.monotonic() + timeout_seconds, 0
     digest = hashlib.sha256()
     try:
         with opener.open(request, timeout=30) as response, target.open("wb") as output:
@@ -153,6 +155,16 @@ def extract_noaa_cells(cells, output, maximum, driver=None):
                     if count > 10000 or combined.tell() > maximum: raise ValueError("NOAA export exceeds cap")
             dataset = None
 
+def osmium_environment():
+    # A24-core wx otherwise creates22 pool threads before any work, exceeding
+    # the reviewed TasksMax16. Do not pass publisher credentials into the CLI.
+    allowed = ("PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "TMPDIR", "SQLITE_TMPDIR")
+    environment = {key: os.environ[key] for key in allowed if key in os.environ}
+    environment["OSMIUM_POOL_THREADS"] = "2"
+    for queue in ("INPUT", "OSMDATA", "OUTPUT", "WORK"):
+        environment["OSMIUM_MAX_" + queue + "_QUEUE_SIZE"] = "2"
+    return environment
+
 def run_osmium(arguments, maximum):
     # wx is Linux. Bound intermediate files in the child before osmium starts,
     # not only after a potentially large export has consumed the disk.
@@ -161,7 +173,7 @@ def run_osmium(arguments, maximum):
         _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
         soft = maximum if hard == resource.RLIM_INFINITY else min(maximum, hard)
         resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
-    subprocess.run(["osmium", *arguments], check=True, timeout=7200,
+    subprocess.run(["osmium", *arguments], check=True, timeout=7200, env=osmium_environment(),
                    preexec_fn=file_limit if os.name == "posix" else None)
 
 def osm_source_clock(raw, directory):
@@ -171,7 +183,7 @@ def osm_source_clock(raw, directory):
         resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))
     path = Path(directory) / "source-clock.txt"
     with path.open("wb") as output:
-        subprocess.run(["osmium", "fileinfo", "--no-progress", "--get", "header.option.osmosis_replication_timestamp", str(raw)], stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=30, preexec_fn=file_limit if os.name == "posix" else None)
+        subprocess.run(["osmium", "fileinfo", "--no-progress", "--get", "header.option.osmosis_replication_timestamp", str(raw)], stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=30, env=osmium_environment(), preexec_fn=file_limit if os.name == "posix" else None)
     if path.stat().st_size > 4096: raise ValueError("OSM source header exceeds cap")
     stamp = path.read_text(encoding="utf-8").strip()
     build.source_time(stamp)
@@ -200,7 +212,8 @@ def acquire(plan, directory):
             work = stage / f"source-{index}"; work.mkdir()
             source_at = None
             raw = work / Path(urlparse(source["url"]).path).name
-            receipts.append(download(source, raw))
+            transfer_seconds = world_policy.download_deadline_seconds(source) if plan["dataset"] == "facilities-world" else 3600
+            receipts.append(download(source, raw, timeout_seconds=transfer_seconds))
             output = stage / f"public-{index}.jsonl"
             if source["format"] == "geonames-zip":
                 files = extract_zip(raw, work, source["maxExpandedBytes"])

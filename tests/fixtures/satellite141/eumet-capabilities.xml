@@ -1,0 +1,532 @@
+<?xml version="1.0" encoding="UTF-8"?><WMS_Capabilities version="1.3.0" updateSequence="5539" xmlns="http://www.opengis.net/wms" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/wms https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/capabilities_1_3_0.xsd">
+  <Service>
+    <Name>WMS</Name>
+    <Title>EUMETSAT</Title>
+    <Abstract>EUMETSAT visualizations offering via WMS</Abstract>
+    <KeywordList/>
+    <OnlineResource xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/"/>
+    <ContactInformation>
+      <ContactPersonPrimary>
+        <ContactPerson/>
+        <ContactOrganization/>
+      </ContactPersonPrimary>
+      <ContactPosition/>
+      <ContactAddress>
+        <AddressType/>
+        <Address/>
+        <City/>
+        <StateOrProvince/>
+        <PostCode/>
+        <Country/>
+      </ContactAddress>
+      <ContactVoiceTelephone/>
+      <ContactFacsimileTelephone/>
+      <ContactElectronicMailAddress/>
+    </ContactInformation>
+    <Fees>none</Fees>
+    <AccessConstraints>none</AccessConstraints>
+  </Service>
+  <Capability>
+    <Request>
+      <GetCapabilities>
+        <Format>text/xml</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?SERVICE=WMS&amp;"/>
+            </Get>
+            <Post>
+              <OnlineResource xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?SERVICE=WMS&amp;"/>
+            </Post>
+          </HTTP>
+        </DCPType>
+      </GetCapabilities>
+      <GetMap>
+        <Format>image/png</Format>
+        <Format>application/atom+xml</Format>
+        <Format>application/json;type=utfgrid</Format>
+        <Format>application/pdf</Format>
+        <Format>application/rss+xml</Format>
+        <Format>application/vnd.google-earth.kml+xml</Format>
+        <Format>application/vnd.google-earth.kml+xml;mode=networklink</Format>
+        <Format>application/vnd.google-earth.kmz</Format>
+        <Format>image/geotiff</Format>
+        <Format>image/geotiff8</Format>
+        <Format>image/gif</Format>
+        <Format>image/jpeg</Format>
+        <Format>image/png; mode=8bit</Format>
+        <Format>image/svg+xml</Format>
+        <Format>image/tiff</Format>
+        <Format>image/tiff8</Format>
+        <Format>image/vnd.jpeg-png</Format>
+        <Format>image/vnd.jpeg-png8</Format>
+        <Format>text/html; subtype=openlayers</Format>
+        <Format>text/html; subtype=openlayers2</Format>
+        <Format>text/html; subtype=openlayers3</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?SERVICE=WMS&amp;"/>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetMap>
+      <GetFeatureInfo>
+        <Format>text/plain</Format>
+        <Format>application/vnd.ogc.gml</Format>
+        <Format>text/xml</Format>
+        <Format>application/vnd.ogc.gml/3.1.1</Format>
+        <Format>text/xml; subtype=gml/3.1.1</Format>
+        <Format>text/html</Format>
+        <Format>application/json</Format>
+        <DCPType>
+          <HTTP>
+            <Get>
+              <OnlineResource xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?SERVICE=WMS&amp;"/>
+            </Get>
+          </HTTP>
+        </DCPType>
+      </GetFeatureInfo>
+    </Request>
+    <Exception>
+      <Format>XML</Format>
+      <Format>INIMAGE</Format>
+      <Format>BLANK</Format>
+      <Format>JSON</Format>
+    </Exception>
+    <Layer>
+      <Title>EUMETSAT</Title>
+      <Abstract>EUMETSAT visualizations offering via WMS</Abstract>
+      <!--Limited list of EPSG projections:-->
+      <CRS>EPSG:4326</CRS>
+      <CRS>EPSG:3857</CRS>
+      <CRS>EPSG:3995</CRS>
+      <CRS>EPSG:70201</CRS>
+      <CRS>EPSG:70203</CRS>
+      <CRS>EPSG:70205</CRS>
+      <CRS>EPSG:70207</CRS>
+      <CRS>EPSG:70209</CRS>
+      <CRS>EPSG:70211</CRS>
+      <CRS>EPSG:70213</CRS>
+      <CRS>EPSG:3976</CRS>
+      <CRS>CRS:84</CRS>
+      <EX_GeographicBoundingBox>
+        <westBoundLongitude>-180.0</westBoundLongitude>
+        <eastBoundLongitude>180.0</eastBoundLongitude>
+        <southBoundLatitude>-90.0</southBoundLatitude>
+        <northBoundLatitude>90.0</northBoundLatitude>
+      </EX_GeographicBoundingBox>
+      <BoundingBox CRS="CRS:84" minx="-180.0" miny="-90.0" maxx="180.0" maxy="90.0"/>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:frp</Name>
+        <Title>Fire Radiative Power (FRP)</Title>
+        <Abstract>The Fire Radiative Power product (FRP, in megawatts) provides information on the measured radiant heat output of detected fires. It has been demonstrated in small-scale experimental fires that the amount of radiant heat energy liberated per unit time (the Fire Radiative Power) is related to the rate at which fuel is being consumed. This is a direct result of the combustion process, whereby carbon-based fuel is oxidised to CO2 with the release of a certain heat yield. Therefore, measuring this FRP and integrating it over the lifetime of the fire provides an estimate of the total Fire Radiative Energy (FRE), which for wildfires should be proportional to the total mass of fuel biomass combusted.&#13;
+&#13;
+Geostationary observations allow high temporal frequency FRP measurements, and thus a much-improved ability to estimate FRE via temporal integration when compared to the far less-frequent observations made from systems in low-Earth orbit. The FRP product is derived every 10 min at the High Resolution of the MTG FCI sensor (1km). The product includes for each processed pixel:&#13;
+&#13;
+FRP (MW)&#13;
+Corresponding uncertainty in the FRP retrieval based on the variability of the background radiance estimation&#13;
+A confidence measure (representing the level of confidence that the observation is indeed a true fire)&#13;
+Applications: The FRP product is intended to support emerging operational atmosphere, climate and climatewildfire management-related applications, such as air quality forecasting, carbon cycle assessment and modelling, and fire activity models.</Abstract>
+        <KeywordList>
+          <Keyword>features</Keyword>
+          <Keyword>mtg_fd_frp_mosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-180.0</westBoundLongitude>
+          <eastBoundLongitude>180.0</eastBoundLongitude>
+          <southBoundLatitude>-90.0</southBoundLatitude>
+          <northBoundLatitude>90.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-180.0" miny="-90.0" maxx="180.0" maxy="90.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-90.0" miny="-180.0" maxx="90.0" maxy="180.0"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2026-07-23T00:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>mtg_fd:frp_default</Name>
+          <Title>sentinel_slstr_frp</Title>
+          <Abstract>sentinel_slstr_frp</Abstract>
+          <LegendURL width="640" height="80">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=640&amp;height=80&amp;layer=mtg_fd%3Afrp"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:h40b</Name>
+        <Title>Blended FCI / LEO MW precipitation - MTG - 0 degree</Title>
+        <Abstract>An instantaneous precipitation map is generated by IR images from the MTG FCI “calibrated” by precipitation estimates from MW radiometers on board LEO satellites, processed soon after each acquisition of a new image from MTG-FCI. The calibration procedure will be carried out after each PMW radiometer overpass.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_h40b</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2026-07-23T00:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>mtg_fd:mtg_h40b_default</Name>
+          <Title>mtg_h40b_default</Title>
+          <LegendURL width="640" height="80">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=640&amp;height=80&amp;layer=mtg_fd%3Ah40b"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:ir105_hrfi</Name>
+        <Title>FCI HRFI IR10.5 μm Image - MTG-I - 0 degree</Title>
+        <Abstract>Rectified (level 1c) Meteosat FCI full disk image data in high spatial resolution (1km). Level 1c image data corresponds to the geolocated and radiometrically pre-processed image data, ready for further processing, e.g. the extraction of meteorological products. Any spacecraft-specific effects have been removed, and in particular, linearisation and equalisation of the image radiometry have been performed for all FCI channels. The onboard blackbody data has been processed. Both radiometric and geometric quality control information is included.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_ir105_hrfi</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2024-09-23T00:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>mtg_fd:mtg_fd_ir105_hrfi_grayscale</Name>
+          <Title>SLD MTG HRFI IR 10.5 Style - Grayscale</Title>
+          <LegendURL width="640" height="80">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=640&amp;height=80&amp;layer=mtg_fd%3Air105_hrfi"/>
+          </LegendURL>
+        </Style>
+        <Style>
+          <Name>mtg_fd:mtg_fd_ir105_hrfi_style_02</Name>
+          <Title>SLD MTG HRFI IR 10.5 Style - 02</Title>
+          <LegendURL width="640" height="80">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=640&amp;height=80&amp;layer=mtg_fd%3Air105_hrfi&amp;style=mtg_fd_ir105_hrfi_style_02"/>
+          </LegendURL>
+        </Style>
+        <Style>
+          <Name>mtg_fd:mtg_fd_ir105_hrfi_style_01</Name>
+          <Title>SLD MTG HRFI IR 10.5 Style - 01</Title>
+          <LegendURL width="640" height="80">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=640&amp;height=80&amp;layer=mtg_fd%3Air105_hrfi&amp;style=mtg_fd_ir105_hrfi_style_01"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:li_afa</Name>
+        <Title>LI Accumulated Flash Area - MTG-I - 0 degree</Title>
+        <Abstract>LI Level 2 Accumulated Flash Area (AFA) provides the user with data about flash mapping by using the area covered by the optical emission of each flash in LI Level 2 Lightning Flashes (LFL). It is important to keep in mind that each flash is treated as a flat (uniform) optical emission in this data. Accumulated Flash Area allows one to monitor the regions within a cloud top from which lightning-related optical emissions over 30 sec are emerging and accumulating and to know the number of flashes that were observed within the FCI grid pixels composing those regions. For example, from the Accumulated Flash Area, one can derive the flash rate for each pixel of the FCI 2km grid. This is a considerable improvement compared to the simple description of the flash using the variable flash_footprint available in Lightning Flashes.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_li_afa</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T03:05:00Z" units="ISO8601" nearestValue="1">2025-05-30T15:00:00.000Z/2026-10-17T03:05:00.000Z/PT5M</Dimension>
+        <Style>
+          <Name>mtg_li_afa</Name>
+          <Title>Raster style with custom legend for MTG LI AFA.</Title>
+          <LegendURL width="640" height="80">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=640&amp;height=80&amp;layer=mtg_fd%3Ali_afa"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_cloudphase</Name>
+        <Title>Cloud Phase RGB - MTG-I - 0 degree</Title>
+        <Abstract>The Cloud Phase RGB is used for the separation of water from ice clouds and for gathering information on the microphysical properties of cloud-tops. It is used during the daytime due to the FCI channels used in the RGB but the combination of VIS0.6 and NIR2.2 high spatial channels allows the creation of the image in 0.5km resolution.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_cloudphase</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T03:00:00Z" units="ISO8601" nearestValue="1">2024-09-23T02:00:00.000Z/2026-10-17T03:00:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_cloudphase"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_cloudtype</Name>
+        <Title>Cloud Type RGB - MTG-I - 0 degree</Title>
+        <Abstract>The Cloud Type RGB combines information on cloud optical thickness, cloud height, and cloud phase into one product. Because of the colour assignment chosen and colour enhancements performed, the cloud types appear clearly separated from each other. There is limited information on ground features (it is better to use True Colour RGB for this purpose) and cloud microphysics (similarly, it is better to use Cloud Phase RGB). This RGB is composed by using three solar bands: VIS (0.64), NIR (1.38), and NIR (1.61). Therefore, it is available only during the daytime.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_cloudtype</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-81.27779388427734</westBoundLongitude>
+          <eastBoundLongitude>81.28072357177734</eastBoundLongitude>
+          <southBoundLatitude>-77.35063934326172</southBoundLatitude>
+          <northBoundLatitude>77.35639190673828</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-81.27779388427734" miny="-77.35063934326172" maxx="81.28072357177734" maxy="77.35639190673828"/>
+        <BoundingBox CRS="EPSG:4326" minx="-77.35063934326172" miny="-81.27779388427734" maxx="77.35639190673828" maxy="81.28072357177734"/>
+        <Dimension name="time" default="2026-10-17T03:00:00Z" units="ISO8601" nearestValue="1">2025-06-01T17:20:00.000Z/2026-10-17T03:00:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_cloudtype"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_dust</Name>
+        <Title>Dust RGB - MTG-I - 0 degree</Title>
+        <Abstract>The Dust product is an RGB (Red, Green, Blue) composite based on infrared channels. It is designed to monitor the evolution of dust storms during both day and night. However equally useful for the discrimination of cloud types (e.g. cloud phase or thin Cirrus detection) and detection of low-level moisture. Being based solely on IR channels this product has the same utility both during day and night.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_dust</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2024-10-22T00:40:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_dust"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_firetemperature</Name>
+        <Title>Fire Temperature RGB - MTG-I - 0 degree</Title>
+        <Abstract>Fire Temperature RGB allows users to identify where the most intense fires are occurring and differentiate them from cooler fires. The RGB takes advantage of the fact that from 3.8 micrometres to shorter wavelengths, background solar radiation and surface reflectance increase. This means that fires need to be more intense to be detected by the 2.2 and 1.6 micrometre bands, as more intense fires emit more radiation at these wavelengths. Therefore, small or cooler fires will only appear at 3.8 micrometres and will be red. In contrast, increases in fire intensity lead to greater contributions from the other channels, resulting in fires that appear yellow-white.&#13;
+This RGB in EUMETView is generated at a spatial resolution of 500 meters.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_firetemperature</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-81.27782440185547</westBoundLongitude>
+          <eastBoundLongitude>81.28074645996094</eastBoundLongitude>
+          <southBoundLatitude>-77.3577880859375</southBoundLatitude>
+          <northBoundLatitude>77.35641479492188</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-81.27782440185547" miny="-77.3577880859375" maxx="81.28074645996094" maxy="77.35641479492188"/>
+        <BoundingBox CRS="EPSG:4326" minx="-77.3577880859375" miny="-81.27782440185547" maxx="77.35641479492188" maxy="81.28074645996094"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2025-08-05T00:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_firetemperature"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_fog</Name>
+        <Title>Fog / Low Clouds RGB - MTG-I - 0 degree</Title>
+        <Abstract>Interpreting low clouds and fog in satellite imagery can be a challenge when using individual IR channels, due to the slight temperature difference between the cloud tops and adjacent cloud-free land. The Night Microphysics RGB solves this problem by using three different IR wavelengths. Low water clouds and fog emit less radiation at 3.8 µm than at 10.5 µm. This brightness temperature difference (BTD) field is used in the Green Channel to highlight regions of low clouds. The channel difference in the Red channel (12.3-10.5 µm) is used as a proxy for cloud thickness and serves a similar purpose to the 10.5 µm thermal channel, enhancing areas of warm, low clouds where fog is more likely. The Night Microphysics RGB is also an efficient tool for identifying other cloud types in the mid- and upper-atmosphere. This RGB is not designed for use during the day.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_fog</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-81.27779388427734</westBoundLongitude>
+          <eastBoundLongitude>81.28072357177734</eastBoundLongitude>
+          <southBoundLatitude>-77.35063934326172</southBoundLatitude>
+          <northBoundLatitude>77.35639190673828</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-81.27779388427734" miny="-77.35063934326172" maxx="81.28072357177734" maxy="77.35639190673828"/>
+        <BoundingBox CRS="EPSG:4326" minx="-77.35063934326172" miny="-81.27779388427734" maxx="77.35639190673828" maxy="81.28072357177734"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2025-06-06T18:40:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_fog"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_geocolour</Name>
+        <Title>Geo Colour RGB - MTG-I - 0 degree</Title>
+        <Abstract>Geo Colour RGB - MTG - 0 degree</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_geocolour</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-81.2777938842773</westBoundLongitude>
+          <eastBoundLongitude>81.2807235717773</eastBoundLongitude>
+          <southBoundLatitude>-77.3506393432617</southBoundLatitude>
+          <northBoundLatitude>77.3563919067383</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-81.2777938842773" miny="-77.3506393432617" maxx="81.2807235717773" maxy="77.3563919067383"/>
+        <BoundingBox CRS="EPSG:4326" minx="-77.3506393432617" miny="-81.2777938842773" maxx="77.3563919067383" maxy="81.2807235717773"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2024-09-23T00:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_geocolour"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_snow</Name>
+        <Title>Snow RGB - MTG - 0 degree</Title>
+        <Abstract>The main application of the Day Snow Fog RGB (Red, Green, Blue) is the detection of fog / low clouds and snow during daytime. In this colour scheme, snow appears red due to the strong absorption in the NIR1.6 and IR3.8 channels, while fog / low clouds appear whitish. Small particle ice cloud appears orange, while large particle ice cloud appears with a greater red component. Snow on the ground seems reddish because its grains are usually much larger than cloud ice particles. The image is in 1 km. spatial resolution.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_snow</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-81.27779388427734</westBoundLongitude>
+          <eastBoundLongitude>81.28072357177734</eastBoundLongitude>
+          <southBoundLatitude>-77.35063934326172</southBoundLatitude>
+          <northBoundLatitude>77.35639190673828</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-81.27779388427734" miny="-77.35063934326172" maxx="81.28072357177734" maxy="77.35639190673828"/>
+        <BoundingBox CRS="EPSG:4326" minx="-77.35063934326172" miny="-81.27779388427734" maxx="77.35639190673828" maxy="81.28072357177734"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2025-12-10T00:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_snow"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:rgb_truecolour</Name>
+        <Title>True Colour RGB - MTG-I - 0 degree</Title>
+        <Abstract>True Colour Imagery gives an image that is approximately what human eyes see from Outer Space. True Colour Imagery cannot be made directly from FCI because it lacks a Green band. That is why a special processing step based on the NDVI values of the pixels is applied. The aim of this RGB type is to monitor aerosols; suspended particles and algae bloom in seawater; surface features, and provide true colour images.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_rgb_truecolour</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T02:50:00Z" units="ISO8601" nearestValue="1">2024-09-23T02:00:00.000Z/2026-10-17T02:50:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Argb_truecolour"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+      <Layer queryable="1" opaque="0">
+        <Name>mtg_fd:vis06_hrfi</Name>
+        <Title>FCI HRFI VIS0.6 μm Image - MTG-I - 0 degree</Title>
+        <Abstract>Rectified (level 1c) Meteosat FCI full disk image data in high spatial resolution (0.5km). Level 1c image data corresponds to the geolocated and radiometrically pre-processed image data, ready for further processing, e.g. the extraction of meteorological products. Any spacecraft-specific effects have been removed, and in particular, linearisation and equalisation of the image radiometry have been performed for all FCI channels. The onboard blackbody data has been processed. Both radiometric and geometric quality control information is included.</Abstract>
+        <KeywordList>
+          <Keyword>mtg_fd_vis06_hrfi</Keyword>
+          <Keyword>WCS</Keyword>
+          <Keyword>ImageMosaic</Keyword>
+        </KeywordList>
+        <CRS>EPSG:4326</CRS>
+        <CRS>CRS:84</CRS>
+        <EX_GeographicBoundingBox>
+          <westBoundLongitude>-70.0</westBoundLongitude>
+          <eastBoundLongitude>70.0</eastBoundLongitude>
+          <southBoundLatitude>-70.0</southBoundLatitude>
+          <northBoundLatitude>70.0</northBoundLatitude>
+        </EX_GeographicBoundingBox>
+        <BoundingBox CRS="CRS:84" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <BoundingBox CRS="EPSG:4326" minx="-70.0" miny="-70.0" maxx="70.0" maxy="70.0"/>
+        <Dimension name="time" default="2026-10-17T03:00:00Z" units="ISO8601" nearestValue="1">2024-09-16T02:40:00.000Z/2026-10-17T03:00:00.000Z/PT10M</Dimension>
+        <Style>
+          <Name>raster</Name>
+          <Title>A simple default style</Title>
+          <Abstract>A sample style for rasters</Abstract>
+          <LegendURL width="20" height="20">
+            <Format>image/png</Format>
+            <OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink" xlink:type="simple" xlink:href="https://view.eumetsat.int/geoserver/ows?service=WMS&amp;version=1.3.0&amp;request=GetLegendGraphic&amp;format=image%2Fpng&amp;width=20&amp;height=20&amp;layer=mtg_fd%3Avis06_hrfi"/>
+          </LegendURL>
+        </Style>
+      </Layer>
+    </Layer>
+  </Capability>
+</WMS_Capabilities>

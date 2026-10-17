@@ -284,7 +284,7 @@ export const MODEL_COMPARE_EVENT = 'thalassa:compare-models';
 export interface ModelCompareRequest {
     /** An instant inside the day (its middle). */
     dayMs: number;
-    param: 'wind' | 'dir';
+    param: 'wind' | 'dir' | 'rain' | 'wave';
 }
 export function requestModelComparison(detail: ModelCompareRequest): void {
     if (typeof window === 'undefined') return;

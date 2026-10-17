@@ -18,12 +18,13 @@ export interface ScalarImageRetirement {
 export function retireScalarImage(
     map: mapboxgl.Map,
     sourceId: string,
-    layerId: string,
+    layerId: string | readonly string[],
     candidate: ReturnType<mapboxgl.Map['getSource']>,
     label: string,
     credit: string,
     notify: (state: ScalarImageDeactivation) => void,
 ): ScalarImageRetirement {
+    const layerIds = typeof layerId === 'string' ? [layerId] : [...layerId];
     let state: ScalarImageDeactivation = 'stuck-visible';
     let finished = false;
     let gone = false;
@@ -44,14 +45,25 @@ export function retireScalarImage(
     const attempt = (): ScalarImageDeactivation => {
         try {
             const source = map.getSource(sourceId);
-            const layer = map.getLayer(layerId);
-            if (!source && !layer) return 'absent';
-            if (!candidate || source !== candidate || (layer && (!('source' in layer) || layer.source !== sourceId))) {
+            const layers = layerIds.map((id) => map.getLayer(id));
+            if (!source && layers.every((layer) => !layer)) return 'absent';
+            if (
+                !candidate ||
+                source !== candidate ||
+                layers.some((layer) => layer && (!('source' in layer) || layer.source !== sourceId))
+            ) {
                 return 'stuck-visible';
             }
-            const hidden = deactivateCmemsLayerAndProveSafe(map, layerId);
-            if (hidden === 'failed') return 'stuck-visible';
-            if (hidden === 'hidden') return 'hidden';
+            let hidden = false;
+            for (const id of layerIds) {
+                if (map.getSource(sourceId) !== candidate) return 'stuck-visible';
+                const safe = deactivateCmemsLayerAndProveSafe(map, id);
+                if (safe === 'failed') return 'stuck-visible';
+                if (safe === 'hidden') hidden = true;
+            }
+            // A shared GeoJSON source must outlive every dependent layer. Remove
+            // all of them before touching the source; hidden residue still owns it.
+            if (hidden) return 'hidden';
             // The raster is absent, so a retained source cannot paint. Keep
             // resource ownership until source removal also reads back absent.
             try {
@@ -59,7 +71,7 @@ export function retireScalarImage(
             } catch {
                 /* Retry at the next lifecycle boundary. */
             }
-            if (!map.getSource(sourceId) && !map.getLayer(layerId)) return 'absent';
+            if (!map.getSource(sourceId) && layerIds.every((id) => !map.getLayer(id))) return 'absent';
             return 'hidden';
         } catch {
             return 'stuck-visible';

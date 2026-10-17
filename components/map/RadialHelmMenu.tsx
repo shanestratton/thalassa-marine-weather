@@ -104,6 +104,10 @@ export interface RadialHelmMenuProps {
         onToggleAnchorage?: () => void;
         communityNotesVisible?: boolean;
         onToggleCommunityNotes?: () => void;
+        sshMode?: 'off' | 'sla' | 'adt';
+        onChangeSshMode?: (mode: 'off' | 'sla' | 'adt') => void;
+        sharperSatelliteVisible?: boolean;
+        onToggleSharperSatellite?: () => void;
         mooringsVisible?: boolean;
         onToggleMoorings?: () => void;
         facilitiesVisible?: boolean;
@@ -522,6 +526,24 @@ function buildCategories(
                               },
                           ]
                         : []),
+                    ...(tacticalState?.onChangeSshMode
+                        ? [
+                              {
+                                  id: 'ssh-sla',
+                                  label: 'Eddies · SLA',
+                                  icon: <CurrentsIcon />,
+                                  action: () =>
+                                      tacticalState.onChangeSshMode?.(tacticalState.sshMode === 'sla' ? 'off' : 'sla'),
+                              },
+                              {
+                                  id: 'ssh-adt',
+                                  label: 'Sea height · ADT',
+                                  icon: <SstIcon />,
+                                  action: () =>
+                                      tacticalState.onChangeSshMode?.(tacticalState.sshMode === 'adt' ? 'off' : 'adt'),
+                              },
+                          ]
+                        : []),
                     {
                         id: 'waves',
                         label: 'Waves',
@@ -632,6 +654,16 @@ function buildCategories(
                     icon: <SatCloudIcon />,
                     layerKey: 'satIR',
                 },
+                ...(tacticalState?.onToggleSharperSatellite
+                    ? [
+                          {
+                              id: 'sharper-satellite',
+                              label: 'Sharper sat',
+                              icon: <SatCloudIcon />,
+                              action: tacticalState.onToggleSharperSatellite,
+                          },
+                      ]
+                    : []),
                 {
                     id: 'temperature',
                     label: 'Temp',
@@ -942,6 +974,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
             if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
             if (tacticalState?.communityNotesVisible) tacticalState.onToggleCommunityNotes?.();
+            if (tacticalState?.sshMode && tacticalState.sshMode !== 'off') tacticalState.onChangeSshMode?.('off');
+            if (tacticalState?.sharperSatelliteVisible) tacticalState.onToggleSharperSatellite?.();
             if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
             if (tacticalState?.facilitiesVisible) tacticalState.onToggleFacilities?.();
             if (tacticalState?.boatPresenceVisible) tacticalState.onToggleBoatPresence?.();
@@ -1085,6 +1119,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
             if (item.id === 'anchorages') return tacticalState?.anchorageVisible ?? false;
             if (item.id === 'community-notes') return tacticalState?.communityNotesVisible ?? false;
+            if (item.id === 'ssh-sla') return tacticalState?.sshMode === 'sla';
+            if (item.id === 'ssh-adt') return tacticalState?.sshMode === 'adt';
+            if (item.id === 'sharper-satellite') return tacticalState?.sharperSatelliteVisible ?? false;
             if (item.id === 'moorings') return tacticalState?.mooringsVisible ?? false;
             if (item.id === 'facilities') return tacticalState?.facilitiesVisible ?? false;
             if (item.id === 'boat-presence') return tacticalState?.boatPresenceVisible ?? false;
@@ -1113,6 +1150,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.anchorageVisible) count++;
         if (tacticalState?.mooringsVisible) count++;
         if (tacticalState?.communityNotesVisible) count++;
+        if (tacticalState?.sshMode && tacticalState.sshMode !== 'off') count++;
+        if (tacticalState?.sharperSatelliteVisible) count++;
         if (tacticalState?.facilitiesVisible) count++;
         if (tacticalState?.boatPresenceVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
