@@ -151,8 +151,9 @@ describe('manual anchor safe-area geometry', () => {
         { ...wedges(), exclusions: [{ startDeg: 0, sweepDeg: NaN }] },
     ])('refuses malformed or unbounded input %j', (value) => expect(parseAnchorSafeZone(value, frame).ok).toBe(false));
     it('copies and freezes admitted manual points across JSON recovery', () => {
-        const raw = square();
-        const admitted = parseAnchorSafeZone(JSON.parse(JSON.stringify(raw)), frame);
+        const original = square();
+        const raw = { ...original, vertices: original.vertices.map((point) => ({ ...point })) };
+        const admitted = parseAnchorSafeZone(raw, frame);
         expect(admitted.ok).toBe(true);
         if (!admitted.ok || admitted.zone.kind !== 'polygon') throw Error('Fixture refused');
         raw.vertices[0].latitude = 80;
@@ -160,6 +161,7 @@ describe('manual anchor safe-area geometry', () => {
         expect(Object.isFrozen(admitted.zone.vertices)).toBe(true);
         expect(Object.isFrozen(admitted.zone.vertices[0])).toBe(true);
         expect(anchorSafeZoneContains(admitted.zone, frame, frame)).toBe(true);
+        expect(parseAnchorSafeZone(JSON.parse(JSON.stringify(admitted.zone)), frame)).toEqual(admitted);
     });
     it('reports invalid fixes or geometry as unknown, never holding', () => {
         expect(anchorSafeZoneContains(square(), frame, { latitude: NaN, longitude: 0 })).toBeNull();

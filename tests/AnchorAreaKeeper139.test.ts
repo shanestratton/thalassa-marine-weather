@@ -41,7 +41,7 @@ import { AnchorPiWatchKeeper as keeper } from '../services/anchorPiWatchKeeper';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import { anchorZonePosition } from '../utils/anchorSafeZone';
 import type { PiWatchAssignment } from '../services/anchorPiHandoff';
-import type { SyncBroadcast } from '../services/AnchorWatchSyncService';
+import type { PositionBroadcast, SyncBroadcast } from '../services/AnchorWatchSyncService';
 const NOW = Date.parse('2026-10-17T03:00:00Z');
 const anchor = { latitude: -27, longitude: 179.99999 };
 const assignment: PiWatchAssignment = {
@@ -149,17 +149,18 @@ describe('owner-bound Pi area keeper and explicit circle return', () => {
         expect(await keeper.renewNow()).toBe('authorised');
         expect(h.authorise).toHaveBeenLastCalledWith('relay-a', assignment.sessionCode, next);
         expect(h.handoff).not.toHaveBeenCalled();
-        const report = {
+        const report: PositionBroadcast = {
             type: 'position',
-            anchor,
+            anchor: { ...anchor, timestamp: NOW },
+            distance: 0,
             swingRadius: 60,
-            vessel: live().boatFix,
+            vessel: { ...live().boatFix, accuracy: 1, heading: 0, speed: 0 },
             isAlarm: false,
             safeZone: null,
             safeAreaRevision: next.safeAreaRevision,
             safeAreaVesselId: next.safeAreaVesselId,
             timestamp: NOW,
-        } as SyncBroadcast;
+        };
         internal.hearReport({ ...report, safeAreaVesselId: 'boat-b' }, assignment.sessionCode);
         expect(keeper.getPending()?.status).toBe('unknown');
         internal.hearReport({ ...report, safeAreaRevision: old.safeAreaRevision }, assignment.sessionCode);
