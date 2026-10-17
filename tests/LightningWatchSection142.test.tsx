@@ -29,7 +29,10 @@ vi.mock('../services/weatherPositionClient', () => ({
     reviewWeatherPositionSource: mocks.review,
     saveWeatherPositionSource: mocks.share,
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 import LightningWatchSection from '../components/settings/LightningWatchSection';
 const ready = { profile: null, ready: true, positionFresh: true };
 const source = {

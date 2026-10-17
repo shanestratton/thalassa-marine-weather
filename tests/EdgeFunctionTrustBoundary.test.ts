@@ -122,12 +122,29 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
                 const feed = source('supabase/functions/_shared/cyclone/sources.ts');
                 expect(feed).toContain('fetchWithTimeout(');
                 expect(feed).not.toMatch(/\bfetch\(/);
-            } else if (name === 'osm-overlay') {
-                expect(edge).toContain('fetchOverpassDocument(');
-                const transport = source('supabase/functions/_shared/overpass-fetch.ts');
-                expect(transport).toContain('Promise.race(');
-                expect(transport).toContain('OVERPASS_ATTEMPT_MS');
-                expect(transport).toContain('controller.abort()');
+            } else if (name === 'osm-overlay' || name === 'proxy-overpass') {
+                if (name === 'osm-overlay') {
+                    expect(edge).toContain('fetchOverpassDocument(');
+                    const transport = source('supabase/functions/_shared/overpass-fetch.ts');
+                    expect(transport).toContain(
+                        'fetchOwnedOsmFromWx(ownedOperationForQuery(query), env, signal, fetcher)',
+                    );
+                    expect(transport).toContain('OVERPASS_ATTEMPT_MS = 20_000');
+                } else {
+                    expect(edge).toContain('await fetchOwnedOsmFromWx(');
+                    expect(edge).toContain(
+                        "{ schema: 1, kind: 'nodes', bbox: [lat - dLat, lon - dLon, lat + dLat, lon + dLon] }",
+                    );
+                    expect(edge).toContain('(name) => Deno.env.get(name),');
+                    expect(edge).toContain('req.signal,');
+                }
+                const owned = source('supabase/functions/_shared/owned-osm-upstream.ts');
+                expect(owned).toContain('Promise.race(');
+                expect(owned).toContain('OWN_OSM_DEADLINE_MS = 20_000');
+                expect(owned).toContain('}, OWN_OSM_DEADLINE_MS)');
+                expect(owned).toContain('controller.abort()');
+                expect(owned).toContain('total > OWN_OSM_MAX_BYTES');
+                expect(owned).toContain("redirect: 'error'");
             } else expect(edge, name).toContain('fetchWithTimeout(');
         }
         for (const name of authenticatedPaid) {
