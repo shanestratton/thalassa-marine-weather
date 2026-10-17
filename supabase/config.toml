@@ -341,3 +341,8 @@ verify_jwt = true
 # Public weather uses requireAuthenticatedOrPublicQuota inside the function;
 # requests reach only the fixed owned origin and original sea-cell projection.
 verify_jwt = false
+
+[functions.owned-overpass]
+# Fixed operation families and per-client public quota precede the owned gateway.
+# Original database clocks, bounded bodies and missing admission fail closed.
+verify_jwt = false

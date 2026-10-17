@@ -23,6 +23,7 @@ import { handlePublisherRequest, tokenHash } from '../supabase/functions/wx-publ
  * legacy-secret gateway check. The rationale names the guard.
  */
 const FUNCTION_GUARDED_OFF = {
+    'owned-overpass': 'requireAuthenticatedOrPublicQuota before fixed owned OSM operations and original-clock validation',
     'regional-arome': 'requireAuthenticatedOrPublicQuota bounds public weather; fixed owned origin and original sea-cell contract',
     'elevenlabs-tts': 'requireAuthenticatedQuota verifies the signed-in session',
     'fetch-wind-grid': 'per-client public quota; app and Pi-cache callers',
@@ -198,8 +199,8 @@ describe('Supabase Edge gateway JWT policy', () => {
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
         // 16 original function-guarded drifts; the authenticated SevenCs trial
         // was deleted on 2026-10-09. New regional-arome uses the same bounded
-        // public-weather quota shape and is explicitly accounted for here.
-        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(17);
+        // public-weather quota shape; owned-overpass adds fixed OSM operations.
+        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(18);
         // The six credentialless drifts, the eight already allowlisted,
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).
