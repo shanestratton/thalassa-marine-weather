@@ -686,13 +686,21 @@ describe('MeteoAlarm, under its own terms (129-05b)', () => {
             toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
         });
         vi.setSystemTime(new Date(FIXTURES.anchor));
+        // The Marseille fixture uses the official RPC's0.001° position bucket.
+        const parameters = { p_lat: 43.297, p_lon: 5.37 };
+        const officialCalls = () => rpc.mock.calls.filter(([name]) => name === 'official_alerts_at');
         await show('meteoalarm');
-        expect(rpc).toHaveBeenCalledTimes(1);
+        expect(officialCalls()).toHaveLength(1);
+        expect(officialCalls()).toEqual([['official_alerts_at', parameters]]);
         // The app was suspended for 20 minutes (no timer ran); it comes back.
         vi.setSystemTime(new Date(Date.parse(FIXTURES.anchor) + 20 * 60_000));
         await act(async () => {
             document.dispatchEvent(new Event('visibilitychange'));
         });
-        expect(rpc).toHaveBeenCalledTimes(2);
+        expect(officialCalls()).toHaveLength(2);
+        expect(officialCalls()).toEqual([
+            ['official_alerts_at', parameters],
+            ['official_alerts_at', parameters],
+        ]);
     });
 });
