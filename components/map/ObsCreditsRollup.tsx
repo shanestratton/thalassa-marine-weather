@@ -10,6 +10,7 @@ import { aisCoverageText, useAisCoverage } from '../../services/ais/aisCoverage'
 import { subscribeLightningStatus, type StatusSnapshot } from '../../services/weather/api/blitzortungLightning';
 import { openExternalUrl } from '../../services/externalLinks';
 import { CREDITS_STRIP_POSITION_CLASS } from './creditsStrip';
+import type { BoatPresenceStatus } from './presence/BoatPresenceSurface';
 import {
     worldFacilitiesSummary,
     worldFacilitiesWarning,
@@ -25,6 +26,8 @@ export interface ObsCreditsRollupProps {
     ais: boolean;
     onToggleSatellite: () => void;
     facilities?: WorldFacilitiesStatus | null;
+    boatPresence?: BoatPresenceStatus | null;
+    onOpenBoatPresence?: () => void;
 }
 /** Presentation only: subscribes to existing feed status, never starts a layer or makes a data request. */
 export default function ObsCreditsRollup({
@@ -36,11 +39,22 @@ export default function ObsCreditsRollup({
     ais,
     onToggleSatellite,
     facilities,
+    boatPresence,
+    onOpenBoatPresence,
 }: ObsCreditsRollupProps) {
     const [open, setOpen] = React.useState(false),
         [now, setNow] = React.useState(Date.now),
         [lightningStatus, setLightningStatus] = React.useState<StatusSnapshot | null>(null);
     const close = React.useCallback(() => setOpen(false), []);
+    const nextPresenceDialog = React.useRef<(() => void) | null>(null);
+    React.useEffect(() => {
+        if (open) return;
+        const next = nextPresenceDialog.current;
+        nextPresenceDialog.current = null;
+        // Retire this modal's focus trap before mounting the presence sheet.
+        // Otherwise its restore target can override the new initial focus.
+        next?.();
+    }, [open]);
     const coverage = useAisCoverage();
     React.useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 30000);
@@ -73,7 +87,8 @@ export default function ObsCreditsRollup({
         lightningWarning = lightning && lightningStatus?.status !== 'open',
         facilitiesWarning = !!facilities && worldFacilitiesWarning(facilities, now),
         warning = satelliteWarning || aisWarning || lightningWarning || facilitiesWarning;
-    const active = !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais || !!facilities;
+    const active =
+        !!rain || !!wind || cmems.length > 0 || lightning || satelliteOn || ais || !!facilities || !!boatPresence;
     React.useEffect(() => {
         if (!active) setOpen(false);
     }, [active]);
@@ -213,6 +228,27 @@ export default function ObsCreditsRollup({
                                 <a className="underline" href="https://opendatacommons.org/licenses/odbl/1-0/">
                                     ODbL
                                 </a>
+                            </section>
+                        )}
+                        {boatPresence && (
+                            <section aria-label="Thalassa boats source">
+                                <h4 className="font-bold text-sky-200">Thalassa boats</h4>
+                                <p>{boatPresence.text}</p>
+                                <p className="mt-2 text-xs">
+                                    Self-reported app positions. All audiences: 0.05° cells, at least 5 minutes delayed.
+                                    No AIS, speed, heading, trail or collision use.
+                                </p>
+                                {onOpenBoatPresence && (
+                                    <button
+                                        className="mt-2 min-h-[44px] min-w-[44px] rounded-lg border border-white/20 px-3"
+                                        onClick={() => {
+                                            nextPresenceDialog.current = onOpenBoatPresence;
+                                            setOpen(false);
+                                        }}
+                                    >
+                                        Privacy and friends
+                                    </button>
+                                )}
                             </section>
                         )}
                         <p className="text-xs text-slate-400">
