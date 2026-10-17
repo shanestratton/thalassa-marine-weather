@@ -64,6 +64,24 @@ async function settled(dialog: Locator) {
         );
     });
 }
+async function paintedPartitions(page: Page, dialog: Locator) {
+    const chart = dialog.getByRole('img', { name: /Wave partitions in metres/ });
+    await chart.scrollIntoViewIfNeeded();
+    const box = (await chart.boundingBox())!;
+    const pixels = decode(await page.screenshot(), { checkCrc: true });
+    const scale = pixels.width / page.viewportSize()!.width;
+    let color = 0;
+    for (let y = Math.max(0, Math.ceil(box.y * scale)); y < Math.min(pixels.height, (box.y + box.height) * scale); y++)
+        for (
+            let x = Math.max(0, Math.ceil(box.x * scale));
+            x < Math.min(pixels.width, (box.x + box.width) * scale);
+            x++
+        ) {
+            const i = (y * pixels.width + x) * pixels.channels;
+            if (pixels.data[i] > 50 && pixels.data[i + 1] > 150 && pixels.data[i + 2] > 180) color++;
+        }
+    expect(color).toBeGreaterThan(100);
+}
 for (const width of [300, 375])
     for (const large of [false, true])
         test(`private comfort and sea partitions at ${width}px ${large ? '130%' : 'normal'}`, async ({
@@ -131,6 +149,8 @@ for (const width of [300, 375])
             await expect(chart).toContainText('FROM 90° true');
             await expect(chart).toContainText('FROM 0° true');
             await expect(chart).toContainText('FROM 180° true');
+            await paintedPartitions(page, seaDialog);
+            await page.screenshot({ path: info.outputPath('partition-plot.png') });
             const credit = seaDialog.getByRole('link', { name: /^Marine:/ });
             await target(credit);
             await expect(credit).toContainText('© Mercator Ocean');
@@ -150,6 +170,7 @@ for (const width of [300, 375])
             await back.focus();
             await page.keyboard.press('Enter');
             await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toBeVisible();
+            await paintedPartitions(page, seaDialog);
             await summary.click();
             await page.evaluate(async () => {
                 const modulePath = '/services/authIdentityScope.ts';
@@ -158,10 +179,12 @@ for (const width of [300, 375])
             });
             await expect(summary).toBeVisible();
             await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toBeVisible();
+            await paintedPartitions(page, seaDialog);
             await page.keyboard.press('Escape');
             await expect(page.getByRole('dialog')).toHaveCount(0);
             await page.getByLabel(/^Wave height/).click();
             await expect(summary).toBeVisible();
+            await paintedPartitions(page, seaDialog);
             await seaDialog.getByRole('button', { name: 'Close', exact: true }).click();
             const opener = page.getByRole('button', { name: 'Private passage comfort', exact: true });
             await target(opener);

@@ -735,7 +735,8 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         type="button"
                         className="min-h-11 w-full rounded-lg border border-sky-400/30 px-3 py-2 text-sm font-bold text-sky-200"
                         aria-label={partitionsView ? 'Show forecast summary' : 'Show sea partitions'}
-                        onClick={() => {
+                        onClick={(event) => {
+                            event.currentTarget.focus();
                             setShowAll(false);
                             setSummaryView(partitionsView ? { metric, identity } : null);
                         }}
