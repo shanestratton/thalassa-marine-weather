@@ -1,6 +1,6 @@
 # 140-04 · Optional Thalassa boats
 
-Source preparation only. No live migration, expiry timer, flag, provider change or deployment was performed by this packet. Native versions remain unchanged. ChatPage is untouched. Root owns composition and release.
+The reviewed schema and separate bounded expiry job are live; three actual scheduled executions succeeded with an empty sample store. See [live deployment](live-community-deployment.md). Sharing still needs explicit skipper consent. No Pi, alarm or app release was activated by deployment; native versions remain unchanged.
 
 The actual Obs Live menu offers **Thalassa boats** (view only) and **Boat privacy**. Preferences has a separate privacy/friends opener. The credits rollup keeps its existing single 44px strip and opens the same controls. A circle within a diamond distinguishes these app positions from AIS. No presence position enters AIS, CPA, alarms, routing or track history.
 
@@ -36,7 +36,7 @@ Release sequence: independently review/apply the canonical migration; inspect re
 
 ## Evidence
 
-- Canonical CLI-generated migration `20261017015015_boat_presence.sql`; reviewed SQL source48b06c68317a50d19009bba62fbedfb9e1be9deb, migration SHA256 `f7bdbca08ec64a2ea41fe81a21d5f7c2413e754ccaf0b5586fd414255f9523d5`.
+- Canonical CLI-generated migration `20261017030921_boat_presence.sql`; reviewed SQL source48b06c68317a50d19009bba62fbedfb9e1be9deb, migration SHA256 `f7bdbca08ec64a2ea41fe81a21d5f7c2413e754ccaf0b5586fd414255f9523d5`.
 - Actual isolated Linux PostgreSQL17.6: run38994291249/job117283263645, definition0cad7e7c63668c0ea27c3a5e96d628a7c9464078. **73 SQL checks,26 concurrency checks across7 known-gate competing paths,22 disposable-environment guard cases pass.** Original source age and actual `pg_blocking_pids` admission are retained. Root receipt: `outputs/Build14004 real Linux PostgreSQL proof.json`, SHA256 `a0eb3285bb167600544d80ac4e9bce915b73be7a479cb28f736c15c179acabe7`.
 - PGlite73 is a separate local check, never a substitute for that actual server proof. Native iOS lifecycle/GPS hardware behavior remains a real-device release check; these source/browser proofs do not impersonate a boat or radio.
 - Frontend controller/transport/stop-during-start plus existing Credits/menu regressions:58 cases in7 suites pass. A separate9-check PGlite maintenance proof verifies held-template refusal,64-row batch bound and preservation of a fresh private context, without installing cron. Scoped lint has0 errors and the same3 existing MapHub warnings.

@@ -1,6 +1,6 @@
 # Build 140-02 — anchorage and marina community notes
 
-Source preparation only. No live database/function/bucket/environment change, R2 upload, Pi installation, whole-app TypeScript or production build has been performed by this packet. Root owns deployment and combined release checks.
+The reviewed database migration, private photo bucket and authenticated photo Edge are now live. See [live deployment](live-community-deployment.md). Combined release checks, R2 facility publication and Pi installation remain separate; no sharing consent was enabled for a skipper.
 
 ## Actual user path
 
@@ -20,7 +20,7 @@ The latest limited community view adds a descriptive reason to the existing anch
 
 ## Database and projection
 
-Canonical migration: \`supabase/migrations/20261017010813_community_place_reviews.sql\`, created with Supabase CLI2.121.0 at current UTC, after the live139 migration. Earlier task-local untracked/unapplied04216 content was moved into this new CLI-created file; its evidence backup is \`work/community140-original-04216-unapplied.sql\`. Every inherited canonical/held migration remains unchanged.
+Canonical migration: \`supabase/migrations/20261017030819_community_place_reviews.sql\`, originally prepared with Supabase CLI2.121.0 as version20261017010813, then aligned to the actual Management API ledger version20261017030819 without changing SQL bytes. Earlier task-local untracked/unapplied04216 content was moved into this new CLI-created file; its evidence backup is \`work/community140-original-04216-unapplied.sql\`. Every inherited canonical/held migration remains unchanged.
 
 All raw review, photo, report, block, ban, quota and moderation tables live in non-exposed \`community_private\`, have RLS enabled and no client schema/table grants or permissive policies. Their owners reference auth.users with deletion cascades and existing account-deletion write fences. Both accounts referenced by a personal block are fenced.
 

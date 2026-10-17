@@ -1,6 +1,6 @@
 # 140-06: Solunar and private catch details
 
-Source packet from 140-07 `13212163bb3356011d73494c3c70f993d0ae8fc2`. No native version, ChatPage, MapHub, live database/function/environment, provider or Pi changes.
+Source packet from 140-07 `13212163bb3356011d73494c3c70f993d0ae8fc2`. Its reviewed private catch sidecar is now deployed and read back with four owner policies and no Realtime membership; see [live deployment](live-community-deployment.md). Native versions, ChatPage, providers and Pi installation are separate.
 
 ## Solunar
 
@@ -28,7 +28,7 @@ The existing outbox sends at most 50 private records per round, after the parent
 
 ## Migration and deletion
 
-`20261017003944_private_sighting_catches.sql` was generated with the existing Supabase CLI 2.121.0 using `migration new private_sighting_catches`; it has **not been applied live**. The migration grants only authenticated owner CRUD, limits UPDATE grants to species/length/disposition, enables RLS, binds INSERT/UPDATE to the real observer's fish sighting, and attaches the existing account-deletion tombstone write fence. Parent and auth-user deletion both cascade. There is no bucket, deletion-worker rewrite or new security-definer function. A schema-wide or all-table `supabase_realtime` publication refuses the migration before creating the table; the migration never widens or changes that publication.
+`20261017030800_private_sighting_catches.sql` was generated with the existing Supabase CLI 2.121.0 using `migration new private_sighting_catches`; it has **not been applied live**. The migration grants only authenticated owner CRUD, limits UPDATE grants to species/length/disposition, enables RLS, binds INSERT/UPDATE to the real observer's fish sighting, and attaches the existing account-deletion tombstone write fence. Parent and auth-user deletion both cascade. There is no bucket, deletion-worker rewrite or new security-definer function. A schema-wide or all-table `supabase_realtime` publication refuses the migration before creating the table; the migration never widens or changes that publication.
 
 Supabase [column security](https://supabase.com/docs/guides/database/postgres/column-level-security), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [Realtime publication](https://supabase.com/docs/guides/realtime/postgres-changes) guidance and current changelog were reviewed. Actual disposable PGlite PostgreSQL executes the canonical migration and the real existing tombstone function: 31 checks pass for owner/crew/anon grants, hidden-row writes, constraints, ownership columns, tombstones, both cascades and both prohibited publication configurations. This does not claim a live Supabase replay or advisor result. Integration still needs the release owner's database review/push and whole-app compiler/build budget checks.
 

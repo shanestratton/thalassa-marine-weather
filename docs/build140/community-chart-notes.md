@@ -1,6 +1,6 @@
 # 140-03 community chart notes
 
-Source is prepared, not deployed. No live database, Edge, Storage, environment, Pi or timer change was made. No whole-app compiler or production build was run for this packet. The genuine 14002 PostgreSQL proof remains recorded separately in `community-place-reviews.md`.
+The reviewed database migration and authenticated photo Edge are now live, with private Storage and preserved prior function hashes. See [live deployment](live-community-deployment.md). Whole-app release checks remain separate. The genuine 14002 PostgreSQL proof is recorded in `community-place-reviews.md`.
 
 ## Behaviour and admission
 
@@ -12,7 +12,7 @@ No route, watch, depth, clearance, ENC geometry or anchorage suitability input r
 
 ## Private photos and compatibility
 
-Canonical CLI migration `20261017011927_community_chart_notes.sql` adds private note/vote/report/queue/quota tables and nullable `review_photos.chart_note_id`. A photo cannot belong to both a place review and a chart note. Both-null orphan reservations remain charged and inaccessible. The existing private `community-review-photos` bucket, owner-prefix Storage fence, account deletion inventory and 40 total reservations are shared. No existing canonical migration is replaced.
+Canonical applied migration `20261017030848_community_chart_notes.sql` adds private note/vote/report/queue/quota tables and nullable `review_photos.chart_note_id`. A photo cannot belong to both a place review and a chart note. Both-null orphan reservations remain charged and inaccessible. The existing private `community-review-photos` bucket, owner-prefix Storage fence, account deletion inventory and 40 total reservations are shared. No existing canonical migration is replaced.
 
 The original `community_reviews`, `community_review_photo`, `account_deletion_storage_inventory` and `block_tombstoned_storage_write` functions are unchanged. The isolated SQL fixture compares their complete `pg_get_functiondef` values before/after this migration. New photos use the separate service-only `community_chart_photo` RPC and authenticated `community-chart-photo` Edge. Old review RPC/Edge code cannot acquire note photos through a guessed UUID, null `review_id`, orphan, owner or moderator path. The new API likewise cannot acquire review photos.
 

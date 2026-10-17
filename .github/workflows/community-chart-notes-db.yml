@@ -5,7 +5,7 @@ on:
         paths:
             - '.github/workflows/community-chart-notes-db.yml'
             - 'supabase/tests/community-chart-notes-*'
-            - 'supabase/migrations/20261017011927_community_chart_notes.sql'
+            - 'supabase/migrations/20261017030848_community_chart_notes.sql'
     workflow_dispatch:
         inputs:
             source_sha:
@@ -52,7 +52,7 @@ jobs:
                   mkdir -p "$RUNNER_TEMP/chart-notes140-proof"
                   git rev-parse HEAD > "$RUNNER_TEMP/chart-notes140-proof/SOURCE_SHA.txt"
                   docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/chart-notes140-proof/POSTGRES_IMAGE_ID.txt"
-                  sha256sum supabase/tests/community-chart-notes-* supabase/tests/community-reviews-base.sql supabase/migrations/20261005160000_tombstone_fence_fails_closed.sql supabase/migrations/20261010154000_chat_membership_question_and_crew_removal.sql supabase/migrations/20261017010813_community_place_reviews.sql supabase/migrations/20261017011927_community_chart_notes.sql > "$RUNNER_TEMP/chart-notes140-proof/SHA256SUMS"
+                  sha256sum supabase/tests/community-chart-notes-* supabase/tests/community-reviews-base.sql supabase/migrations/20261005160000_tombstone_fence_fails_closed.sql supabase/migrations/20261010154000_chat_membership_question_and_crew_removal.sql supabase/migrations/20261017030819_community_place_reviews.sql supabase/migrations/20261017030848_community_chart_notes.sql > "$RUNNER_TEMP/chart-notes140-proof/SHA256SUMS"
             - name: Install pinned isolated PostgreSQL client
               shell: bash
               run: |

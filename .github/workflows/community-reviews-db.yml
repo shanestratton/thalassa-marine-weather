@@ -5,7 +5,7 @@ on:
         paths:
             - '.github/workflows/community-reviews-db.yml'
             - 'supabase/tests/community-reviews-*'
-            - 'supabase/migrations/20261017010813_community_place_reviews.sql'
+            - 'supabase/migrations/20261017030819_community_place_reviews.sql'
     workflow_dispatch:
         inputs:
             source_sha:
@@ -52,7 +52,7 @@ jobs:
                   mkdir -p "$RUNNER_TEMP/community140-proof"
                   git rev-parse HEAD > "$RUNNER_TEMP/community140-proof/SOURCE_SHA.txt"
                   docker image inspect postgres:17.6 --format '{{.Id}}' > "$RUNNER_TEMP/community140-proof/POSTGRES_IMAGE_ID.txt"
-                  sha256sum supabase/tests/community-reviews-* supabase/migrations/20261017010813_community_place_reviews.sql > "$RUNNER_TEMP/community140-proof/SHA256SUMS"
+                  sha256sum supabase/tests/community-reviews-* supabase/migrations/20261017030819_community_place_reviews.sql > "$RUNNER_TEMP/community140-proof/SHA256SUMS"
             - name: Install pinned isolated PostgreSQL client
               shell: bash
               run: |
