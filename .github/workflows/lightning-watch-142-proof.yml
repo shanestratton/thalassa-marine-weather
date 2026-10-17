@@ -1,11 +1,7 @@
 name: Held build142 lightning database proof
 on:
-    workflow_dispatch:
-        inputs:
-            source_sha:
-                description: Exact reviewed source; disposable database only
-                required: true
-                type: string
+    push:
+        branches: ['codex/build-142-lightning-lifetime-proof']
 permissions:
     contents: read
 concurrency:
@@ -13,7 +9,7 @@ concurrency:
     cancel-in-progress: false
 jobs:
     database:
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1 && github.ref == 'refs/heads/codex/build-142-lightning-lifetime-proof'
         runs-on: ubuntu-24.04
         timeout-minutes: 6
         services:
@@ -28,7 +24,7 @@ jobs:
                     --health-cmd="pg_isready -U postgres"
                     --health-interval=5s --health-timeout=5s --health-retries=10
         env:
-            SOURCE_SHA: ${{ inputs.source_sha }}
+            SOURCE_SHA: cddb3c2ffc2f27e1e67d844ad0391d66ad96526a
             PGHOST: 127.0.0.1
             PGPORT: '5432'
             PGUSER: postgres
@@ -37,7 +33,7 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ inputs.source_sha }}
+                  ref: cddb3c2ffc2f27e1e67d844ad0391d66ad96526a
                   persist-credentials: false
             - name: Verify isolated source and preserve inputs
               shell: bash
