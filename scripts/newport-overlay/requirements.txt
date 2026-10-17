@@ -1,2 +1,0 @@
-shapely==2.1.2
-osmium==4.3.1
