@@ -1,7 +1,18 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.resetModules();
+});
+
+it('keeps only weak full-owner identity and drops full-entry locals before returning a bounded borrow', () => {
+    const source = readFileSync('services/weather/api/mpaRetained.ts', 'utf8');
+    expect(source).toContain('new WeakRef(captured)');
+    expect(source).toContain('source = null;');
+    const dropped = source.indexOf('captured = null;');
+    expect(dropped).toBeGreaterThan(source.indexOf('features.push(feature)'));
+    expect(source.slice(dropped + 'captured = null;'.length)).not.toMatch(/\bcaptured\b/);
+    expect(source.slice(source.indexOf('const sameOwner'), source.indexOf('let active'))).not.toMatch(/\bcaptured\b/);
 });
 
 it('a route-only retained import has no loader, fetch, publisher DTO or verified-source flag', async () => {
