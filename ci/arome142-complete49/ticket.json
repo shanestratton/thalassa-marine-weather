@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "attempt": "ncaled-20261017-00-h001-h048-complete-v1",
+  "day": "2026-10-17",
+  "source": "cf21a611c6b22db62449bc1658e7ae8b931476be",
+  "catalogueSha256": "62b72c941a8598d712a550ef0bf1020a6a34a9f199c7d09d50d8affb358e3383",
+  "originalRunUtc": "2026-10-17T00:00:00Z",
+  "expiresAt": "2026-10-17T18:00:00Z",
+  "maximumRequests": 48,
+  "expectedDeclaredBytes": 136003911,
+  "reservedBytes": 805306368,
+  "priorReviewedApplicationBytes": 36211395,
+  "dailyMaximumBytes": 2500000000,
+  "otherAromeAcquisitionHeld": true,
+  "h000NativeProofSha256": "7ada4ab10937fb51b5efc14d8d565a8ef017118f0aa6b81fb6b7c42d2bdc2176",
+  "maskNativeProofSha256": "45f91a998910c4439a8c116d6bf6b746ad363cd4ecd6ce107be4e0b772d261ec",
+  "maskOriginalSha256": "b7d5864f26d11f9c82997d8ca8cd16a499c95fd8d9d0adcaf24f1c33b85a4ae2",
+  "fullAttemptSeconds": 1200,
+  "perReadSeconds": 20,
+  "reviewRequired": true
+}
