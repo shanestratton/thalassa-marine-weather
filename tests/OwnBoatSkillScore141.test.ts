@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scoreOwnWind, ownWindEffectiveN } from '../pi-cache/src/ownBoatSkill/score';
-import type { PrivateWindSample } from '../pi-cache/src/ownBoatSkill/store';
+import type { PrivateWindSample } from '../pi-cache/src/ownBoatSkill/source';
 import type { VerifiedWindIssue } from '../pi-cache/src/ownBoatSkill/forecast';
 import { decodeIssuedSkill } from '../services/weather/modelSkill';
 const HOUR = 3600_000,

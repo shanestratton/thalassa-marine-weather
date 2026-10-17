@@ -1,6 +1,6 @@
 /** Private instrument agreement only; no live forecast choice, alarm or navigation adoption. */
 import { OWN_BOAT_MODELS, OWN_BOAT_SKILL } from '../ownBoatSkillWire.js';
-import type { PrivateWindSample } from './store.js';
+import type { PrivateWindSample } from './source.js';
 import type { VerifiedWindIssue } from './forecast.js';
 const HOUR = 3600_000;
 export const OWN_SKILL_LEADS = ['0-6h', '6-24h', '24-48h', '48-72h'] as const;
