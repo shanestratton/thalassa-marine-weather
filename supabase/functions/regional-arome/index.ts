@@ -1,6 +1,6 @@
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { parseCoordinate, readJsonObject } from '../_shared/http-security.ts';
-import { fetchAromeFromWx } from '../_shared/arome-upstream.ts';
+import { fetchAromeFromStatic } from '../_shared/arome-upstream.ts';
 import { aromeDomain } from '../../../services/weather/aromeDomains.ts';
 
 const CORS = {
@@ -25,7 +25,7 @@ Deno.serve(async (request: Request) => {
         const lon = parseCoordinate(body?.lon, 'lon');
         const model = typeof body?.model === 'string' ? body.model : '';
         if (lat === null || lon === null || !aromeDomain(model)) return reply({ error: 'Invalid regional point' }, 400);
-        const data = await fetchAromeFromWx(model, { lat, lon }, (name) => Deno.env.get(name));
+        const data = await fetchAromeFromStatic(model, { lat, lon }, (name) => Deno.env.get(name));
         return reply(data, 200);
     } catch {
         // Do not log positions, credentials, upstream bodies or error strings
