@@ -2415,6 +2415,7 @@ describe('Route round the land (127-PYD-2)', () => {
             expect(within(detail).getByText(MARINA_ROW)).toBeTruthy();
             expect(leaveRow(detail)).toBeNull();
             fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await act(async () => vi.dynamicImportSettled());
             await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(OVERNIGHT));
             // It sits under the route row, and the marina line is gone: the routed line went through the approach.
             expect(routeRow(detail)!.nextElementSibling).toBe(leaveRow(detail));
