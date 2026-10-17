@@ -151,7 +151,7 @@ export async function processPiFleetConsent(
         if (!parseFleetConsentProposal(proposal, now())) return fail(409, 'pi-consent-proof-expired');
         const consent = await deps.store.configure(proposal);
         if (deps.signal?.aborted) return fail(499, 'cancelled');
-        return { status: 200, body: { receipt: fleetConsentReceipt(consent, authority.tokenHash) } };
+        return { status: 200, body: { receipt: fleetConsentReceipt(consent, authority.tokenHash, proposal.nonce) } };
     } catch {
         return fail(409, 'pi-consent-not-confirmed');
     }

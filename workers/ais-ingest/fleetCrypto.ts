@@ -1,7 +1,12 @@
 /** Scoped relay-HMAC consent receipt plus the Pi's existing P256 payload signature.
  * No new signing key or service-role credential is installed on the Pi. */
 import { createHash, createHmac, createPublicKey, timingSafeEqual, verify } from 'node:crypto';
-import { fleetForwardConsentBytes, parseFleetForwardConsent, type FleetForwardConsent } from './fleetForwardingWire.js';
+import {
+    fleetForwardConsentBytes,
+    parseFleetForwardConsent,
+    fleetUuid,
+    type FleetForwardConsent,
+} from './fleetForwardingWire.js';
 
 const hash = /^[a-f0-9]{64}$/;
 export function fleetRelayTokenHash(token: string): string {
@@ -10,14 +15,20 @@ export function fleetRelayTokenHash(token: string): string {
 }
 export interface FleetConsentReceipt {
     consent: FleetForwardConsent;
+    nonce: string;
     mac: string;
 }
-export function fleetConsentReceipt(consent: FleetForwardConsent, tokenHash: string): FleetConsentReceipt {
-    if (!hash.test(tokenHash)) throw Error('Invalid scoped relay digest');
+export function fleetConsentReceipt(
+    consent: FleetForwardConsent,
+    tokenHash: string,
+    nonce: string,
+): FleetConsentReceipt {
+    if (!hash.test(tokenHash) || !fleetUuid(nonce)) throw Error('Invalid scoped relay digest or request');
     return {
         consent,
+        nonce,
         mac: createHmac('sha256', Buffer.from(tokenHash, 'hex'))
-            .update('thalassa-pi-fleet-consent-v1\n' + fleetForwardConsentBytes(consent))
+            .update('thalassa-pi-fleet-consent-v1\n' + fleetForwardConsentBytes(consent) + '\n' + nonce)
             .digest('hex'),
     };
 }
@@ -26,16 +37,17 @@ export function verifyFleetConsentReceipt(value: unknown, relayToken: string, no
         if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
         const row = value as Record<string, unknown>;
         if (
-            Object.keys(row).length !== 2 ||
+            Object.keys(row).length !== 3 ||
             !Object.hasOwn(row, 'consent') ||
             !Object.hasOwn(row, 'mac') ||
+            !fleetUuid(row.nonce) ||
             typeof row.mac !== 'string' ||
             !hash.test(row.mac)
         )
             return null;
         const consent = parseFleetForwardConsent(row.consent, now);
         if (!consent) return null;
-        const expected = fleetConsentReceipt(consent, fleetRelayTokenHash(relayToken)).mac;
+        const expected = fleetConsentReceipt(consent, fleetRelayTokenHash(relayToken), row.nonce).mac;
         return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(row.mac, 'hex')) ? consent : null;
     } catch {
         return null;

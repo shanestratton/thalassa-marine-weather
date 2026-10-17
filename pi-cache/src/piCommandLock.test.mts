@@ -37,6 +37,7 @@ import type { AddressInfo } from 'node:net';
 import { test, type TestContext } from 'node:test';
 import express, { type Router } from 'express';
 import { createWakeRuleRoutes } from './routes/wakeRules.js';
+import { createFleetFeedRoutes } from './routes/fleetFeed.js';
 import { loadOrCreateIdentity } from './identity.js';
 import { EncDeviceStore, type BoatLanView } from './encDevices.js';
 import {
@@ -282,6 +283,7 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createAisWatchRoutes: createAisWatchRoutes(watch),
         createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
         createWakeRuleRoutes: createWakeRuleRoutes({ keeper: stub, devices }),
+        createFleetFeedRoutes: createFleetFeedRoutes({ keeper: stub, devices }),
         createRadarRoutes: createRadarRoutes(stub),
         createRadarWatchRoutes: createRadarWatchRoutes({ watch: stub, enrolled: () => null }),
         createWeatherPositionRoutes: createWeatherPositionRoutes({
@@ -370,6 +372,10 @@ test('every route the Pi registers has a row in the table, and every row is a ro
     assert.equal(classOf('GET /api/radar/targets'), 'read');
     assert.equal(classOf('GET /api/radar/watch'), 'read');
     assert.equal(classOf('GET /api/weather-watch/position-source'), 'read');
+    assert.equal(classOf('GET /api/fleet-sharing/status'), 'read');
+    assert.equal(classOf('POST /api/fleet-sharing/prepare'), 'command');
+    assert.equal(classOf('POST /api/fleet-sharing/confirm'), 'command');
+    assert.equal(classOf('POST /api/fleet-sharing/off'), 'command');
     assert.equal(classOf('POST /api/radar/watch'), 'command');
     assert.equal(classOf('POST /api/radar/watch/ack'), 'command');
     assert.equal(classOf('POST /api/radar/watch/relay-review'), 'command');

@@ -29,7 +29,7 @@ const consent: FleetForwardConsent = {
     expiresAt: now + 100_000,
 };
 it('only the actual scoped relay can authenticate the exact current consent receipt', () => {
-    const receipt = fleetConsentReceipt(consent, fleetRelayTokenHash(token));
+    const receipt = fleetConsentReceipt(consent, fleetRelayTokenHash(token), '60000000-0000-4000-8000-000000000001');
     expect(verifyFleetConsentReceipt(receipt, token, now)).toEqual(consent);
     expect(verifyFleetConsentReceipt(receipt, 'f'.repeat(64), now)).toBeNull();
     expect(verifyFleetConsentReceipt(receipt, token, consent.expiresAt)).toBeNull();
@@ -43,6 +43,9 @@ it('only the actual scoped relay can authenticate the exact current consent rece
             ),
         ).toBeNull();
     expect(verifyFleetConsentReceipt({ ...receipt, mac: '0'.repeat(64) }, token, now)).toBeNull();
+    expect(
+        verifyFleetConsentReceipt({ ...receipt, nonce: '60000000-0000-4000-8000-000000000002' }, token, now),
+    ).toBeNull();
     expect(verifyFleetConsentReceipt({ ...receipt, extra: 'unreviewed' }, token, now)).toBeNull();
 });
 it('verifies the existing paired Pi payload domain and refuses another key, body, path or clock', () => {
