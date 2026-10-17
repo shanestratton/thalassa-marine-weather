@@ -3,6 +3,9 @@ name: Thalassa139 unsigned native compile
 # Review/dispatch only. This exact source compile has no signing or upload path.
 on:
     workflow_dispatch:
+    push:
+        branches: [codex/build-139-unsigned-native]
+        paths: [.github/workflows/unsigned-native-139.yml]
 
 permissions:
     contents: read
@@ -13,7 +16,7 @@ concurrency:
 
 jobs:
     unsigned:
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/codex/build-139-unsigned-native'))
         runs-on: macos-26
         timeout-minutes: 90
         defaults:

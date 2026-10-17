@@ -1,6 +1,6 @@
 # Unsigned native compile preparation
 
-This manual workflow is pinned to source `57a5d8eb02b4aa4c7a8f2117c0dcaa1cf5d5932e`, a checked139 checkpoint. It is prepared for root review and has not been dispatched. It is not the final139 release-source freeze.
+This workflow is pinned to source `57a5d8eb02b4aa4c7a8f2117c0dcaa1cf5d5932e`, a checked139 checkpoint. It is prepared for root review and has not been dispatched or pushed. It is not the final139 release-source freeze. Manual dispatch may be unavailable before the definition exists on default master, so a second narrow trigger accepts only owner pushes changing this workflow on `codex/build-139-unsigned-native`. Both triggers still check the exact same frozen source and repository/actor; no arbitrary source input exists.
 
 Compared with proposed138 `e4722dfc5eea78e2a2af8ffd83134da06ce301e0`, the complete iOS tree differs only in four `CURRENT_PROJECT_VERSION` declarations (138→139) and two approved compiled Watch files. `native-identity139.mjs` checks exact normalized project bytes and the two committed Swift SHA256 values. The eleven files under historical `ios/WatchApp` remain unchanged. Native tracked modifications during Capacitor sync are refused.
 
@@ -8,4 +8,8 @@ The hosted Mac job requires macos26, Xcode26.6 and Node24. It runs the unchanged
 
 The shared App scheme has an empty target-dependency list: an iOS Simulator compile alone does not compile the separate Watch target. The job therefore builds App for generic iOS Simulator and explicitly builds `ThalassaWatch Watch App` for watchsimulator, both with `CODE_SIGNING_ALLOWED=NO`. It changes no target, scheme or Swift source. This proves compilation only; no runtime, background alarm, hardware, WKWebView, entitlement or distribution-signature acceptance is implied.
 
+The existing signed `ios-testflight.yml` verification explicitly refuses an embedded `Watch` or `PlugIns` directory. The separate Watch compile does not make that target distributable in the current iPhone release; Watch embedding/distribution remains a known separate limitation. No target or signing change is proposed here.
+
 Only bounded text logs (up to2MiB per build command) and JSON SHA256/size inventories are retained for seven days. The proof compares every actual dist file with Capacitor's copied public directory and the compiled iOS app's public directory. Maps, unexpected public additions and native/key artifacts are refused. Capacitor's two generated Cordova bridge files are separately disclosed. No built app, executable, native archive, web bundle, certificate or private key is an uploaded artifact.
+
+The installed pinned Capacitor CLI's `handleCordovaPluginsJS` removes plugin files and creates empty `cordova.js` and `cordova_plugins.js` when the application has no Cordova plugins; its normal copy step copies the existing dist unchanged. The current package declares Capacitor plugins, with no Cordova plugin payload. The copy guard permits those two bridge names only, records their digests and refuses any other extra public file rather than guessing new plugin additions.
