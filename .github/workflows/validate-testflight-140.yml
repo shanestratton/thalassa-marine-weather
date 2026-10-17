@@ -19,7 +19,7 @@ concurrency:
 
 env:
   CANDIDATE_SHA: "fcb5506ba7d266a5972aa1e689cc27ff82728368"
-  PREVIOUS138_SHA: "8e6edf36a0c0514c252c347b68e7bb86cc7e0da9"
+  PREVIOUS139_SHA: "e28dc0c136e8a45ab5aa1cc0e3d1ce8fd3a67334"
   CI: "true"
   HUSKY: "0"
   NODE_OPTIONS: --max-old-space-size=4096
@@ -491,11 +491,11 @@ jobs:
           import {stageUpdate5} from './pi-cache/scripts/stage-update5.mjs';
           import {stageUpdate6} from './pi-cache/scripts/stage-update6.mjs';
           import {stageUpdate7} from './pi-cache/scripts/stage-update7.mjs';
-          const repository=process.cwd(),commit=process.env.CANDIDATE_SHA,previous=process.env.PREVIOUS138_SHA;
+          const repository=process.cwd(),commit=process.env.CANDIDATE_SHA,previous=process.env.PREVIOUS139_SHA;
           const git=(args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
           assert.equal(git(['rev-parse','HEAD']),commit);
           const master=git(['rev-parse','refs/remotes/origin/master^{commit}']);
-          assert.equal(master,previous,'Fetched master must be exact shipped138');
+          assert.equal(master,previous,'Fetched master must be exact shipped139');
           const nativeBuilds=[...fs.readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
           assert.equal(nativeBuilds.length,4);
           assert.ok(nativeBuilds.every(value=>value[1]==='140'));
@@ -514,7 +514,7 @@ jobs:
             assert.equal(fs.existsSync(output),false,'Refusal must precede all bundle output');
             attempts.push({update,refused:true,noOutput:true,reason:update===5?'Native140 is outside existing update5 allowlist':'Candidate140 is not yet an ancestor of shipped master'});
           }
-          fs.writeFileSync(path.join(proof,'REFUSAL.json'),JSON.stringify({commit,master,pinned138:previous,attempts,hardwareContact:false},null,2)+'\n');
+          fs.writeFileSync(path.join(proof,'REFUSAL.json'),JSON.stringify({commit,master,pinned139:previous,attempts,hardwareContact:false},null,2)+'\n');
           NODE
           sha256sum pi-cache/scripts/stage-update5.mjs pi-cache/scripts/update5.mjs pi-cache/scripts/stage-update6.mjs pi-cache/scripts/update6.mjs pi-cache/scripts/stage-update7.mjs pi-cache/scripts/update7.mjs > "$RUNNER_TEMP/pi-pre-release-refusal/SHA256SUMS"
       - name: Preserve actual-source pre-release staging refusal evidence
