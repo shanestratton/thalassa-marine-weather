@@ -95,6 +95,54 @@ describe('Glass chooses the source that serves the selected environment', () => 
         });
         expect(mocks.settings.offshoreModel).toBe('ecmwf');
     });
+    it('names the actual original AROME source and licence while keeping Best local an explicit preference', async () => {
+        mocks.settings.forecastModel = 'best_local';
+        render(
+            <StatusBadges
+                {...props}
+                coordinates={{ lat: -20, lon: 166 }}
+                locationType="coastal"
+                modelUsed="arome:thalassa_arome_om_ncaled_025+context+marine-v2"
+                forecastSampling="original-regional-sea-cell"
+                forecastRunAt="2026-10-17T00:00:00Z"
+            />,
+        );
+        await act(async () => {});
+        const picker = screen.getByRole('button', { name: 'Choose forecast model — showing AROME 2.5 km' });
+        expect(picker).toHaveTextContent(/^AROME 2.5 km$/);
+        fireEvent.click(picker);
+        expect(screen.getByRole('button', { name: 'Use the Best local forecast model' })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(screen.getByTestId('forecast-credit')).toHaveTextContent('Forecast: Météo-France AROME-OM · Etalab-2.0');
+        fireEvent.click(screen.getByText('Data sources', { exact: true }));
+        expect(screen.getByTestId('regional-source-credit')).toHaveTextContent(
+            'Météo-France AROME New Caledonia / Vanuatu · Etalab-2.0',
+        );
+        expect(screen.getByTestId('regional-source-credit')).toHaveTextContent('UV/visibility: independent forecast');
+        expect(screen.getByText(/The forecast ends 48 hours after that run/)).toBeVisible();
+    });
+    it('shows the actual named global fallback without claiming regional resolution', async () => {
+        mocks.settings.forecastModel = 'best_local';
+        render(
+            <StatusBadges
+                {...props}
+                coordinates={{ lat: -20, lon: 166 }}
+                locationType="coastal"
+                modelUsed="om:dwd_icon+marine-v2"
+            />,
+        );
+        await act(async () => {});
+        const picker = screen.getByRole('button', { name: 'Choose forecast model — showing ICON' });
+        expect(picker).toHaveTextContent(/^ICON$/);
+        fireEvent.click(picker);
+        expect(screen.getByTestId('forecast-credit')).toHaveTextContent(
+            'Local unavailable. Forecast: DWD ICON · CC BY 4.0',
+        );
+        expect(screen.getByText(/Local source unavailable; showing ICON/)).toBeVisible();
+        expect(mocks.settings.forecastModel).toBe('best_local');
+    });
     it('shows wx cell sampling and true model-run age instead of the fresh read time', async () => {
         vi.useFakeTimers({ now: new Date('2026-10-16T12:00:00Z'), toFake: ['Date'] });
         render(

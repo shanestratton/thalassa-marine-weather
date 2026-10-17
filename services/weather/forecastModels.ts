@@ -2,11 +2,12 @@
  * forecastModels — the catalogue behind the Glass page's model picker and
  * the multi-model convergence chart.
  *
- * These model-domain ids are accepted VERBATIM by both the self-hosted wx
+ * The concrete global model-domain ids are accepted VERBATIM by both the self-hosted wx
  * server (Shane's tailnet Open-Meteo instance) and the public/commercial
  * Open-Meteo APIs — verified against both hosts on 2026-07-20 — so a single
  * list serves the picker, the point fetch, and the spread chart regardless
- * of which host answers.
+ * of which host answers. Auto, Spitfire and Best local are explicit app
+ * strategies; they are never forwarded as provider model-domain ids.
  *
  * Source data is CC BY 4.0, except the UK Met Office's, which is CC BY-SA 4.0
  * (share-alike: showing it with credit is fine; keep it out of any blend we
@@ -99,6 +100,15 @@ export interface ForecastModelInfo {
 
 /** Sentinel meaning "no pinned model" — the legacy WeatherKit-primary blend. */
 export const AUTO_MODEL: WeatherModel = 'best_match';
+/** Explicit local-source preference. Never an Open-Meteo &models= id. */
+export const BEST_LOCAL_MODEL: WeatherModel = 'best_local';
+const BEST_LOCAL_INFO: ForecastModelInfo = {
+    id: BEST_LOCAL_MODEL,
+    label: 'Best local',
+    provider: 'Météo-France AROME-OM',
+    blurb: 'Original 2.5 km AROME where available; labelled global fallback',
+    hex: '#22d3ee',
+};
 
 /**
  * Concrete models offered in the Glass model picker, in display order.
@@ -209,9 +219,10 @@ export const WAVE_SPREAD_MODELS: { id: string; label: string; provider: string; 
  *  Canada" and, where possible, a link to the licence. */
 export const ECCC_LICENCE = 'ECCC Data Services End-use Licence';
 export const ECCC_LICENCE_URL = 'https://eccc-msc.github.io/open-data/licence/readme_en/';
+export const AROME_LICENCE_URL = 'https://www.etalab.gouv.fr/licence-ouverte-open-licence/';
 const ECCC_STATEMENT = 'Data Source: Environment and Climate Change Canada';
 
-const LICENCES = ['CC BY 4.0', 'CC BY-SA 4.0', 'public domain', ECCC_LICENCE] as const;
+const LICENCES = ['CC BY 4.0', 'CC BY-SA 4.0', 'public domain', ECCC_LICENCE, 'Etalab-2.0'] as const;
 export type ForecastDataLicence = (typeof LICENCES)[number];
 
 /** Providers whose data is not CC BY 4.0, under each name the app uses:
@@ -219,6 +230,7 @@ export type ForecastDataLicence = (typeof LICENCES)[number];
  *  - NOAA's is a US Government work, public domain (weather.gov/disclaimer).
  *  - ECCC's comes under its own end-use licence (ECCC_LICENCE above). */
 const OTHER_LICENCES: Record<string, ForecastDataLicence> = {
+    'Météo-France AROME-OM': 'Etalab-2.0',
     'UK Met Office': 'CC BY-SA 4.0',
     UKMO: 'CC BY-SA 4.0',
     NOAA: 'public domain',
@@ -279,7 +291,11 @@ export function modelLacks(m: WeatherModel | undefined | null, metric: 'gust' | 
 }
 
 export function getForecastModelInfo(m: WeatherModel | undefined | null): ForecastModelInfo | null {
-    return m === ECMWF_9KM ? ECMWF_FINE : (SELECTABLE_MODELS.find((s) => s.id === m) ?? null);
+    return m === BEST_LOCAL_MODEL
+        ? BEST_LOCAL_INFO
+        : m === ECMWF_9KM
+          ? ECMWF_FINE
+          : (SELECTABLE_MODELS.find((s) => s.id === m) ?? null);
 }
 
 /** The effective model for the Glass fetch: the persisted choice when it's a
@@ -288,6 +304,7 @@ export function getForecastModelInfo(m: WeatherModel | undefined | null): Foreca
  *  anyone whose settings still say `ncep_gfs025`; they fall back to ICON
  *  rather than to a model with no wind. */
 export function resolveForecastModel(stored: WeatherModel | undefined): WeatherModel {
+    if (stored === BEST_LOCAL_MODEL) return BEST_LOCAL_MODEL;
     if (isSpitfire(stored)) return SPITFIRE_MODEL;
     if (stored === 'ecmwf_ifs025' || stored === ECMWF_9KM) return isModelLive(ECMWF_9KM) ? ECMWF_9KM : 'ecmwf_ifs025';
     return isConcreteModel(stored) ? stored : stored === AUTO_MODEL ? AUTO_MODEL : 'dwd_icon';

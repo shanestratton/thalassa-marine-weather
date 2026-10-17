@@ -43,3 +43,11 @@ export function aromeDomain(model: string): AromeDomain | undefined {
 export function isAromeModel(model: string): model is AromeModelId {
     return aromeDomain(model) !== undefined;
 }
+
+export function aromeDomainAt(point: { lat: number; lon: number }): AromeDomain | undefined {
+    if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return undefined;
+    return AROME_DOMAINS.find(
+        ({ region: [south, north, west, east] }) =>
+            point.lat >= south && point.lat <= north && point.lon >= west && point.lon <= east,
+    );
+}

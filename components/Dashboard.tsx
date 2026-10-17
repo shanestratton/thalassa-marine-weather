@@ -1321,6 +1321,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
+                                    nativeHourlyRows={data.forecastSampling === 'original-regional-sea-cell'}
                                     units={units}
                                     generatedAt={data.generatedAt}
                                     locationName={props.displayTitle}

@@ -142,14 +142,55 @@ mistake: the fixture waited for a fifth clock call, but the real reader used onl
 three. It now advances the controlled clock explicitly at the tile read, retaining
 the final expiry guard. No product clock was restamped or deadline changed.
 
-Four actual ecCodes generated-fixture tests and a Node 24 native-file-to-Edge
-interoperability check are prepared separately. They are **not yet run** at this
-source checkpoint. They exercise the original full dimensions, CCSDS, scan/bitmap
-handling and all 49 leads without provider access. The dependency lock is byte-
-identical to the reviewed atmospheric ecCodes 2.50.0/NumPy 2.4.6 Linux closure.
+The frozen static source `9f2364baa85ed1ef4b796379789b8140616fa721` subsequently
+passed actual isolated Linux run `39028187437`, job `117383228988`: 17 pure Python
+methods, four actual ecCodes generated-fixture tests, and a Node24 native-file-to-
+Edge interoperability check, with no skips. The process enforced a 2GiB address
+space ceiling and recorded 121,972KiB maximum RSS, 15.60s elapsed and zero swaps.
+The full 264,147-cell POLYN grid and all49 leads produced272 immutable tiles.
+This exercises the original dimensions, CCSDS, scan/bitmap handling and all49
+leads without provider access. The dependency lock is byte-identical to the
+reviewed atmospheric ecCodes2.50.0/NumPy2.4.6 Linux closure. The independent proof
+is `outputs/Build14206 actual Linux native static fixture proof.json`, SHA256
+`714a8656877ce9629c839622a8292dd23a2205ffbf4caccf5c883f310e31897d`.
 Generated native fixtures do not prove original Météo-France masks, parameters,
 coverage or current source availability. Original native acquisition/publication,
-whole-app compiler/configured budget and main Glass selection remain outstanding.
+and whole-app compiler/configured budget remain outstanding.
+
+## Explicit Glass preference
+
+`best_local` is an app strategy, never a provider model-domain ID. It is offered
+as Best local inside a documented AROME region, and stays visible if already
+selected when the location moves elsewhere. All manual/global choices and Auto
+keep their existing paths. The ordinary global request remains DWD ICON as a
+named fallback; no preference is automatically changed. The source remains held
+by `THALASSA_AROME_STATIC_ENABLED`, with no publication/activation in this packet.
+
+Glass adoption revalidates the original run, domain, sea mask/cell, exact49 UTC
+hours, source age and current account/preference context after asynchronous
+classification/assessment. The legacy hourly DTO requires numeric temperature,
+so Glass additionally requires all49 native temperatures; the comparison keeps
+its independent nullable series. Missing native temperature refuses Glass
+adoption instead of borrowing a global value. Wind, pressure and humidity gaps
+remain unknown; gusts, rain and weather codes are never invented. Independent
+marine data still uses the existing marine-v2 path. UV/visibility may come only
+from an exact-point/hour-matched independent forecast, labelled as supplements.
+
+Only complete native local calendar days receive daily temperature extrema.
+Today’s partial day keeps its extrema unknown; the actual Hero resolver cannot
+borrow tomorrow’s pair. Partial future days are backed by their own original
+hourly buckets, so all49 original hours stay accessible without a global tail or
+an invented daily summary. Native run age,48h horizon, actual domain and Etalab
+rights are available in the model sheet. The fixed footer uses a shorter source
+line; full domain/supplement credits live in its existing Data sources rollup,
+preserving usable controls at300px/130% and the original sheet/page bounds.
+
+The first phone matrix retained a genuine31.1875px scroll-body exposure at300px/
+130% caused by the long fixed native credit; no geometry guard was relaxed.
+It also retained WebKit pointer-entry focus expectations: Safari does not focus
+a button on a touch click. The keyboard restoration test now establishes and
+asserts its real focused opener before Enter activation, retaining the original
+focus-restoration check. No shared focus-trap behavior changed.
 
 Primary native field references supplement the Météo-France specification:
 

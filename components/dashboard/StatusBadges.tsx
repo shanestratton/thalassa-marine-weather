@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatAge } from '../ui/DataFreshness';
 import { MetricSource } from '../../types';
-import type { OffshoreModel, WeatherModel } from '../../types';
+import type { MarineWeatherReport, OffshoreModel, WeatherModel } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
 import { triggerHaptic } from '../../utils/system';
 import { AlertTriangleIcon } from '../Icons';
@@ -13,6 +13,7 @@ import {
     isSpitfire,
     resolveOffshoreModel,
     getOffshoreModelInfo,
+    BEST_LOCAL_MODEL,
 } from '../../services/weather/forecastModels';
 import { listPublishedModels } from '../../services/weather/wxPublished';
 import { refreshCoastalModelCapabilities, applyEcmwfPinMigration } from '../../services/weather/coastalModelSupport';
@@ -55,7 +56,7 @@ interface StatusBadgesProps {
     isLive?: boolean;
     modelUsed?: string;
     generatedAt?: string;
-    forecastSampling?: 'quarter-degree-cell';
+    forecastSampling?: MarineWeatherReport['forecastSampling'];
     forecastRunAt?: string;
     limitedForecast?: 'satellite';
     coordinates?: { lat: number; lon: number };
@@ -197,7 +198,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             const id = window.setInterval(() => setAgeTick(Date.now()), 30_000);
             return () => window.clearInterval(id);
         }, []);
-        const ageAt = forecastSampling === 'quarter-degree-cell' ? forecastRunAt : generatedAt;
+        const ageAt = forecastSampling ? forecastRunAt : generatedAt;
         const generatedMs = ageAt ? Date.parse(String(ageAt)) : Number.NaN;
         const forecastAge = Number.isFinite(generatedMs) ? formatAge(Math.max(0, ageTick - generatedMs)) : null;
         // Past ~90 min the age tints amber so staleness is visible without
@@ -266,7 +267,13 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         }, [coordinates?.lat, coordinates?.lon, offshore]);
         const spitfireSelected = !offshore && isSpitfire(glassModel);
         const pillLabel =
-            limitedForecast === 'satellite' ? 'Satellite' : spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
+            limitedForecast === 'satellite'
+                ? 'Satellite'
+                : spitfireSelected
+                  ? 'SPITFIRE'
+                  : !offshore && glassModel === BEST_LOCAL_MODEL
+                    ? (servedModel ?? 'Global fallback')
+                    : modelInfo?.label || 'AUTO';
         const pillHex = spitfireSelected ? '#facc15' : modelInfo?.hex || '#94a3b8';
         const pickModel = (id: WeatherModel) => {
             void triggerHaptic('medium');
@@ -402,6 +409,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                     visible={showModelSheet}
                     coordinates={coordinates}
                     currentModel={glassModel}
+                    servedTag={modelUsed}
                     offshore={offshore ? { currentModel: offshoreModel, onPick: pickOffshoreModel } : undefined}
                     spitfireAvailable={!!spitfireLoc || publishedModels.includes('spitfire')}
                     spitfireLocationName={spitfireLoc?.name}
@@ -411,7 +419,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             ? 'Satellite mode: a compact atmospheric forecast with 24 hours and up to 5 days. Waves, currents and tides are unavailable. Your usual model choice is saved for normal network use.'
                             : forecastSampling === 'quarter-degree-cell'
                               ? 'Weather from wx, sampled at the centre of a 0.25° cell (about 25 km). The age shows the model run; current conditions follow its forecast hour.'
-                              : undefined
+                              : forecastSampling === 'original-regional-sea-cell'
+                                ? 'Original 2.5 km AROME sea cell. Age is the model run. The forecast ends 48 hours after that run; missing fields remain unknown. UV and visibility, when present, use independent forecast sources.'
+                                : glassModel === BEST_LOCAL_MODEL
+                                  ? `Local source unavailable; showing ${servedModel ?? 'the labelled fallback sources'}. No regional coverage is assumed.`
+                                  : undefined
                     }
                     onPick={pickModel}
                     onClose={() => setShowModelSheet(false)}

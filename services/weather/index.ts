@@ -19,7 +19,9 @@ import {
     offshoreAtmosphericModel,
     isConcreteModel,
     isSpitfire,
+    BEST_LOCAL_MODEL,
 } from './forecastModels';
+import { aromeDomainAt } from './aromeDomains';
 import { fetchSpitfire, applySpitfireToReport } from './spitfire';
 import { piCache } from '../PiCacheService';
 import { satelliteModeActive } from '../networkPolicy';
@@ -192,7 +194,14 @@ const _fetchWeatherByStrategyImpl = async (
 
     // Offshore models use the named atmospheric domain, while marine is always
     // Météo-France waves paired with independent best-match motion/temperature.
-    let glassModel = isOffshore ? offshoreAtmosphericModel(offshoreModel) : selection.forecastModel;
+    const localWanted = !isOffshore && selection.forecastModel === BEST_LOCAL_MODEL;
+    // The preference is not a provider model id. The ordinary global request
+    // remains a labelled fallback and supplies classification/independent context.
+    let glassModel = isOffshore
+        ? offshoreAtmosphericModel(offshoreModel)
+        : localWanted
+          ? 'dwd_icon'
+          : selection.forecastModel;
     let modelPinned = isOffshore || isConcreteModel(glassModel);
     // SPITFIRE is a published blend, not a grid — it is fetched separately and
     // only exists near the locations the wx box computes. Asking for it away
@@ -276,6 +285,15 @@ const _fetchWeatherByStrategyImpl = async (
     //    serves the primary data. Carries the Glass model selection —
     //    when a model is pinned this becomes the atmospheric base.
     const omPromise = bounded('openmeteo', fetchOpenMeteo(lat, lon, name, false, glassModel));
+    const localDomain = localWanted && locationType !== 'inland' ? aromeDomainAt({ lat, lon }) : undefined;
+    const localPromise = localDomain
+        ? bounded(
+              'arome',
+              import('./aromeSource').then(({ fetchOwnAromePoint }) =>
+                  fetchOwnAromePoint(localDomain.id, { lat, lon }),
+              ),
+          )
+        : Promise.resolve(null);
 
     /**
      * The tier the report cannot be built without. The grace clock for the
@@ -288,14 +306,16 @@ const _fetchWeatherByStrategyImpl = async (
         tidePromise,
         omPromise,
         weatherKitParallel ?? Promise.resolve(null),
+        localPromise,
     ]);
     const graceGate = essentials.then(() => new Promise((resolve) => setTimeout(resolve, SUPPLEMENTARY_GRACE_MS)));
 
-    const [unifiedResult, tideResult, omResult, marineResult] = await Promise.allSettled([
+    const [unifiedResult, tideResult, omResult, marineResult, localResult] = await Promise.allSettled([
         unifiedPromise,
         tidePromise,
         omPromise,
         needsMarine ? bounded('marine', fetchMarineModelV2(lat, lon), graceGate) : Promise.resolve(null),
+        localPromise,
     ]);
 
     // warn, not info — info is silenced in prod, and this line is the whole
@@ -307,6 +327,7 @@ const _fetchWeatherByStrategyImpl = async (
     const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
     let openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
     const marineReading = marineResult.status === 'fulfilled' ? marineResult.value : null;
+    const localReading = localResult.status === 'fulfilled' ? localResult.value : null;
 
     // A first visit may be classified offshore by the atmospheric/geographic
     // lookup. Correct its selected atmosphere once, reusing marine/tides and
@@ -359,6 +380,7 @@ const _fetchWeatherByStrategyImpl = async (
 
     // --- BUILD BASE REPORT ---
     let report: MarineWeatherReport;
+    let requiresNative = false;
     /** Pinned-model path only: true once UV/visibility were gap-filled from
      *  the WeatherKit-backed report, so the model tag can say so. */
     let borrowedFromWeatherKit = false;
@@ -383,6 +405,10 @@ const _fetchWeatherByStrategyImpl = async (
     } else if (openMeteoReport) {
         // Last resort — OpenMeteo only
         report = structuredClone(openMeteoReport);
+    } else if (localWanted && localReading && (locationType === 'coastal' || locationType === 'inshore')) {
+        const { aromeContext } = await import('./aromeReport');
+        report = aromeContext({ lat, lon }, name, locationType, Date.now());
+        requiresNative = true;
     } else {
         // All APIs failed — try offline cache as last resort
         const offlineResult = getFromCacheOffline({ lat, lon });
@@ -550,6 +576,26 @@ const _fetchWeatherByStrategyImpl = async (
     } catch (e) {
         log.warn('shelter assessment unavailable:', (e as Error)?.message || e);
     }
+    if (
+        localWanted &&
+        localReading &&
+        !isOffshore &&
+        computedLocationType !== 'inland' &&
+        sameSelection(selection, forecastSelection())
+    ) {
+        const { aromeReport } = await import('./aromeReport');
+        // Recheck original source age after every asynchronous source/assessment.
+        const supplement =
+            unifiedReport ?? (weatherKitFull ? buildReportFromWeatherKit(weatherKitFull, lat, lon, name) : null);
+        const native = aromeReport(report, localReading, { lat, lon }, Date.now(), supplement);
+        if (native) {
+            report = native;
+            requiresNative = false;
+            if (native.regionalAtmosphere?.supplementTag) report.modelUsed += '+context';
+            if (marineReading) report.modelUsed += '+marine-v2';
+        }
+    }
+    if (requiresNative) throw new Error('Qualified regional atmosphere unavailable');
     report = finalizeMarineForecast(applyMarineModel(report, marineReading, enclosed));
 
     // The general/offline cache is coordinate-keyed. A late obsolete model
@@ -611,6 +657,9 @@ export const fetchFastWeather = async (
     // The quick path uses the same marine admission and final alert policy;
     // neither a legacy atmospheric sea placeholder nor a provider failure is0.
     const selection = forecastSelection();
+    if (model === BEST_LOCAL_MODEL) {
+        return _fetchWeatherByStrategyImpl(lat, lon, name, { ...selection, forecastModel: BEST_LOCAL_MODEL });
+    }
     const result = await withTimeout(
         Promise.all([
             fetchOpenMeteo(lat, lon, name, true, model),

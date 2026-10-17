@@ -7,6 +7,7 @@ import type { OfficialTideObservation, OfficialTideProvider } from '../services/
 
 export type WeatherModel =
     | 'best_match'
+    | 'best_local'
     | 'ecmwf_ifs04'
     | 'gfs_seamless'
     | 'icon_seamless'
@@ -328,10 +329,21 @@ export interface MarineWeatherReport {
     generatedAt: string;
     aiGeneratedAt?: string;
     modelUsed: string;
-    /** wx rows sample the centre of an anonymous 0.25° cell, not this exact position. */
-    forecastSampling?: 'quarter-degree-cell';
+    /** Distinguishes coarse wx cells from qualified original regional sea cells. */
+    forecastSampling?: 'quarter-degree-cell' | 'original-regional-sea-cell';
     /** Actual model initialisation, independent of when the phone read the row. */
     forecastRunAt?: string;
+    /** Original regional sea-cell provenance; no current observation claim. */
+    regionalAtmosphere?: {
+        model: string;
+        cohortSha256: string;
+        maskSha256: string;
+        latitude: number;
+        longitude: number;
+        firstValidAt: string;
+        lastValidAt: string;
+        supplementTag?: string;
+    };
     /** Limited atmospheric response, with no extra marine/tide provider calls. */
     limitedForecast?: 'satellite';
     stationId?: string;

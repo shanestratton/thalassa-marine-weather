@@ -1,12 +1,12 @@
 import { AROME_DOMAINS } from '../../services/weather/aromeDomains';
-import { AROME_HOURLY_UNITS } from '../../services/weather/aromePointContract';
+import { AROME_HOURLY_UNITS, type AromePointForecast } from '../../services/weather/aromePointContract';
 
 export const AROME_TEST_RUN = Date.UTC(2026, 9, 17);
 export const AROME_TEST_POINT = { lat: -20, lon: 166 };
 export const AROME_TEST_MODEL = AROME_DOMAINS[0].id;
 
 /** Fictional values on the real documented grid; no observed/native proof. */
-export function aromePointFixture() {
+export function aromePointFixture(): AromePointForecast {
     return {
         schema: 1,
         model: AROME_TEST_MODEL,
