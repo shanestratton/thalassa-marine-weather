@@ -22,13 +22,13 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 beforeAll(() => vi.stubEnv('NODE_ENV', 'production'));
 afterAll(() => vi.unstubAllEnvs());
 
-it('pins both unchanged sources and every cooked value to the actual bounded decoder', async () => {
+it('pins the unchanged reference source and every cooked value to the actual bounded decoder', async () => {
     const { records, values, packed } = collectAuthoredProse(root);
-    expect(Object.keys(AUTHORED_PROSE_SOURCES)).toEqual([reference, trip]);
-    expect(records.map(({ rows }) => rows.length)).toEqual([77, 32]);
-    expect(values).toHaveLength(106);
-    expect(packed.bytes).toBe(20428);
-    expect(packed.encoded).toHaveLength(10640);
+    expect(Object.keys(AUTHORED_PROSE_SOURCES)).toEqual([reference]);
+    expect(records.map(({ rows }) => rows.length)).toEqual([77]);
+    expect(values).toHaveLength(74);
+    expect(packed.bytes).toBe(17237);
+    expect(packed.encoded).toHaveLength(8692);
     const restored = decodeClassNames(packed.encoded, packed.bytes, packed.count, packed.checksum);
     expect(restored).toEqual(values);
     expect(Object.isFrozen(restored)).toBe(true);
@@ -77,6 +77,7 @@ it('preserves escaped cooked templates while leaving dynamic/tagged templates, m
     expect(changed?.code).toContain(`{${literal}:__thalassaAuthoredProse[0]}`);
     expect(changed?.code).toContain(`export const cooked=__thalassaAuthoredProse[0]`);
     expect(authoredProseLiterals(code, 'services/Other.ts')).toEqual([]);
+    expect(authoredProseLiterals(code, trip)).toEqual([]);
     expect(rewriteAuthoredProse(code, 'services/Other.ts', [text])).toBeNull();
     expect(() => rewriteAuthoredProse(code, reference, [])).toThrow(/absent/);
 });
@@ -169,6 +170,7 @@ it('preserves every hemisphere card, shared card identity and all ten country-sn
         const original = await compile(false),
             packed = await compile(true);
         expect(packed.values).toEqual(original.values);
+        expect(JSON.stringify(packed.values)).toBe(JSON.stringify(original.values));
         expect(packed.values.snippets).toHaveLength(11);
         expect(packed.values.south).toHaveLength(4);
         expect(packed.values.north).toHaveLength(4);

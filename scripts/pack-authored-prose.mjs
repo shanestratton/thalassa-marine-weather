@@ -13,10 +13,6 @@ export const AUTHORED_PROSE_SOURCES = Object.freeze({
         sha256: '9fe84c62cfffc09d2595766e9d63592fd67474a1d158c0e9833038d88a52829d',
         literals: 77,
     },
-    'services/TripOverviewService.ts': {
-        sha256: '72bbf55ff9474e85da6647aaf8ff4318134e6a21c90f062d99962d3e97602876',
-        literals: 32,
-    },
 });
 const MODULE = 'virtual:thalassa-authored-prose';
 const RESOLVED = '\0' + MODULE;
@@ -109,7 +105,7 @@ export function collectAuthoredProse(root) {
         return { file, code, rows };
     });
     const values = [...new Set(records.flatMap(({ rows }) => rows.map(({ value }) => value)))].sort();
-    if (values.length !== 106) throw Error('Unreviewed authored prose value count');
+    if (values.length !== 74) throw Error('Unreviewed authored prose value count');
     return { records, values, packed: packAuthoredProseValues(values) };
 }
 
