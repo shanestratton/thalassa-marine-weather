@@ -74,6 +74,8 @@ for (const width of [300, 375, 430])
             await toggle.click();
             await page.getByRole('button', { name: 'Close layer menu', exact: true }).click();
             await expect(page.getByRole('menu')).toBeHidden();
+            await expect(page.locator('.radial-helm-layer-grid')).toHaveCount(0);
+            await expect(page.locator('[data-helm-scrim]')).toHaveCount(0);
             const row = page.getByTestId('obs-credits-rollup');
             await expect(row).toBeVisible();
             expect((await row.boundingBox())!.height).toBe(44);
