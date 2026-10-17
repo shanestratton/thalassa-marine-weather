@@ -217,3 +217,18 @@ it('enhancer holds an actual auth A/B/A key retirement at the validator return s
         setAuthIdentityScope(original);
     }
 });
+
+it('enhancer holds a retired weak original-chart proof at final adoption', async () => {
+    mocks.resolveRoutingPolar.mockResolvedValue(RESOLVED);
+    mocks.getPrecomputedRoute.mockReturnValue(candidate());
+    const { validateRouteSegments } = await import('../services/isochrone/landAvoidance');
+    const validate = vi.mocked(validateRouteSegments);
+    validate.mockImplementationOnce(async (route, options) => {
+        options?.onRouteAreaCaveats?.([], () => false);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    await expect(enhanceVoyagePlanWithIsochrone(PLAN, VESSEL, DEPART)).rejects.toMatchObject({
+        code: 'exclusion-unavailable',
+    });
+});

@@ -267,3 +267,13 @@ it('constrained passage holds an actual auth A/B/A key retirement at the validat
         setAuthIdentityScope(original);
     }
 });
+
+it('constrained passage holds a retired weak original-chart proof at final adoption', async () => {
+    const validate = mocks.validate;
+    validate.mockImplementationOnce(async (route, options) => {
+        options?.onRouteAreaCaveats?.([], () => false);
+        options?.onVerificationOutcome?.({ status: 'verified' });
+        return route;
+    });
+    await expect(computeConstrainedPassage(input())).rejects.toMatchObject({ code: 'exclusion-unavailable' });
+});

@@ -279,6 +279,7 @@ export async function enhanceVoyagePlanWithIsochrone(
         // Capped at 15s (matches usePassagePlanner). An unfinished final
         // private-policy check holds the route; it cannot adopt an old line.
         let acceptedAreaKey: string | undefined;
+        let acceptedSourceCurrent: (() => boolean) | undefined;
         const validationAbort = new AbortController();
         let validationTimer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -301,8 +302,9 @@ export async function enhanceVoyagePlanWithIsochrone(
                     departureTimeMs,
                     stillCurrent: () => !enhancerStale,
                     signal: validationAbort.signal,
-                    onRouteAreaCaveats: (notes) => {
+                    onRouteAreaCaveats: (notes, sourceCurrent) => {
                         areaCaveats = notes;
+                        acceptedSourceCurrent = sourceCurrent;
                     },
                 }),
                 new Promise<null>(
@@ -323,7 +325,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 );
             }
             if (validated) {
-                if (routingExclusionContextKey() !== validationAreaKey)
+                if (routingExclusionContextKey() !== validationAreaKey || acceptedSourceCurrent?.() === false)
                     throw new RoutingExclusionFailure(
                         'exclusion-unavailable',
                         'The passage area policy changed before acceptance. Review the route again.',
@@ -464,7 +466,7 @@ export async function enhanceVoyagePlanWithIsochrone(
             },
         };
 
-        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey)
+        if (!acceptedAreaKey || routingExclusionContextKey() !== acceptedAreaKey || acceptedSourceCurrent?.() === false)
             throw new RoutingExclusionFailure(
                 'exclusion-unavailable',
                 'The passage area policy changed before acceptance. Review the route again.',

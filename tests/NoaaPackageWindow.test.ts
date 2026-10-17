@@ -51,6 +51,7 @@ vi.mock('../services/enc/noaaPackageStore', () => ({
 import * as metadata from '../services/enc/EncCellMetadata';
 import { loadNoaaPackageCohort, loadNoaaPackageWindow } from '../services/enc/noaaPackageWindow';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { borrowRetainedNoaaWindow } from '../services/enc/noaaRetainedWindow';
 import { noaaResidentBytes, setBlobCachePlottingMode } from '../services/enc/EncCellStore';
 import { clearMergedData } from '../services/enc/mergedDataCache';
 const cell = { id: 'US3AK1EX', sourceHO: 'US' } as EncCell;
@@ -233,6 +234,34 @@ describe('one complete multi-cell package cohort', () => {
             expect(state.read).toEqual([0, 1, 2]);
         } finally {
             leads.release();
+        }
+    });
+});
+
+describe('actual already-accounted NOAA window borrowing', () => {
+    it('borrows the actual loaded owner without another read/reservation and drops every raw borrowed ref on owner release', async () => {
+        const bounds: [number, number, number, number] = [-133.8, 55.4, -133.65, 55.6];
+        const owner = await loadNoaaPackageWindow(cell, bounds);
+        try {
+            const reads = state.read.length,
+                bytes = noaaResidentBytes();
+            const borrowed = borrowRetainedNoaaWindow(cell, bounds)!;
+            expect(borrowed.blob).toBe(owner.blob);
+            expect(borrowed.bytes).toBe(owner.bytes);
+            expect(state.read.length).toBe(reads);
+            expect(noaaResidentBytes()).toBe(bytes);
+            const authority = borrowed.authorityCurrent;
+            borrowed.release();
+            expect(authority()).toBe(true);
+            const second = borrowRetainedNoaaWindow(cell, bounds)!;
+            owner.release();
+            expect(second.blob).toBeUndefined();
+            expect(second.isCurrent()).toBe(false);
+            expect(authority()).toBe(false);
+            expect(noaaResidentBytes()).toBe(0);
+            second.release();
+        } finally {
+            owner.release();
         }
     });
 });
