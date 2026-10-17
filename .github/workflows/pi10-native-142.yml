@@ -1,0 +1,81 @@
+name: Build142 isolated Pi10 package and SQLite proof
+on:
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source commit
+                required: true
+                type: string
+permissions:
+    contents: read
+concurrency:
+    group: pi10-isolated-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    package:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 18
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha }}
+        steps:
+            - name: Require exact source
+              shell: bash
+              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 22
+            - name: Capture immutable inputs and install locked software only
+              timeout-minutes: 6
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/pi10-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/pi10-proof/SOURCE_SHA.txt"
+                  node --version > "$RUNNER_TEMP/pi10-proof/NODE_VERSION.txt"
+                  npm --version > "$RUNNER_TEMP/pi10-proof/NPM_VERSION.txt"
+                  git ls-files package.json package-lock.json pi-cache components/nmea/gauges components/nmea/instrumentDaylight.css .github/workflows/pi10-native-142.yml | LC_ALL=C sort | xargs sha256sum > "$RUNNER_TEMP/pi10-proof/SHA256SUMS"
+                  npm ci --ignore-scripts --no-audit --no-fund
+                  npm ci --prefix pi-cache --ignore-scripts --no-audit --no-fund
+            - name: Build real SQLite, Pi source and separate bounded cabin display
+              timeout-minutes: 6
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  npm rebuild --prefix pi-cache better-sqlite3 --build-from-source 2>&1 | tee "$RUNNER_TEMP/pi10-proof/NATIVE_BUILD.txt"
+                  sha256sum pi-cache/node_modules/better-sqlite3/build/Release/better_sqlite3.node > "$RUNNER_TEMP/pi10-proof/NATIVE_SHA256.txt"
+                  node -p "require('./pi-cache/node_modules/better-sqlite3/package.json').version" > "$RUNNER_TEMP/pi10-proof/SQLITE_PACKAGE_VERSION.txt"
+                  npm run build --prefix pi-cache 2>&1 | tee "$RUNNER_TEMP/pi10-proof/PI_BUILD.txt"
+                  node pi-cache/node_modules/typescript/bin/tsc -p pi-cache/scripts/cabin-native142-proof.tsconfig.json 2>&1 | tee "$RUNNER_TEMP/pi10-proof/OPERATOR_PROOF_TYPES.txt"
+                  node pi-cache/scripts/build-cabin.mjs "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pi10-cabin" | tee "$RUNNER_TEMP/pi10-proof/CABIN_BUILD.json"
+            - name: No-network real package, ownership, SQLite and guarded plans
+              timeout-minutes: 4
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  node_path=$(command -v node)
+                  sudo systemd-run --unit=pi10-native-proof --wait --pipe --collect \
+                    -p MemoryMax=1G -p MemorySwapMax=0 -p TasksMax=96 -p CPUQuota=100% \
+                    -p RuntimeMaxSec=180 -p TimeoutStopSec=5 -p KillMode=control-group -p SendSIGKILL=yes \
+                    -p PrivateNetwork=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= \
+                    -p ProtectHome=read-only -p ProtectSystem=strict -p PrivateTmp=yes \
+                    -p User="$(id -un)" -p WorkingDirectory="$GITHUB_WORKSPACE/pi-cache" \
+                    /usr/bin/env -i PATH="$(dirname "$node_path"):/usr/bin:/bin" \
+                    THALASSA_DISPOSABLE_CABIN_TEST=1 THALASSA_DISPOSABLE_PI10_TEST=1 \
+                    CABIN_PROOF_DIR="$RUNNER_TEMP/pi10-cabin" \
+                    "$node_path" scripts/pi10-linux-proof.mjs 2>&1 | tee "$RUNNER_TEMP/pi10-proof/BOUNDED_NATIVE_AND_PACKAGE.txt"
+                  if systemctl is-active --quiet pi10-native-proof.service; then exit 1; fi
+                  printf '0\n' > "$RUNNER_TEMP/pi10-proof/PROCESS_EXIT.txt"
+            - name: Preserve source and bounded evidence only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build142-pi10-native-proof
+                  path: ${{ runner.temp }}/pi10-proof/
+                  retention-days: 7
+                  if-no-files-found: error
