@@ -13,7 +13,8 @@ import { prepareReviewPhoto } from '../../services/community/PlaceReviewsService
 import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { HYDROGRAPHIC_REPORTING } from '../../services/community/hydrographicReporting';
 import { ReviewPhoto } from './ReviewPhoto';
-const button = 'min-h-[44px] rounded-lg border border-violet-300/30 px-3 py-2 text-sm disabled:opacity-40';
+const button =
+    'min-h-[44px] rounded-lg border border-violet-300/30 px-3 py-2 text-sm text-violet-100 disabled:opacity-40';
 const field = 'w-full min-w-0 rounded-lg border border-white/20 bg-slate-900 p-3 text-base';
 const label = (s: string) => s.replaceAll('-', ' ');
 type OwnNote = ChartNoteDraft & { id: string; revision: string; status: string };
