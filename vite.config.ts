@@ -35,7 +35,7 @@ import { shareSvgProps } from './scripts/share-svg-props.mjs';
 import { shareSvgPaths } from './scripts/share-svg-paths.mjs';
 import { packPolarArguments } from './scripts/pack-polar-arguments.mjs';
 import { packReliefInventories } from './scripts/pack-relief-rows.mjs';
-import { packMapboxShaders } from './scripts/pack-mapbox-shaders.mjs';
+import { packMapboxData142 } from './scripts/pack-mapbox-data142.mjs';
 import { packAuthoredProse } from './scripts/pack-authored-prose.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
@@ -637,7 +637,7 @@ export default defineConfig(({ mode }) => {
             packTimezoneData(__dirname),
             packPolarArguments(__dirname),
             packReliefInventories(__dirname),
-            packMapboxShaders(__dirname),
+            packMapboxData142(__dirname),
             packAuthoredProse(__dirname),
             shareSvgProps(__dirname),
             packedUiData.plugin,
