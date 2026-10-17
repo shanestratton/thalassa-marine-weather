@@ -201,7 +201,8 @@ export function marineForecastForDisplay(input: MarineWeatherReport, now = Date.
                       : meta.reason,
         },
     };
-    for (const [key, value] of Object.entries({ ...waves, ...motion })) {
+    for (const key of Object.keys(missing) as (keyof typeof missing)[]) {
+        const value = missing[key];
         const stale = key in motion ? clearMotion : clearWave;
         const prior = report.current.sources?.[key];
         if (stale && prior) report.current.sources![key] = { ...prior, value };

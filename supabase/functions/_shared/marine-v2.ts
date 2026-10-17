@@ -78,9 +78,11 @@ function admittedValue(field: MarineFieldV2, v: unknown): number | null {
 }
 /** Admit only the requested vocabulary and original UTC clocks. Unknown stays null. */
 export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2 | null {
+    if (!object(raw)) return null;
+    // Keep the provider record distinct from its validated coordinate DTO.
+    const point = { latitude: raw.latitude, longitude: raw.longitude };
     if (
-        !marinePointV2(raw) ||
-        !object(raw) ||
+        !marinePointV2(point) ||
         raw.utc_offset_seconds !== 0 ||
         !object(raw.current) ||
         !object(raw.hourly) ||
@@ -141,8 +143,8 @@ export function marineSourceV2(raw: unknown, kind: MarineKindV2): MarineSourceV2
         if (hourlyOk) hourlyUnits[field] = expected;
     }
     return {
-        latitude: raw.latitude,
-        longitude: raw.longitude,
+        latitude: point.latitude,
+        longitude: point.longitude,
         utc_offset_seconds: 0,
         current,
         hourly,
