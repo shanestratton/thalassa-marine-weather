@@ -59,7 +59,7 @@ vi.mock('sql.js', () => ({
     },
 }));
 
-function sqlitePage(): Uint8Array {
+function sqlitePage(): Uint8Array<ArrayBuffer> {
     const page = new Uint8Array(512);
     page.set(new TextEncoder().encode('SQLite format 3\0'));
     new DataView(page.buffer).setUint16(16, 512, false);
@@ -152,7 +152,10 @@ describe('MBTiles whole-file resource ownership', () => {
         const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
         try {
             expect(MBTilesService.getTileBlobUrl('fictional-harbour.mbtiles', 3, 0, 0)).toBe('blob:owned-tile');
-            expect(create.mock.calls[0][0].size).toBe(png.length);
+            const blob = create.mock.calls[0][0];
+            expect(blob).toBeInstanceOf(Blob);
+            if (!(blob instanceof Blob)) throw new Error('Expected the chart tile Blob.');
+            expect(blob.size).toBe(png.length);
             MBTilesService.close('fictional-harbour.mbtiles');
             expect(revoke).toHaveBeenCalledWith('blob:owned-tile');
         } finally {

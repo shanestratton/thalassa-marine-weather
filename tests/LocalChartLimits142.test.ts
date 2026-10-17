@@ -7,7 +7,7 @@ import {
     localChartRasterDimensions,
 } from '../services/charts/localChartLimits';
 
-function page(size = 512): Uint8Array {
+function page(size = 512): Uint8Array<ArrayBuffer> {
     const bytes = new Uint8Array(size);
     bytes.set(new TextEncoder().encode('SQLite format 3\0'));
     new DataView(bytes.buffer).setUint16(16, 512, false);
