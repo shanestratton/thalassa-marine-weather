@@ -44,7 +44,7 @@ jobs:
                   persist-credentials: false
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: 293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e
+                  ref: 27f6e40478330bae00201ffca537e8479976a80d
                   path: source
                   fetch-depth: 0
                   persist-credentials: false
@@ -57,7 +57,7 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p "$RUNNER_TEMP/native140-evidence"
-                  node ../controls/scripts/native-identity140.mjs "$PWD" 293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e > "$RUNNER_TEMP/native140-evidence/native-source.json"
+                  node ../controls/scripts/native-identity140.mjs "$PWD" 27f6e40478330bae00201ffca537e8479976a80d > "$RUNNER_TEMP/native140-evidence/native-source.json"
                   test -d "$DEVELOPER_DIR"
                   xcodebuild -version > "$RUNNER_TEMP/native140-evidence/toolchain.txt"
                   cat "$RUNNER_TEMP/native140-evidence/toolchain.txt"
@@ -96,7 +96,7 @@ jobs:
                   const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
                   fs.writeFileSync(process.env.RUNNER_TEMP+'/native140-evidence/post-sync-project.json',JSON.stringify({source,file,before:describe(before),after:describe(after),guardUnchanged:true},null,2)+'\n');
                   NODE
-                  node ../controls/scripts/native-identity140.mjs "$PWD" 293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e
+                  node ../controls/scripts/native-identity140.mjs "$PWD" 27f6e40478330bae00201ffca537e8479976a80d
                   node ../controls/scripts/public-copy-proof139.mjs dist ios/App/App/public "$RUNNER_TEMP/native140-evidence/capacitor-public-copy.json"
             - name: Compile unsigned iOS Simulator
               run: |
@@ -109,7 +109,7 @@ jobs:
               run: |
                   set -euo pipefail
                   node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native140-evidence/watch-simulator.txt" xcodebuild -quiet -project ios/App/App.xcodeproj -target 'ThalassaWatch Watch App' -configuration Release -sdk watchsimulator -destination 'generic/platform=watchOS Simulator' SYMROOT="$RUNNER_TEMP/native140-watch" OBJROOT="$RUNNER_TEMP/native140-watch-obj" CODE_SIGNING_ALLOWED=NO build
-                  node ../controls/scripts/native-identity140.mjs "$PWD" 293bb26eb17fd2f2f2e9afdba6c7621a3d5b247e
+                  node ../controls/scripts/native-identity140.mjs "$PWD" 27f6e40478330bae00201ffca537e8479976a80d
                   echo 'Unsigned iOS and separate compiled Watch targets passed. Public web-copy digests passed. No signing, upload, native runtime or physical-device acceptance is asserted.' >> "$GITHUB_STEP_SUMMARY"
             - name: Preserve bounded text and public digest evidence only
               if: always()
