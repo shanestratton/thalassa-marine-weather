@@ -155,6 +155,16 @@ def extract_noaa_cells(cells, output, maximum, driver=None):
                     if count > 10000 or combined.tell() > maximum: raise ValueError("NOAA export exceeds cap")
             dataset = None
 
+def osmium_environment():
+    # A24-core wx otherwise creates22 pool threads before any work, exceeding
+    # the reviewed TasksMax16. Do not pass publisher credentials into the CLI.
+    allowed = ("PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "TMPDIR", "SQLITE_TMPDIR")
+    environment = {key: os.environ[key] for key in allowed if key in os.environ}
+    environment["OSMIUM_POOL_THREADS"] = "2"
+    for queue in ("INPUT", "OSMDATA", "OUTPUT", "WORK"):
+        environment["OSMIUM_MAX_" + queue + "_QUEUE_SIZE"] = "2"
+    return environment
+
 def run_osmium(arguments, maximum):
     # wx is Linux. Bound intermediate files in the child before osmium starts,
     # not only after a potentially large export has consumed the disk.
@@ -163,7 +173,7 @@ def run_osmium(arguments, maximum):
         _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
         soft = maximum if hard == resource.RLIM_INFINITY else min(maximum, hard)
         resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
-    subprocess.run(["osmium", *arguments], check=True, timeout=7200,
+    subprocess.run(["osmium", *arguments], check=True, timeout=7200, env=osmium_environment(),
                    preexec_fn=file_limit if os.name == "posix" else None)
 
 def osm_source_clock(raw, directory):
@@ -173,7 +183,7 @@ def osm_source_clock(raw, directory):
         resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))
     path = Path(directory) / "source-clock.txt"
     with path.open("wb") as output:
-        subprocess.run(["osmium", "fileinfo", "--no-progress", "--get", "header.option.osmosis_replication_timestamp", str(raw)], stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=30, preexec_fn=file_limit if os.name == "posix" else None)
+        subprocess.run(["osmium", "fileinfo", "--no-progress", "--get", "header.option.osmosis_replication_timestamp", str(raw)], stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=30, env=osmium_environment(), preexec_fn=file_limit if os.name == "posix" else None)
     if path.stat().st_size > 4096: raise ValueError("OSM source header exceeds cap")
     stamp = path.read_text(encoding="utf-8").strip()
     build.source_time(stamp)
