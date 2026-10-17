@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { decode } from 'fast-png';
 const privateStub = `
 const zero=()=>({schema:1,profile:{type:'sail',length:40,revision:1},adjustments:{size:0,steepness:0,pitching:0,cross:0},qualified:Object.fromEntries(['size','steepness','pitching','cross'].map(k=>[k,{reports:0,voyages:0}]))});
 let state={boatId:'fictional',context:'fixture',epoch:'fixture',revision:1,profile:zero().profile,reports:[],preference:zero()},pending=[];const listeners=new Set();
@@ -105,6 +106,21 @@ for (const width of [300, 375])
             const seaDialog = page.getByRole('dialog');
             await expect(seaDialog).toBeVisible();
             await settled(seaDialog);
+            const panel = seaDialog.locator('[data-modal-sheet]');
+            const partitionBounds = await panel.boundingBox();
+            const pixels = decode(await page.screenshot(), { checkCrc: true });
+            const scale = pixels.width / width;
+            // This interior header patch was covered by the reproduced opaque
+            // black compositor tile; DOM hit tests alone did not detect it.
+            for (let dy = 0; dy < 4; dy++)
+                for (let dx = 0; dx < 4; dx++) {
+                    const x = Math.floor((partitionBounds!.x + 12 + dx) * scale);
+                    const y = Math.floor((partitionBounds!.y + 40 + dy) * scale);
+                    const index = (y * pixels.width + x) * pixels.channels;
+                    expect(
+                        Math.max(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]),
+                    ).toBeGreaterThan(10);
+                }
             const chart = seaDialog.getByRole('img', { name: /Wave partitions in metres/ });
             await chart.scrollIntoViewIfNeeded();
             await expect(
@@ -119,6 +135,31 @@ for (const width of [300, 375])
             await target(credit);
             await expect(credit).toContainText('© Mercator Ocean');
             await page.screenshot({ path: info.outputPath('sea-partitions.png') });
+            const summary = seaDialog.getByRole('button', { name: 'Show forecast summary', exact: true });
+            await target(summary);
+            await summary.focus();
+            await page.keyboard.press('Space');
+            await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toHaveCount(0);
+            await expect(seaDialog.getByText('5-day range', { exact: true })).toBeVisible();
+            const back = seaDialog.getByRole('button', { name: 'Show sea partitions', exact: true });
+            await target(back);
+            expect(await panel.boundingBox()).toEqual(partitionBounds);
+            await page.screenshot({ path: info.outputPath('forecast-summary.png') });
+            await back.focus();
+            await page.keyboard.press('Enter');
+            await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toBeVisible();
+            await summary.click();
+            await page.evaluate(async () => {
+                const modulePath = '/services/authIdentityScope.ts';
+                const { setAuthIdentityScope } = await import(modulePath);
+                setAuthIdentityScope('11111111-1111-4111-8111-111111111111');
+            });
+            await expect(summary).toBeVisible();
+            await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toBeVisible();
+            await page.keyboard.press('Escape');
+            await expect(page.getByRole('dialog')).toHaveCount(0);
+            await page.getByLabel(/^Wave height/).click();
+            await expect(summary).toBeVisible();
             await seaDialog.getByRole('button', { name: 'Close', exact: true }).click();
             const opener = page.getByRole('button', { name: 'Private passage comfort', exact: true });
             await target(opener);
