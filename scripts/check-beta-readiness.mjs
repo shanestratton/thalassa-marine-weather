@@ -1326,7 +1326,18 @@ check(
         ]) &&
         cmemsGridTrust.includes("import { validateMarineManifest } from './marineManifestContract';") &&
         mpaDataset.includes("import { validateMarineManifest } from './marineManifestContract';") &&
-        releaseAssetProxy.includes('validateMarineManifest(value, dataset, Date.now(), false)') &&
+        includesAll(releaseAssetProxy, [
+            'function validateDatasetManifest(value: unknown, dataset: DatasetKey, now: number, current: boolean): void {',
+            'const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS, ...SSH_RELEASE_CONTRACTS } as const;',
+            'return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)',
+            '? SPECIALIZED_RELEASE_CONTRACTS[dataset as SpecializedDatasetKey]',
+            ': undefined;',
+            'const additional = specialized(dataset);',
+            'if (additional) additional.validate(value, now, current);',
+            'else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);',
+            'validateDatasetManifest(value, dataset, Date.now(), false);',
+            'validateDatasetManifest(candidate.manifest, dataset, now, true);',
+        ]) &&
         !releaseAssetProxy.includes("'content-length': String(body.byteLength)") &&
         !releaseAssetProxy.includes("h00.bin'") &&
         !Object.hasOwn(marineVercelConfig, 'routes') &&
