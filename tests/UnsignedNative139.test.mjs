@@ -205,7 +205,8 @@ test('native logger retains at most2MiB and propagates failure exit status', asy
                 log,
                 process.execPath,
                 '-e',
-                "process.stdout.write('x'.repeat(3*1024*1024));process.stderr.write('END');process.exitCode=7",
+                // One pipe has a defined byte order; independent stdout/stderr pipes do not.
+                "process.stdout.write('x'.repeat(3*1024*1024)+'END');process.exitCode=7",
             ],
             { maxBuffer: 128 * 1024 },
         );
@@ -213,6 +214,31 @@ test('native logger retains at most2MiB and propagates failure exit status', asy
         const bytes = await fs.readFile(log);
         assert.equal(bytes.length, 2 * 1024 * 1024);
         assert.ok(bytes.includes(Buffer.from('END')));
+        assert.ok(result.stdout.length < 128 * 1024);
+    } finally {
+        await fs.rm(temp, { recursive: true, force: true });
+    }
+});
+
+test('native logger bounds stderr independently and preserves its failure status', async () => {
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'native139-stderr-test-'));
+    try {
+        const log = path.join(temp, 'bounded.txt');
+        const result = spawnSync(
+            process.execPath,
+            [
+                'scripts/bounded-native-log139.mjs',
+                log,
+                process.execPath,
+                '-e',
+                "process.stderr.write('e'.repeat(3*1024*1024)+'STDERR_END');process.exitCode=11",
+            ],
+            { maxBuffer: 128 * 1024 },
+        );
+        assert.equal(result.status, 11);
+        const bytes = await fs.readFile(log);
+        assert.equal(bytes.length, 2 * 1024 * 1024);
+        assert.ok(bytes.subarray(-10).equals(Buffer.from('STDERR_END')));
         assert.ok(result.stdout.length < 128 * 1024);
     } finally {
         await fs.rm(temp, { recursive: true, force: true });
