@@ -47,6 +47,14 @@ export const OLDER_GIBS_SOURCE_PROOF_PRODUCTS = Object.freeze(['himawari-ir', 'g
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const failure = (error) => (error instanceof Error ? error.message : String(error)).slice(0, 500);
 
+/**
+ * @typedef {import('../services/weather/satelliteViewContract.ts').SatelliteViewProduct} ProofProductId
+ * @typedef {{file:string,url:string,bytes:number,sha256:string,readAt:string}} ProofReceipt
+ * @typedef {ProofReceipt & {advertised:readonly import('../services/weather/satelliteViewContract.ts').SatelliteViewFrame[]}} ProofMetadata
+ * @typedef {{listedTime:string,listedTimeMs:number,dailyComposite:boolean,credit:string,independentAcquisitionClock:'unknown',status:'held'|'observed-valid-png',image?:ProofReceipt,png?:ReturnType<typeof inspectSatelliteProofPng>,error?:string}} ProofFrame
+ * @typedef {{product:ProofProductId,box:import('../services/weather/satelliteViewContract.ts').SatelliteViewBox,source:(typeof SATELLITE_VIEW_PRODUCTS)[ProofProductId],metadata:ProofMetadata[],frames:ProofFrame[],status:'held'|'observed-valid-png',selectionMode:string,observedFrames?:number,clientUsableFrames?:number,twoAdvertisedImageHashesDiffer?:boolean,error?:string}} ProofProduct
+ */
+
 /** Bound IDAT inflation before the existing CRC-checking decoder, excluding compressed ancillary data. */
 export function inspectSatelliteProofPng(input) {
     const bytes = Buffer.from(input);
@@ -149,7 +157,13 @@ export function inspectSatelliteProofPng(input) {
     };
 }
 
-/** Count even failing streamed bodies; the normal byte reader still enforces each original MIME/size cap. */
+/**
+ * Count even failing streamed bodies; the normal byte reader still enforces each original MIME/size cap.
+ * @param {typeof fetch} nativeFetch
+ * @param {AbortController} controller
+ * @param {(record:{url:string,status:number,headers:Record<string,string>})=>void} record
+ * @param {{requests:number,consumedBytes:number}} [limits]
+ */
 export function satelliteProofFetch(nativeFetch, controller, record, limits = SATELLITE_SOURCE_PROOF_LIMITS) {
     let requests = 0,
         consumed = 0,
@@ -201,6 +215,9 @@ export function satelliteProofFetch(nativeFetch, controller, record, limits = SA
     };
 }
 
+/**
+ * @param {{allowSourceReads:boolean,save:(filename:string,value:Uint8Array|string)=>Promise<void>,signal:AbortSignal,read?:typeof readSatelliteResponse,mode?:string}} options
+ */
 export async function runSatelliteSourceProof({
     allowSourceReads,
     save,
@@ -213,6 +230,7 @@ export async function runSatelliteSourceProof({
     const selectedProducts =
         mode === 'older-gibs' ? OLDER_GIBS_SOURCE_PROOF_PRODUCTS : Object.keys(SATELLITE_SOURCE_PROOF_BOXES);
     const maxRequests = mode === 'older-gibs' ? 15 : SATELLITE_SOURCE_PROOF_LIMITS.requests;
+    /** @type {ProofProduct[]} */
     const products = [];
     let readNumber = 0;
     const readOne = async (url, mime, max, filename) => {
@@ -235,6 +253,7 @@ export async function runSatelliteSourceProof({
         };
     };
     for (const product of selectedProducts) {
+        /** @type {ProofProduct} */
         const result = {
             product,
             box: SATELLITE_SOURCE_PROOF_BOXES[product],
@@ -267,6 +286,7 @@ export async function runSatelliteSourceProof({
             if (!selected.length)
                 throw Error('No older advertised frame remains under the original currentness bounds');
             for (const frame of selected) {
+                /** @type {ProofFrame} */
                 const item = {
                     listedTime: frame.iso,
                     listedTimeMs: frame.timeMs,

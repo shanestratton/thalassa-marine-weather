@@ -66,22 +66,16 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
         const result = await runSatelliteSourceProof(input);
         expect(result.completeSixProductObservation).toBeNull();
         expect(result.completeSelectedProductsWithUsableDetail).toBe(true);
-        expect(result.products.map((product: { product: string }) => product.product)).toEqual(
-            OLDER_GIBS_SOURCE_PROOF_PRODUCTS,
-        );
+        expect(result.products.map((product) => product.product)).toEqual(OLDER_GIBS_SOURCE_PROOF_PRODUCTS);
         expect(input.read).toHaveBeenCalledTimes(15);
         for (const product of result.products) {
             expect(product.metadata).toHaveLength(3);
-            expect(product.frames.map((frame: { listedTime: string }) => frame.listedTime)).toEqual([
+            expect(product.frames.map((frame) => frame.listedTime)).toEqual([
                 '2026-10-17T02:10:00Z',
                 '2026-10-17T02:20:00Z',
             ]);
             expect(product.clientUsableFrames).toBe(2);
-            expect(
-                product.frames.every(
-                    (frame: { png: { clientDetailStatus: string } }) => frame.png.clientDetailStatus === 'usable',
-                ),
-            ).toBe(true);
+            expect(product.frames.every((frame) => frame.png?.clientDetailStatus === 'usable')).toBe(true);
         }
         expect(input.read.mock.calls.every(([url]) => new URL(url).hostname === 'gibs.earthdata.nasa.gov')).toBe(true);
     });
@@ -105,8 +99,7 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
         expect(result.completeSelectedProductsWithUsableDetail).toBe(false);
         expect(
             result.products.every(
-                (product: { frames: unknown[]; error: string }) =>
-                    product.frames.length === 0 && product.error.includes('No older advertised frame'),
+                (product) => product.frames.length === 0 && product.error?.includes('No older advertised frame'),
             ),
         ).toBe(true);
     });
@@ -168,15 +161,13 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
             expect(product.observedFrames).toBe(2);
             expect(product.metadata).toHaveLength(3);
             expect(product.frames).toHaveLength(2);
-            expect(
-                product.frames.every(
-                    (frame: { independentAcquisitionClock: string }) => frame.independentAcquisitionClock === 'unknown',
-                ),
-            ).toBe(true);
+            expect(product.frames.every((frame) => frame.independentAcquisitionClock === 'unknown')).toBe(true);
             expect(product.twoAdvertisedImageHashesDiffer).toBe(false);
         }
-        const meteosat = result.products.find((product: { product: string }) => product.product === 'meteosat-ir');
-        expect(meteosat.frames.map((frame: { listedTime: string }) => frame.listedTime)).toEqual([
+        const meteosat = result.products.find((product) => product.product === 'meteosat-ir');
+        expect(meteosat).toBeDefined();
+        if (!meteosat) throw new Error('Expected the Meteosat product observation');
+        expect(meteosat.frames.map((frame) => frame.listedTime)).toEqual([
             '2026-10-17T02:00:00Z',
             '2026-10-17T03:00:00Z',
         ]);
@@ -199,8 +190,7 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
         expect(result.products).toHaveLength(6);
         expect(
             result.products.every(
-                (product: { status: string; error: string }) =>
-                    product.status === 'held' && product.error === 'Original provider unavailable',
+                (product) => product.status === 'held' && product.error === 'Original provider unavailable',
             ),
         ).toBe(true);
     });
