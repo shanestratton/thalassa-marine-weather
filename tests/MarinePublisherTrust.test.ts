@@ -497,7 +497,29 @@ describe('MPA schema-v2 client trust boundary', () => {
         const next = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
         releaseMpaDataset();
         expect(next.isCurrent()).toBe(false);
+        expect(next.data).toBeUndefined();
         next.release();
+    });
+    it('an observed clock retirement drops its selected references and cannot revive', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const bundle = await mpaNetworkBundle();
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+                .mockResolvedValueOnce(geoJsonResponse(bundle.asset)),
+        );
+        await fetchVerifiedMpaGeoJson();
+        const lease = borrowRetainedMpaDataset({ bbox: [100, -40, 101, -39] });
+        expect(lease.data?.features.length).toBeGreaterThan(0);
+        vi.setSystemTime(NOW - 1);
+        expect(lease.isCurrent()).toBe(false);
+        expect(lease.data).toBeUndefined();
+        vi.setSystemTime(NOW);
+        expect(lease.isCurrent()).toBe(false);
+        expect(lease.data).toBeUndefined();
     });
     it('refuses an oversized retained route slice rather than handing over a partial park footprint', async () => {
         vi.useFakeTimers();

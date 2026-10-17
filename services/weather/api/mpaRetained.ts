@@ -80,16 +80,26 @@ export function borrowRetainedMpaDataset({
     signal?: AbortSignal;
 }): RetainedMpaBorrow {
     if (!validOverlayRouteBounds(bbox)) throw Error('Invalid route exclusion bounds.');
-    const reader = ownerReader,
-        snapshot = currentOwner(),
-        epoch = snapshot.epoch;
-    let captured = snapshot.entry;
+    const reader = ownerReader;
+    let source: ReturnType<typeof currentOwner> | null = currentOwner();
+    const epoch = source.epoch;
+    let captured = source.entry;
+    const originalEntry = captured ? new WeakRef(captured) : null;
     const checkedAt = captured?.checkedAt;
+    source = null;
     const sameOwner = () => {
-        const now = currentOwner();
-        return ownerReader === reader && now.entry === captured && now.epoch === epoch;
+        const now = currentOwner(),
+            original = originalEntry?.deref();
+        return (
+            ownerReader === reader &&
+            now.epoch === epoch &&
+            (originalEntry ? !!original && now.entry === original : now.entry === null)
+        );
     };
-    const fresh = () => !!captured && sameOwner() && captured.checkedAt === checkedAt && retainedFresh(captured);
+    const fresh = () => {
+        const original = originalEntry?.deref();
+        return !!original && sameOwner() && original.checkedAt === checkedAt && retainedFresh(original);
+    };
     let active = true,
         data: VerifiedMpaCollection | undefined;
     let status: RetainedMpaBorrow['status'] = !captured ? 'absent' : !fresh() ? 'expired' : 'available';
@@ -121,10 +131,12 @@ export function borrowRetainedMpaDataset({
     }
     const generation = captured?.generation,
         sourceDate = captured?.sourceDate;
+    // Only the bounded selected feature references may cross a route await.
+    // No closure below keeps the original potentially 16 MiB owner alive.
+    captured = null;
     const release = () => {
         active = false;
         data = undefined;
-        captured = null;
         signal?.removeEventListener('abort', release);
     };
     signal?.addEventListener('abort', release, { once: true });
@@ -136,12 +148,17 @@ export function borrowRetainedMpaDataset({
         status,
         generation,
         sourceDate,
-        isCurrent: () =>
-            active &&
-            !signal?.aborted &&
-            sameOwner() &&
-            captured?.checkedAt === checkedAt &&
-            (status === 'absent' || status === 'expired' ? !captured || !fresh() : fresh()),
+        isCurrent: () => {
+            const original = originalEntry?.deref();
+            const current =
+                active &&
+                !signal?.aborted &&
+                sameOwner() &&
+                original?.checkedAt === checkedAt &&
+                (status === 'absent' || status === 'expired' ? !originalEntry || !fresh() : fresh());
+            if (!current) release();
+            return current;
+        },
         release,
     };
 }
