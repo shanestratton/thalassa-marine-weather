@@ -88,6 +88,10 @@ test('workflow is owner-only bounded-trigger unsigned compile, fixed source and 
     assert.equal(job['runs-on'], 'macos-26');
     assert.equal(job.env.DEVELOPER_DIR, '/Applications/Xcode_26.6.app/Contents/Developer');
     assert.equal(job.env.VITE_APP_BUILD, '139');
+    const toolchain = job.steps.find((step) => step.name === 'Prove exact native source and toolchain').run;
+    assert.equal((toolchain.match(/xcodebuild -version/g) ?? []).length, 1);
+    assert.doesNotMatch(toolchain, /(?:xcodebuild -version|node --version)[^\n]*\|/);
+    assert.match(toolchain, /grep -q '\^Xcode 26\\\.6\$' "\$RUNNER_TEMP\/native139-evidence\/toolchain\.txt"/);
     assert.match(job.if, /github.actor == 'shanestratton'/);
     assert.match(job.if, /github.ref == 'refs\/heads\/codex\/build-139-unsigned-native'/);
     assert.doesNotMatch(

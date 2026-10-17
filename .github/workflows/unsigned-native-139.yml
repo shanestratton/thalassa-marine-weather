@@ -59,9 +59,12 @@ jobs:
                   mkdir -p "$RUNNER_TEMP/native139-evidence"
                   node ../controls/scripts/native-identity139.mjs "$PWD" > "$RUNNER_TEMP/native139-evidence/native-source.json"
                   test -d "$DEVELOPER_DIR"
-                  xcodebuild -version | tee "$RUNNER_TEMP/native139-evidence/toolchain.txt"
-                  xcodebuild -version | grep -q '^Xcode 26\.6$'
-                  node --version | tee -a "$RUNNER_TEMP/native139-evidence/toolchain.txt" | grep -q '^v24\.'
+                  xcodebuild -version > "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  cat "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  grep -q '^Xcode 26\.6$' "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  node_version=$(node --version)
+                  printf '%s\n' "$node_version" >> "$RUNNER_TEMP/native139-evidence/toolchain.txt"
+                  case "$node_version" in v24.*) ;; *) exit 1 ;; esac
                   printf '%s\n' '${{ github.sha }}' > "$RUNNER_TEMP/native139-evidence/WORKFLOW_SHA.txt"
             - name: Install pinned dependencies without Apple credentials
               run: |
