@@ -20,7 +20,8 @@ import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, use
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
 import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/worldFacilities';
-import type { AtmosPresentation } from './atmosPresentation';
+import type { AtmosCredit, AtmosPresentation } from './atmosPresentation';
+import type { SshMode } from './useSshObservation';
 import { pressureWindValidAt } from '../../services/weather/pressureProvenance';
 import type { BoatPresenceStatus } from './presence/BoatPresenceSurface';
 import { useTrackRouteRead } from './useTrackRouteRead';
@@ -363,6 +364,8 @@ const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOve
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
 const AtmosWeatherLayer =
     import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' ? React.lazy(() => import('./AtmosWeatherLayer')) : null;
+const SshObservedLayer =
+    import.meta.env.VITE_ENABLE_OCEAN_EDDIES === 'true' ? React.lazy(() => import('./SshObservedLayer')) : null;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -396,6 +399,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const [atmosPresentation, setAtmosPresentation] = useState<AtmosPresentation>({ legend: null, credits: [] });
+    const [sshMode, setSshMode] = useState<SshMode>('off');
+    const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings, updateSettings } = useSettings();
@@ -4375,6 +4380,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setFacilitiesVisible,
                             communityNotesVisible,
                             setCommunityNotesVisible,
+                            sshMode,
+                            setSshMode: import.meta.env.VITE_ENABLE_OCEAN_EDDIES === 'true' ? setSshMode : undefined,
                             boatPresenceVisible,
                             setBoatPresenceVisible,
                             setBoatPresenceControlsOpen,
@@ -5783,7 +5790,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 : null
                         }
                         cmems={cmemsAttributionLayers}
-                        atmosphere={atmosPresentation.credits}
+                        atmosphere={sshCredit ? [...atmosPresentation.credits, sshCredit] : atmosPresentation.credits}
                         lightning={browseLightningVisible}
                         satellite={satellite}
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
@@ -6262,6 +6269,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </a>
                 )}
                 <Suspense fallback={null}>
+                    {SshObservedLayer && !embedded && !pickerMode && (
+                        <SshObservedLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && !isPinView && !planningSurface && !mobActive && obsCreditsVisible}
+                            mode={sshMode}
+                            onCredit={setSshCredit}
+                        />
+                    )}
                     {AtmosWeatherLayer && !embedded && !pickerMode && (
                         <AtmosWeatherLayer
                             mapRef={mapRef}
