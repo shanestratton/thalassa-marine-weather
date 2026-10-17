@@ -40,7 +40,7 @@ export default function RouteReplanControl(props: { xteNm: number | null; etaMs:
             )}
             <button
                 type="button"
-                className="min-h-11 w-full rounded-lg border border-sky-400/30 px-2 text-sm font-bold text-sky-200 disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-lg border border-sky-400/30 px-2 text-sm font-bold text-sky-200 disabled:opacity-50"
                 disabled={busy}
                 onClick={() => {
                     void import('../../services/routing/routeReplan').then((api) =>
@@ -58,7 +58,7 @@ export default function RouteReplanControl(props: { xteNm: number | null; etaMs:
             {state.phase === 'preparing' && (
                 <button
                     type="button"
-                    className="min-h-11 w-full text-sm text-gray-300"
+                    className="min-h-[44px] w-full text-sm text-gray-300"
                     onClick={() => {
                         void import('../../services/routing/routeReplan').then((api) => api.dismissRouteReplan());
                     }}
