@@ -495,17 +495,15 @@ describe('phase 3: spread, speed and rain', () => {
             return matches[0];
         };
         const scroller = elementWith('className', 'thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto');
-        // The Ahead/Live button is one renderer (a preview puts it in the bottom
-        // row): the warnings render before either of its places in the strip.
+        // Ahead/Live and Hide share the fixed bottom row; optional route actions
+        // scroll with readings. Standing warnings precede that fixed row.
         elementWith('data-testid', 'hud-look-ahead');
-        const lookAheadAt = pane.indexOf('{followingRoute && renderLookAhead(');
-        const bottomRowAt = pane.indexOf("renderLookAhead('h-11 w-1/2 border-r border-white/10', true)");
-        expect(lookAheadAt).toBeGreaterThan(-1);
-        expect(bottomRowAt).toBeGreaterThan(lookAheadAt);
+        const bottomRowAt = pane.indexOf("renderLookAhead('h-[44px] w-1/2 border-r border-white/10', true)");
+        expect(bottomRowAt).toBeGreaterThan(scroller.getEnd());
         for (const id of ['hud-models-split', 'hud-forecast-note']) {
             const warning = elementWith('data-testid', id);
             expect(warning.getStart(source), id).toBeGreaterThan(scroller.getEnd());
-            expect(warning.getEnd(), id).toBeLessThan(lookAheadAt);
+            expect(warning.getEnd(), id).toBeLessThan(bottomRowAt);
         }
     });
 });

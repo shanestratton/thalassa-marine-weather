@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 851e8aff6dcddf913ba427e86d5a4b07ae37f057
+          ref: 33101c97fd3e23ce3e24ca59671649c816db3a78
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -49,7 +49,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 90
     env:
-      CANDIDATE_SHA: e4722dfc5eea78e2a2af8ffd83134da06ce301e0
+      CANDIDATE_SHA: 8e6edf36a0c0514c252c347b68e7bb86cc7e0da9
       CI: "true"
       HUSKY: "0"
       NODE_OPTIONS: --max-old-space-size=4096
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e4722dfc5eea78e2a2af8ffd83134da06ce301e0
+          ref: 8e6edf36a0c0514c252c347b68e7bb86cc7e0da9
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -86,11 +86,11 @@ jobs:
           const token=process.env.GH_TOKEN;
           delete process.env.GH_TOKEN;
           const files={
-              'gate.mjs':'d36fee7f476ecb2ec3975ead32c18fad9d22f489ecf6d14cfa15d3fd9e4c714b',
+              'gate.mjs':'d84321ff7a82407c77265a86caae8eb38711d421c65a9e623a438379a38fa8a0',
               'apple-status.mjs':'efd279d0cef1d4857ac12937b87d3d145c6ac771757a8ee38f3a0f205d3e117f',
           };
           for(const [name,hash] of Object.entries(files)) {
-              const response=await fetch(`https://api.github.com/repos/shanestratton/thalassa-marine-weather/contents/ci/build138/${name}?ref=851e8aff6dcddf913ba427e86d5a4b07ae37f057`,{
+              const response=await fetch(`https://api.github.com/repos/shanestratton/thalassa-marine-weather/contents/ci/build138/${name}?ref=33101c97fd3e23ce3e24ca59671649c816db3a78`,{
                   method:'GET',redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json'},
               });
               if(!response.ok) throw new Error(`Release-control read failed: HTTP ${response.status}`);
