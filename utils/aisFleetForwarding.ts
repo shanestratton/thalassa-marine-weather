@@ -38,6 +38,17 @@ export interface FleetForwardConsent {
     issuedAt: number;
     expiresAt: number;
 }
+export interface FleetConsentProposal {
+    schema: 1;
+    binding: FleetForwardBinding;
+    expectedRevision: string | null;
+    enabled: boolean;
+    consentVersion: typeof AIS_FLEET_FORWARDING.consentVersion;
+    at: number;
+    expiresAt: number | null;
+    nonce: string;
+    publicKeySpki: string | null;
+}
 export interface FleetForwardObservation {
     sentence: string;
     receivedAt: number;
@@ -109,6 +120,76 @@ export const fleetForwardBindingKey = (value: FleetForwardBinding): string =>
         value.sourceKey,
     ]);
 
+export const fleetForwardConsentBytes = (value: FleetForwardConsent): string =>
+    JSON.stringify({
+        schema: 1,
+        binding: parseFleetForwardBinding(value.binding),
+        revision: value.revision,
+        enabled: value.enabled,
+        consentVersion: value.consentVersion,
+        issuedAt: value.issuedAt,
+        expiresAt: value.expiresAt,
+    });
+
+export function parseFleetConsentProposal(value: unknown, now: number): FleetConsentProposal | null {
+    if (
+        !object(value) ||
+        !exact(value, [
+            'schema',
+            'binding',
+            'expectedRevision',
+            'enabled',
+            'consentVersion',
+            'at',
+            'expiresAt',
+            'nonce',
+            'publicKeySpki',
+        ]) ||
+        value.schema !== 1 ||
+        (value.expectedRevision !== null && !fleetUuid(value.expectedRevision)) ||
+        typeof value.enabled !== 'boolean' ||
+        value.consentVersion !== AIS_FLEET_FORWARDING.consentVersion ||
+        !current(value.at, now, AIS_FLEET_FORWARDING.requestAgeMs) ||
+        !fleetUuid(value.nonce)
+    )
+        return null;
+    const binding = parseFleetForwardBinding(value.binding);
+    if (!binding) return null;
+    if (value.enabled) {
+        if (
+            !stamp(value.expiresAt) ||
+            value.expiresAt <= now ||
+            value.expiresAt - value.at > AIS_FLEET_FORWARDING.grantMaxMs ||
+            typeof value.publicKeySpki !== 'string' ||
+            !/^[A-Za-z0-9+/]{80,256}={0,2}$/.test(value.publicKeySpki)
+        )
+            return null;
+    } else if (value.expiresAt !== null || value.publicKeySpki !== null || value.expectedRevision === null) return null;
+    return {
+        schema: 1,
+        binding,
+        expectedRevision: value.expectedRevision,
+        enabled: value.enabled,
+        consentVersion: AIS_FLEET_FORWARDING.consentVersion,
+        at: value.at,
+        expiresAt: value.expiresAt as number | null,
+        nonce: value.nonce,
+        publicKeySpki: value.publicKeySpki as string | null,
+    };
+}
+export const fleetConsentProposalBytes = (value: FleetConsentProposal): string =>
+    JSON.stringify({
+        schema: 1,
+        binding: parseFleetForwardBinding(value.binding),
+        expectedRevision: value.expectedRevision,
+        enabled: value.enabled,
+        consentVersion: value.consentVersion,
+        at: value.at,
+        expiresAt: value.expiresAt,
+        nonce: value.nonce,
+        publicKeySpki: value.publicKeySpki,
+    });
+
 export function parseFleetForwardConsent(value: unknown, now: number): FleetForwardConsent | null {
     if (
         !object(value) ||
@@ -121,7 +202,7 @@ export function parseFleetForwardConsent(value: unknown, now: number): FleetForw
         !stamp(value.expiresAt) ||
         !stamp(now) ||
         value.issuedAt > now ||
-        value.expiresAt <= now ||
+        (value.enabled && value.expiresAt <= now) ||
         value.expiresAt <= value.issuedAt ||
         value.expiresAt - value.issuedAt > AIS_FLEET_FORWARDING.grantMaxMs
     )

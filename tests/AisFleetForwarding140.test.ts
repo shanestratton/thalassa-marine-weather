@@ -95,6 +95,7 @@ it('consent is explicit versioned bounded authorization data, with no migration 
     ])
         expect(parseFleetForwardConsent({ ...consent, ...change }, now)).toBeNull();
     expect(parseFleetForwardConsent({ ...consent, enabled: false }, now)?.enabled).toBe(false);
+    expect(parseFleetForwardConsent({ ...consent, enabled: false, expiresAt: now }, now)?.enabled).toBe(false);
 });
 it('accepts real checksum-valid observations and refuses framing, checksum, payload and fragment faults', () => {
     expect(validFleetAisSentence(received)).toBe(true);

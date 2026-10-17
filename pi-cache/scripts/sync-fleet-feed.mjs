@@ -29,6 +29,6 @@ for (const file of ['pi-cache/src/fleetFeedWire.ts', 'workers/ais-ingest/fleetFo
             throw Error('AIS fleet wire mirror drift: ' + file);
     } else fs.writeFileSync(target, source);
 }
-console.log(
+console.info(
     JSON.stringify({ mirrorSha256: createHash('sha256').update(source).digest('hex'), files: 3, activated: false }),
 );
