@@ -1,0 +1,90 @@
+name: Build141 isolated private scorecard native proof
+on:
+    push:
+        branches: ['codex/build-141-own-skill-native-proof']
+        paths:
+            - '.github/workflows/own-skill-native-141.yml'
+            - 'pi-cache/scripts/own-boat-skill-native-proof.mts'
+            - 'pi-cache/src/ownBoatSkill/**'
+            - 'pi-cache/src/ownBoatSkillWire.ts'
+            - 'pi-cache/src/routes/ownBoatSkill*'
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source commit (40 lowercase hex characters)
+                required: true
+                type: string
+permissions:
+    contents: read
+concurrency:
+    group: own-skill141-isolated-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    native:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 12
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        steps:
+            - name: Require an exact reviewed source
+              shell: bash
+              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha || github.sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+            - name: Capture source and install locked Pi dependencies without package scripts
+              timeout-minutes: 4
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/own-skill141-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/own-skill141-proof/SOURCE_SHA.txt"
+                  node --version > "$RUNNER_TEMP/own-skill141-proof/NODE_VERSION.txt"
+                  sha256sum pi-cache/package-lock.json pi-cache/src/ownBoatSkill/*.ts pi-cache/src/ownBoatSkillWire.ts pi-cache/src/routes/ownBoatSkill.ts pi-cache/scripts/own-boat-skill-native-proof.mts > "$RUNNER_TEMP/own-skill141-proof/SHA256SUMS"
+                  npm ci --prefix pi-cache --ignore-scripts --no-audit --no-fund
+            - name: Build only the existing native SQLite dependency from its locked source
+              timeout-minutes: 4
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  npm rebuild --prefix pi-cache better-sqlite3 --build-from-source 2>&1 | tee "$RUNNER_TEMP/own-skill141-proof/NATIVE_BUILD.txt"
+                  sha256sum pi-cache/node_modules/better-sqlite3/build/Release/better_sqlite3.node > "$RUNNER_TEMP/own-skill141-proof/NATIVE_SHA256.txt"
+                  node -p "require('./pi-cache/node_modules/better-sqlite3/package.json').version" > "$RUNNER_TEMP/own-skill141-proof/SQLITE_PACKAGE_VERSION.txt"
+            - name: Execute real SQLite transactions under a disposable hard resource boundary
+              timeout-minutes: 3
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  node_path=$(command -v node)
+                  sudo systemd-run --unit=own-skill141-native-proof --wait --pipe --collect \
+                    -p MemoryMax=512M -p MemorySwapMax=0 -p TasksMax=64 -p CPUQuota=100% \
+                    -p RuntimeMaxSec=90 -p TimeoutStopSec=5 -p KillMode=control-group -p SendSIGKILL=yes \
+                    -p PrivateNetwork=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= \
+                    -p ProtectHome=read-only -p ProtectSystem=strict -p PrivateTmp=yes \
+                    -p WorkingDirectory="$GITHUB_WORKSPACE/pi-cache" \
+                    /usr/bin/env -i PATH="$(dirname "$node_path"):/usr/bin:/bin" \
+                    THALASSA_DISPOSABLE_OWN_SKILL_TEST=1 \
+                    "$node_path" --max-old-space-size=128 --import tsx scripts/own-boat-skill-native-proof.mts \
+                    2>&1 | tee "$RUNNER_TEMP/own-skill141-proof/NATIVE_SQLITE.txt"
+                  if systemctl is-active --quiet own-skill141-native-proof.service; then exit 1; fi
+            - name: Exercise actual route and command-lock regressions without starting the server
+              timeout-minutes: 2
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  cd pi-cache
+                  node --import tsx --test src/ownBoatSkillOwner.test.mts src/ownBoatSkillKeeper.test.mts src/ownBoatSkillPublished.test.mts src/routes/ownBoatSkill.test.mts src/piCommandLock.test.mts 2>&1 | tee "$RUNNER_TEMP/own-skill141-proof/BOUNDARIES.txt"
+            - name: Preserve bounded text evidence only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build141-own-skill-native-proof
+                  path: ${{ runner.temp }}/own-skill141-proof/
+                  retention-days: 7
+                  if-no-files-found: error
