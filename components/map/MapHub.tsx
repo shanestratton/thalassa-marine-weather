@@ -20,6 +20,7 @@ import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, use
 import { CREDITS_SLOT_PX } from './creditsStrip';
 import ObsCreditsRollup from './ObsCreditsRollup';
 import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/worldFacilities';
+import type { BoatPresenceStatus } from './presence/BoatPresenceSurface';
 import { useTrackRouteRead } from './useTrackRouteRead';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
@@ -351,6 +352,7 @@ const ChartDrawingTools = React.lazy(() => import('./drawing/ChartDrawingTools')
 const FollowedCourseDialog = React.lazy(() => import('./FollowedCourseDialog'));
 const NoaaCatalogueSheet = React.lazy(() => import('./NoaaCatalogueSheet'));
 const WorldFacilitiesLayer = React.lazy(() => import('./WorldFacilitiesLayer'));
+const BoatPresenceSurface = React.lazy(() => import('./presence/BoatPresenceSurface'));
 /** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
 const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
@@ -2260,6 +2262,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         setMooringsVisible,
         facilitiesVisible,
         setFacilitiesVisible,
+        boatPresenceVisible,
+        setBoatPresenceVisible,
+        boatPresenceControlsOpen,
+        setBoatPresenceControlsOpen,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -2280,10 +2286,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         browseAnchorageVisible,
         browseMooringsVisible,
         browseFacilitiesVisible,
+        browseBoatPresenceVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     } = useMapHubLayerVisibility({ mapRef, planningSurface });
     const [facilitiesStatus, setFacilitiesStatus] = useState<WorldFacilitiesStatus | null>(null);
+    const [boatPresenceStatus, setBoatPresenceStatus] = useState<BoatPresenceStatus | null>(null);
+    const closeBoatPresenceControls = useCallback(
+        () => setBoatPresenceControlsOpen(false),
+        [setBoatPresenceControlsOpen],
+    );
     // Browse charts are opt-in on every fresh OBS, unless Settings →
     // Preferences → Chart → "Show ENC charts when Obs opens" is on (W1-01,
     // off by default; only the Obs chart honours it). The map-base menu keeps
@@ -4343,6 +4355,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setMooringsVisible,
                             facilitiesVisible,
                             setFacilitiesVisible,
+                            boatPresenceVisible,
+                            setBoatPresenceVisible,
+                            setBoatPresenceControlsOpen,
                             lightningVisible,
                             setLightningVisible,
                             weatherInspectMode,
@@ -5624,6 +5639,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseMooringsVisible ? 1 : 0) +
                             (browseAnchorageVisible ? 1 : 0) +
                             (browseFacilitiesVisible ? 1 : 0) +
+                            (browseBoatPresenceVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5711,6 +5727,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <WorldFacilitiesLayer map={mapRef.current} mapReady={mapReady} onStatus={setFacilitiesStatus} />
                     </Suspense>
                 )}
+                {obsShowing && obsCreditsVisible && (
+                    <Suspense fallback={null}>
+                        <BoatPresenceSurface
+                            map={mapRef.current}
+                            mapReady={mapReady}
+                            viewing={browseBoatPresenceVisible}
+                            onViewingChange={setBoatPresenceVisible}
+                            controlsOpen={boatPresenceControlsOpen}
+                            onCloseControls={closeBoatPresenceControls}
+                            onStatus={setBoatPresenceStatus}
+                        />
+                    </Suspense>
+                )}
                 {obsCreditsVisible && (
                     <ObsCreditsRollup
                         rain={
@@ -5729,6 +5758,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleSatellite={() => satellite.setPlaying(!satellite.playing)}
                         ais={browseAisVisible}
                         facilities={obsShowing && browseFacilitiesVisible ? facilitiesStatus : null}
+                        boatPresence={obsShowing ? boatPresenceStatus : null}
+                        onOpenBoatPresence={() => setBoatPresenceControlsOpen(true)}
                     />
                 )}
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
