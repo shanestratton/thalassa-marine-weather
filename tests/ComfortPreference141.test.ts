@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { seaComfort, waterlineM } from '../utils/seaComfort';
+import { seaComfort, waterlineM, validComfortPreference as canonicalValidator } from '../utils/seaComfort';
 import { validComfortPreference } from '../utils/comfortPreference';
 import { qualifyComfortPreference, type PrivateComfortReport } from '../services/comfort/qualifyPreference';
 const profile = { type: 'sail' as const, length: 40, revision: 1 };
@@ -16,6 +16,9 @@ const report = (n: number, level = 0): PrivateComfortReport => ({
     parts,
 });
 describe('private subjective comfort preference', () => {
+    it('keeps compatibility imports on the identical canonical worker validator', () => {
+        expect(validComfortPreference).toBe(canonicalValidator);
+    });
     it('starts with exact unchanged beta thresholds', () => {
         const p = qualifyComfortPreference(profile, []);
         expect(p.adjustments.size).toBe(0);

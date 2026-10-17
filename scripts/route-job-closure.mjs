@@ -178,6 +178,8 @@ export const ROUTE_ENGINE_SHARED_LEAVES = [
     // The ETA adapter and worker share this import-free DTO/validator/sampler.
     // Lazy Today/RoutePlanner chunks must not fetch the router for current vectors.
     'services/weather/currentSeries.ts',
+    // Shared physical comfort + bounded preference rule; no runtime imports.
+    'utils/seaComfort.ts',
 ];
 
 const clean = (id) => id.replaceAll('\\', '/');
