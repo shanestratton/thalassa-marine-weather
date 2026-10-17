@@ -1,0 +1,79 @@
+name: Private Passage Comfort 141 Isolated PostgreSQL 17.6
+on:
+  push:
+    branches: ['codex/build-141-private-comfort-db']
+    paths: ['.github/workflows/validate-private-comfort-141.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-comfort-141-postgres17-proof
+  cancel-in-progress: false
+jobs:
+  private-comfort-postgres17:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1 && github.ref == 'refs/heads/codex/build-141-private-comfort-db'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CANDIDATE_SHA: 636d843ce108ce805af849adbe22fe6222db282e
+    services:
+      comfort-postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: fixture-only-password
+          POSTGRES_DB: comfort141_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 636d843ce108ce805af849adbe22fe6222db282e
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Verify source and preserve isolated runtime identity
+        env:
+          COMFORT_CONTAINER_ID: ${{ job.services.comfort-postgres.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/private-comfort141-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/private-comfort141-proof/source.txt"
+          uname -a > "$RUNNER_TEMP/private-comfort141-proof/linux.txt"
+          node --version > "$RUNNER_TEMP/private-comfort141-proof/node.txt"
+          docker inspect --format '{{.Image}}' "$COMFORT_CONTAINER_ID" > "$RUNNER_TEMP/private-comfort141-proof/container-image.txt"
+          docker image inspect postgres:17.6 --format '{{json .RepoDigests}}' >> "$RUNNER_TEMP/private-comfort141-proof/container-image.txt"
+      - name: Install only the isolated fixture driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/private-comfort141-driver" --ignore-scripts --no-audit --no-fund --save-exact pg@8.16.3
+          npm ls --prefix "$RUNNER_TEMP/private-comfort141-driver" --depth=0 --json > "$RUNNER_TEMP/private-comfort141-proof/driver.json"
+          sha256sum "$RUNNER_TEMP/private-comfort141-driver/package-lock.json" > "$RUNNER_TEMP/private-comfort141-proof/driver-lock-sha256.txt"
+      - name: Refusal guards and actual canonical SQL on Linux PostgreSQL 17.6
+        env:
+          THALASSA_DISPOSABLE_PRIVATE_COMFORT_TEST: '1'
+          PRIVATE_COMFORT_TEST_DATABASE_URL: postgres://postgres:fixture-only-password@127.0.0.1:5432/comfort141_test
+          PG_MODULE_PATH: ${{ runner.temp }}/private-comfort141-driver/node_modules/pg/lib/index.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test supabase/tests/private-comfort-disposable.test.mjs 2>&1 | tee "$RUNNER_TEMP/private-comfort141-proof/guards.log"
+          node supabase/tests/private-comfort-postgres17.mjs 2>&1 | tee "$RUNNER_TEMP/private-comfort141-proof/postgres17.log"
+          sha256sum supabase/migrations/20261017050550_private_passage_comfort.sql supabase/tests/private-comfort-{cases,disposable,postgres17}.mjs > "$RUNNER_TEMP/private-comfort141-proof/source-sha256.txt"
+      - name: Preserve native database evidence on every outcome
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: private-comfort-141-pg17-636d843ce
+          path: ${{ runner.temp }}/private-comfort141-proof
+          if-no-files-found: warn
+          retention-days: 14
