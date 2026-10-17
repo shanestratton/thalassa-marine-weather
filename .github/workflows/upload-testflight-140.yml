@@ -1,0 +1,416 @@
+name: Thalassa 140 - gated TestFlight upload
+
+# One owner-authorized release: build the requested roadmap work through TestFlight build 140.
+# The ordinary master workflow and its manual upload checkbox remain unchanged.
+# This isolated helper cannot merge, change source, upload a different build,
+# rerun an upload, or proceed past incomplete/failed validation. It shares the
+# main release lock. No signed app, archive, certificate or private key is saved
+# as an artifact. Dependency-code/key isolation is the same known limitation as
+# the existing workflow, not a security claim this helper purports to solve.
+on:
+  push:
+    branches: ["codex/build-140-release"]
+    paths: [".github/workflows/upload-testflight-140.yml"]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ios-testflight-release
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Wait for all exact build-140 release checks
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 160
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 648e3195dcfcbcb1e6f9ebec9df11730946778eb
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Prove release and duplicate guards fail closed (mocked tests)
+        run: node --test ci/build140/gate.test.mjs ci/build140/apple-status.test.mjs
+      - name: Require every genuine validation result and unchanged source refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node ci/build140/gate.mjs --wait
+
+  ios:
+    name: Build, sign, verify and upload 140 once
+    needs: gate
+    if: needs.gate.result == 'success' && github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      CANDIDATE_SHA: a6eac4f72ab871c195e518c589378e6020d9c5f2
+      CI: "true"
+      HUSKY: "0"
+      NODE_OPTIONS: --max-old-space-size=4096
+      PUPPETEER_SKIP_DOWNLOAD: "true"
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+      VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+      VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+      VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+      VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+      VITE_APP_BUILD: "140"
+      APP_BUILD: "140"
+      APP_VERSION: "1.2.0"
+      TEAM_ID: D4TW8A23QZ
+      BUNDLE_ID: com.thalassa.weather
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a6eac4f72ab871c195e518c589378e6020d9c5f2
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Load only the reviewed release controls outside the source tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const token=process.env.GH_TOKEN;
+          delete process.env.GH_TOKEN;
+          const files={
+              'gate.mjs':'7c64e658a5dae35d4fd35be37f83a778da57b73d11bac5d362f14d6f493a35b2',
+              'apple-status.mjs':'c8002ac498bc6a2764e28283d76738abb8d1487e15ab0adef88343dc8602a63e',
+          };
+          for(const [name,hash] of Object.entries(files)) {
+              const response=await fetch(`https://api.github.com/repos/shanestratton/thalassa-marine-weather/contents/ci/build140/${name}?ref=648e3195dcfcbcb1e6f9ebec9df11730946778eb`,{
+                  method:'GET',redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json'},
+              });
+              if(!response.ok) throw new Error(`Release-control read failed: HTTP ${response.status}`);
+              const file=await response.json();
+              if(file.encoding!=='base64') throw new Error('Unexpected release-control encoding');
+              const bytes=Buffer.from(file.content,'base64');
+              if(createHash('sha256').update(bytes).digest('hex')!==hash) throw new Error('Release-control digest differs');
+              writeFileSync(`${process.env.RUNNER_TEMP}/${name}`,bytes,{mode:0o600});
+          }
+          NODE
+      - name: Recheck full validation before starting a signed build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/gate.mjs"
+      - name: Exact source, toolchain, version and build number
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor e28dc0c136e8a45ab5aa1cc0e3d1ce8fd3a67334 HEAD
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+                  import { readFileSync } from 'node:fs';
+                  import { execFileSync } from 'node:child_process';
+                  import { createHash } from 'node:crypto';
+
+                  export const NATIVE_BASE139 = '5142118666fa1653fef882c2d90c8f690cfb4ff5';
+                  export const NATIVE_PROJECT140 = 'ios/App/App.xcodeproj/project.pbxproj';
+                  export const NATIVE_PROJECT139_SHA256 = 'b009890f567b7ce56c4db012a9f9ed42549f19d3dfc07a1ce853073c581b1918';
+                  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+                  /** Transform only the immutable, reviewed139 baseline, never the candidate. */
+                  export function expectedNativeProject140(baseline) {
+                      assert.equal(digest(baseline), NATIVE_PROJECT139_SHA256, 'Unreviewed139 native baseline');
+                      const text = baseline.toString('utf8');
+                      const builds = [...text.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                      assert.equal(builds.length, 4, 'Expected exactly four139 configurations');
+                      assert.ok(
+                          builds.every((match) => match[1] === '139'),
+                          'Unexpected139 build identity',
+                      );
+                      return Buffer.from(text.replaceAll('CURRENT_PROJECT_VERSION = 139;', 'CURRENT_PROJECT_VERSION = 140;'));
+                  }
+
+                  /** No Watch, signing, target, file-order or other iOS source exception. */
+                  export function assertNative140(read = readFileSync, git = execFileSync) {
+                      const names = git('git', ['diff', '--name-only', '--no-renames', NATIVE_BASE139, 'HEAD', '--', 'ios/'], {
+                          encoding: 'utf8',
+                      })
+                          .trim()
+                          .split('\n')
+                          .filter(Boolean);
+                      assert.deepEqual(names, [NATIVE_PROJECT140], 'Only the four-field native project version change is permitted');
+                      const baseline = git('git', ['show', `${NATIVE_BASE139}:${NATIVE_PROJECT140}`]);
+                      const expected = expectedNativeProject140(baseline);
+                      assert.ok(read(NATIVE_PROJECT140).equals(expected), 'Native project differs from exact four139-to140 changes');
+                      // The committed diff above protects every tracked iOS byte against the139
+                      // snapshot. Also refuse staged/working-tree and untracked native additions.
+                      git('git', ['diff', '--exit-code', 'HEAD', '--', 'ios/'], { stdio: 'pipe' });
+                      const untracked = git('git', ['ls-files', '--others', '--exclude-standard', '--', 'ios/'], { encoding: 'utf8' });
+                      assert.equal(untracked.trim(), '', 'Untracked native source is not reviewed');
+                      return {
+                          base: NATIVE_BASE139,
+                          baselineProjectSha256: NATIVE_PROJECT139_SHA256,
+                          changedFiles: names,
+                          buildChanges: 4,
+                          projectSha256: digest(expected),
+                          appBuild: 140,
+                          allOtherTrackedIosBytesUnchanged: true,
+                      };
+                  }
+                  assertNative140();
+          NODE
+          test -d "$DEVELOPER_DIR" || { echo '::error::Xcode 26.6 is missing; do not substitute an untested Xcode'; exit 1; }
+          xcode_version="$(xcodebuild -version)"
+          test "${xcode_version%%$'\n'*}" = 'Xcode 26.6'
+          node_version="$(node --version)"
+          case "$node_version" in v24.*) ;; *) exit 1 ;; esac
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const m=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+          if(m.length!==4 || m.some(v=>v[1]!=='140')) throw new Error('Exactly four committed build-140 configurations are required');
+          if(JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw new Error('Unexpected marketing version');
+          NODE
+      - name: Google sign-in client matches the app URL scheme
+        run: |
+          set -euo pipefail
+          case "$VITE_GOOGLE_OAUTH_CLIENT_ID" in *.apps.googleusercontent.com) ;; *) echo '::error::Invalid Google client ID'; exit 1 ;; esac
+          scheme="com.googleusercontent.apps.${VITE_GOOGLE_OAUTH_CLIENT_ID%.apps.googleusercontent.com}"
+          grep -qF "<string>${scheme}</string>" ios/App/App/Info.plist
+      - name: CocoaPods through the pinned Bundler
+        run: |
+          set -euo pipefail
+          pinned=$(awk '/^BUNDLED WITH/{getline; gsub(/ /,""); print}' ios/App/Gemfile.lock)
+          if ! gem install bundler -v "$pinned" --no-document; then
+              gem install bundler -v "$pinned" --no-document --user-install
+              echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+              export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+          fi
+          {
+              echo "BUNDLER_VERSION=$pinned"
+              echo "BUNDLE_PATH=$RUNNER_TEMP/gems"
+              echo "BUNDLE_APP_CONFIG=$RUNNER_TEMP/bundle-config"
+              echo "BUNDLE_FROZEN=true"
+          } >> "$GITHUB_ENV"
+          BUNDLER_VERSION="$pinned" BUNDLE_PATH="$RUNNER_TEMP/gems" BUNDLE_APP_CONFIG="$RUNNER_TEMP/bundle-config" \
+              BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
+          BUNDLER_VERSION="$pinned" node scripts/cap-sync.mjs --check
+      - run: npm ci
+      - name: Original complete ship-beta packaging gate
+        run: GITHUB_SHA="$(git rev-parse HEAD)" npm run ship:beta
+      - name: Repeat exact native policy after Capacitor sync
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+                  import { readFileSync } from 'node:fs';
+                  import { execFileSync } from 'node:child_process';
+                  import { createHash } from 'node:crypto';
+
+                  export const NATIVE_BASE139 = '5142118666fa1653fef882c2d90c8f690cfb4ff5';
+                  export const NATIVE_PROJECT140 = 'ios/App/App.xcodeproj/project.pbxproj';
+                  export const NATIVE_PROJECT139_SHA256 = 'b009890f567b7ce56c4db012a9f9ed42549f19d3dfc07a1ce853073c581b1918';
+                  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+                  /** Transform only the immutable, reviewed139 baseline, never the candidate. */
+                  export function expectedNativeProject140(baseline) {
+                      assert.equal(digest(baseline), NATIVE_PROJECT139_SHA256, 'Unreviewed139 native baseline');
+                      const text = baseline.toString('utf8');
+                      const builds = [...text.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                      assert.equal(builds.length, 4, 'Expected exactly four139 configurations');
+                      assert.ok(
+                          builds.every((match) => match[1] === '139'),
+                          'Unexpected139 build identity',
+                      );
+                      return Buffer.from(text.replaceAll('CURRENT_PROJECT_VERSION = 139;', 'CURRENT_PROJECT_VERSION = 140;'));
+                  }
+
+                  /** No Watch, signing, target, file-order or other iOS source exception. */
+                  export function assertNative140(read = readFileSync, git = execFileSync) {
+                      const names = git('git', ['diff', '--name-only', '--no-renames', NATIVE_BASE139, 'HEAD', '--', 'ios/'], {
+                          encoding: 'utf8',
+                      })
+                          .trim()
+                          .split('\n')
+                          .filter(Boolean);
+                      assert.deepEqual(names, [NATIVE_PROJECT140], 'Only the four-field native project version change is permitted');
+                      const baseline = git('git', ['show', `${NATIVE_BASE139}:${NATIVE_PROJECT140}`]);
+                      const expected = expectedNativeProject140(baseline);
+                      assert.ok(read(NATIVE_PROJECT140).equals(expected), 'Native project differs from exact four139-to140 changes');
+                      // The committed diff above protects every tracked iOS byte against the139
+                      // snapshot. Also refuse staged/working-tree and untracked native additions.
+                      git('git', ['diff', '--exit-code', 'HEAD', '--', 'ios/'], { stdio: 'pipe' });
+                      const untracked = git('git', ['ls-files', '--others', '--exclude-standard', '--', 'ios/'], { encoding: 'utf8' });
+                      assert.equal(untracked.trim(), '', 'Untracked native source is not reviewed');
+                      return {
+                          base: NATIVE_BASE139,
+                          baselineProjectSha256: NATIVE_PROJECT139_SHA256,
+                          changedFiles: names,
+                          buildChanges: 4,
+                          projectSha256: digest(expected),
+                          appBuild: 140,
+                          allOtherTrackedIosBytesUnchanged: true,
+                      };
+                  }
+                  assertNative140();
+          NODE
+      - name: Signing keychain and App Store Connect key
+        env:
+          IOS_DEV_CERT_P12_BASE64: ${{ secrets.IOS_DEV_CERT_P12_BASE64 }}
+          IOS_DEV_CERT_PASSWORD: ${{ secrets.IOS_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          for name in IOS_DEV_CERT_P12_BASE64 IOS_DEV_CERT_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+              [ -n "${!name}" ] || { echo "::error::Secret $name is not set"; exit 1; }
+          done
+          case "$ASC_KEY_P8" in *'-----BEGIN PRIVATE KEY-----'*'-----END PRIVATE KEY-----'*) ;; *) echo '::error::Invalid private-key file format'; exit 1 ;; esac
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 5400 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          umask 077
+          printf '%s' "$IOS_DEV_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dev.p12"
+          security import "$RUNNER_TEMP/dev.p12" -k "$keychain" -P "$IOS_DEV_CERT_PASSWORD" -x -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/dev.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | grep -q 'Apple Development'
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+      - name: Apple preflight - refuse an existing or superseded build 140
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: node "$RUNNER_TEMP/apple-status.mjs" preflight
+      - name: Archive with Apple Development and automatic signing
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+              -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" \
+              -archivePath "$RUNNER_TEMP/Thalassa.xcarchive" -allowProvisioningUpdates \
+              -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+              -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" archive
+      - name: Export with cloud-managed Apple Distribution
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          options() {
+              cat <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+              <key>method</key><string>app-store-connect</string>
+              <key>destination</key><string>$1</string>
+              <key>teamID</key><string>$TEAM_ID</string>
+              <key>signingStyle</key><string>automatic</string>
+              <key>uploadSymbols</key><true/>
+              <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          }
+          options export > "$RUNNER_TEMP/ExportOptions-export.plist"
+          options upload > "$RUNNER_TEMP/ExportOptions-upload.plist"
+          plutil -lint "$RUNNER_TEMP/ExportOptions-export.plist" "$RUNNER_TEMP/ExportOptions-upload.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Thalassa.xcarchive" \
+              -exportPath "$RUNNER_TEMP/export" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-export.plist" \
+              -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+              -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+      - name: Verify every original signed-app release assertion
+        run: |
+          set -euo pipefail
+          ipa=$(ls "$RUNNER_TEMP"/export/*.ipa)
+          rm -rf "$RUNNER_TEMP/ipa" && mkdir "$RUNNER_TEMP/ipa"
+          ditto -x -k "$ipa" "$RUNNER_TEMP/ipa"
+          app=$(ls -d "$RUNNER_TEMP"/ipa/Payload/*.app)
+          plist="$app/Info.plist"
+          pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
+          fail() { echo "::error::$1"; exit 1; }
+          [ "$(pb CFBundleIdentifier)" = "$BUNDLE_ID" ] || fail 'bundle identifier'
+          [ "$(pb CFBundleShortVersionString)" = "$APP_VERSION" ] || fail 'marketing version'
+          [ "$(pb CFBundleVersion)" = "$APP_BUILD" ] || fail 'build number'
+          [ "$(pb MinimumOSVersion)" = '17.0' ] || fail 'minimum iOS'
+          [ "$(pb ITSAppUsesNonExemptEncryption)" = 'false' ] || fail 'export compliance key'
+          modes=$(pb UIBackgroundModes)
+          for mode in audio location fetch; do printf '%s' "$modes" | grep -qw "$mode" || fail "background mode $mode"; done
+          [ ! -e "$app/Watch" ] && [ ! -e "$app/PlugIns" ] || fail 'a Watch app or extension is embedded'
+          codesign --verify --deep --strict "$app"
+          sig=$(codesign -dvv "$app" 2>&1)
+          printf '%s' "$sig" | grep -q '^Authority=Apple Distribution' || fail 'not signed Apple Distribution'
+          printf '%s' "$sig" | grep -q "^TeamIdentifier=$TEAM_ID$" || fail 'team identifier'
+          ent="$RUNNER_TEMP/entitlements.plist"
+          codesign -d --entitlements - --xml "$app" > "$ent" 2>/dev/null
+          e() { /usr/libexec/PlistBuddy -c "Print :$1" "$ent"; }
+          [ "$(e application-identifier)" = "$TEAM_ID.$BUNDLE_ID" ] || fail 'application-identifier'
+          [ "$(e aps-environment)" = production ] || fail 'aps-environment'
+          [ "$(e get-task-allow)" = false ] || fail 'get-task-allow'
+          [ "$(e beta-reports-active)" = true ] || fail 'beta-reports-active'
+          [ "$(e com.apple.developer.weatherkit)" = true ] || fail 'WeatherKit'
+          [ "$(e com.apple.developer.usernotifications.time-sensitive)" = true ] || fail 'time-sensitive notifications'
+          e com.apple.developer.applesignin | grep -q Default || fail 'Sign in with Apple'
+          e com.apple.developer.associated-domains | grep -q 'applinks:www.thalassawx.app' || fail 'associated domains'
+          e com.apple.developer.nfc.readersession.formats | grep -q TAG || fail 'NFC tag reading'
+          (cd dist && find . -type f ! -name '*.map' | sort) > "$RUNNER_TEMP/dist-files.txt"
+          while IFS= read -r file; do cmp -s "dist/$file" "$app/public/$file" || fail "public/$file differs from dist"; done < "$RUNNER_TEMP/dist-files.txt"
+          [ -z "$(find "$app/public" -name '*.map' -print -quit)" ] || fail 'source maps in the app'
+          grep -rqF "$(git rev-parse HEAD | cut -c1-12)" "$app/public/assets" || fail 'commit stamp differs from HEAD'
+          main=$(ls "$app"/public/assets/main-*.js)
+          {
+              echo "### $BUNDLE_ID $APP_VERSION ($APP_BUILD) - signed and verified, not yet uploaded"
+              echo "- Commit: $(git rev-parse HEAD)"
+              echo "- $(xcodebuild -version | tr '\n' ' ')"
+              echo "- Signed: Apple Distribution, team $TEAM_ID; every release entitlement checked"
+              echo "- Web files: $(wc -l < "$RUNNER_TEMP/dist-files.txt" | tr -d ' ') byte-identical to dist"
+              echo "- Main asset SHA-256: $(shasum -a 256 "$main" | cut -d' ' -f1)"
+              echo "- Verified IPA SHA-256: $(shasum -a 256 "$ipa" | cut -d' ' -f1) (upload is re-signed from this archive)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Final unchanged-source and genuine-test gate before upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/gate.mjs"
+      - name: Final Apple duplicate guard immediately before upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: node "$RUNNER_TEMP/apple-status.mjs" preflight
+      - name: Upload build 140 to TestFlight ONCE
+        id: upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          test "$APP_BUILD" = 140
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          echo 'Starting the single authorized build-140 upload. On any error, inspect Apple before considering another run.' >> "$GITHUB_STEP_SUMMARY"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Thalassa.xcarchive" \
+              -exportPath "$RUNNER_TEMP/upload" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-upload.plist" \
+              -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+              -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo 'UPLOAD ACKNOWLEDGED: build 140 was uploaded once. Never upload 140 again; Apple processing is checked separately.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Observe Apple processing without changing Apple data
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: node "$RUNNER_TEMP/apple-status.mjs" after-upload
+      - name: Remove every temporary signing key and app package
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/dev.p12" "$RUNNER_TEMP/export" "$RUNNER_TEMP/upload" \
+              "$RUNNER_TEMP/ipa" "$RUNNER_TEMP/Thalassa.xcarchive" "$RUNNER_TEMP/dd"
+          rm -f "$RUNNER_TEMP/ExportOptions-export.plist" "$RUNNER_TEMP/ExportOptions-upload.plist" \
+              "$RUNNER_TEMP/entitlements.plist" "$RUNNER_TEMP/gate.mjs" "$RUNNER_TEMP/apple-status.mjs"
