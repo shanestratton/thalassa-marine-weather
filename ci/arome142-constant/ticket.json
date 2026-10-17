@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "attempt": "ncaled-20261017-00-constant-conditional-v1",
+  "day": "2026-10-17",
+  "source": "cf21a611c6b22db62449bc1658e7ae8b931476be",
+  "catalogueSha256": "62b72c941a8598d712a550ef0bf1020a6a34a9f199c7d09d50d8affb358e3383",
+  "maximumRequests": 1,
+  "expectedDeclaredBytes": 44900,
+  "conditionalETag": "\"9ce9149bbab869fdf81088046daa695c\"",
+  "staticHeadSha256": "64901305e76aedc2ed71fce770a3ee0535ce0b9059d6ab82e42144ae011c094d",
+  "reservedBytes": 16777216,
+  "priorReviewedApplicationBytes": 19434179,
+  "dailyMaximumBytes": 2500000000,
+  "otherAromeAcquisitionHeld": true,
+  "expiresAt": "2026-10-17T18:00:00Z",
+  "reviewRequired": true
+}
