@@ -27,6 +27,7 @@ import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { shareClassNames } from './scripts/share-class-names.mjs';
 import { shareUiStrings } from './scripts/share-ui-strings.mjs';
 import { inertUiData, inertUiDataWorkerFence } from './scripts/inert-ui-data.mjs';
+import { inertPreloadData } from './scripts/inert-preload-data.mjs';
 import { pngInflateDedup } from './scripts/png-inflate-dedup.mjs';
 import { jspdfPrimitives } from './scripts/jspdf-primitives.mjs';
 import { packTimezoneData } from './scripts/pack-timezone-data.mjs';
@@ -492,6 +493,7 @@ export default defineConfig(({ mode }) => {
             },
         },
         plugins: [
+            inertPreloadData(__dirname),
             oceanApiLocal({ ...env, ...process.env }),
             releasePreviewDocumentRoutes(),
             mode === 'production' && releasePublicBetaFeatureManifest(publicBetaCredentialPresence),
@@ -769,6 +771,7 @@ export default defineConfig(({ mode }) => {
                     hoistTransitiveImports: false,
                     manualChunks(id, meta) {
                         const moduleId = id.replaceAll('\\', '/');
+                        if (moduleId.endsWith('/utils/readPreloadData.ts')) return 'preload-data';
                         // The router: one chunk that is also the route worker's
                         // script (routeEngineLogger, above). What the app's
                         // start-up also imports of it is `engine-leaf`, so the
