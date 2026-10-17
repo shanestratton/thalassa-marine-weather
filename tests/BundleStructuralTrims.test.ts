@@ -215,20 +215,20 @@ const FOLDED_FLAGS = [
     'VITE_CMEMS_WAVES_ENABLED',
     'VITE_CMEMS_SEAICE_ENABLED',
     'VITE_CMEMS_MLD_ENABLED',
-    'VITE_MPA_ENABLED',
     'VITE_BLITZORTUNG_ENABLED',
 ] as const;
 const COMPILED_OFF_MODULES = [
     'components/map/WaveParticleLayer.ts',
     'components/map/SeaIceRasterLayer.ts',
     'components/map/MldRasterLayer.ts',
-    'services/weather/api/mpaDataset.ts',
-    'components/map/MpaLayer.ts',
 ];
 const SHIPPED_RENDERERS = [
     'components/map/CurrentParticleLayer.ts',
     'components/map/SstRasterLayer.ts',
     'components/map/ChlRasterLayer.ts',
+    // Protected areas, on since 2026-10-11.
+    'services/weather/api/mpaDataset.ts',
+    'components/map/MpaLayer.ts',
 ];
 
 interface MiniBuild {
@@ -301,6 +301,7 @@ describe('the committed profile compiles the switched-off layers out, and flippi
         expect(profile.featureFlags.VITE_CMEMS_CURRENTS_ENABLED).toBe(true);
         expect(profile.featureFlags.VITE_CMEMS_SST_ENABLED).toBe(true);
         expect(profile.featureFlags.VITE_CMEMS_CHL_ENABLED).toBe(true);
+        expect(profile.featureFlags.VITE_MPA_ENABLED).toBe(true);
     });
 
     it('as committed: the renderers behind false flags are gone, the ones that are on still ship', async () => {
@@ -320,7 +321,10 @@ describe('the committed profile compiles the switched-off layers out, and flippi
         }
         expect(flipped.code).toContain('.blitzortung.org/');
         const offenders = parkedPagesInBundle(ROOT, flipped.bundle).join('\n');
-        for (const entry of PARKED_LAZY_PAGES.filter((parked) => 'gate' in parked)) {
+        // A gated entry whose profile flag is on is live, so the guard leaves it alone.
+        for (const entry of PARKED_LAZY_PAGES.filter(
+            (parked) => 'gate' in parked && parkedFlagState(ROOT, parked) === 'parked',
+        )) {
             expect(offenders).toContain(`${entry.page} shipped in`);
         }
         expect(offenders).toMatch(/strike socket .* shipped in \S+ although VITE_BLITZORTUNG_ENABLED is false/);

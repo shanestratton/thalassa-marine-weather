@@ -211,8 +211,8 @@ export function ObsLayerKey(props: ObsLayerKeyProps) {
                         <span className="text-blue-300">blue</span> · multiple use.
                     </p>
                     <p>
-                        Indicative CAPAD classes, not permissions. Tap for source/date and verify current fishing and
-                        anchoring rules with the managing authority.
+                        Indicative CAPAD classes, not permissions. Tap for source/date and verify current entry, fishing
+                        and anchoring rules with the managing authority.
                     </p>
                 </KeySection>
             )}

@@ -191,10 +191,12 @@ Voyage Log.
 
 MPA categories are presented only as classes inferred from CAPAD metadata. A feature-gated `MPAs` control in the map's
 route/chart tools makes the overlay reachable without presenting it as a tactical danger or activity-permission layer.
-The popup tells users to verify current fishing and anchoring rules with the managing authority, labels the overlay as
+The popup tells users to verify current entry, fishing and anchoring rules with the managing authority, labels the overlay as
 neither legal advice nor navigation, shows the verified CAPAD snapshot date, preserves tiny positive official areas,
 and provides a keyboard-visible 44 px dismiss target that returns focus to the prior control. The layer revalidates
-while visible and switches itself off if either data verification or Mapbox style mounting fails. A generation change
+while visible and switches itself off if either data verification or Mapbox style mounting fails; a refresh that gets
+no answer at all (no signal at sea) keeps the verified generation until it is 14 days old. Where records overlap, the
+popup shows the strictest inferred class and counts the others. A generation change
 drops the old Mapbox source and parsed cache before the replacement asset is downloaded. It must never turn a broad
 protection class into a claim that an activity is permitted or prohibited.
 

@@ -105,8 +105,8 @@ The checked-in manifests are deliberately deterministic, but they do not prove w
 
 ## Live marine-data trust boundary
 
-The canonical beta profile currently selects six CMEMS grids plus the MPA overlay. A `true` build flag is not a data
-trust boundary. Before those seven overlays can ship, their frozen producer and client contracts must prove immutable
+The canonical beta profile currently selects three CMEMS grids (currents, sea-surface temperature, chlorophyll) plus the
+MPA overlay (since 2026-10-11). A `true` build flag is not a data trust boundary. Before those seven overlays can ship, their frozen producer and client contracts must prove immutable
 generation assets, manifest-last publication, actual source-time coverage and freshness, byte caps before allocation,
 SHA-256 integrity, exact schema/dimension/cadence checks, finite and physically bounded values, attribution, and
 fail-closed mixed-generation handling. MPA GeoJSON must pass the same bounded manifest/integrity path before it reaches
@@ -124,8 +124,9 @@ not silently reused as routing authority; a future current-adjusted route requir
 land-mask-verified regional or tiled source.
 
 CAPAD protection classes are inherently insufficient to determine a legal activity at a particular place and time.
-The popup therefore calls each result inferred, directs the skipper to the managing authority for current fishing and
-anchoring rules, and states that the overlay is neither legal advice nor navigation. On a generation swap, the old
+The popup therefore calls each result inferred, directs the skipper to the managing authority for current entry,
+fishing and anchoring rules, shows the strictest inferred class where records overlap, and states that the overlay is
+neither legal advice nor navigation. On a generation swap, the old
 Mapbox source and parsed cache are removed before replacement bytes are accepted, so stale protection data cannot stay
 visible while a new generation is being verified.
 

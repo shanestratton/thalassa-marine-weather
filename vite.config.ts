@@ -191,7 +191,7 @@ function releaseDebugAisInjectorFence(enabled: boolean): Plugin {
  * Pages parked behind a build-time flag (the Calypso console, the offline-area
  * modal) must not come back as chunks nothing can load, and map renderers a
  * false public-beta profile flag compiles off (CMEMS waves, sea ice, mixed
- * layer, protected areas, and Blitzortung's strike socket) must not ship any
+ * layer, and Blitzortung's strike socket) must not ship any
  * bytes: the build fails if one does. See scripts/parked-lazy-pages.mjs.
  * Flag files are read from this repo, not config.root, so a tool that moves
  * the root reads the same flags.

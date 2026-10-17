@@ -776,7 +776,7 @@ check(
         "tone: '#f87171'",
         "tone: '#fbbf24'",
         "tone: '#60a5fa'",
-        'Verify current fishing and anchoring rules with the managing authority',
+        'Verify current entry, fishing and anchoring rules with the managing authority',
         'not legal advice and not for navigation',
         '<div style="font-size: 11px; color: var(--day-ui-muted, #cbd5e1); padding-top: 6px;',
         '<div style="font-size: 11px; color: var(--day-ui-muted, #b6c2d1); margin-top: 6px; font-style: italic;">',
@@ -1129,6 +1129,9 @@ check(
         'finiteNumber(value.bounds.south, -60, -35',
         'finiteNumber(value.bounds.north, -15, 0',
         'requireTrust(feature.properties.area_km2 > 0',
+        'error instanceof MpaManifestUnreachableError',
+        'signal.aborted || error instanceof MarineDataTrustError ? error : new MpaManifestUnreachableError(error)',
+        'nowMs - Date.parse(kept.publishedAt) <= MPA_MAX_PUBLISHED_AGE_MS',
         'cache = null',
         'cache.publishedAt = manifest.published_at',
         "'force-cache'",
@@ -1158,6 +1161,8 @@ check(
         includesAll(mpaLayer, [
             'const verifiedData = alreadyVerifiedData ?? (await fetchVerifiedMpaGeoJson())',
             'data: verifiedData',
+            "'fill-sort-key': ['match', ['get', 'protection_class'], 'high', 2, 'conditional', 1, 0]",
+            'maxzoom: 12',
         ]) &&
         !mpaLayer.includes('data: MPA_GEOJSON_URL') &&
         includesInOrder(mpaFailClosedBoundary, ['teardown()', 'onVisibilityChange?.(false)']) &&
@@ -1187,7 +1192,16 @@ check(
         mapHubSource.includes(
             'useMpaLayer(mapRef, mapReady, weather.mpaVisible && !planningSurface, weather.setMpaVisible)',
         ) &&
-        includesAll(mpaPopupSource, ['Dataset snapshot:', 'export function formatMpaSourceDate', 'areaValue > 0']) &&
+        includesAll(mpaPopupSource, [
+            'Dataset snapshot:',
+            'export function formatMpaSourceDate',
+            'areaValue > 0',
+            'export function formatMpaArea',
+            'features.map((feature) => (feature.properties ?? {}) as MpaProps)',
+            'const picked = pickStrictestMpaRecord(',
+            'buildMpaPopupHtml(picked.props, getVerifiedMpaDatasetStatus()?.sourceDate, picked.overlapping)',
+        ]) &&
+        !mpaPopupSource.includes('features[0].properties') &&
         includesAll(mpaLayerTrustTest, [
             'does not add a source or layer when verification fails',
             'hands Mapbox only an already verified in-memory object, never a URL',
@@ -1201,9 +1215,12 @@ check(
         includesAll(mpaSafetyLanguageTest, [
             'preserves tiny positive official areas instead of rounding them to zero',
             'puts the verified CAPAD snapshot date beside the authority warning',
+            'never formats a positive CAPAD area as zero, NaN or blank',
+            'shows the strictest inferred class where CAPAD records overlap, and counts the others',
         ]) &&
         includesAll(marinePublisherTrustTest, [
             'clears a previously verified overlay when its 30-minute refresh fails',
+            'keeps a verified overlay through a lost connection until its publication would be stale',
             'accepts fresh health evidence for an unchanged immutable generation and updates cached publication status',
             'cannot repopulate parsed GeoJSON after the overlay releases during a fetch',
         ]),
@@ -1352,7 +1369,7 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_CHL_ENABLED: true,
     VITE_CMEMS_SEAICE_ENABLED: false,
     VITE_CMEMS_MLD_ENABLED: false,
-    VITE_MPA_ENABLED: false,
+    VITE_MPA_ENABLED: true,
     VITE_APPLE_SIGN_IN_ENABLED: true,
     VITE_APPLE_WEB_SIGN_IN_ENABLED: true,
     VITE_APPLE_MUSIC_ENABLED: true,
