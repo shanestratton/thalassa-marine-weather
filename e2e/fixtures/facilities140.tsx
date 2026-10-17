@@ -67,7 +67,7 @@ function Fixture() {
                             ? ['thalassa-world-facilities-points']
                             : [],
                     })
-                    .filter((f) => f.layer.id === 'thalassa-world-facilities-points').length,
+                    .filter((f) => f.layer?.id === 'thalassa-world-facilities-points').length,
             project: (lon, lat) => {
                 const p = m.project([lon, lat]);
                 return { x: p.x, y: p.y };

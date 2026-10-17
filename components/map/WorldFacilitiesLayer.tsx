@@ -194,7 +194,8 @@ export default function WorldFacilitiesLayer({ map, mapReady, onStatus }: WorldF
                 .setDOMContent(content)
                 .addTo(map);
             // This explicitly opened detail must sit above the closed credits strip.
-            popup.getElement().style.zIndex = '650';
+            const popupElement = popup.getElement();
+            if (popupElement) popupElement.style.zIndex = '650';
         };
         map.on('moveend', move);
         map.on('style.load', style);
