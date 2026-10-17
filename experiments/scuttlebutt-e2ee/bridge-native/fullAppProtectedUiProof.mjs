@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 import {
     chmodSync,
     cpSync,
@@ -56,6 +57,7 @@ import { inspectSceneFinishStageEvidence } from './sceneFinishStageContract.mjs'
 import { inspectSceneProgressStageEvidence } from './sceneProgressStageContract.mjs';
 import { inspectSceneClosureCorrelationDiagnostic } from './sceneClosureCorrelationDiagnostic.mjs';
 import { inspectSceneAuthorityTimingEvidence } from './sceneAuthorityTimingContract.mjs';
+import { summarizeOwnedLaunchDiagnostic } from './ownedLaunchDiagnostic.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const checkout = resolve(here, '../../..');
@@ -208,12 +210,32 @@ function quiet(bin, args, timeout = 30000, maxBuffer = 8 * 1024 * 1024, input) {
     receipt.lastOperationExitStatus = null;
     receipt.lastOperationTimedOut = false;
     save();
+    const launchStarted = receipt.lastOperation === 'owned-app-launch' ? performance.now() : null;
     const r = spawnSync(bin, args, { encoding: 'utf8', timeout, maxBuffer, ...(input === undefined ? {} : { input }) });
     receipt.lastOperationExitStatus = Number.isInteger(r.status) ? r.status : null;
     receipt.lastOperationTimedOut = r.error?.code === 'ETIMEDOUT';
     if (receipt.lastOperation === 'owned-app-launch') {
         const found = /^app\.thalassa\.research\.scuttlebutt-auth: ([1-9][0-9]{0,8})\s*$/.exec(r.stdout ?? '');
         receipt.ownedLaunchPID = found ? Number(found[1]) : null;
+        try {
+            // At most initial + foreground attempts. These detached values
+            // cannot replace the original PID/failure or admit native polling.
+            const diagnostics = receipt.ownedLaunchDiagnostics ?? [];
+            assert(diagnostics.length < 2 && launchStarted !== null);
+            const diagnostic = summarizeOwnedLaunchDiagnostic({
+                status: Number.isInteger(r.status) ? r.status : null,
+                signal: r.signal ?? null,
+                errorCode: r.error?.code ?? null,
+                stdout: r.stdout ?? '',
+                stderr: r.stderr ?? '',
+                durationMs: Math.ceil(performance.now() - launchStarted),
+                boundMs: timeout,
+            });
+            receipt.ownedLaunchDiagnostics = [...diagnostics, diagnostic];
+            receipt.ownedLaunchDiagnosticStatus = 'observed-unaccepted';
+        } catch {
+            receipt.ownedLaunchDiagnosticStatus = 'refused';
+        }
     }
     if (receipt.lastOperation === 'owned-control-app-launch')
         receipt.controlLaunchObservation = inspectControlLaunchObservation({
@@ -854,6 +876,7 @@ try {
         'bridge-native/fullAppProtectedUiContract.mjs',
         'bridge-native/fullAppUiContract.mjs',
         'bridge-native/fullAppUiResumeContract.mjs',
+        'bridge-native/ownedLaunchDiagnostic.mjs',
         'bridge-native/build.mjs',
         'bridge-native/generate_project.rb',
         'bridge-native/machOEntitlementEvidence.mjs',

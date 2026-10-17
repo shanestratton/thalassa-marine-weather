@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 14 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
+Updated 18 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -50,6 +50,33 @@ were inspected, no reset or re-enrollment occurred, and no primary build/sync,
 production or server changes accompanied the update.
 
 ## Current integration candidate
+
+The [18 October restart/upstream record](../experiments/scuttlebutt-e2ee/review/restart-upstream-preparation-2026-10-18.json)
+reconciles cleaned master `0a8d33d16` while preserving private denial, scoped push
+callbacks and current public warning/lightning behavior. Current focused checks
+pass 171 mocked push/chat/UI cases, 373 contracts and 660 Node synthetic/source/
+scheduling cases, with named static checks. Initial fixture/configuration and
+parity failures remain retained; original assertions/refusal gates remain.
+
+New launch diagnostics are bounded scalar-only observations and grant no
+acceptance. Provider/framework preparation waiting now accepts and consumes only
+a supplied remaining budget, including actual polling/sleep overshoot and queued
+exhaustion. Those scheduling cases are synthetic; no native build/launch was
+dispatched. The earlier launch failure and authority cause remain unproved.
+All 61 provider/HTTPS prerequisite sources and artifact pins are unchanged.
+
+After restart, the named private temporary artifacts/receipts were absent. No missing pass
+was reconstructed. A private offline tool tree contains 817 integrity-pinned
+cached packages for focused checks, not a full install; two map archives remain
+missing. Strict types still fail with four map declaration diagnostics, and the
+current full-App web/Window/native graph is unrun. Earlier combined-graph passes
+below are historical, not transferred to these changed sources. Current source-
+binary/provenance, shipping, physical and independent assessment gates remain
+open. Final documentation formatting was queued, not run, when the shared-Mac
+waiting ledger reached 120,005/120,000 ms; no new heavy job was dispatched.
+**Not merge-ready; ordinary/live encryption remains disabled.**
+
+### Historical 14 October integration evidence
 
 The [latest passive timing preparation record](../experiments/scuttlebutt-e2ee/review/authority-timing-launch-unobserved-2026-10-14.json)
 adds a separate simulator-only 32-entry / 16,384-byte monotonic age diagnostic,

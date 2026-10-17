@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 14 October 2026, Australia/Brisbane. Active branch:
+Updated: 18 October 2026, Australia/Brisbane. Active branch:
 `codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at
 `9e24986f1b1646a7112ab0433811cdf265fdab40` on cleaned master
 `b4cb321167e27c4cf592786bd576abd841e57821`.
@@ -11,7 +11,93 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current passive authority timing preparation; app launch unobserved
+## Current restart/upstream preparation — not merge-ready
+
+Shane resumed **E2EE only**, not the separate TestFlight release. The
+[18 October record](../experiments/scuttlebutt-e2ee/review/restart-upstream-preparation-2026-10-18.json)
+binds sources, exact receipts, failures and remaining gates. Reconciliation
+commits `34127b106`, `66f7a5d88` and `498ff284c` imported exactly 2,075, 1,123 and
+364 upstream paths, ending at cleaned master
+`0a8d33d166004682627e3988285eef6e928f076b`. Staged-name inspections matched those
+upstream deltas. Old-history refs were not pushed or rewritten. The primary
+checkout/iOS, human Research devices/accounts/keys and production were untouched.
+
+Current reconciled-source checks passed **171 cases in 12 mocked push/chat/UI
+suites**, **373 contract cases in six suites**, and **660 Node synthetic/source/
+driver/scheduling cases**. Named syntax, formatting and lint pass. These are
+separate categories, not native encryption, APNs, OS, physical or live Auth
+acceptance. Exact identity/private-cutover denial is preserved alongside upstream
+official-warning text/pinning, wake/radar and current-only lightning behavior.
+Stale SDK test doubles now implement Promise and lazy `.abortSignal()` behavior;
+all original A/B isolation/dequeue assertions remain. Removed convenience APIs
+stay removed; private pin/recipe denial uses the surviving `sendDM` API.
+Initial 160/170 UI results remain failed.
+
+A new launch diagnostic retains at most two detached scalar observations,
+actual elapsed time/overshoot and fixed error categories, never raw stdout,
+stderr or error messages. Original 30-second launch/PID/failure/cleanup gates
+remain. It cannot promote acceptance. **No native build or launch was dispatched
+this run**, and the earlier unknown launch failure is not fixed or rerun.
+The initial 620/622 Node receipt stays failed: historical byte comparisons now
+project only the two exact passive diagnostic literals, once each, retaining
+every original full-function comparison and separate new wiring tests.
+
+Provider/framework preparation helpers accept a canonical trailing
+`--shared-wait-budget-ms REMAINING_MS`. One cumulative ledger counts bounded
+poll and sleep time, retains overshoot and persists exhaustion before refusing
+dispatch, including zero allowance. The provider helper has a separate private
+preparation-attempt receipt before its first slot; original phase receipts and
+launch/recovery gates remain. Injected-clock/process cases passed, not actual
+native builder runs. Parents must pass only their remainder and consume saved
+child waiting even on failure before deciding whether to dispatch anything else.
+All 61 provider/HTTPS prerequisite source bytes remain identical to `aa968bb20`;
+no artifact pin changed. Existing nonsecret native-runner log text is unchanged;
+its logging method now satisfies the existing lint rule.
+
+Restart recovery found the named `/private/tmp` receipts/artifacts absent and no
+Rust toolchain in the audited isolated/conventional locations. Historical summaries
+stay historical; no passed receipt was reconstructed. Pinned Node 24.21.0 survives.
+Selected Apple tools report Xcode 27.1 / Swift 6.4 despite the older directory name.
+Rust 1.89.0 was historically exercised, not an exact executable pin; rebuilding it
+cannot establish historical artifact byte identity.
+
+The isolated dependency link pointed to an absent primary tree. That dangling
+link was preserved; only this checkout now links to a private durable tool tree
+under ignored `.codex/`. No shared dependency writes/install occurred. Full
+installs and bounded archive/range downloads failed; all receipts are retained.
+The first 600,000-ms npm attempt lasted 666,254 ms before termination, not a
+deadline pass. Eight missing archives were verified, but locked `mapbox-gl@3.19.0`
+and the nested MapLibre style-spec archive remain missing. Offline integrity-
+checked extraction supplied **817 cached lockfile packages for focused checks
+only**, explicitly excluding those two. Later upstream promoted existing
+transitive dev dependencies without changing package entries; correspondence
+was checked. This is **not a complete install or full-App-build eligibility**.
+
+Private runner-loader/matcher-ambient configuration failures remain recorded.
+With correct test ambients, strict types still exit 2 with **four map declaration
+errors**: three `retainPadding` sites and missing `FilterSpecification`. No stub,
+suppressed error or weakened compiler option turns this into a pass. Current
+combined-App web/Window/native build/execution is **unrun**; earlier combined-
+graph acceptance is historical for the changed upstream inputs. Waiting through
+source/test/type validation was **1,023 ms**. Final documentation formatting
+remained **queued-unrun** behind another heavy job: cumulative shared-Mac waiting
+reached **120,005 / 120,000 ms**, retaining the actual 5-ms overshoot. No formatting
+command or later heavy job was dispatched after exhaustion. Injected helper
+overshoot cases, this separate real reservation, and npm execution duration are
+different evidence categories. Source formatting/lint passed earlier; final
+documentation formatting is not claimed passed.
+
+Next: recover exact missing dependencies, pass strict types/full-App web
+validation, legitimately regenerate source-bound provider/HTTPS/framework evidence,
+then obtain a fresh owned native exchange/launch observation. Do not repeat an
+unchanged launch, extend its deadline, replace an original authority witness or
+relax receipt gates. Current OS/navigation/opposite-role/cold/recovery/live Auth/
+HTTPS, shipping cutover/retention/device-prekey policy, physical acceptance,
+licence/provenance and independent assessment gates remain open. Agent/source
+review is not independent security assessment. **No master merge/release readiness
+is claimed; ordinary/live encryption remains disabled.**
+
+## Historical passive authority timing preparation; app launch unobserved
 
 The [new source-bound preparation/failure record](../experiments/scuttlebutt-e2ee/review/authority-timing-launch-unobserved-2026-10-14.json)
 adds a separate simulator-only native timing diagnostic to investigate the

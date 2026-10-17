@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { inspectSceneAuthorityTimingEvidence } from './sceneAuthorityTimingContract.mjs';
 import { inspectResearchSceneLifecycleEvidence } from './researchSceneLifecycleContract.mjs';
+import { withoutOwnedLaunchDiagnostic } from './ownedLaunchDiagnosticTestSupport.mjs';
 
 const read = (name) => readFileSync(new URL(name, import.meta.url), 'utf8');
 const repository = fileURLToPath(new URL('../../..', import.meta.url));
@@ -246,10 +247,10 @@ function captureFixture(edit = () => {}) {
 test('timing leaves all original driver helpers and scene validators unchanged', () => {
     for (const name of [...oldDriver.matchAll(/^(?:async )?function (\w+)\(/gm)].map((match) => match[1]))
         assert.equal(
-            functionBytes(driver, name).replace(
-                "        authorityTiming: join(directory, 'scene-authority-timing.json'),\n",
-                '',
-            ),
+            (name === 'quiet'
+                ? withoutOwnedLaunchDiagnostic(functionBytes(driver, name))
+                : functionBytes(driver, name)
+            ).replace("        authorityTiming: join(directory, 'scene-authority-timing.json'),\n", ''),
             functionBytes(oldDriver, name),
             name + ' original bytes changed',
         );

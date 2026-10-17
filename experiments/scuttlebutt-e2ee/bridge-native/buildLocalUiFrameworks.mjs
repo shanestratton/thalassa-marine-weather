@@ -18,10 +18,12 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { createSharedBuildWait, parseSharedBuildWaitArgs } from '../sharedBuildWait.mjs';
 const here = dirname(fileURLToPath(import.meta.url)),
     checkout = resolve(here, '../../..');
 assert(checkout.includes('/.codex/worktrees/scuttlebutt-e2ee/'));
-assert(process.platform === 'darwin' && process.arch === 'arm64' && process.argv.length === 2);
+const waitArgs = parseSharedBuildWaitArgs(process.argv.slice(2));
+assert(process.platform === 'darwin' && process.arch === 'arm64' && waitArgs.args.length === 0);
 const hash = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 const source = realpathSync(join(checkout, 'node_modules/@capacitor/ios'));
 const pkg = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
@@ -68,15 +70,33 @@ const receipt = {
     outputRoot: scratch,
     generatorSha256: hash(join(here, 'generate_local_ui_frameworks.rb')),
     runnerSha256: hash(fileURLToPath(import.meta.url)),
+    sharedWaitHelperSha256: hash(join(here, '../sharedBuildWait.mjs')),
     noNetworkOrPackageResolution: true,
     sharedDependenciesWritten: false,
     independentProvenanceAttested: false,
     sharedSlotWaitMs: 0,
-    sharedSlotWaitBudgetMs: 120000,
+    sharedSlotWaitBudgetMs: waitArgs.budgetMs,
 };
 const save = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
 save();
 console.info('Nonsecret local UI frameworks receipt: ' + receiptPath);
+const sharedWait = createSharedBuildWait({
+    budgetMs: waitArgs.budgetMs,
+    pid: process.pid,
+    now: Date.now,
+    sleep: delay,
+    poll: (timeout) =>
+        spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], {
+            encoding: 'utf8',
+            timeout,
+            maxBuffer: 1024 * 1024,
+        }),
+    persist: ({ spentMs, status }) => {
+        receipt.sharedSlotWaitMs = spentMs;
+        if (status === 'queued-unrun' || status === 'failed') receipt.status = status;
+        save();
+    },
+});
 function command(bin, args, timeout = 30000) {
     const r = spawnSync(bin, args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
     if (r.error || r.status !== 0) {
@@ -101,36 +121,12 @@ try {
         mode: 0o600,
         flag: 'wx',
     });
+    process.title = 'thalassa local UI frameworks awaiting shared-Mac slot';
+    await sharedWait.wait();
+    process.title = 'vite build slot: owned simulator frameworks';
     command('/opt/homebrew/opt/ruby/bin/ruby', [join(here, 'generate_local_ui_frameworks.rb'), manifest]);
     receipt.projectPath = join(scratch, 'Frameworks.xcodeproj');
     receipt.projectSha256 = hash(join(receipt.projectPath, 'project.pbxproj'));
-    process.title = 'thalassa local UI frameworks awaiting shared-Mac slot';
-    for (;;) {
-        // This build shares the same bounded waiting budget as its caller.
-        // Exhaustion refuses dispatch even if the next poll would find a slot.
-        if (receipt.sharedSlotWaitMs >= receipt.sharedSlotWaitBudgetMs) {
-            receipt.status = 'queued-unrun';
-            save();
-            throw new Error('Shared build slot budget exhausted');
-        }
-        const p = spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], { encoding: 'utf8', timeout: 10000 });
-        assert(!p.error && [0, 1].includes(p.status));
-        const others = p.stdout
-            .trim()
-            .split('\n')
-            .filter(
-                (s) =>
-                    /^\d+\s/.test(s) &&
-                    !s.startsWith(process.pid + ' ') &&
-                    !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|env|pgrep|xargs)(?:\s|$)/.test(s),
-            );
-        if (!others.length) break;
-        const started = Date.now();
-        await delay(Math.min(5000, receipt.sharedSlotWaitBudgetMs - receipt.sharedSlotWaitMs));
-        receipt.sharedSlotWaitMs += Date.now() - started;
-        save();
-    }
-    process.title = 'vite build slot: owned simulator frameworks';
     receipt.status = 'building';
     save();
     receipt.toolchain = command('/usr/bin/xcodebuild', ['-version']);

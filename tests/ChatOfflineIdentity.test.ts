@@ -21,10 +21,35 @@ vi.mock('@capacitor/preferences', () => ({
 }));
 
 vi.mock('../services/supabase', () => {
+    // Match the SDK's lazy thenable/abortSignal chain. Aborted requests must not
+    // be recorded as executed inserts, and production refusal gates stay real.
+    function request<T>(execute: () => T) {
+        let signal: AbortSignal | undefined;
+        const run = () =>
+            signal?.aborted ? { data: null, error: { message: 'aborted', details: null, hint: null } } : execute();
+        type Result = ReturnType<typeof run>;
+        type Builder = PromiseLike<Result> & {
+            abortSignal: (value: AbortSignal) => Builder;
+            single: () => Builder;
+        };
+        let pending: Promise<Result> | undefined;
+        const builder: Builder = {
+            abortSignal(value) {
+                signal = value;
+                return builder;
+            },
+            single: () => builder,
+            then(onfulfilled, onrejected) {
+                pending ??= Promise.resolve().then(run);
+                return pending.then(onfulfilled, onrejected);
+            },
+        };
+        return builder;
+    }
     const from = vi.fn((table: string) => ({
         insert: (payload: Record<string, unknown>) => ({
-            select: () => ({
-                single: async () => {
+            select: () =>
+                request(() => {
                     state.inserts.push({ table, payload });
                     const failed =
                         (table === 'chat_messages' && state.failChannel) ||
@@ -38,8 +63,7 @@ vi.mock('../services/supabase', () => {
                               },
                               error: null,
                           };
-                },
-            }),
+                }),
         }),
         select: () => ({
             eq: () => ({
@@ -65,11 +89,15 @@ vi.mock('../services/supabase', () => {
                 })),
             },
             from,
-            rpc: vi.fn(async (name: string) => ({
-                data:
-                    name === 'get_chat_dm_block_status' ? { blockedByMe: false, blockedEitherDirection: false } : null,
-                error: null,
-            })),
+            rpc: vi.fn((name: string) =>
+                request(() => ({
+                    data:
+                        name === 'get_chat_dm_block_status'
+                            ? { blockedByMe: false, blockedEitherDirection: false }
+                            : null,
+                    error: null,
+                })),
+            ),
             removeChannel: vi.fn(),
         },
         isSupabaseConfigured: () => true,

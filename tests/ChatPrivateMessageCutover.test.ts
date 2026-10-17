@@ -421,8 +421,10 @@ describe('legacy private-message cutover — synthetic service adapters', () => 
     it.each([
         ['text send', (value: Service) => value.sendDM('peer-a', 'Refused text')],
         ['self send', (value: Service) => value.sendDM('account-a', 'Refused self text')],
-        ['pin send', (value: Service) => value.sendPinDrop('peer-a', -27.47, 153.02, 'Refused pin')],
-        ['recipe send', (value: Service) => value.sendRecipeShareDM('peer-a', '🍳RECIPE:fixture')],
+        // Master retired the unused convenience wrappers. Exercise the same
+        // encoded content through their surviving sendDM boundary instead.
+        ['pin send', (value: Service) => value.sendDM('peer-a', '📍PIN|-27.470000|153.020000|Refused pin')],
+        ['recipe send', (value: Service) => value.sendDM('peer-a', '🍳RECIPE:fixture')],
         ['inbox read', (value: Service) => value.getDMConversations()],
         ['thread read', (value: Service) => value.getDMThread('peer-a')],
         ['unread count', (value: Service) => value.getUnreadDMCount()],
@@ -438,6 +440,11 @@ describe('legacy private-message cutover — synthetic service adapters', () => 
         expect(fixture.from).not.toHaveBeenCalled();
         expect(fixture.get).not.toHaveBeenCalled();
         noPrivateDispatch();
+    });
+
+    it('keeps the retired private share wrappers absent rather than reviving dead APIs for tests', () => {
+        expect(service).not.toHaveProperty('sendPinDrop');
+        expect(service).not.toHaveProperty('sendRecipeShareDM');
     });
 
     it('preserves public send, read and realtime controls after the owner latch', async () => {

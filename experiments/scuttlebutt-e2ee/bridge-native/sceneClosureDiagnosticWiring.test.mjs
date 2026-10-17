@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { inspectSceneClosureCorrelationDiagnostic } from './sceneClosureCorrelationDiagnostic.mjs';
 import { inspectResearchSceneLifecycleEvidence } from './researchSceneLifecycleContract.mjs';
+import { withoutOwnedLaunchDiagnostic } from './ownedLaunchDiagnosticTestSupport.mjs';
 import {
     FULL_APP_PROTECTED_NATIVE_CASES,
     FULL_APP_PROTECTED_DOM_KEYS,
@@ -261,7 +262,8 @@ test('all existing driver helper bytes remain unchanged except one exact foregro
     );
     const names = [...oldDriver.matchAll(/^(?:async )?function (\w+)\(/gm)].map((match) => match[1]);
     for (const name of names) {
-        const current = functionBytes(driver, name);
+        const current =
+            name === 'quiet' ? withoutOwnedLaunchDiagnostic(functionBytes(driver, name)) : functionBytes(driver, name);
         const preserved = (
             name === 'sceneStage'
                 ? current.replace("    if (stage === 'foreground-closed') captureSceneClosureDiagnostic();\n", '')
