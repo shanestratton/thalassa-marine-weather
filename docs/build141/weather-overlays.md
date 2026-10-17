@@ -89,3 +89,40 @@ owner, cancellation, metered-link setting and both wall/monotonic lifetime;
 cleanup of a successful read does not cancel its returned proof. Closing or
 retiring the session clears its cache. T−Td remains an indicative point spread,
 never a fog probability or observed visibility.
+
+## Actual atmospheric source/UI integration checkpoint
+
+The literal `VITE_ATMOSPHERE_ENABLED === 'true'` gate controls the lazy Obs
+component and the two new Sky entries. No public-beta profile or deployment
+configuration was changed. When the gate is absent/false, the old pressure
+source and controls retain their existing path. When explicitly enabled, public
+pressure uses only the selected GFS or public IFS cohort; a private imported GRIB
+retains its own existing pressure owner. Returning online retires that old
+presentation and eager cache before the lazy public owner proceeds. Other
+selected models show a held explanation without aliasing to GFS/IFS.
+
+Gust and model visibility share one GFS reader. Selected IFS pressure can use a
+second reader; each keeps at most two raw frames and a single selected blended
+view. Pressure conversion uses native Pa→hPa, masked corners and bounded
+selected-frame contours/H/L symbols, never invented wind barbs or future tracks.
+GeoJSON is capped at 6,000 line features / 120,000 vertices and the polar image
+singularity remains clipped. There is no forecast-wide image/geometry cache.
+
+Controls live inside the existing internally scrolling chart panel. Run/source,
+requested valid UTC, exact source coverage, low-skill visibility wording and
+point T−Td are disclosed. Independent hourly scrubbing loads the chosen bracket;
+play waits for the actual image/vector content and stops at the real endpoint.
+When wind is active, its actual valid UTC is the only time authority; missing or
+out-of-coverage clocks hold the field. Full credits and lifecycle warnings join
+the existing one-row Credits rollup. Unknown hiding/removal retains an attributed
+warning, including after user-off or React unmount. A real regression found a
+map-remove callback ordering issue in the new vector owner; the repaired test
+requires proven scene removal to remain `off` after every retirement callback.
+
+The current checkpoint passed 82 focused cases across nine suites, including
+actual picker/control/credit, source-lifetime, selected-model/horizon, private
+pressure transition and existing community/facility composition regressions.
+Network/Mapbox boundaries are mocked in these unit cases. The failed first vector
+ownership receipt remains outside Git. Phone browser layout, full compiler,
+configured bundle and real provider/cohort publication are still pending; no
+readiness or live-source availability is inferred from these focused checks.

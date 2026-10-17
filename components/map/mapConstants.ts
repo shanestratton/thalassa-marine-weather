@@ -77,6 +77,8 @@ export type WeatherLayer =
     | 'temperature'
     | 'clouds'
     | 'pressure'
+    | 'gust'
+    | 'visibility'
     | 'sea'
     | 'satellite'
     // OBSERVED satellite cloud (NOAA GMGSI longwave IR, W1-10), the Sky
@@ -92,8 +94,7 @@ export type WeatherLayer =
     | 'chl'
     | 'seaice'
     | 'mld';
-// 'wind-gusts' / 'visibility' / 'cape' removed 2026-04-22 with the
-// Xweather decommission. Add back when GFS-derived replacements ship.
+// Gust/visibility are the separately flagged GFS THAS display, never old Xweather tiles.
 
 /** Sea State layers — mutual exclusion within group */
 export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst', 'chl', 'seaice', 'mld'];

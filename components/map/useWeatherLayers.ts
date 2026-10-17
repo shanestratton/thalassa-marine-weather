@@ -230,6 +230,8 @@ export function weatherLayerCap(layers: ReadonlySet<WeatherLayer>, adding?: Weat
 const LAYER_EVICTION_ORDER: readonly WeatherLayer[] = [
     'sea',
     'clouds',
+    'gust',
+    'visibility',
     'temperature',
     'satIR',
     'pressure',
@@ -362,6 +364,12 @@ export function useWeatherLayers(
     const passageOwnsCamera = !planMode && (passageContext?.hudEnabled ?? false);
     const passageSquallVisible = !planMode && (passageContext?.squallVisible ?? false);
     const windState = useWindStore();
+    // The new public display is lazy; a selected private GRIB keeps its existing pressure path.
+    const pressureManaged =
+        import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true' &&
+        !(!windState.isGlobalMode && windState.localGribPath?.startsWith('grib-import/'));
+    const pressureManagedRef = useRef(pressureManaged);
+    pressureManagedRef.current = pressureManaged;
     const windForecastHours = useMemo(() => windForecastHoursForGrid(windState.grid), [windState.grid]);
 
     // Multi-layer support — users can toggle multiple layers simultaneously,
@@ -798,6 +806,7 @@ export function useWeatherLayers(
 
     // Swap pre-computed isobar data into map sources
     const applyFrame = useCallback((hour: number) => {
+        if (pressureManagedRef.current) return;
         const map = mapRef.current;
         const frames = cachedFramesRef.current;
         if (!map) return;
@@ -961,6 +970,7 @@ export function useWeatherLayers(
 
     const updateIsobars = useCallback(
         async (map: mapboxgl.Map) => {
+            if (pressureManagedRef.current) return;
             const cacheIsFresh =
                 cachedFramesRef.current.length > 0 &&
                 pressureCacheIsFresh(cachedGridRef.current, isobarFetchedAtRef.current);
@@ -1159,7 +1169,7 @@ export function useWeatherLayers(
     // effect tick for tick (audit 2026-08-02).
     useEffect(() => {
         const comboActive = activeLayers.has('wind') || activeLayers.has('velocity');
-        const standalonePressure = activeLayers.has('pressure') && !comboActive;
+        const standalonePressure = activeLayers.has('pressure') && !comboActive && !pressureManagedRef.current;
         if (!isPlaying || !standalonePressure) {
             if (playRafRef.current) cancelAnimationFrame(playRafRef.current);
             playRafRef.current = null;
@@ -1191,7 +1201,7 @@ export function useWeatherLayers(
             if (playRafRef.current) cancelAnimationFrame(playRafRef.current);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isPlaying, activeKey]);
+    }, [isPlaying, activeKey, pressureManaged]);
 
     // Apply isobar frame on hour change
     useEffect(() => {
@@ -2247,7 +2257,7 @@ export function useWeatherLayers(
             setWindReady(false);
         }
 
-        if (!activeLayers.has('pressure')) {
+        if (!activeLayers.has('pressure') || pressureManagedRef.current) {
             hideIsobarLayers(map, savedLandFillColorsRef.current);
             // Clear cached grid so a fresh one is fetched next time the layer activates
             ++isobarFetchRef.current;
@@ -2400,7 +2410,7 @@ export function useWeatherLayers(
         if (activeLayers.size === 0) return;
 
         // ── Pressure / Isobars ──
-        if (activeLayers.has('pressure')) {
+        if (activeLayers.has('pressure') && !pressureManagedRef.current) {
             // Solo = the full standalone synoptic chart (heatmap, barbs,
             // charcoal land). Sharing the map with ANY other layer = the
             // clean isobar overlay: contours + H/L centres only, riding the
@@ -2959,7 +2969,7 @@ export function useWeatherLayers(
             // when rain is explicitly toggled off or the component unmounts.
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, mapReady, updateIsobars, rainRefreshNonce]);
+    }, [activeKey, mapReady, updateIsobars, rainRefreshNonce, pressureManaged]);
 
     // ── Rain self-heal: retry failures, refresh stale frames ──────────
     // The build above only runs when the main effect re-runs, which used to
@@ -3062,6 +3072,7 @@ export function useWeatherLayers(
     }, [cancelRainFrameTransition, mapRef]);
 
     return {
+        pressureManaged,
         activeLayer,
         setActiveLayer,
         /**

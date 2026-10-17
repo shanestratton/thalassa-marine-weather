@@ -644,7 +644,9 @@ function chaikinSmooth(points: number[][], iterations: number): number[][] {
     return pts;
 }
 
-function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[] {
+function findPressureCenters(
+    grid: Pick<HourGrid, 'values' | 'lats' | 'lons' | 'rows' | 'cols'>,
+): { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[] {
     const { values, lats, lons, rows, cols } = grid;
 
     if (rows < 3 || cols < 3) return [];
@@ -774,6 +776,78 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
         all.map((c) => `${c.type} ${c.pressure} @ ${c.lat.toFixed(1)},${c.lon.toFixed(1)}`).join(', '),
     );
     return all;
+}
+
+/** Selected-frame symbols only: no retained heatmap, inferred wind or future movement track. */
+export function generateSelectedPressureSymbols(
+    grid: Pick<HourGrid, 'values' | 'lats' | 'lons' | 'rows' | 'cols'>,
+    check: () => void,
+): { contours: GeoJSON.FeatureCollection; centers: GeoJSON.FeatureCollection } {
+    check();
+    if (
+        grid.rows > 181 ||
+        grid.cols > 361 ||
+        grid.rows < 2 ||
+        grid.cols < 2 ||
+        grid.lats.length !== grid.rows ||
+        grid.lons.length !== grid.cols ||
+        grid.values.length !== grid.rows ||
+        grid.values.some((row) => row.length !== grid.cols)
+    )
+        throw new Error('Pressure symbol grid exceeds bounds');
+    let min = Infinity,
+        max = -Infinity;
+    for (const row of grid.values)
+        for (const value of row) {
+            if (!Number.isFinite(value)) continue;
+            if (value < 750 || value > 1150) throw new Error('Pressure symbol units/range invalid');
+            min = Math.min(min, value);
+            max = Math.max(max, value);
+        }
+    const features: GeoJSON.Feature[] = [];
+    let vertices = 0;
+    // All algorithms below read only this selected frame, never a forecast cube.
+    const hourGrid: HourGrid = {
+        ...grid,
+        forecastValues: grid.values,
+        forecastLeadHours: 0,
+        windSpeeds: [],
+        windDirs: [],
+    };
+    for (
+        let level = Math.floor(min / ISOBAR_INTERVAL) * ISOBAR_INTERVAL;
+        level <= Math.ceil(max / ISOBAR_INTERVAL) * ISOBAR_INTERVAL;
+        level += ISOBAR_INTERVAL
+    ) {
+        check();
+        for (const chain of generateContourLines(hourGrid, level)) {
+            vertices += chain.length;
+            if (vertices > 120_000 || features.length >= 6000) throw new Error('Pressure symbol output exceeds bounds');
+            features.push({
+                type: 'Feature',
+                properties: { pressure: level, label: `${level}`, isMajor: level % 8 === 0, isDetail: level % 4 !== 0 },
+                geometry: { type: 'LineString', coordinates: chain },
+            });
+        }
+    }
+    check();
+    const centers = findPressureCenters(grid);
+    check();
+    return {
+        contours: { type: 'FeatureCollection', features },
+        centers: {
+            type: 'FeatureCollection',
+            features: centers.map((center) => ({
+                type: 'Feature',
+                properties: {
+                    type: center.type,
+                    pressure: center.pressure,
+                    label: `${center.type}\n${center.pressure}`,
+                },
+                geometry: { type: 'Point', coordinates: [center.lon, center.lat] },
+            })),
+        },
+    };
 }
 
 // ── Wind Barb Generation ──────────────────────────────────────

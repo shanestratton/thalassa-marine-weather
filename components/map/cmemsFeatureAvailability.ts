@@ -32,5 +32,6 @@ export function isCmemsLayerAvailable(layer: CmemsLayerId): boolean {
 }
 
 export function isWeatherLayerAvailable(layer: WeatherLayer): boolean {
+    if (layer === 'gust' || layer === 'visibility') return import.meta.env.VITE_ATMOSPHERE_ENABLED === 'true';
     return !isCmemsProductLayer(layer) || isCmemsLayerAvailable(layer);
 }

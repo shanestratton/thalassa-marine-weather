@@ -17,6 +17,7 @@ import {
     type WorldFacilitiesStatus,
 } from '../../services/marineCatalogue/worldFacilities';
 import { receiverCoverageWords, type ReceiverCoverageStatus } from '../../services/ais/receiverCoverage';
+import type { AtmosCredit } from './atmosPresentation';
 
 export interface ObsCreditsRollupProps {
     rain: 'radar' | 'forecast' | null;
@@ -30,6 +31,7 @@ export interface ObsCreditsRollupProps {
     facilities?: WorldFacilitiesStatus | null;
     boatPresence?: BoatPresenceStatus | null;
     onOpenBoatPresence?: () => void;
+    atmosphere?: readonly AtmosCredit[];
 }
 /** Presentation only: subscribes to existing feed status, never starts a layer or makes a data request. */
 export default function ObsCreditsRollup({
@@ -44,6 +46,7 @@ export default function ObsCreditsRollup({
     facilities,
     boatPresence,
     onOpenBoatPresence,
+    atmosphere = [],
 }: ObsCreditsRollupProps) {
     const [open, setOpen] = React.useState(false),
         [now, setNow] = React.useState(Date.now),
@@ -93,7 +96,13 @@ export default function ObsCreditsRollup({
             !!receiverCoverage &&
             receiverCoverage.state !== 'off' &&
             (receiverCoverage.state !== 'available' || receiverCoverage.partial),
-        warning = satelliteWarning || aisWarning || lightningWarning || facilitiesWarning || receiverWarning;
+        warning =
+            satelliteWarning ||
+            aisWarning ||
+            lightningWarning ||
+            facilitiesWarning ||
+            receiverWarning ||
+            atmosphere.some((row) => row.warning);
     const active =
         !!rain ||
         !!wind ||
@@ -103,7 +112,8 @@ export default function ObsCreditsRollup({
         ais ||
         !!facilities ||
         !!boatPresence ||
-        !!receiverCoverage;
+        !!receiverCoverage ||
+        atmosphere.length > 0;
     React.useEffect(() => {
         if (!active) setOpen(false);
     }, [active]);
@@ -123,6 +133,7 @@ export default function ObsCreditsRollup({
         lightningWarning
             ? `Lightning feed ${lightningStatus?.status ?? 'connecting'}; absence is not clear sky.`
             : null,
+        ...atmosphere.filter((row) => row.warning).map((row) => row.text),
     ]
         .filter(Boolean)
         .join(' ');
@@ -207,6 +218,12 @@ export default function ObsCreditsRollup({
                             </section>
                         )}
                         {cmems.length > 0 && <CmemsAttribution layers={cmems} inline />}
+                        {atmosphere.map((row) => (
+                            <section key={row.key} aria-label={row.title}>
+                                <h4 className="font-bold text-sky-200">{row.title}</h4>
+                                <p>{row.text}</p>
+                            </section>
+                        ))}
                         {lightning && (
                             <section aria-label="Lightning source">
                                 <BlitzortungAttribution visible />
