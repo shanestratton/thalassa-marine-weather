@@ -41,8 +41,8 @@ export function postgresPiFleetStore(client: SupabaseClient, now = Date.now): Pi
                 .from('pi_diary_relays')
                 .select('owner_id,boat_id,relay_id,token_hash,enabled')
                 .eq('relay_id', relayId)
-                .maybeSingle()
-                .abortSignal(deadline());
+                .abortSignal(deadline())
+                .maybeSingle();
             if (result.error) throw Error('Fleet relay authority unavailable');
             const row = result.data as unknown;
             if (

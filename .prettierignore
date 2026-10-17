@@ -4,6 +4,11 @@
 # JSON.parse in tests, so whitespace is irrelevant to correctness.
 tests/fixtures/*-baseline.json
 
+# Canonical generated sparse tile inventories. Publication and packing checks
+# verify their exact committed hashes; regenerate rather than reformat them.
+data/relief/au250-v2.json
+data/relief/nz-v2.json
+
 # Build output
 dist/
 

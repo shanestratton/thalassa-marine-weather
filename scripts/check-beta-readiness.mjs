@@ -1326,7 +1326,18 @@ check(
         ]) &&
         cmemsGridTrust.includes("import { validateMarineManifest } from './marineManifestContract';") &&
         mpaDataset.includes("import { validateMarineManifest } from './marineManifestContract';") &&
-        releaseAssetProxy.includes('validateMarineManifest(value, dataset, Date.now(), false)') &&
+        includesAll(releaseAssetProxy, [
+            'function validateDatasetManifest(value: unknown, dataset: DatasetKey, now: number, current: boolean): void {',
+            'const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS, ...SSH_RELEASE_CONTRACTS } as const;',
+            'return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)',
+            '? SPECIALIZED_RELEASE_CONTRACTS[dataset as SpecializedDatasetKey]',
+            ': undefined;',
+            'const additional = specialized(dataset);',
+            'if (additional) additional.validate(value, now, current);',
+            'else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);',
+            'validateDatasetManifest(value, dataset, Date.now(), false);',
+            'validateDatasetManifest(candidate.manifest, dataset, now, true);',
+        ]) &&
         !releaseAssetProxy.includes("'content-length': String(body.byteLength)") &&
         !releaseAssetProxy.includes("h00.bin'") &&
         !Object.hasOwn(marineVercelConfig, 'routes') &&
@@ -2958,8 +2969,22 @@ check(
         // (Settings → Account → Delete account) and exactly what it removes —
         // the flag was on and the backend smoke had passed while the hosted
         // Terms still said "temporarily unavailable" (audit item 7).
-        'Version 2.9',
+        // v3.0 (17 Oct 2026) adds contributor ownership/licence, private photo
+        // moderation, metadata removal and edit/delete/report/hide disclosures.
+        // Retain the existing deletion, telemetry, sync and location checks.
+        'Version 3.0',
+        'Effective Date: 17 October 2026',
         '5 September 2026',
+        'Community notes and photos',
+        'You retain ownership of content you contribute.',
+        'royalty-free licence to host, process, resize, display and moderate that content solely to provide',
+        'This does not transfer ownership of your content or third-party data.',
+        'photos remain private until approved.',
+        'Photos are processed to remove embedded metadata before storage',
+        "You may edit or delete your notes, report content, or hide another contributor's notes.",
+        'Reports hide the reported note and its public photo pending review.',
+        'Deleted or reported content is excluded from new public reads.',
+        'Copies already seen or saved by other people cannot be recalled.',
         'You can permanently delete your account from within the App',
         'Once you confirm, deletion cannot be undone',
         'mailto:privacy@thalassawx.com',

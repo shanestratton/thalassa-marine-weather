@@ -42,13 +42,17 @@ def generations(directory, maximum, cap):
     if len(rows) >= maximum: raise ValueError("Local generation cap reached; review retention plan before next acquisition")
     return rows
 
-def monthly(plan_path, root, execute=False, expected=None, policy_path=None, policy_sha=None):
+def monthly(plan_path, root, execute=False, expected=None, policy_path=None, policy_sha=None, *, world_runtime_policy=None, world_runtime_sha256=None, world_recovery=None, world_recovery_sha256=None):
     raw = Path(plan_path).read_bytes()
     if len(raw) > 65536: raise ValueError("Plan too large")
     plan = acquire.validate(json.loads(raw)); digest = hashlib.sha256(raw).hexdigest()
     root = Path(root).resolve()
     if not execute: return {"execute": False, "planSha256": digest, "sourcePlan": plan, "root": str(root)}
     if expected != digest: raise ValueError("Exact reviewed source plan required")
+    if plan["dataset"] == "facilities-world" and (not world_runtime_policy or not world_runtime_sha256):
+        raise ValueError("World execution requires the exact reviewed native runtime policy")
+    if plan["dataset"] != "facilities-world" and any(value is not None for value in (world_runtime_policy, world_runtime_sha256, world_recovery, world_recovery_sha256)):
+        raise ValueError("World resume controls cannot alter regional acquisition")
     with exclusive(root):
         store = None
         if policy_path:
@@ -71,9 +75,14 @@ def monthly(plan_path, root, execute=False, expected=None, policy_path=None, pol
             local_retention(root / "staged", plan["dataset"], protected, True)
         # Physical hard caps: two admitted source snapshots, three staged
         # generations/dataset. Without reviewed cleanup the next run stops.
-        generations(root / "inputs" / plan["dataset"], 2, acquire.LIMIT)
+        if plan["dataset"] != "facilities-world":
+            generations(root / "inputs" / plan["dataset"], 2, acquire.LIMIT)
         generations(root / "staged" / plan["dataset"], 3, build.MAX_OUTPUT_BYTES)
-        source = acquire.acquire(plan, root / "inputs" / plan["dataset"])
+        if plan["dataset"] == "facilities-world":
+            import world_resume
+            source = world_resume.run(plan, root / "inputs" / plan["dataset"], world_runtime_policy, world_runtime_sha256, world_recovery, world_recovery_sha256)
+        else:
+            source = acquire.acquire(plan, root / "inputs" / plan["dataset"])
         if shutil.disk_usage(root).free < 4 * 1024**3: raise ValueError("Insufficient output headroom")
         generation = build.build(source, root / "staged")
         if store:
@@ -88,4 +97,5 @@ def monthly(plan_path, root, execute=False, expected=None, policy_path=None, pol
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__); p.add_argument("--plan", required=True); p.add_argument("--root", required=True); p.add_argument("--execute", action="store_true"); p.add_argument("--plan-sha256"); p.add_argument("--publication-policy"); p.add_argument("--policy-sha256")
-    a = p.parse_args(); print(json.dumps(monthly(a.plan, a.root, a.execute, a.plan_sha256, a.publication_policy, a.policy_sha256), indent=2))
+    p.add_argument("--world-runtime-policy"); p.add_argument("--world-runtime-policy-sha256"); p.add_argument("--world-recovery"); p.add_argument("--world-recovery-sha256")
+    a = p.parse_args(); print(json.dumps(monthly(a.plan, a.root, a.execute, a.plan_sha256, a.publication_policy, a.policy_sha256, world_runtime_policy=a.world_runtime_policy, world_runtime_sha256=a.world_runtime_policy_sha256, world_recovery=a.world_recovery, world_recovery_sha256=a.world_recovery_sha256), indent=2))

@@ -1,7 +1,7 @@
 /** Public illustrative terrain only. No routing, soundings, clearance or alarm consumer. */
 import { parseReliefAvailability, reliefTileAvailable, type ReliefAvailability } from './reliefAvailability';
-import au250 from '../data/relief/au250-v2.json';
-import nz from '../data/relief/nz-v2.json';
+import au250 from '../data/relief/au250-v2.json' with { type: 'json' };
+import nz from '../data/relief/nz-v2.json' with { type: 'json' };
 import { reliefAvailabilityBounds } from './reliefViewport';
 export interface ReliefDisplayRegion {
     id: string;

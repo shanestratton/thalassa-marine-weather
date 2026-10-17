@@ -8,6 +8,43 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('public-beta release gate contract', () => {
+    it('runs the actual v3 privacy predicate and holds missing community rights, privacy or moderation clauses', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(
+            /check\(\s*'live beta privacy\/terms copy covers deletion, telemetry, sync, and location',([\s\S]*?)\n\);/,
+        )?.[1];
+        expect(expression).toBeTruthy();
+        const normalizedTerms = read('public/terms.html').replace(/\s+/g, ' ');
+        const evaluate = (terms = normalizedTerms) =>
+            runInNewContext(`(${expression?.replace(/,\s*$/, '')})`, {
+                normalizedTerms: terms,
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        for (const clause of [
+            'Version 3.0',
+            'Effective Date: 17 October 2026',
+            'Community notes and photos',
+            'You retain ownership of content you contribute.',
+            'royalty-free licence to host, process, resize, display and moderate that content solely to provide',
+            'This does not transfer ownership of your content or third-party data.',
+            'photos remain private until approved.',
+            'Photos are processed to remove embedded metadata before storage',
+            "You may edit or delete your notes, report content, or hide another contributor's notes.",
+            'Reports hide the reported note and its public photo pending review.',
+            'Deleted or reported content is excluded from new public reads.',
+            'Copies already seen or saved by other people cannot be recalled.',
+            // Older promises remain enforceable alongside the new community copy.
+            'Once you confirm, deletion cannot be undone',
+            'Sentry',
+            'precise location',
+            'syncs automatically',
+        ]) {
+            expect(normalizedTerms).toContain(clause);
+            expect(evaluate(normalizedTerms.replaceAll(clause, 'REMOVED DISCLOSURE')), clause).toBe(false);
+        }
+    });
+
     it('runs the actual attribution predicate with regional credits and rejects lost credits or controls', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const expression = gate.match(/check\(\s*'map provider attribution is visible',([\s\S]*?)\n\);/)?.[1];
@@ -398,6 +435,42 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain("await cancelResponseBody(upstream, 'upstream status rejected')");
         expect(gate).toContain("await cancelResponseBody(upstream, 'upstream content type rejected')");
         expect(gate).toContain("await cancelResponseBody(response, 'upstream content length rejected')");
+    });
+
+    it('runs the actual manifest-dispatch gate and refuses missing ordinary fallback or changed clocks', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(
+            /includesAll\(releaseAssetProxy, \[\s*'function validateDatasetManifest[\s\S]*?\n\s*\]\)/,
+        )?.[0];
+        expect(expression).toBeTruthy();
+        const proxy = read('api/_releaseAssetProxy.ts');
+        const evaluate = (source = proxy) =>
+            runInNewContext(expression!, {
+                releaseAssetProxy: source,
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        for (const clause of [
+            'return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)',
+            'if (additional) additional.validate(value, now, current);',
+            'else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);',
+            'validateDatasetManifest(value, dataset, Date.now(), false);',
+            'validateDatasetManifest(candidate.manifest, dataset, now, true);',
+        ]) {
+            expect(proxy).toContain(clause);
+            expect(evaluate(proxy.replace(clause, 'REMOVED VALIDATION')), clause).toBe(false);
+        }
+        expect(
+            evaluate(proxy.replace('additional.validate(value, now, current)', 'additional.validate(value, 0, false)')),
+        ).toBe(false);
+        expect(
+            evaluate(
+                proxy.replace(
+                    'validateMarineManifest(value, dataset as MarineDatasetKey, now, current)',
+                    'validateMarineManifest(value, dataset as MarineDatasetKey, now, false)',
+                ),
+            ),
+        ).toBe(false);
     });
 
     it('retains canonical feature, fail-closed deletion, and Guardian opt-in release boundaries', () => {
