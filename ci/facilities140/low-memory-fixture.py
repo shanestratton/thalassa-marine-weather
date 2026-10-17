@@ -1,8 +1,14 @@
 """Original-reference parity and measured native resource proof; no network."""
-import hashlib,json,os,subprocess,sys
+import hashlib,json,os,subprocess,sys,shutil
 from pathlib import Path
 root=Path(sys.argv[1]).resolve();root.mkdir(exist_ok=False)
 baseline=Path(sys.argv[2]).resolve();candidate=Path(sys.argv[3]).resolve()
+# Osmium selects a command from argv[0] when its basename is osmium-COMMAND.
+# Keep exact reviewed executable bytes, using the canonical name in two dirs.
+for name,binary in [('baseline',baseline),('candidate',candidate)]:
+ directory=root/name;directory.mkdir()
+ shutil.copy2(binary,directory/'osmium')
+baseline=root/'baseline'/'osmium';candidate=root/'candidate'/'osmium'
 env={k:os.environ[k] for k in ['PATH','LANG','LC_ALL'] if k in os.environ}
 env['OSMIUM_POOL_THREADS']='2'
 for q in ['INPUT','OSMDATA','OUTPUT','WORK']:env['OSMIUM_MAX_'+q+'_QUEUE_SIZE']='2'

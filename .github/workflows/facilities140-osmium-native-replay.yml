@@ -1,4 +1,4 @@
-name: Facilities140 exact compiled tool native diagnostic replay
+name: Facilities140 exact compiled tool native canonical argv0 replay
 on:
   push:
     branches: [codex/build-140-osmium-native-replay]
