@@ -57,6 +57,8 @@ describe('daylight component surfaces', () => {
             strokeStyle: '' as unknown,
             clearRect: vi.fn(),
             scale: vi.fn(),
+            resetTransform: vi.fn(),
+            setTransform: vi.fn(),
             save: vi.fn(),
             restore: vi.fn(),
             beginPath: vi.fn(),
@@ -93,10 +95,12 @@ describe('daylight component surfaces', () => {
             domainBuffer: 0.2,
         };
         const view = render(<TideCanvas {...input} />);
-        const originalGeometry = context.lineTo.mock.calls.slice();
         const midnight = { text: '00', font: '600 12px system-ui, sans-serif', align: 'left' };
-        expect(labels[0]).toEqual({ color: '#cbd5e1', ...midnight });
+        // Initial paint follows layout on an animation frame, just like theme
+        // redraws. Snapshot real painted geometry after observing that frame.
+        await waitFor(() => expect(labels[0]).toEqual({ color: '#cbd5e1', ...midnight }));
         expect(labels.find((label) => label.text === '04')?.align).toBe('center');
+        const originalGeometry = context.lineTo.mock.calls.slice();
 
         labels.length = 0;
         strokes.length = 0;
