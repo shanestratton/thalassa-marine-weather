@@ -52,6 +52,9 @@ function fixture() {
         admissions: unknown[][] = [];
     let current = true;
     const store: PiFleetStore = {
+        async currentGrant() {
+            return store.grant(binding);
+        },
         async relay() {
             events.push('relay');
             return current

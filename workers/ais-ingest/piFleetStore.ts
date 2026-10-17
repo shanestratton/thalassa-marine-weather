@@ -28,13 +28,14 @@ export interface ReceiverGrant {
 export interface PiFleetStore {
     relay(ownerId: string, boatId: string, relayId: string, rawToken?: string): Promise<ReceiverAuthority | null>;
     grant(binding: FleetForwardBinding): Promise<ReceiverGrant | null>;
+    currentGrant(ownerId: string, boatId: string, relayId: string): Promise<ReceiverGrant | null>;
     configure(proposal: FleetConsentProposal): Promise<FleetForwardConsent>;
     admit(batch: FleetForwardBatch, tokenHash: string, spki: string, receivedAt: number | null): Promise<boolean>;
 }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const deadline = () => AbortSignal.timeout(5000);
 export function postgresPiFleetStore(client: SupabaseClient, now = Date.now): PiFleetStore {
-    return {
+    const store: PiFleetStore = {
         async relay(ownerId, boatId, relayId, rawToken) {
             const result = await client
                 .from('pi_diary_relays')
@@ -62,11 +63,15 @@ export function postgresPiFleetStore(client: SupabaseClient, now = Date.now): Pi
             return { ownerId, boatId, relayId, tokenHash: row.token_hash };
         },
         async grant(binding) {
+            const grant = await store.currentGrant(binding.ownerId, binding.boatId, binding.relayId);
+            return grant && fleetForwardBindingKey(grant.binding) === fleetForwardBindingKey(binding) ? grant : null;
+        },
+        async currentGrant(ownerId, boatId, relayId) {
             const result = await client
                 .rpc('read_ais_receiver_consent', {
-                    p_owner: binding.ownerId,
-                    p_boat: binding.boatId,
-                    p_relay: binding.relayId,
+                    p_owner: ownerId,
+                    p_boat: boatId,
+                    p_relay: relayId,
                 })
                 .abortSignal(deadline());
             if (result.error) throw Error('Fleet consent unavailable');
@@ -75,7 +80,9 @@ export function postgresPiFleetStore(client: SupabaseClient, now = Date.now): Pi
             const parsed = parseFleetForwardBinding(row.binding);
             if (
                 !parsed ||
-                fleetForwardBindingKey(parsed) !== fleetForwardBindingKey(binding) ||
+                parsed.ownerId !== ownerId ||
+                parsed.boatId !== boatId ||
+                parsed.relayId !== relayId ||
                 typeof row.revision !== 'string' ||
                 !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(row.revision) ||
                 typeof row.spki !== 'string' ||
@@ -135,4 +142,5 @@ export function postgresPiFleetStore(client: SupabaseClient, now = Date.now): Pi
             return result.data === true;
         },
     };
+    return store;
 }
