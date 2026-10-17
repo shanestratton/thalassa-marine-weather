@@ -2,17 +2,7 @@ name: Build142 isolated crowd sounding consent database proof
 on:
     push:
         branches: ['codex/build-142-crowd-db']
-        paths:
-            - '.github/workflows/crowd-soundings-db.yml'
-            - 'supabase/tests/crowd-*142.mjs'
-            - 'supabase/migrations/20261017120000_crowd_soundings_publication.sql'
-            - 'tests/sql/crowd*142.*'
-    workflow_dispatch:
-        inputs:
-            source_sha:
-                description: Exact reviewed source commit (40 lowercase hex characters)
-                required: true
-                type: string
+        paths: ['.github/workflows/crowd-soundings-db.yml']
 permissions:
     contents: read
 concurrency:
@@ -20,7 +10,7 @@ concurrency:
     cancel-in-progress: false
 jobs:
     postgres:
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/codex/build-142-crowd-db'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         services:
@@ -35,7 +25,7 @@ jobs:
                     --health-timeout 5s --health-retries 10
                     --memory 512m --memory-swap 512m --pids-limit 96 --cpus 1
         env:
-            SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+            SOURCE_SHA: cb2bcbafd05a071d034fabf293972836ed484b78
             THALASSA_DISPOSABLE_CROWD_TEST: '1'
             CROWD_TEST_DATABASE_URL: postgresql://postgres:fixture-only-password@127.0.0.1:5432/crowd_soundings142_test
         steps:
@@ -44,7 +34,7 @@ jobs:
               run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ inputs.source_sha || github.sha }}
+                  ref: cb2bcbafd05a071d034fabf293972836ed484b78
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
