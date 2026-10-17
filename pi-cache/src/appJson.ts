@@ -7,6 +7,8 @@ export function createAppJsonParser(unsafeAdmin: boolean): RequestHandler {
         if (
             path === '/api/wake-rules' ||
             path.startsWith('/api/wake-rules/') ||
+            path === '/api/fleet-sharing' ||
+            path.startsWith('/api/fleet-sharing/') ||
             path === '/api/radar' ||
             path.startsWith('/api/radar/')
         )
