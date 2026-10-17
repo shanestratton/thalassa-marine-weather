@@ -93,7 +93,7 @@ create function public.community_chart_notes(p_action text,p_input jsonb default
 returns jsonb language plpgsql security definer set search_path=pg_catalog,public
 as $$
 declare
- u uuid:=auth.uid(); n community_private.chart_notes; f community_private.review_photos;
+ u uuid:=auth.uid(); n community_private.chart_notes; photo_row community_private.review_photos;
  is_mod boolean; nid uuid; observed date; body_text text; today date:=(clock_timestamp() at time zone 'UTC')::date;
  west double precision;east double precision;south double precision;north double precision;result_body jsonb;
 begin
@@ -239,9 +239,9 @@ begin
    if p_input->>'decision'='remove' then update community_private.review_photos set status='removed',revision=gen_random_uuid() where chart_note_id=n.id;end if;
    delete from community_private.chart_note_moderation where note_id=n.id;
   elsif p_input->>'decision' in('approve-photo','remove-photo') then
-   select * into f from community_private.review_photos where id=(p_input->>'photo_id')::uuid and chart_note_id=n.id and review_id is null for update;
-   if f.id is null or f.status<>'pending' or f.revision::text is distinct from p_input->>'photo_revision' then raise exception 'Photo changed; reload queue' using errcode='40001'; end if;
-   update community_private.review_photos set status=case when p_input->>'decision'='approve-photo' then 'approved' else 'removed' end,review_revision=n.revision,revision=gen_random_uuid() where id=f.id;
+   select * into photo_row from community_private.review_photos where id=(p_input->>'photo_id')::uuid and chart_note_id=n.id and review_id is null for update;
+   if photo_row.id is null or photo_row.status<>'pending' or photo_row.revision::text is distinct from p_input->>'photo_revision' then raise exception 'Photo changed; reload queue' using errcode='40001'; end if;
+   update community_private.review_photos set status=case when p_input->>'decision'='approve-photo' then 'approved' else 'removed' end,review_revision=n.revision,revision=gen_random_uuid() where id=photo_row.id;
   else raise exception 'Invalid moderation decision';end if;
  else raise exception 'Invalid community note action';end if;
  return jsonb_build_object('ok',true,'server_now',clock_timestamp());
