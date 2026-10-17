@@ -64,11 +64,26 @@ async function settled(dialog: Locator) {
         );
     });
 }
+function noOpaqueTile(pixels: ReturnType<typeof decode>, cssWidth: number) {
+    let longest = 0;
+    for (let y = 0; y < pixels.height; y++) {
+        let run = 0;
+        for (let x = 0; x < pixels.width; x++) {
+            const i = (y * pixels.width + x) * pixels.channels;
+            run = pixels.data[i] === 0 && pixels.data[i + 1] === 0 && pixels.data[i + 2] === 0 ? run + 1 : 0;
+            longest = Math.max(longest, run);
+        }
+    }
+    // The reproduced tile was55CSS px wide. Small black glyph details may
+    // exist; a contiguous16px opaque run does not belong in this fixture.
+    expect(longest / (pixels.width / cssWidth)).toBeLessThan(16);
+}
 async function paintedPartitions(page: Page, dialog: Locator) {
     const chart = dialog.getByRole('img', { name: /Wave partitions in metres/ });
     await chart.scrollIntoViewIfNeeded();
     const box = (await chart.boundingBox())!;
     const pixels = decode(await page.screenshot(), { checkCrc: true });
+    noOpaqueTile(pixels, page.viewportSize()!.width);
     const scale = pixels.width / page.viewportSize()!.width;
     let color = 0;
     for (let y = Math.max(0, Math.ceil(box.y * scale)); y < Math.min(pixels.height, (box.y + box.height) * scale); y++)
@@ -127,6 +142,7 @@ for (const width of [300, 375])
             const panel = seaDialog.locator('[data-modal-sheet]');
             const partitionBounds = await panel.boundingBox();
             const pixels = decode(await page.screenshot(), { checkCrc: true });
+            noOpaqueTile(pixels, width);
             const scale = pixels.width / width;
             // This interior header patch was covered by the reproduced opaque
             // black compositor tile; DOM hit tests alone did not detect it.
@@ -166,7 +182,10 @@ for (const width of [300, 375])
             const back = seaDialog.getByRole('button', { name: 'Show sea partitions', exact: true });
             await target(back);
             expect(await panel.boundingBox()).toEqual(partitionBounds);
-            await page.screenshot({ path: info.outputPath('forecast-summary.png') });
+            noOpaqueTile(
+                decode(await page.screenshot({ path: info.outputPath('forecast-summary.png') }), { checkCrc: true }),
+                width,
+            );
             await back.focus();
             await page.keyboard.press('Enter');
             await expect(seaDialog.getByRole('img', { name: /Wave partitions in metres/ })).toBeVisible();

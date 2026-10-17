@@ -761,11 +761,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         <div className="flex items-end justify-between">
                             <div>
                                 <div className="text-[11px] uppercase tracking-wider text-white/40">Now</div>
-                                <div
-                                    className={`text-5xl font-black tabular-nums ${cfg.accent} drop-shadow-[0_2px_14px_rgba(255,255,255,0.12)]`}
-                                >
-                                    {fmt(nowVal)}
-                                </div>
+                                <div className={`text-5xl font-black tabular-nums ${cfg.accent}`}>{fmt(nowVal)}</div>
                             </div>
                             {isDir ? (
                                 <div
