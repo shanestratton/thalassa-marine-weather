@@ -65,11 +65,18 @@ export function createLightningWatchHandler(
             if (!license || !license.display || !license.push || license.expiresAt <= ports.now()) {
                 return jsonResponse({ error: 'Licensed watch unavailable' }, 503);
             }
-            const rows = parseWork(await ports.work(abort.signal), ports.now());
+            const work = await ports.work(abort.signal);
+            abort.signal.throwIfAborted();
+            const rows = parseWork(work, ports.now());
             let reads = 0, claimed = 0;
             for (const row of rows) {
                 abort.signal.throwIfAborted();
-                const current = async () => !abort.signal.aborted && await ports.current(row, abort.signal) === true;
+                const current = async () => {
+                    abort.signal.throwIfAborted();
+                    const result = await ports.current(row, abort.signal);
+                    abort.signal.throwIfAborted();
+                    return result === true;
+                };
                 if (!await current()) continue;
                 const runtime = ports.licensed;
                 const response = await handleLicensedLightning(

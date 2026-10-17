@@ -25,7 +25,7 @@ jobs:
                 ports: ['5432:5432']
                 options: >-
                     --memory=512m --memory-swap=512m --cpus=1 --pids-limit=96
-                    --health-cmd='pg_isready -U postgres'
+                    --health-cmd="pg_isready -U postgres"
                     --health-interval=5s --health-timeout=5s --health-retries=10
         env:
             SOURCE_SHA: ${{ inputs.source_sha }}
@@ -35,7 +35,7 @@ jobs:
             PGDATABASE: lightning142_test
             PGPASSWORD: disposable-fixture-only
         steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ inputs.source_sha }}
                   persist-credentials: false
@@ -47,8 +47,9 @@ jobs:
                   test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
                   mkdir -p "$RUNNER_TEMP/lightning142-proof"
                   git rev-parse HEAD > "$RUNNER_TEMP/lightning142-proof/SOURCE_SHA.txt"
-                  sha256sum tests/sql/lightning-watch142.sql supabase/migrations/20261017103100_licensed_lightning_watch.sql supabase/migrations/20261005160000_tombstone_fence_fails_closed.sql > "$RUNNER_TEMP/lightning142-proof/SHA256SUMS"
+                  xargs sha256sum < tests/sql/lightning-watch142-inputs.txt > "$RUNNER_TEMP/lightning142-proof/SHA256SUMS"
                   psql -X -At -v ON_ERROR_STOP=1 -c "SELECT current_setting('server_version'),current_database()" > "$RUNNER_TEMP/lightning142-proof/DATABASE.txt"
+                  node tests/sql/lightningRetirement142.mjs --check > "$RUNNER_TEMP/lightning142-proof/RETIREMENT_PARITY.txt"
             - name: Observe actual disposable database caps
               shell: bash
               env:
@@ -70,9 +71,16 @@ jobs:
                   set -euo pipefail
                   timeout 90s psql -X -v ON_ERROR_STOP=1 -f tests/sql/lightning-watch142.sql 2>&1 | tee "$RUNNER_TEMP/lightning142-proof/REPLAY.txt"
                   grep -q '^LIGHTNING142_POSTGRES_REPLAY_PASSED$' "$RUNNER_TEMP/lightning142-proof/REPLAY.txt"
+            - name: Prove competing lifetime, expiry and real retirement lock paths
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  timeout 30s psql -X -v ON_ERROR_STOP=1 -f tests/sql/lightning-lifetime142-setup.sql 2>&1 | tee "$RUNNER_TEMP/lightning142-proof/LIFETIME_SETUP.txt"
+                  THALASSA_DISPOSABLE_LIGHTNING142=1 timeout 90s python3 tests/sql/lightning_lifetime142_races.py 2>&1 | tee "$RUNNER_TEMP/lightning142-proof/LIFETIME_RACES.txt"
+                  grep -q '^LIGHTNING142_LIFETIME_RACES_PASSED$' "$RUNNER_TEMP/lightning142-proof/LIFETIME_RACES.txt"
             - name: Preserve success or failure proof only
               if: always()
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: build142-lightning-postgres-proof
                   path: ${{ runner.temp }}/lightning142-proof/

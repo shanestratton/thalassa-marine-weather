@@ -3,50 +3,10 @@
 -- the actual new migration, RLS, role ACLs, locks and queue transaction execute.
 DO $$ BEGIN IF current_database()<>'lightning142_test' THEN RAISE EXCEPTION 'Disposable lightning142_test database required'; END IF; END $$;
 BEGIN;
-CREATE SCHEMA auth;
-CREATE SCHEMA fixture;
-CREATE SCHEMA private_weather_watch;
-CREATE SCHEMA cron;
-DO $$ BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
-    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
-    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
-END $$;
-CREATE TABLE auth.users(id uuid PRIMARY KEY);
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
-CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.role',true),'') $$;
-GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;
-CREATE TABLE public.boats(id uuid PRIMARY KEY,owner_id uuid REFERENCES auth.users,archived_at timestamptz);
-CREATE TABLE public.account_deletion_jobs(user_id uuid PRIMARY KEY REFERENCES auth.users);
-CREATE TABLE public.push_notification_queue(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),recipient_user_id uuid REFERENCES auth.users,notification_type text,title text,body text,data jsonb,created_at timestamptz DEFAULT now());
-GRANT SELECT ON public.boats TO authenticated;
-GRANT ALL ON public.push_notification_queue TO service_role;
-CREATE TABLE fixture.positions(boat_id uuid PRIMARY KEY,owner_id uuid,revision uuid,lat double precision,lon double precision,measured_at timestamptz,enabled boolean DEFAULT true);
-CREATE FUNCTION private_weather_watch.weather_position_current(p_boat uuid) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
-    SELECT jsonb_build_object('revision',p.revision,'lat',p.lat,'lon',p.lon,'at',floor(extract(epoch FROM p.measured_at)*1000),'zone','UTC')
-    FROM fixture.positions p JOIN public.boats b ON b.id=p.boat_id AND b.owner_id=p.owner_id AND b.archived_at IS NULL
-    WHERE p.boat_id=p_boat AND p.enabled AND p.measured_at<=now() AND p.measured_at>now()-interval '15 minutes'
-$$;
-CREATE FUNCTION private_weather_watch.weather_watch_service() RETURNS boolean LANGUAGE sql STABLE SET search_path='' AS $$
-    SELECT coalesce(nullif(current_setting('request.jwt.claim.role',true),''),nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'role','')='service_role'
-$$;
-CREATE TABLE cron.job(jobid bigint PRIMARY KEY,jobname text,schedule text,command text,active boolean);
-CREATE TABLE cron.job_run_details(jobid bigint,status text,end_time timestamptz);
-CREATE TABLE fixture.state(key text PRIMARY KEY,document jsonb);
-GRANT USAGE ON SCHEMA fixture TO authenticated,service_role;
-GRANT ALL ON fixture.state TO service_role;
-CREATE FUNCTION fixture.assert(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL %',label; END IF; RAISE NOTICE 'PASS %',label; END $$;
-CREATE FUNCTION fixture.error(sql text,code text,label text) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE state text;
-BEGIN
-    BEGIN EXECUTE sql; EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS state=RETURNED_SQLSTATE; END;
-    PERFORM fixture.assert(state=code,label);
-END $$;
-\ir ../../supabase/migrations/20261005160000_tombstone_fence_fails_closed.sql
-\ir ../../supabase/migrations/20261017103100_licensed_lightning_watch.sql
+\ir lightning-watch142-bootstrap.sql
 
 INSERT INTO auth.users VALUES('10000000-0000-4000-8000-000000000001'),('20000000-0000-4000-8000-000000000001');
-INSERT INTO public.boats VALUES('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',null);
+INSERT INTO public.boats(id,owner_id,archived_at) VALUES('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',null);
 INSERT INTO fixture.positions VALUES('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',-27,154,now()-interval '30 seconds',true);
 SELECT fixture.assert(NOT has_function_privilege('anon','public.configure_lightning_watch(uuid,uuid,boolean)','EXECUTE'),'anonymous cannot configure');
 SELECT fixture.assert(NOT has_function_privilege('authenticated','public.lightning_watch_work()','EXECUTE'),'ordinary user cannot obtain private work');
@@ -115,6 +75,52 @@ SET ROLE service_role;
 SELECT fixture.assert(NOT public.lightning_watch_delivery_current((SELECT id FROM public.push_notification_queue)),'boat movement outside20NM retires queued pulse');
 RESET ROLE;
 UPDATE fixture.positions SET lon=154;
+-- Integrated real boat-retirement bodies: a no-op is distinct from a
+-- committed lifecycle transition. Savepoints isolate these extra controls
+-- while preserving every original core assertion below.
+INSERT INTO fixture.state VALUES('original-revision',(SELECT to_jsonb(revision) FROM public.lightning_watch_profiles));
+SELECT set_config('fixture.lightning_revision',(SELECT revision::text FROM public.lightning_watch_profiles),true);
+SELECT fixture.assert((SELECT array_agg(tgname ORDER BY tgname) FROM pg_trigger WHERE tgrelid='public.boats'::regclass AND NOT tgisinternal AND (tgtype & 2)=2)=ARRAY['aa_lightning_watch_boat_retirement','account_deletion_write_fence']::name[],'actual boat BEFORE triggers admit nonblocking authority before inherited account fence');
+UPDATE public.boats SET archived_at=archived_at;
+SELECT fixture.assert((SELECT revision::text FROM public.lightning_watch_profiles)=(SELECT document#>>'{}' FROM fixture.state WHERE key='original-revision'),'no-op boat update retains exact watch revision');
+SELECT fixture.assert((SELECT enabled FROM public.lightning_watch_profiles),'no-op does not disable explicit consent');
+UPDATE public.boats SET name='Changed metadata';
+SELECT fixture.assert((SELECT revision::text FROM public.lightning_watch_profiles)=(SELECT document#>>'{}' FROM fixture.state WHERE key='original-revision'),'ordinary boat metadata retains exact watch revision');
+SELECT fixture.assert((SELECT enabled FROM public.lightning_watch_profiles),'ordinary metadata does not disable explicit consent');
+SAVEPOINT archive_lifecycle;
+UPDATE public.boats SET archived_at=clock_timestamp();
+SELECT fixture.assert(NOT(SELECT enabled FROM public.lightning_watch_profiles),'archive durably disables consent');
+SELECT fixture.assert(NOT EXISTS(SELECT 1 FROM private_lightning142.attempts),'archive retires original work lease');
+SELECT fixture.assert((SELECT count(*) FROM private_lightning142.deliveries)=1,'archive retains dedupe and quota history');
+UPDATE public.boats SET archived_at=NULL;
+SELECT fixture.assert(NOT(SELECT enabled FROM public.lightning_watch_profiles),'unarchive cannot revive old consent');
+SET ROLE service_role;
+SELECT fixture.assert(NOT public.lightning_watch_delivery_current((SELECT id FROM public.push_notification_queue)),'archive ABA cannot revive queued authority');
+RESET ROLE;
+SET ROLE authenticated;
+SELECT fixture.error($sql$SELECT public.configure_lightning_watch('30000000-0000-4000-8000-000000000001',current_setting('fixture.lightning_revision')::uuid,true)$sql$,'40001','pre-archive CAS revision cannot silently enable again');
+RESET ROLE;
+ROLLBACK TO archive_lifecycle;
+SAVEPOINT owner_lifecycle;
+UPDATE public.boats SET owner_id='20000000-0000-4000-8000-000000000001';
+UPDATE public.boats SET owner_id='10000000-0000-4000-8000-000000000001';
+SELECT fixture.assert(NOT(SELECT enabled FROM public.lightning_watch_profiles),'owner A B A cannot revive consent');
+SELECT fixture.assert((SELECT revision::text FROM public.lightning_watch_profiles)<>(SELECT document#>>'{}' FROM fixture.state WHERE key='original-revision'),'owner ABA advances durable revision');
+SET ROLE service_role;
+SELECT fixture.assert(NOT public.lightning_watch_delivery_current((SELECT id FROM public.push_notification_queue)),'owner ABA cannot revive original queued delivery');
+RESET ROLE;
+ROLLBACK TO owner_lifecycle;
+SAVEPOINT release_lifecycle;
+UPDATE public.boats SET released_at=clock_timestamp();
+UPDATE public.boats SET released_at=NULL;
+SELECT fixture.assert(NOT(SELECT enabled FROM public.lightning_watch_profiles),'release undo cannot revive consent');
+ROLLBACK TO release_lifecycle;
+SAVEPOINT deletion_lifecycle;
+INSERT INTO public.account_deletion_jobs VALUES('10000000-0000-4000-8000-000000000001');
+SELECT fixture.error($sql$UPDATE public.boats SET archived_at=clock_timestamp()$sql$,'55000','actual canonical account fence still refuses a tombstoned boat update');
+DELETE FROM public.boats;
+SELECT fixture.assert(NOT EXISTS(SELECT 1 FROM public.lightning_watch_profiles),'tombstoned boat deletion retires without a fenced UPDATE');
+ROLLBACK TO deletion_lifecycle;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT fixture.assert(public.configure_lightning_watch('30000000-0000-4000-8000-000000000001',(SELECT revision FROM public.lightning_watch_profiles),false)->>'enabled'='false','explicit disable advances revision');
