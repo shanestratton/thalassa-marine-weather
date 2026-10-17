@@ -437,6 +437,42 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain("await cancelResponseBody(response, 'upstream content length rejected')");
     });
 
+    it('runs the actual manifest-dispatch gate and refuses missing ordinary fallback or changed clocks', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const expression = gate.match(
+            /includesAll\(releaseAssetProxy, \[\s*'function validateDatasetManifest[\s\S]*?\n\s*\]\)/,
+        )?.[0];
+        expect(expression).toBeTruthy();
+        const proxy = read('api/_releaseAssetProxy.ts');
+        const evaluate = (source = proxy) =>
+            runInNewContext(expression!, {
+                releaseAssetProxy: source,
+                includesAll: (text: string, parts: string[]) => parts.every((part) => text.includes(part)),
+            });
+        expect(evaluate()).toBe(true);
+        for (const clause of [
+            'return Object.hasOwn(SPECIALIZED_RELEASE_CONTRACTS, dataset)',
+            'if (additional) additional.validate(value, now, current);',
+            'else validateMarineManifest(value, dataset as MarineDatasetKey, now, current);',
+            'validateDatasetManifest(value, dataset, Date.now(), false);',
+            'validateDatasetManifest(candidate.manifest, dataset, now, true);',
+        ]) {
+            expect(proxy).toContain(clause);
+            expect(evaluate(proxy.replace(clause, 'REMOVED VALIDATION')), clause).toBe(false);
+        }
+        expect(
+            evaluate(proxy.replace('additional.validate(value, now, current)', 'additional.validate(value, 0, false)')),
+        ).toBe(false);
+        expect(
+            evaluate(
+                proxy.replace(
+                    'validateMarineManifest(value, dataset as MarineDatasetKey, now, current)',
+                    'validateMarineManifest(value, dataset as MarineDatasetKey, now, false)',
+                ),
+            ),
+        ).toBe(false);
+    });
+
     it('retains canonical feature, fail-closed deletion, and Guardian opt-in release boundaries', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
 
