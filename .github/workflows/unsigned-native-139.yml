@@ -44,7 +44,7 @@ jobs:
                   persist-credentials: false
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: d37e832b2cd02b168c6736864e7f067ce2bb58f1
+                  ref: bc0a10b834cd33ba8dfb9fde05dc0c7e0cf6154b
                   path: source
                   fetch-depth: 0
                   persist-credentials: false
@@ -84,6 +84,7 @@ jobs:
                   set -euo pipefail
                   GITHUB_SHA="$(git rev-parse HEAD)" node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/ship-beta.txt" npm run ship:beta
                   node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/post-sync-project-diff.txt" git diff -- ios/App/App.xcodeproj/project.pbxproj
+                  node ../controls/scripts/bounded-native-log139.mjs "$RUNNER_TEMP/native139-evidence/post-sync-ios-diff.txt" git diff -- ios/
                   node --input-type=module <<'NODE'
                   import fs from 'node:fs';
                   import {execFileSync} from 'node:child_process';
