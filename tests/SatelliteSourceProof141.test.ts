@@ -7,6 +7,7 @@ import {
     satelliteProofFetch,
     SATELLITE_SOURCE_PROOF_BOXES,
     SATELLITE_SOURCE_PROOF_LIMITS,
+    OLDER_GIBS_SOURCE_PROOF_PRODUCTS,
 } from '../scripts/prove-sharper-satellite-source.mjs';
 import { SATELLITE_VIEW_PRODUCTS } from '../services/weather/satelliteViewContract';
 
@@ -52,11 +53,88 @@ const options = (overrides = {}) => ({
 afterEach(() => vi.useRealTimers());
 
 describe('reviewed satellite source observation stays bounded and explicit', () => {
+    it('refuses an unknown mode before any request or evidence write', async () => {
+        const input = options({ mode: 'world' });
+        await expect(runSatelliteSourceProof(input)).rejects.toThrow('Unknown source proof mode');
+        expect(input.read).not.toHaveBeenCalled();
+        expect(input.save).not.toHaveBeenCalled();
+    });
+    it('older mode reads only three fixed GIBS products and excludes the newest two under the unchanged parser', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime('2026-10-17T03:30:00Z');
+        const input = options({ mode: 'older-gibs' });
+        const result = await runSatelliteSourceProof(input);
+        expect(result.completeSixProductObservation).toBeNull();
+        expect(result.completeSelectedProductsWithUsableDetail).toBe(true);
+        expect(result.products.map((product) => product.product)).toEqual(OLDER_GIBS_SOURCE_PROOF_PRODUCTS);
+        expect(input.read).toHaveBeenCalledTimes(15);
+        for (const product of result.products) {
+            expect(product.metadata).toHaveLength(3);
+            expect(product.frames.map((frame) => frame.listedTime)).toEqual([
+                '2026-10-17T02:10:00Z',
+                '2026-10-17T02:20:00Z',
+            ]);
+            expect(product.clientUsableFrames).toBe(2);
+            expect(product.frames.every((frame) => frame.png?.clientDetailStatus === 'usable')).toBe(true);
+        }
+        expect(input.read.mock.calls.every(([url]) => new URL(url).hostname === 'gibs.earthdata.nasa.gov')).toBe(true);
+    });
     it('refuses the default path before reads or evidence writes', async () => {
         const input = options({ allowSourceReads: false });
         await expect(runSatelliteSourceProof(input)).rejects.toThrow('explicit reviewed admission');
         expect(input.read).not.toHaveBeenCalled();
         expect(input.save).not.toHaveBeenCalled();
+    });
+    it('does not invent older frames when only the newest two are advertised', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime('2026-10-17T03:30:00Z');
+        const read = vi.fn(async () => ({
+            response: new Response(),
+            bytes: new TextEncoder().encode(
+                '<Domains><DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-10-17T03:00:00Z/2026-10-17T03:10:00Z/PT10M</Domain><Size>1</Size></DimensionDomain></Domains>',
+            ),
+        }));
+        const result = await runSatelliteSourceProof(options({ mode: 'older-gibs', read }));
+        expect(read).toHaveBeenCalledTimes(3);
+        expect(result.completeSelectedProductsWithUsableDetail).toBe(false);
+        expect(
+            result.products.every(
+                (product) => product.frames.length === 0 && product.error?.includes('No older advertised frame'),
+            ),
+        ).toBe(true);
+    });
+    it('holds a disappearing older cohort after the image read and never substitutes newer unselected pixels', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime('2026-10-17T03:30:00Z');
+        const source = options(),
+            counts = new Map<string, number>();
+        const read = vi.fn(async (url: string) => {
+            const target = new URL(url);
+            if (target.searchParams.get('request')?.toLowerCase() === 'getmap') return source.read(url);
+            const layer = target.searchParams.get('LAYER')!;
+            const count = (counts.get(layer) ?? 0) + 1;
+            counts.set(layer, count);
+            const response = await source.read(url);
+            if (count > 1)
+                response.bytes = new TextEncoder().encode(
+                    new TextDecoder()
+                        .decode(response.bytes)
+                        .replace(
+                            /<Domain>[^<]*<\/Domain>/,
+                            '<Domain>2026-10-17T02:50:00Z/2026-10-17T03:00:00Z/PT10M</Domain>',
+                        ),
+                );
+            return response;
+        });
+        const result = await runSatelliteSourceProof(options({ mode: 'older-gibs', read }));
+        expect(read).toHaveBeenCalledTimes(9);
+        expect(result.completeSelectedProductsWithUsableDetail).toBe(false);
+        for (const product of result.products) {
+            expect(product.observedFrames).toBe(0);
+            expect(product.clientUsableFrames).toBe(0);
+            expect(product.frames[0].error).toContain('disappeared after image read');
+            expect(product.frames[1].error).toContain('no longer in the current original metadata');
+        }
     });
     it('keeps the exact six fixed providers and original source limits', () => {
         expect(Object.keys(SATELLITE_SOURCE_PROOF_BOXES)).toEqual(Object.keys(SATELLITE_VIEW_PRODUCTS));
@@ -83,15 +161,13 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
             expect(product.observedFrames).toBe(2);
             expect(product.metadata).toHaveLength(3);
             expect(product.frames).toHaveLength(2);
-            expect(
-                product.frames.every(
-                    (frame: { independentAcquisitionClock: string }) => frame.independentAcquisitionClock === 'unknown',
-                ),
-            ).toBe(true);
+            expect(product.frames.every((frame) => frame.independentAcquisitionClock === 'unknown')).toBe(true);
             expect(product.twoAdvertisedImageHashesDiffer).toBe(false);
         }
-        const meteosat = result.products.find((product: { product: string }) => product.product === 'meteosat-ir');
-        expect(meteosat.frames.map((frame: { listedTime: string }) => frame.listedTime)).toEqual([
+        const meteosat = result.products.find((product) => product.product === 'meteosat-ir');
+        expect(meteosat).toBeDefined();
+        if (!meteosat) throw new Error('Expected the Meteosat product observation');
+        expect(meteosat.frames.map((frame) => frame.listedTime)).toEqual([
             '2026-10-17T02:00:00Z',
             '2026-10-17T03:00:00Z',
         ]);
@@ -114,8 +190,7 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
         expect(result.products).toHaveLength(6);
         expect(
             result.products.every(
-                (product: { status: string; error: string }) =>
-                    product.status === 'held' && product.error === 'Original provider unavailable',
+                (product) => product.status === 'held' && product.error === 'Original provider unavailable',
             ),
         ).toBe(true);
     });
@@ -128,20 +203,32 @@ describe('reviewed satellite source observation stays bounded and explicit', () 
         expect(input.read).not.toHaveBeenCalled();
     });
     it('manual workflow is default false and cannot activate either live feature flag or publish', () => {
-        const workflow = readFileSync('.github/workflows/sharper-satellite-source-proof.yml', 'utf8');
-        expect(workflow).toContain('default: false');
-        expect(workflow).toContain('inputs.allow_source_reads == true');
-        expect(workflow).toContain('contents: read');
-        expect(workflow).toContain('persist-credentials: false');
-        expect(workflow).not.toMatch(
-            /SATELLITE_VIEW_ENABLED|VITE_SHARPER_SATELLITE_ENABLED|schedule:|contents: write|secrets\./,
-        );
-        for (const line of workflow.split('\n').filter((line) => line.includes('uses:')))
-            expect(line).toMatch(/@[a-f0-9]{40} # v\d+\.\d+\.\d+$/);
+        for (const file of ['sharper-satellite-source-proof.yml', 'sharper-satellite-older-gibs-proof.yml']) {
+            const workflow = readFileSync(`.github/workflows/${file}`, 'utf8');
+            expect(workflow).toContain('default: false');
+            expect(workflow).toContain('inputs.allow_source_reads == true');
+            expect(workflow).toContain('contents: read');
+            expect(workflow).toContain('persist-credentials: false');
+            expect(workflow).not.toMatch(
+                /SATELLITE_VIEW_ENABLED|VITE_SHARPER_SATELLITE_ENABLED|schedule:|contents: write|secrets\./,
+            );
+            for (const line of workflow.split('\n').filter((line) => line.includes('uses:')))
+                expect(line).toMatch(/@[a-f0-9]{40} # v\d+\.\d+\.\d+$/);
+        }
     });
 });
 
 describe('independent bounded PNG diagnostics', () => {
+    it.each(['first-observation-transparent.png', 'first-observation-opaque-uniform.png'])(
+        'keeps retained %s PNG observation separate from actual client usable detail',
+        (file) => {
+            const decoded = inspectSatelliteProofPng(readFileSync(`tests/fixtures/satellite141/${file}`));
+            expect(decoded.clientDetailStatus).toBe('held');
+            expect(decoded.clientDetailAlphaFraction).toBeNull();
+            expect(decoded.clientDetailError).toContain('coverage unknown');
+            expect(decoded.independentAcquisitionClock).toBe('unknown');
+        },
+    );
     it('decodes actual bounded CRC-checked pixels without physical-weather or clock inference', () => {
         expect(inspectSatelliteProofPng(png)).toMatchObject({
             width: 256,

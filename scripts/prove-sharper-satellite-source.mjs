@@ -16,7 +16,11 @@ import {
     validateSatelliteViewTimes,
     satelliteViewCredit,
 } from '../services/weather/satelliteViewContract.ts';
-import { readSatelliteResponse, validateSatellitePng } from '../services/weather/satelliteViewBytes.ts';
+import {
+    readSatelliteResponse,
+    validateSatellitePng,
+    satelliteViewportAlphaFraction,
+} from '../services/weather/satelliteViewBytes.ts';
 
 export const SATELLITE_SOURCE_PROOF_LIMITS = Object.freeze({
     products: 6,
@@ -39,8 +43,17 @@ export const SATELLITE_SOURCE_PROOF_BOXES = Object.freeze({
     'viirs-night': Object.freeze([0, 65, 30, 80]),
     'water-vapour': Object.freeze([-85, 10, -65, 30]),
 });
+export const OLDER_GIBS_SOURCE_PROOF_PRODUCTS = Object.freeze(['himawari-ir', 'goes-west-ir', 'goes-east-ir']);
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const failure = (error) => (error instanceof Error ? error.message : String(error)).slice(0, 500);
+
+/**
+ * @typedef {import('../services/weather/satelliteViewContract.ts').SatelliteViewProduct} ProofProductId
+ * @typedef {{file:string,url:string,bytes:number,sha256:string,readAt:string}} ProofReceipt
+ * @typedef {ProofReceipt & {advertised:readonly import('../services/weather/satelliteViewContract.ts').SatelliteViewFrame[]}} ProofMetadata
+ * @typedef {{listedTime:string,listedTimeMs:number,dailyComposite:boolean,credit:string,independentAcquisitionClock:'unknown',status:'held'|'observed-valid-png',image?:ProofReceipt,png?:ReturnType<typeof inspectSatelliteProofPng>,error?:string}} ProofFrame
+ * @typedef {{product:ProofProductId,box:import('../services/weather/satelliteViewContract.ts').SatelliteViewBox,source:(typeof SATELLITE_VIEW_PRODUCTS)[ProofProductId],metadata:ProofMetadata[],frames:ProofFrame[],status:'held'|'observed-valid-png',selectionMode:string,observedFrames?:number,clientUsableFrames?:number,twoAdvertisedImageHashesDiffer?:boolean,error?:string}} ProofProduct
+ */
 
 /** Bound IDAT inflation before the existing CRC-checking decoder, excluding compressed ancillary data. */
 export function inspectSatelliteProofPng(input) {
@@ -94,19 +107,36 @@ export function inspectSatelliteProofPng(input) {
         throw Error('Proof PNG decoded dimensions differ');
     let visible = 0;
     const colours = new Set();
+    const rgba = new Uint8ClampedArray(edge * edge * 4);
     for (let index = 0; index < edge * edge; index++) {
         const offset = index * channels,
             values = Array.from(image.data.subarray(offset, offset + channels));
         let alpha = channels === 2 || channels === 4 ? values.at(-1) : 255;
+        let rgb;
         if (image.palette) {
             const entry = image.palette[values[0]];
             if (!entry) throw Error('Proof PNG palette index invalid');
             alpha = entry[3] ?? 255;
+            rgb = entry;
         } else if (image.transparency?.length && image.transparency.every((value, i) => value === values[i])) alpha = 0;
+        const pixel = index * 4;
+        rgba[pixel] = rgb?.[0] ?? values[0];
+        rgba[pixel + 1] = rgb?.[1] ?? (colour === 0 || colour === 4 ? values[0] : values[1]);
+        rgba[pixel + 2] = rgb?.[2] ?? (colour === 0 || colour === 4 ? values[0] : values[2]);
+        rgba[pixel + 3] = alpha;
         if (alpha > 0) {
             visible++;
             if (colours.size < 512) colours.add(values.join(','));
         }
+    }
+    let clientDetailStatus = 'held',
+        clientDetailAlphaFraction = null,
+        clientDetailError = null;
+    try {
+        clientDetailAlphaFraction = satelliteViewportAlphaFraction(rgba);
+        clientDetailStatus = 'usable';
+    } catch (error) {
+        clientDetailError = failure(error);
     }
     return {
         width: edge,
@@ -121,10 +151,19 @@ export function inspectSatelliteProofPng(input) {
         uncompressedText: text,
         independentAcquisitionClock: 'unknown',
         ancillaryChunksNotDecoded: true,
+        clientDetailStatus,
+        clientDetailAlphaFraction,
+        clientDetailError,
     };
 }
 
-/** Count even failing streamed bodies; the normal byte reader still enforces each original MIME/size cap. */
+/**
+ * Count even failing streamed bodies; the normal byte reader still enforces each original MIME/size cap.
+ * @param {typeof fetch} nativeFetch
+ * @param {AbortController} controller
+ * @param {(record:{url:string,status:number,headers:Record<string,string>})=>void} record
+ * @param {{requests:number,consumedBytes:number}} [limits]
+ */
 export function satelliteProofFetch(nativeFetch, controller, record, limits = SATELLITE_SOURCE_PROOF_LIMITS) {
     let requests = 0,
         consumed = 0,
@@ -135,6 +174,7 @@ export function satelliteProofFetch(nativeFetch, controller, record, limits = SA
         },
         totals: () => ({ requests, consumedBytes: consumed }),
         fetch: async (input, init) => {
+            controller.signal.throwIfAborted();
             const url = typeof input === 'string' ? input : String(input);
             if (
                 !expectedUrl ||
@@ -175,13 +215,27 @@ export function satelliteProofFetch(nativeFetch, controller, record, limits = SA
     };
 }
 
-export async function runSatelliteSourceProof({ allowSourceReads, save, signal, read = readSatelliteResponse }) {
+/**
+ * @param {{allowSourceReads:boolean,save:(filename:string,value:Uint8Array|string)=>Promise<void>,signal:AbortSignal,read?:typeof readSatelliteResponse,mode?:string}} options
+ */
+export async function runSatelliteSourceProof({
+    allowSourceReads,
+    save,
+    signal,
+    read = readSatelliteResponse,
+    mode = 'recent',
+}) {
     if (allowSourceReads !== true) throw Error('Source reads require explicit reviewed admission');
+    if (!['recent', 'older-gibs'].includes(mode)) throw Error('Unknown source proof mode');
+    const selectedProducts =
+        mode === 'older-gibs' ? OLDER_GIBS_SOURCE_PROOF_PRODUCTS : Object.keys(SATELLITE_SOURCE_PROOF_BOXES);
+    const maxRequests = mode === 'older-gibs' ? 15 : SATELLITE_SOURCE_PROOF_LIMITS.requests;
+    /** @type {ProofProduct[]} */
     const products = [];
     let readNumber = 0;
     const readOne = async (url, mime, max, filename) => {
         signal.throwIfAborted();
-        if (++readNumber > SATELLITE_SOURCE_PROOF_LIMITS.requests) throw Error('Proof request quota exceeded');
+        if (++readNumber > maxRequests) throw Error('Proof request quota exceeded');
         const bounded = globalThis.AbortSignal.any([signal, globalThis.AbortSignal.timeout(25_000)]);
         const { response, bytes } = await read(url, mime, max, bounded);
         signal.throwIfAborted();
@@ -198,7 +252,8 @@ export async function runSatelliteSourceProof({ allowSourceReads, save, signal, 
             },
         };
     };
-    for (const product of Object.keys(SATELLITE_SOURCE_PROOF_BOXES)) {
+    for (const product of selectedProducts) {
+        /** @type {ProofProduct} */
         const result = {
             product,
             box: SATELLITE_SOURCE_PROOF_BOXES[product],
@@ -206,6 +261,10 @@ export async function runSatelliteSourceProof({ allowSourceReads, save, signal, 
             metadata: [],
             frames: [],
             status: 'held',
+            selectionMode:
+                mode === 'older-gibs'
+                    ? 'two-oldest-current-last-six-excluding-newest-two'
+                    : 'two-newest-current-listed',
         };
         products.push(result);
         let metadataIndex = 0;
@@ -223,8 +282,11 @@ export async function runSatelliteSourceProof({ allowSourceReads, save, signal, 
         };
         try {
             let current = await metadata();
-            const selected = current.frames.slice(-2);
+            const selected = mode === 'older-gibs' ? current.frames.slice(0, -2).slice(0, 2) : current.frames.slice(-2);
+            if (!selected.length)
+                throw Error('No older advertised frame remains under the original currentness bounds');
             for (const frame of selected) {
+                /** @type {ProofFrame} */
                 const item = {
                     listedTime: frame.iso,
                     listedTimeMs: frame.timeMs,
@@ -260,6 +322,9 @@ export async function runSatelliteSourceProof({ allowSourceReads, save, signal, 
                 }
             }
             result.observedFrames = result.frames.filter((frame) => frame.status === 'observed-valid-png').length;
+            result.clientUsableFrames = result.frames.filter(
+                (frame) => frame.status === 'observed-valid-png' && frame.png.clientDetailStatus === 'usable',
+            ).length;
             if (result.observedFrames > 0) result.status = 'observed-valid-png';
             result.twoAdvertisedImageHashesDiffer =
                 result.observedFrames === 2 && result.frames[0].image.sha256 !== result.frames[1].image.sha256;
@@ -269,7 +334,10 @@ export async function runSatelliteSourceProof({ allowSourceReads, save, signal, 
     }
     return {
         products,
-        completeSixProductObservation: products.every((product) => product.status === 'observed-valid-png'),
+        mode,
+        completeSixProductObservation:
+            mode === 'recent' ? products.every((product) => product.status === 'observed-valid-png') : null,
+        completeSelectedProductsWithUsableDetail: products.every((product) => product.clientUsableFrames > 0),
         claims: [
             'Read-only fixed-provider small-window evidence; at most two originally advertised images per product',
             'Original metadata plus strict image MIME/byte/dimension/critical CRC/bounded decode and post-read membership checks',
@@ -278,7 +346,7 @@ export async function runSatelliteSourceProof({ allowSourceReads, save, signal, 
         ],
         unknown: [
             'Independent image acquisition clock, nearest-value response identity and scan timing',
-            'World coverage and availability outside these six small windows and this read time',
+            'World coverage and availability outside the selected small windows and this read time',
             'No source palette is decoded as physical weather, fog or visibility',
         ],
     };
@@ -296,14 +364,24 @@ const SOURCE_INPUTS = [
     'api/satellite-view.ts',
     'tests/SatelliteSourceProof141.test.ts',
     'docs/build141/sharper-satellite-source-proof.md',
+    '.github/workflows/sharper-satellite-older-gibs-proof.yml',
+    'docs/build141/sharper-satellite-older-gibs-proof.md',
+    'tests/fixtures/satellite141/first-observation-transparent.png',
+    'tests/fixtures/satellite141/first-observation-opaque-uniform.png',
     'package.json',
     'package-lock.json',
 ];
 async function main() {
     // The default path cannot perform even a metadata request or create an evidence directory.
-    if (process.argv[2] !== '--read-reviewed-sources' || process.argv.length !== 4)
+    const mode =
+        process.argv[2] === '--read-reviewed-sources'
+            ? 'recent'
+            : process.argv[2] === '--read-reviewed-older-gibs'
+              ? 'older-gibs'
+              : null;
+    if (!mode || process.argv.length !== 4)
         throw Error(
-            'Usage after review only: node --import tsx scripts/prove-sharper-satellite-source.mjs --read-reviewed-sources NEW_OUTPUT_DIR',
+            'Usage after review only: node --import tsx scripts/prove-sharper-satellite-source.mjs [--read-reviewed-sources|--read-reviewed-older-gibs] NEW_OUTPUT_DIR',
         );
     const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     if (!/^[a-f0-9]{40}$/.test(process.env.SOURCE_SHA ?? '') || sourceSha !== process.env.SOURCE_SHA)
@@ -326,7 +404,11 @@ async function main() {
         timer = setTimeout(() => controller.abort(Error('Proof overall deadline')), 600000),
         nativeFetch = globalThis.fetch,
         requests = [],
-        budget = satelliteProofFetch(nativeFetch, controller, (record) => requests.push(record));
+        limits =
+            mode === 'older-gibs'
+                ? { ...SATELLITE_SOURCE_PROOF_LIMITS, products: 3, requests: 15 }
+                : SATELLITE_SOURCE_PROOF_LIMITS,
+        budget = satelliteProofFetch(nativeFetch, controller, (record) => requests.push(record), limits);
     globalThis.fetch = budget.fetch;
     const read = (url, mime, max, signal) => {
         budget.expect(url);
@@ -342,8 +424,20 @@ async function main() {
             inputs.push({ path: filename, bytes: bytes.byteLength, sha256: sha256(bytes) });
         }
         const startedAt = new Date().toISOString();
-        const result = await runSatelliteSourceProof({ allowSourceReads: true, signal: controller.signal, save, read });
-        exitCode = result.completeSixProductObservation ? 0 : 1;
+        const result = await runSatelliteSourceProof({
+            allowSourceReads: true,
+            signal: controller.signal,
+            save,
+            read,
+            mode,
+        });
+        exitCode = (
+            mode === 'older-gibs'
+                ? result.completeSelectedProductsWithUsableDetail
+                : result.completeSixProductObservation
+        )
+            ? 0
+            : 1;
         await save(
             'source-proof.json',
             JSON.stringify(
@@ -351,7 +445,7 @@ async function main() {
                     sourceSha,
                     startedAt,
                     finishedAt: new Date().toISOString(),
-                    limits: SATELLITE_SOURCE_PROOF_LIMITS,
+                    limits,
                     inputs,
                     requests,
                     totals: budget.totals(),
@@ -364,12 +458,15 @@ async function main() {
         console.log(
             JSON.stringify({
                 sourceSha,
+                mode,
                 completeSixProductObservation: result.completeSixProductObservation,
+                completeSelectedProductsWithUsableDetail: result.completeSelectedProductsWithUsableDetail,
                 totals: budget.totals(),
-                products: result.products.map(({ product, status, observedFrames }) => ({
+                products: result.products.map(({ product, status, observedFrames, clientUsableFrames }) => ({
                     product,
                     status,
                     observedFrames,
+                    clientUsableFrames,
                 })),
             }),
         );
