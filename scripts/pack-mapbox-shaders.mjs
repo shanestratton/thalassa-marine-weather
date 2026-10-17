@@ -3,15 +3,37 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import ts from 'typescript';
 import MagicString from 'magic-string';
-import { packClassNames } from './share-class-names.mjs';
 
 export const MAPBOX_SHADER_SOURCE_SHA = '07cd585ebf678c90e00e70c5d02b0ea7c8c2d76df6dc8e599ddc4de0ffe5f9b4';
 const MODULE = 'virtual:thalassa-mapbox-shader-data';
 const RESOLVED = '\0' + MODULE;
 const binding = '__thalassaMapboxShaderValues';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
+
+/** Exact original GLSL chunks are single dictionary entries. The existing
+ * decoder admits embedded whitespace in an entry; one-token rows preserve it
+ * without introducing space separators. No decoder/resource bound changes. */
+export function packShaderRows(rows) {
+    if (
+        !Array.isArray(rows) ||
+        !rows.length ||
+        rows.length > 4096 ||
+        rows.some((row) => typeof row !== 'string' || row.length < 1 || row.length > 2048) ||
+        rows.reduce((sum, row) => sum + row.length, 0) > 256000
+    )
+        throw Error('Mapbox shader rows exceed unchanged decoder bounds');
+    const words = [...new Set(rows)],
+        indexes = new Map(words.map((word, i) => [word, i.toString(36)])),
+        raw = Buffer.from(JSON.stringify([words, rows.map((row) => indexes.get(row))]));
+    if (raw.length > 128000) throw Error('Mapbox shader rows exceed unchanged decoder bounds');
+    const zipped = deflateSync(raw, { level: 9 }),
+        encoded = zipped.toString('base64');
+    if (encoded.length > 64000) throw Error('Mapbox shader rows exceed unchanged decoder bounds');
+    return { encoded, bytes: raw.length, count: rows.length, checksum: zipped.readUInt32BE(zipped.length - 4) };
+}
 
 /** @param {string} code @param {string} [file] */
 export function packMapboxShaderSource(code, file = 'mapbox-gl/dist/mapbox-gl.js') {
@@ -57,22 +79,10 @@ export function packMapboxShaderSource(code, file = 'mapbox-gl/dist/mapbox-gl.js
         for (let i = 0; i < node.text.length; i += 2048) rows.push(node.text.slice(i, i + 2048));
         spans.push({ start, end: rows.length });
     }
-    const pools = [];
-    let pending = [];
-    for (const row of rows) {
-        try {
-            packClassNames([...pending, row]);
-            pending.push(row);
-        } catch {
-            if (!pending.length) throw Error('A Mapbox shader exceeds unchanged decoder bounds');
-            pools.push(packClassNames(pending));
-            pending = [row];
-        }
-    }
-    if (pending.length) {
-        pools.push(packClassNames(pending));
-    }
-    if (pools.length !== 2) throw Error('Unreviewed Mapbox shader pool count');
+    if (rows.length !== 139) throw Error('Unreviewed Mapbox shader row inventory');
+    // Reviewed source-order boundary: two ordinary bounded tuples. No row or
+    // shader order changes; each <=2048-code-unit chunk is restored verbatim.
+    const pools = [packShaderRows(rows.slice(0, 65)), packShaderRows(rows.slice(65))];
     const table =
         `import {decodeClassNames} from 'virtual:thalassa-class-data-decoder';` +
         `export const values=(()=>{` +
