@@ -1,0 +1,14 @@
+# Build140 community database deployment
+
+The four reviewed additive SQL payloads are live in project pcisdplnodrphauixcau. The Management API assigned actual ledger versions; only these new source filenames and their active references were aligned. SQL bytes and historical migrations remain unchanged. Exact pre-deployment source6718973d4baea8ab34e01bedc2151029cd5f5618 and each original filename remain in the immutable proof receipts.
+
+- private_sighting_catches: `supabase/migrations/20261017030800_private_sighting_catches.sql`, SHA256 `eadff4920fed6e88282012fd283b501f6a16ea121c07f9d1aa13a7531a393beb`.
+- community_place_reviews: `supabase/migrations/20261017030819_community_place_reviews.sql`, SHA256 `872ac4a368a323b0a358d53bf531e46385fd919abaa190d3764e2eed9469f957`.
+- community_chart_notes: `supabase/migrations/20261017030848_community_chart_notes.sql`, SHA256 `f1764634d490ac7bf8ab6928aafc01940eecb2596e252873b68d190694b804e2`.
+- boat_presence: `supabase/migrations/20261017030921_boat_presence.sql`, SHA256 `f7bdbca08ec64a2ea41fe81a21d5f7c2413e754ccaf0b5586fd414255f9523d5`.
+
+Ledger count increased227 to231. Catches have four owner policies, no identity-update grant and no Realtime publication. Twelve community tables and four presence tables have RLS and no direct client table grants. Photo objects remain private JPEGs with a1MiB limit; service-only RPCs stay unavailable to clients. The new chart-note migration preserves all four prior review/deletion function hashes from the genuine PostgreSQL fixture. Byte-preserving base64 readback confirmed the original deletion bodies; plain text inspection alone gave a misleading legacy comment encoding comparison.
+
+Presence configuration/sample rows were zero at deployment. The separately reviewed64-row expiry batch is scheduled once/minute as thalassa-presence-140-expiry; the manual empty-backlog check returned0. Public response/source leases expire independently of physical cleanup backlog. No user sharing consent, Pi installation, public AIS forwarding, invitation message, alarm or paid-provider cancellation was activated. Both new photo Edges are ACTIVE version1 with JWT verification; four returned runtime files per function exactly match the reviewed source, and credentialless gateway probes return401. No real photo or user session was used. Three scheduled expiry executions succeeded. Security advisors introduce no new errors or mutable-search-path findings; new private deny-all tables and the two deliberately bounded public projection RPCs account for the expected informational/access warnings. Whole-app release checks remain pending.
+
+Receipts: work/community140-live-\*-receipt.json and work/community140-presence-expiry-receipt.json in this task workspace. Earlier source proof SHA/path records are historical evidence and must not be rewritten.

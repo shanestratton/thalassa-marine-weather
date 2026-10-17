@@ -24,8 +24,8 @@ const pool = new Pool({
     connectionTimeoutMillis: 5000,
 });
 const read = (p) => readFile(new URL(p, import.meta.url), 'utf8');
-const reviewMigration = await read('../migrations/20261017010813_community_place_reviews.sql');
-const migration = await read('../migrations/20261017011927_community_chart_notes.sql');
+const reviewMigration = await read('../migrations/20261017030819_community_place_reviews.sql');
+const migration = await read('../migrations/20261017030848_community_chart_notes.sql');
 const a = '10000000-0000-4000-8000-000000000001',
     b = '10000000-0000-4000-8000-000000000002',
     mod = '10000000-0000-4000-8000-000000000003',
