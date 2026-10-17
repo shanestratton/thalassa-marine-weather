@@ -1,8 +1,8 @@
 import { refreshModelLiveness, isModelLive } from './modelLiveness';
 import { ECMWF_9KM, regionalModelFor } from './regionalModels';
 
-/** Capability is proved by real finite wind through the paid proxy, not by
- * bundled allowlists, publisher rows or an HTTP 200 with null values. Probes
+/** Capability is proved by real finite wind through the model's own source,
+ * not by bundled allowlists, publisher rows or an HTTP 200 with null values. Probes
  * share the existing daily verdict/inflight/failure backoff; never per swipe. */
 export async function refreshCoastalModelCapabilities(point: { lat: number; lon: number }): Promise<void> {
     const regional = regionalModelFor(point.lat, point.lon);
