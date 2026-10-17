@@ -20,7 +20,9 @@ const migration = readFileSync('supabase/migrations/20260923170000_shore_watch_r
 describe('the relay raises a drag alarm the phone can be pushed', () => {
     it('inserts an alarm event when the Pi reports isAlarm', () => {
         expect(relay).toContain('p_drag: gpsAvailable && p.isAlarm === true');
-        expect(relay).toContain("admin.rpc('record_pi_anchor_heartbeat'");
+        const areaMigration = readFileSync('supabase/migrations/20261017005140_anchor_safe_area.sql', 'utf8');
+        expect(relay).toContain("admin.rpc('record_pi_anchor_area_heartbeat'");
+        expect(areaMigration).toContain('RETURN public.record_pi_anchor_heartbeat(');
         expect(migration).toContain('IF p_gps_available AND p_drag AND NOT EXISTS');
         expect(migration).toContain('INSERT INTO public.anchor_alarm_events');
     });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouterEngine';
-import { buildExclusionField, routeExclusionConflict } from '../services/engine/exclusionField';
+import { buildExclusionField, isRouteStackOverflow, routeExclusionConflict } from '../services/engine/exclusionField';
 import { runRouteJob, type RouteJob } from '../services/routing/routeJob';
 import { auditFinishedRouteExclusions } from '../services/engine/exclusionField';
 import { inshoreRouteCaveats, savedInshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
@@ -66,6 +66,68 @@ describe('139 exclusion application through the real engine', () => {
             elapsedMs: 0,
         },
     });
+    const throwingSource = (error: Error): InshoreLayers => {
+        const layers: InshoreLayers = { DEPARE: depth };
+        Object.defineProperty(layers, 'USER_NOGO', {
+            get() {
+                throw error;
+            },
+        });
+        return layers;
+    };
+    it('preserves only the original RangeError and stack-message retry classification', () => {
+        expect(isRouteStackOverflow(new RangeError('Maximum call stack size exceeded.'))).toBe(true);
+        expect(isRouteStackOverflow(new RangeError('Invalid typed array length'))).toBe(false);
+        expect(isRouteStackOverflow(new Error('Maximum call stack size exceeded.'))).toBe(false);
+    });
+    it('lets genuine source stack exhaustion reach the job host without accepting a candidate', () => {
+        const error = new RangeError('Maximum call stack size exceeded.');
+        const layers = throwingSource(error);
+        const job = cloudJob(layers);
+        expect(() => routeInshore(layers, request)).toThrow(error);
+        expect(() => auditFinishedRouteExclusions(layers, job.cloud!.polyline)).toThrow(error);
+        const output = runRouteJob(job);
+        expect(output.result).toBeNull();
+        expect(output.outOfStack).toBe(true);
+    });
+    it.each([new RangeError('Invalid typed array length'), new Error('Maximum call stack size exceeded.')])(
+        'holds an unavailable source instead of retrying other errors: %s',
+        (error) => {
+            const layers = throwingSource(error);
+            const direct = routeInshore(layers, request);
+            expect('error' in direct && direct.code).toBe('exclusion-unavailable');
+            const job = cloudJob(layers);
+            expect(auditFinishedRouteExclusions(layers, job.cloud!.polyline)?.code).toBe('exclusion-unavailable');
+            const output = runRouteJob(job);
+            expect(output.result && 'error' in output.result && output.result.code).toBe('exclusion-unavailable');
+            expect(output).not.toHaveProperty('outOfStack');
+        },
+    );
+    it('clears an assigned candidate when the last traffic/coverage audit exhausts the stack', () => {
+        const job = cloudJob({ DEPARE: depth });
+        Object.defineProperty(job, 'exclusionsUnknownBboxes', {
+            get() {
+                throw new RangeError('Maximum call stack size exceeded.');
+            },
+        });
+        const output = runRouteJob(job);
+        expect(output.result).toBeNull();
+        expect(output.outOfStack).toBe(true);
+    });
+    it.each([new RangeError('Invalid typed array length'), new Error('Maximum call stack size exceeded.')])(
+        'holds a candidate when the last audit has a non-stack failure: %s',
+        (error) => {
+            const job = cloudJob({ DEPARE: depth });
+            Object.defineProperty(job, 'exclusionsUnknownBboxes', {
+                get() {
+                    throw error;
+                },
+            });
+            const output = runRouteJob(job);
+            expect(output.result && 'error' in output.result && output.result.code).toBe('exclusion-unavailable');
+            expect(output).not.toHaveProperty('outOfStack');
+        },
+    );
     it('refuses a cloud or post-processor line that skips the engine masks', () => {
         const job = cloudJob({ DEPARE: depth, USER_NOGO: fc(obstacle) });
         const output = runRouteJob(job);

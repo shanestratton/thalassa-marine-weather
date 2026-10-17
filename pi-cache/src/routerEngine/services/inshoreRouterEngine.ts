@@ -78,6 +78,7 @@ import {
     applyExclusionField,
     buildExclusionField,
     exclusionRefusal,
+    isRouteStackOverflow,
     routeExclusionConflict,
 } from './engine/exclusionField.js';
 import type {
@@ -498,10 +499,13 @@ const NO_TIDE_RETRY_ROUNDS = 2;
 
 export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
     let field: ReturnType<typeof buildExclusionField>;
-    const unavailable = (error: unknown): RouteFailure => ({
-        error: `Route exclusions could not be fully checked: ${error instanceof Error ? error.message : 'source unavailable'}`,
-        code: 'exclusion-unavailable',
-    });
+    const unavailable = (error: unknown): RouteFailure => {
+        if (isRouteStackOverflow(error)) throw error;
+        return {
+            error: `Route exclusions could not be fully checked: ${error instanceof Error ? error.message : 'source unavailable'}`,
+            code: 'exclusion-unavailable',
+        };
+    };
     try {
         // Always rebuild from original current layers. A request payload cannot
         // bypass chart restrictions by supplying its own compiled/empty field.

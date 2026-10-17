@@ -65,6 +65,7 @@ vi.mock('../services/PiCacheService', () => ({
 }));
 vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: {
+        subscribe: () => () => undefined,
         getState: () => ({
             settings: h.settings,
             updateSettings: (patch: Record<string, unknown>) => {

@@ -22,7 +22,7 @@ const geo = {
     ],
 };
 /** Synthetic SDK auth is answered locally; no provider data/auth request leaves this test. */
-async function localRequestsOnly(page: Page, unexpected: string[], origin = 'http://127.0.0.1:4258') {
+async function localRequestsOnly(page: Page, unexpected: string[], origin: string) {
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
         if (url.origin === origin) return route.continue();
@@ -69,10 +69,10 @@ for (const width of [300, 375])
         expect(errors).toEqual([]);
     });
 for (const width of [300, 375])
-    test(`local worker/store/render/entry retirement fits ${width}px`, async ({ page }) => {
+    test(`local worker/store/render/entry retirement fits ${width}px`, async ({ page, baseURL }) => {
         await page.setViewportSize({ width, height: 780 });
         const unexpected: string[] = [];
-        await localRequestsOnly(page, unexpected);
+        await localRequestsOnly(page, unexpected, new URL(baseURL!).origin);
         await page.goto('/e2e/fixtures/user-overlays139.html');
         await page.getByRole('button', { name: 'Your overlays', exact: true }).click();
         const dialog = page.getByRole('dialog', { name: 'Your overlays' });
@@ -122,10 +122,10 @@ for (const width of [300, 375])
         expect(unexpected).toEqual([]);
     });
 
-test('actual KML DOM parse and deflated shapefile worker save local point overlays', async ({ page }) => {
+test('actual KML DOM parse and deflated shapefile worker save local point overlays', async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 375, height: 780 });
     const unexpected: string[] = [];
-    await localRequestsOnly(page, unexpected);
+    await localRequestsOnly(page, unexpected, new URL(baseURL!).origin);
     await page.goto('/e2e/fixtures/user-overlays139.html');
     await page.getByRole('button', { name: 'Your overlays', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Your overlays' });

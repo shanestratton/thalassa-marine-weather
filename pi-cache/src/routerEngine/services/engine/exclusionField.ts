@@ -55,6 +55,11 @@ const polygons = (g: Polygon | MultiPolygon): Position[][][] =>
 const overlaps = (a: readonly number[], b: readonly number[]) =>
     !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
 
+/** Preserve the worker host's existing narrow retry classification. This is
+ * only a compute failure; it supplies no route or exclusion admission. */
+export const isRouteStackOverflow = (error: unknown): error is RangeError =>
+    error instanceof RangeError && /stack/i.test(error.message);
+
 export const exclusionCostFactor = (grid: NavGrid, index: number): number =>
     grid.exclusionCaution?.[index] === 1 ? 1.25 : 1;
 
@@ -111,6 +116,7 @@ export function auditFinishedRouteExclusions(
         return conflict ? { error: exclusionRefusal(conflict), code: 'route-exclusion' } : null;
     } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        if (isRouteStackOverflow(error)) throw error;
         return {
             error: 'The finished route’s area restrictions could not be fully checked. Review the current chart and route again.',
             code: 'exclusion-unavailable',
