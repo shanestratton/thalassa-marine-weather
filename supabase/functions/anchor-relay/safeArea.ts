@@ -1,9 +1,9 @@
 import {
     anchorSafeZoneContains,
     anchorZoneOffset,
+    isAnchorAreaRevision as validAreaRevision,
     parseAnchorBoundary,
     sameAnchorSafeArea,
-    isAnchorAreaRevision as validAreaRevision,
 } from '../_shared/anchorSafeZone.ts';
 export { isAnchorAreaRevision as validAreaRevision } from '../_shared/anchorSafeZone.ts';
 
@@ -23,14 +23,11 @@ export function validAreaReport(
     if (area && !validAreaRevision(revision)) return false;
     if (area && (!validAreaVessel(vesselId) || payload.safeAreaVesselId !== vesselId)) return false;
     const anchor = payload.anchor as Record<string, unknown> | null;
-    const received =
-        payload.safeZone == null && !area
-            ? null
-            : parseAnchorBoundary({
-                  version: 1,
-                  frame: { latitude: anchor?.latitude, longitude: anchor?.longitude, radiusM: payload.swingRadius },
-                  zone: payload.safeZone ?? null,
-              });
+    const received = payload.safeZone == null && !area ? null : parseAnchorBoundary({
+        version: 1,
+        frame: { latitude: anchor?.latitude, longitude: anchor?.longitude, radiusM: payload.swingRadius },
+        zone: payload.safeZone ?? null,
+    });
     if (payload.safeZone != null && !received) return false;
     if (!sameAnchorSafeArea(area, received)) return false;
     if (!area) return true;
@@ -39,8 +36,9 @@ export function validAreaReport(
         anchor?.latitude !== area.frame.latitude ||
         anchor?.longitude !== area.frame.longitude ||
         payload.swingRadius !== area.frame.radiusM
-    )
+    ) {
         return false;
+    }
     if (!gpsAvailable) return true;
     if (typeof payload.isAlarm !== 'boolean') return false;
     const position = payload.vessel as { latitude: number; longitude: number },
@@ -48,8 +46,8 @@ export function validAreaReport(
     const inside = area.zone
         ? anchorSafeZoneContains(area.zone, area.frame, position)
         : offset
-          ? Math.hypot(...offset) <= area.frame.radiusM
-          : null;
+        ? Math.hypot(...offset) <= area.frame.radiusM
+        : null;
     // Confirmation remains the Pi's distinct-fix rule; a false pending flag outside is not holding.
     return inside !== null && !(payload.isAlarm === true && inside === true);
 }
