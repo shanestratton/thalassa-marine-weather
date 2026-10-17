@@ -22,6 +22,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 
 const src = readFileSync('components/map/RadialHelmMenu.tsx', 'utf8');
 
@@ -79,17 +80,45 @@ describe('the helm menu dismissal contract', () => {
         // The mapped form exists exactly once, in the charts-category builder.
         expect([...src.matchAll(/dismissOnSelect: src\.opensSheet === true/g)]).toHaveLength(1);
 
-        // And the sources that open sheets say so: Routes and Tracks. MPAs is
+        // And the sources that open sheets say so: the chart library, Routes
+        // and Tracks. MPAs is
         // a plain toggle and must NOT dismiss — clearing-and-repicking layers
         // is the stay-open menu's whole purpose.
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
-        const routes = hub.slice(hub.indexOf("id: 'routes'"), hub.indexOf("id: 'tracks'"));
-        const tracksAt = hub.indexOf("id: 'tracks'");
-        const tracks = hub.slice(tracksAt, hub.indexOf('CHARTS_FAB_CATEGORY_VISIBLE', tracksAt));
-        const mpa = hub.slice(hub.indexOf("id: 'mpa'"), hub.indexOf("id: 'routes'"));
-        expect(routes).toContain('opensSheet: true');
-        expect(tracks).toContain('opensSheet: true');
-        expect(mpa).not.toContain('opensSheet');
+        const parsed = ts.createSourceFile('MapHub.tsx', hub, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        function chartSource(id: string): ts.ObjectLiteralExpression {
+            const matches: ts.ObjectLiteralExpression[] = [];
+            function visit(node: ts.Node): void {
+                if (
+                    ts.isObjectLiteralExpression(node) &&
+                    node.properties.some(
+                        (property) =>
+                            ts.isPropertyAssignment(property) &&
+                            property.name.getText(parsed) === 'id' &&
+                            ts.isStringLiteral(property.initializer) &&
+                            property.initializer.text === id,
+                    )
+                ) {
+                    matches.push(node);
+                }
+                ts.forEachChild(node, visit);
+            }
+            visit(parsed);
+            expect(matches, `one chart source with id ${id}`).toHaveLength(1);
+            return matches[0];
+        }
+        const opensSheet = (id: string) =>
+            chartSource(id).properties.filter(
+                (property) => ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'opensSheet',
+            );
+        for (const id of ['local-library', 'routes', 'tracks']) {
+            const properties = opensSheet(id);
+            expect(properties, `${id} declares one sheet takeover`).toHaveLength(1);
+            expect(ts.isPropertyAssignment(properties[0]) && properties[0].initializer.kind).toBe(
+                ts.SyntaxKind.TrueKeyword,
+            );
+        }
+        expect(opensSheet('mpa')).toHaveLength(0);
     });
 
     it('does not close on Clear all — clearing is usually a prelude to picking', () => {
