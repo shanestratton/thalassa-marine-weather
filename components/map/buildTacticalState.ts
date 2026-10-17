@@ -17,6 +17,8 @@ export interface BuildTacticalStateDeps {
     setAisVisible: Dispatch<SetStateAction<boolean>>;
     receiverCoverageVisible?: boolean;
     setReceiverCoverageVisible?: Dispatch<SetStateAction<boolean>>;
+    crowdSoundingsVisible?: boolean;
+    setCrowdSoundingsVisible?: Dispatch<SetStateAction<boolean>>;
     measuredBuoysVisible?: boolean;
     setMeasuredBuoysVisible?: Dispatch<SetStateAction<boolean>>;
     ascatVisible?: boolean;
@@ -66,6 +68,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setAisVisible,
         receiverCoverageVisible,
         setReceiverCoverageVisible,
+        crowdSoundingsVisible,
+        setCrowdSoundingsVisible,
         measuredBuoysVisible,
         setMeasuredBuoysVisible,
         ascatVisible,
@@ -114,6 +118,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         aisVisible,
         receiverCoverageVisible,
         onToggleReceiverCoverage: setReceiverCoverageVisible ? () => setReceiverCoverageVisible((v) => !v) : undefined,
+        crowdSoundingsVisible,
+        onToggleCrowdSoundings: setCrowdSoundingsVisible ? () => setCrowdSoundingsVisible((v) => !v) : undefined,
         measuredBuoysVisible,
         onToggleMeasuredBuoys: setMeasuredBuoysVisible ? () => setMeasuredBuoysVisible((v) => !v) : undefined,
         ascatVisible,

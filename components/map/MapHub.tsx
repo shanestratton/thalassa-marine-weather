@@ -366,6 +366,7 @@ const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 const SailingInstrumentOverlay = React.lazy(() => import('./SailingInstrumentOverlay'));
 const ReceiverCoverageLayer = React.lazy(() => import('./ReceiverCoverageLayer'));
 const MeasuredBuoysLayer = React.lazy(() => import('./MeasuredBuoysLayer'));
+const CrowdSoundingLayer = React.lazy(() => import('./CrowdSoundingLayer'));
 const LicensedLightningLayer =
     import.meta.env.VITE_LICENSED_LIGHTNING_ENABLED === 'true'
         ? React.lazy(() => import('./LicensedLightningLayer'))
@@ -416,6 +417,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [sshCredit, setSshCredit] = useState<AtmosCredit | null>(null);
     const [licensedLightningCredit, setLicensedLightningCredit] = useState<AtmosCredit | null>(null);
     const [measuredBuoyCredit, setMeasuredBuoyCredit] = useState<AtmosCredit | null>(null);
+    const [crowdSoundingCredit, setCrowdSoundingCredit] = useState<AtmosCredit | null>(null);
     const [buoyCardOwnsChart, setBuoyCardOwnsChart] = useState(false);
     const [ascatCredit, setAscatCredit] = useState<AtmosCredit | null>(null);
     const [ascatCardOwnsChart, setAscatCardOwnsChart] = useState(false);
@@ -2294,6 +2296,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         receiverCoverageVisible,
         setReceiverCoverageVisible,
         browseReceiverCoverageVisible,
+        crowdSoundingsVisible,
+        setCrowdSoundingsVisible,
+        browseCrowdSoundingsVisible,
         measuredBuoysVisible,
         setMeasuredBuoysVisible,
         measuredBuoysLoaded,
@@ -4442,6 +4447,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setAisVisible,
                             receiverCoverageVisible,
                             setReceiverCoverageVisible,
+                            crowdSoundingsVisible,
+                            setCrowdSoundingsVisible,
                             measuredBuoysVisible,
                             setMeasuredBuoysVisible,
                             ascatVisible,
@@ -5769,6 +5776,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseBoatPresenceVisible ? 1 : 0) +
                             (browseMeasuredBuoysVisible ? 1 : 0) +
                             (browseAscatVisible ? 1 : 0) +
+                            (browseCrowdSoundingsVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -5869,6 +5877,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </Suspense>
                 )}
+                {crowdSoundingsVisible && (
+                    <Suspense fallback={null}>
+                        <CrowdSoundingLayer
+                            mapRef={mapRef}
+                            mapReady={mapReady}
+                            active={obsShowing && obsCreditsVisible && browseCrowdSoundingsVisible}
+                            onCredit={setCrowdSoundingCredit}
+                        />
+                    </Suspense>
+                )}
                 {measuredBuoysLoaded && (
                     <Suspense fallback={null}>
                         <MeasuredBuoysLayer
@@ -5939,6 +5957,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ...(licensedLightningCredit ? [licensedLightningCredit] : []),
                             ...(measuredBuoyCredit ? [measuredBuoyCredit] : []),
                             ...(ascatCredit ? [ascatCredit] : []),
+                            ...(crowdSoundingCredit ? [crowdSoundingCredit] : []),
                             ...(sharperCredit ? [sharperCredit] : []),
                             ...(localLibraryCredit ? [localLibraryCredit] : []),
                         ]}

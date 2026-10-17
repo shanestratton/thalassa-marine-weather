@@ -356,3 +356,8 @@ verify_jwt = true
 # Bare read-only app fetches: fixed public GitHub datasets only, with an HMAC
 # per-client public quota before upstream access; no user credential is required.
 verify_jwt = false
+
+[functions.crowd-sounding-export]
+# Held private worker export: dedicated 256-bit token SHA verifier before any
+# service-only read. No service key leaves Edge. No browser/public quota path.
+verify_jwt = false
