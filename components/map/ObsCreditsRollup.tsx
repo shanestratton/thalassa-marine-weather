@@ -176,7 +176,23 @@ export default function ObsCreditsRollup({
                 )}
             </div>
             {open && (
-                <ModalSheet isOpen title="Map credits & source status" onClose={close} zIndex="z-[10090]" fitViewport>
+                <ModalSheet
+                    isOpen
+                    title="Map credits & source status"
+                    onClose={close}
+                    zIndex="z-[10090]"
+                    fitViewport
+                    footer={
+                        <button
+                            type="button"
+                            aria-label="Close credits"
+                            onClick={close}
+                            className="flex min-h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white"
+                        >
+                            Close
+                        </button>
+                    }
+                >
                     <div
                         data-map-credit
                         className="space-y-4 p-4 text-sm leading-relaxed text-slate-200 [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:text-xs"
