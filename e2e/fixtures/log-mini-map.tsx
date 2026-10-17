@@ -116,7 +116,12 @@ const fixture = {
     screen: screenName,
     maps,
     taps,
-    expected: seaBaseLayers('reliefSat'),
+    // Fixed independent scenes: only the Whitsundays plan admits AU250;
+    // Solent never does, and none of these scenes admits NZ sparse terrain.
+    expected: seaBaseLayers('reliefSat').map(([id, on]): [string, boolean | null] => [
+        id,
+        /^relief-nz-/.test(id) || (/^relief-au250-/.test(id) && screenName !== 'planned') ? null : on,
+    ]),
     boat: [SOLENT_TRACK[23].longitude, SOLENT_TRACK[23].latitude] as [number, number],
     mount: () => mountListeners.forEach((listener) => listener(true)),
     unmount: () => mountListeners.forEach((listener) => listener(false)),

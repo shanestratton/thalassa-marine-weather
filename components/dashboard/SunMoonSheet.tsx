@@ -163,7 +163,7 @@ export function sunMoonDay(
 }
 
 const Stat: React.FC<{ label: string; value: string; testId: string }> = ({ label, value, testId }) => (
-    <div className="min-w-0 rounded-xl bg-white/4 px-2 py-1.5 text-center">
+    <div className="min-w-0 rounded-xl bg-white/4 px-2 py-1 text-center">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{label}</div>
         <div data-testid={testId} className="text-sm font-bold text-white tabular-nums leading-tight">
             {value}
@@ -199,7 +199,7 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="h-[2px] bg-linear-to-r from-transparent via-amber-400/60 to-transparent" />
-                <div className="flex items-start justify-between gap-2 px-5 pt-3 pb-2">
+                <div className="flex items-start justify-between gap-2 px-4 pt-2.5 pb-1.5">
                     <div className="min-w-0">
                         <h2 id="sun-moon-title" className="text-sm font-black text-white uppercase tracking-wider">
                             Sun and moon
@@ -232,18 +232,18 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                     </button>
                 </div>
 
-                <div className="px-5 pb-1 grid grid-cols-2 gap-1.5">
+                <div className="px-4 pb-1 grid grid-cols-2 gap-1.5">
                     <Stat label="Sunrise" value={day.sunrise} testId="sun-sunrise" />
                     <Stat label="Sunset" value={day.sunset} testId="sun-sunset" />
                 </div>
-                <p className="px-5 pb-2 text-[12px] text-gray-300">
+                <p className="px-4 pb-1 text-[12px] text-gray-300">
                     Day length{' '}
                     <span data-testid="sun-daylength" className="font-semibold text-white">
                         {day.dayLength}
                     </span>
                 </p>
 
-                <div className="px-5 pb-2">
+                <div className="px-4 pb-1">
                     <table className="w-full text-[12px] tabular-nums">
                         <caption className="text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 pb-0.5">
                             Twilight
@@ -262,18 +262,18 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                         <tbody>
                             {day.twilight.map((row) => (
                                 <tr key={row.kind} className="border-t border-white/5">
-                                    <th scope="row" className="py-1 text-left font-semibold text-gray-300">
+                                    <th scope="row" className="py-0.5 text-left font-semibold text-gray-300">
                                         {row.label}
                                     </th>
                                     <td
                                         data-testid={`twilight-${row.kind}-dawn`}
-                                        className="py-1 text-right text-white"
+                                        className="py-0.5 text-right text-white"
                                     >
                                         {row.dawn}
                                     </td>
                                     <td
                                         data-testid={`twilight-${row.kind}-dusk`}
-                                        className="py-1 text-right text-white"
+                                        className="py-0.5 text-right text-white"
                                     >
                                         {row.dusk}
                                     </td>
@@ -283,7 +283,7 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                     </table>
                 </div>
 
-                <div className="px-5 pb-2">
+                <div className="px-4 pb-1">
                     <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pb-0.5">Moon</h3>
                     <p data-testid="moon-phase" className="text-[12px] text-white">
                         {day.moonPhase}
@@ -300,17 +300,20 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                     </p>
                 </div>
 
-                <section className="px-5 pb-2" aria-label="Solunar periods">
+                <section className="px-4 pb-1" aria-label="Solunar periods">
                     <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pb-0.5">Solunar</h3>
-                    <p className="text-[11px] text-gray-400">
+                    <p className="text-[11px] leading-tight text-gray-400">
                         Traditional lunar windows, not predictions of fish activity.
                     </p>
                     {solunar ? (
-                        <dl className="text-[12px] tabular-nums">
+                        <dl className="text-[11px] leading-tight tabular-nums">
                             {solunar.map((period) => (
-                                <div key={period.label} className="py-1 border-t border-white/5">
+                                <div
+                                    key={period.label}
+                                    className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 py-0.5 border-t border-white/5"
+                                >
                                     <dt className="text-gray-300">{period.label}</dt>
-                                    <dd className="font-semibold text-white">
+                                    <dd className="min-w-0 text-right font-semibold text-white">
                                         {period.times.join(' / ') || 'None that day'}
                                     </dd>
                                 </div>
@@ -323,8 +326,8 @@ export const SunMoonSheet: React.FC<SunMoonSheetProps> = ({ onClose, lat, lon, t
                     )}
                 </section>
 
-                <p className="px-5 pb-3 text-[10px] text-gray-400">
-                    Worked out on this phone for {where}; darkness is the sun more than 6° down.
+                <p className="px-4 pb-2 text-[10px] text-gray-400">
+                    Worked out on this phone at {where}. Dark: sun below −6°.
                 </p>
             </div>
         </div>,

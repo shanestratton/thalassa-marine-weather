@@ -200,7 +200,14 @@ const fixture = {
     screen: screenName,
     maps,
     taps: { count: 0 },
-    expected: seaBaseLayers('reliefSat'),
+    // Independent fixed-scene admission, not inferred from mounted layers.
+    // Solent/Fiji never intersect the frozen AU/NZ coverage. Whitsundays
+    // admits AU250 beside the existing GBR grid, and never NZ. An absent
+    // expectation must fail if an unqualified sparse layer is mounted.
+    expected: seaBaseLayers('reliefSat').map(([id, on]): [string, boolean | null] => [
+        id,
+        /^relief-nz-/.test(id) || (/^relief-au250-/.test(id) && screenName !== 'whitsundays') ? null : on,
+    ]),
     boat: lonLat([...lineFixes].sort((a, b) => a.timestamp.localeCompare(b.timestamp))[BOAT_INDEX] ?? lineFixes[0]),
     boatIndex: BOAT_INDEX,
     spots,
