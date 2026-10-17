@@ -78,3 +78,31 @@ After final formatting, the 11 directly relevant suites pass all 119 cases
 The 42-case final browser log SHA-256 is
 `7119a04c977489ea9ca933ac37b95765fe53bee74c16b56f33b29e77eb11a04f`.
 Scoped ESLint has zero errors; MapHub retains its six inherited warnings.
+
+## First actual hourly publication
+
+The reviewed wx timer genuinely ran at 05:35:24 UTC on 17 October 2026; no
+manual job was triggered. It finished at 05:40:32 with explicit partial-delivery
+exit 3, systemd success, PID 0 and no remaining cgroup. Health stays partial.
+Independent unauthenticated public HTTPS verified 67 reads/267,975 bytes,
+including original pointer, index, all 61 station details and unchanged final
+pointers. NOAA's 19 stations remain preliminary; Queensland's 22 remain
+provisional. The 20 skill stations/160 metric-lead bins are all warming with
+null MAE and no winner. The actual 65 distinct original objects are retained in
+the test-only `scheduled-cohort.txt`, with fixed fixture and independent receipt
+digests. They are not part of the production bundle.
+
+Buoy availability is genuinely 5,400 seconds: generated 05:35:46, expiry
+07:05:46. Twenty-two Queensland stations still expire at their earlier original
+06:00 clock. The app proof reads and caches one before that time, then refuses
+it at expiry without another HTTP request while its cohort remains current.
+It also removes those expired stations from viewport selection. All actual
+histories decode: 7,132 measured points and no invented forecast history.
+The new proof plus existing contract/session suites pass 29 cases.
+
+The initial transition was not continuous: the old one-hour pointer expired at
+05:36:54; the new public pointer's Last-Modified was 05:38:03. Original expiry
+checks reject stale CDN responses during that gap. The next unchanged timer is
+06:35:10, providing 30 minutes 36 seconds from that start to current cohort
+expiry, although outages can still exhaust it. No observation clock, cadence,
+request limit, retained-cohort limit or scientific qualification was changed.
