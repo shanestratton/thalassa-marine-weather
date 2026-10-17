@@ -39,17 +39,17 @@ CREATE TABLE private_presence.boat_presence (
 CREATE TABLE private_presence.samples (
     owner_id uuid PRIMARY KEY REFERENCES private_presence.boat_presence(owner_id) ON DELETE CASCADE,
     fix_lat double precision, fix_lon double precision, fix_at timestamptz,
-    pending_lat double precision, pending_lon double precision, pending_at timestamptz, pending_bucket bigint,
-    published_lat double precision, published_lon double precision, published_at timestamptz, published_bucket bigint,
+    pending_lat double precision, pending_lon double precision, pending_at timestamptz, pending_bucket bigint, pending_source_at timestamptz,
+    published_lat double precision, published_lon double precision, published_at timestamptz, published_bucket bigint, published_source_at timestamptz,
     touched_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     CHECK(fix_lat BETWEEN -90 AND 90 AND fix_lon BETWEEN -180 AND 180),
     CHECK(pending_lat BETWEEN -90 AND 90 AND pending_lon BETWEEN -180 AND 180),
     CHECK(published_lat BETWEEN -90 AND 90 AND published_lon BETWEEN -180 AND 180),
     CHECK((fix_lat IS NULL)=(fix_lon IS NULL) AND (fix_lat IS NULL)=(fix_at IS NULL)),
     CHECK((pending_lat IS NULL)=(pending_lon IS NULL) AND (pending_lat IS NULL)=(pending_at IS NULL)
-        AND (pending_lat IS NULL)=(pending_bucket IS NULL)),
+        AND (pending_lat IS NULL)=(pending_bucket IS NULL) AND (pending_lat IS NULL)=(pending_source_at IS NULL)),
     CHECK((published_lat IS NULL)=(published_lon IS NULL) AND (published_lat IS NULL)=(published_at IS NULL)
-        AND (published_lat IS NULL)=(published_bucket IS NULL))
+        AND (published_lat IS NULL)=(published_bucket IS NULL) AND (published_lat IS NULL)=(published_source_at IS NULL))
 );
 CREATE INDEX presence_samples_expiry ON private_presence.samples(touched_at,owner_id);
 CREATE INDEX presence_published_area ON private_presence.samples(published_lat,published_lon)
@@ -274,8 +274,8 @@ BEGIN
             ELSE
                 UPDATE private_presence.boat_presence SET publisher_revision=gen_random_uuid(),publisher_nonce=nonce,
                     publisher_until=at_time+interval '45 seconds' WHERE owner_id=actor RETURNING * INTO cfg;
-                UPDATE private_presence.samples SET pending_lat=NULL,pending_lon=NULL,pending_at=NULL,pending_bucket=NULL,
-                    published_lat=NULL,published_lon=NULL,published_at=NULL,published_bucket=NULL WHERE owner_id=actor;
+                UPDATE private_presence.samples SET pending_lat=NULL,pending_lon=NULL,pending_at=NULL,pending_bucket=NULL,pending_source_at=NULL,
+                    published_lat=NULL,published_lon=NULL,published_at=NULL,published_bucket=NULL,published_source_at=NULL WHERE owner_id=actor;
             END IF;
         ELSE
             -- A stop may overtake its begin. The known nonce retires it in
@@ -287,8 +287,8 @@ BEGIN
             ELSIF kind='publisher' AND (cfg.publisher_revision=expected OR cfg.publisher_nonce=nonce) THEN
                 UPDATE private_presence.boat_presence SET publisher_revision=gen_random_uuid(),publisher_nonce=NULL,publisher_until=NULL
                     WHERE owner_id=actor RETURNING * INTO cfg;
-                UPDATE private_presence.samples SET pending_lat=NULL,pending_lon=NULL,pending_at=NULL,pending_bucket=NULL,
-                    published_lat=NULL,published_lon=NULL,published_at=NULL,published_bucket=NULL WHERE owner_id=actor;
+                UPDATE private_presence.samples SET pending_lat=NULL,pending_lon=NULL,pending_at=NULL,pending_bucket=NULL,pending_source_at=NULL,
+                    published_lat=NULL,published_lon=NULL,published_at=NULL,published_bucket=NULL,published_source_at=NULL WHERE owner_id=actor;
             END IF;
         END IF;
     ELSIF p_action='fix' THEN
@@ -325,11 +325,11 @@ BEGIN
         IF p_input ? 'publisherNonce' THEN
             UPDATE private_presence.boat_presence SET publisher_until=at_time+interval '45 seconds' WHERE owner_id=actor;
             UPDATE private_presence.samples SET
-                published_lat=pending_lat,published_lon=pending_lon,published_at=pending_at,published_bucket=pending_bucket,
-                pending_lat=NULL,pending_lon=NULL,pending_at=NULL,pending_bucket=NULL
+                published_lat=pending_lat,published_lon=pending_lon,published_at=pending_at,published_bucket=pending_bucket,published_source_at=pending_source_at,
+                pending_lat=NULL,pending_lon=NULL,pending_at=NULL,pending_bucket=NULL,pending_source_at=NULL
                 WHERE owner_id=actor AND pending_at<=at_time-interval '5 minutes';
-            bucket:=floor(extract(epoch FROM at_time)/300)::bigint;
-            UPDATE private_presence.samples SET pending_lat=lat,pending_lon=lon,pending_at=at_time,pending_bucket=bucket
+            bucket:=floor(extract(epoch FROM observed)/300)::bigint;
+            UPDATE private_presence.samples SET pending_lat=lat,pending_lon=lon,pending_at=at_time,pending_bucket=bucket,pending_source_at=observed
                 WHERE owner_id=actor AND pending_at IS NULL;
         END IF;
     ELSIF p_action='nearby' THEN
@@ -344,7 +344,7 @@ BEGIN
                 'label',CASE WHEN p.tier='nearby' THEN 'Thalassa boat' ELSE left(b.name,120) END,
                 'tier',p.tier,'latitude',s.published_lat,'longitude',s.published_lon,
                 'bucketAt',to_timestamp(s.published_bucket*300),
-                'validUntil',least(at_time+interval '30 seconds',p.publisher_until,s.published_at+interval '15 minutes')) point,
+                'validUntil',least(at_time+interval '30 seconds',p.publisher_until,s.published_source_at+interval '15 minutes')) point,
                 6371000*2*asin(sqrt(least(1.0,
                     power(sin(radians(s.published_lat-sample.fix_lat)/2),2)+
                     cos(radians(sample.fix_lat))*cos(radians(s.published_lat))*power(sin(radians(s.published_lon-sample.fix_lon)/2),2)))) metres
@@ -352,7 +352,8 @@ BEGIN
             JOIN public.boats b ON b.id=p.boat_id AND b.owner_id=p.owner_id AND b.archived_at IS NULL AND b.released_at IS NULL
             JOIN public.user_active_vessels a ON a.user_id=p.owner_id AND a.boat_id=p.boat_id
             WHERE p.owner_id<>actor AND p.tier<>'off' AND p.publisher_until>at_time
-                AND s.published_at BETWEEN at_time-interval '15 minutes' AND at_time-interval '5 minutes'
+                AND s.published_at<=at_time-interval '5 minutes'
+                AND s.published_source_at>at_time-interval '15 minutes' AND s.published_source_at<=at_time-interval '5 minutes'
                 AND s.published_lat BETWEEN sample.fix_lat-0.421 AND sample.fix_lat+0.421
                 AND abs(mod((s.published_lon-sample.fix_lon+540)::numeric,360)-180)
                     <=least(180,0.421/greatest(0.001,abs(cos(radians(sample.fix_lat)))))

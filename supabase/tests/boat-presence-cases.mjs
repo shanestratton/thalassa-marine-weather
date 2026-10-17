@@ -97,7 +97,8 @@ export async function runPresenceCases(db) {
     const nearby = (n, r) => call(n, 'nearby', { revision: r.state.revision, readerNonce: r.nonce });
     const mature = (n) =>
         db.exec(`UPDATE private_presence.samples SET pending_at=clock_timestamp()-interval '5 minutes 1 second',
-        pending_bucket=floor(extract(epoch FROM clock_timestamp()-interval '5 minutes 1 second')/300),fix_at=clock_timestamp()-interval '20 seconds' WHERE owner_id='${person(n)}'`);
+        pending_source_at=clock_timestamp()-interval '5 minutes 30 seconds',
+        pending_bucket=floor(extract(epoch FROM clock_timestamp()-interval '5 minutes 30 seconds')/300),fix_at=clock_timestamp()-interval '20 seconds' WHERE owner_id='${person(n)}'`);
     eq(
         await scalar("SELECT count(*)::int FROM pg_publication_tables WHERE schemaname='private_presence'"),
         0,
@@ -153,13 +154,32 @@ export async function runPresenceCases(db) {
     );
     s = await configure(1, 'nearby');
     const publishing = await pub(1);
-    await fix(1, publishing);
+    const originalAt = new Date(Date.now() - 29000).toISOString();
+    await fix(1, publishing, -27.12, 153.15, { observedAt: originalAt });
+    eq(
+        Number(
+            await scalar(
+                `SELECT extract(epoch FROM pending_source_at)*1000 FROM private_presence.samples WHERE owner_id='${person(1)}'`,
+            ),
+        ),
+        Date.parse(originalAt),
+        'Original observed timestamp retained separately from receipt',
+    );
     eq((await nearby(2, viewing)).points.length, 0, 'Five minute delay enforced');
     const pending = await scalar(`SELECT pending_at::text FROM private_presence.samples WHERE owner_id='${person(1)}'`);
     await db.exec(
         `UPDATE private_presence.samples SET fix_at=clock_timestamp()-interval '20 seconds' WHERE owner_id='${person(1)}'`,
     );
     await fix(1, publishing, -27.8, 153.2);
+    eq(
+        Number(
+            await scalar(
+                `SELECT extract(epoch FROM pending_source_at)*1000 FROM private_presence.samples WHERE owner_id='${person(1)}'`,
+            ),
+        ),
+        Date.parse(originalAt),
+        'First source clock remains immutable across heartbeat',
+    );
     eq(
         await scalar(`SELECT pending_at::text FROM private_presence.samples WHERE owner_id='${person(1)}'`),
         pending,
@@ -181,6 +201,19 @@ export async function runPresenceCases(db) {
     assert.ok(Date.parse(points[0].validUntil) - Date.now() <= 30000);
     checks++;
     assert.ok(Date.now() - Date.parse(points[0].bucketAt) >= 300000);
+    checks++;
+    await db.exec(
+        `UPDATE private_presence.samples SET published_at=clock_timestamp()-interval '14 minutes 31 seconds',published_source_at=clock_timestamp()-interval '15 minutes 1 millisecond' WHERE owner_id='${person(1)}'`,
+    );
+    eq((await nearby(2, viewing)).points.length, 0, 'Source older than15min hidden even when receipt age is younger');
+    await db.exec(
+        `UPDATE private_presence.samples SET published_source_at=clock_timestamp()-interval '14 minutes 59 seconds' WHERE owner_id='${person(1)}'`,
+    );
+    const lastSecond = (await nearby(2, viewing)).points[0];
+    assert.ok(
+        lastSecond && Date.parse(lastSecond.validUntil) - Date.now() <= 1000,
+        'Viewer lease is capped by ORIGINAL source15min expiry',
+    );
     checks++;
     await denied(() => fix(1, publishing, 0, 0, { observedAt: new Date(Date.now() - 31000).toISOString() }), '22023');
     await denied(() => fix(1, publishing, 0, 0, { observedAt: new Date(Date.now() + 6000).toISOString() }), '22023');

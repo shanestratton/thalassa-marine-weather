@@ -40,8 +40,8 @@ async function contested(actor, ops) {
         while (true) {
             const waiting = Number(
                 await scalar(
-                    "SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1::int[]) AND state='active' AND wait_event_type='Lock'",
-                    [ops.map((_, i) => clients[i + 1].processID)],
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1::int[]) AND state='active' AND wait_event_type='Lock' AND $2::int=ANY(pg_blocking_pids(pid))",
+                    [ops.map((_, i) => clients[i + 1].processID), gate.processID],
                 ),
             );
             if (waiting >= ops.length) break;
