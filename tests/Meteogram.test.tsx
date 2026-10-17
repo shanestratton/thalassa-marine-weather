@@ -405,7 +405,7 @@ describe('the model, named and credited', () => {
 
     it('credits the offshore source offshore', () => {
         open({ offshore: true });
-        expect(screen.getByTestId('meteogram-credit')).toHaveTextContent('Forecast: StormGlass blend');
+        expect(screen.getByTestId('meteogram-credit')).toHaveTextContent('Forecast: ECMWF IFS · CC BY 4.0');
     });
 
     it('draws the models’ spread from the comparison’s answer and credits its providers', async () => {

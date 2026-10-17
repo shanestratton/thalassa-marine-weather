@@ -196,7 +196,9 @@ export const mapStormGlassToReport = (
     }
     if (!currentHour) throw new Error('Stormglass returned no data');
 
-    const selectedModel = resolveOffshoreModel(model);
+    const resolved = resolveOffshoreModel(model);
+    // Historical provider records retain their historical source identity.
+    const selectedModel = resolved === 'auto' ? 'sg' : resolved;
     // StormGlass documents GFS under NOAA, not the UI's friendly `gfs` id.
     const selectedSources = selectedModel === 'gfs' ? ['noaa', 'gfs'] : [selectedModel];
     const sourceOrder = [...new Set([...selectedSources, 'sg', 'ecmwf', 'noaa', 'icon', 'dwd', 'meto', 'metno'])];

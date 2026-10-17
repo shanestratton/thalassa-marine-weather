@@ -5,6 +5,9 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 
+const weatherFixture = vi.hoisted(() => ({
+    current: null as { windSpeed: number | null; windGust: number | null; waveHeight: number | null } | null,
+}));
 vi.mock('../context/WeatherContext', () => ({
     useWeather: () => ({
         weatherData: {
@@ -16,6 +19,7 @@ vi.mock('../context/WeatherContext', () => ({
             airTemperature: 24,
             condition: 'Clear',
             alerts: [],
+            ...(weatherFixture.current ? { current: weatherFixture.current } : {}),
         },
         loading: false,
     }),
@@ -248,6 +252,7 @@ describe('AnchorWatchPage', () => {
     };
 
     beforeEach(() => {
+        weatherFixture.current = null;
         vi.clearAllMocks();
         vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(null as never);
         vi.mocked(AnchorWatchService.subscribe).mockReturnValue(vi.fn());
@@ -319,19 +324,37 @@ describe('AnchorWatchPage', () => {
         render(<AnchorWatchPage {...defaultProps} />);
 
         // The advice sits with the dial's verdict, not in a strip the sticky
-        // arming bar covered. No current wind in this mock: '--', never 0, and
-        // the light-air scope still offered as a one-tap set (5 m x 5:1). It
-        // says 'now': the advice reads this minute's wind (UX scorecard run 9),
-        // wind first, then what the scope needs (UX scorecard run 10).
+        // arming bar covered. Unknown sea/wind must not become a light-air
+        // one-tap scope recommendation. Manual rode and arming remain present.
         expect(screen.getByText('ADEQUATE')).toBeInTheDocument();
-        const advice = screen.getByRole('button', { name: /^-- kts now · 5:1 needs 25 m, set rode to 25 metres$/ });
+        const advice = screen.getByRole('button', { name: 'Wind or sea forecast unavailable; choose rode manually' });
+        expect(advice).toBeDisabled();
         fireEvent.click(advice);
-        expect(screen.getByText('25 m')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^-- kts now · 5:1 set/ })).toBeInTheDocument();
+        expect(screen.queryByText('25 m')).not.toBeInTheDocument();
+        expect(screen.getByText('30 m')).toBeInTheDocument();
         // No fix in the test environment: the bar says so before the slide,
         // and the name the tests and Voice Control use is unchanged.
         const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
         expect(arm).toHaveAccessibleDescription(/GPS/);
+    });
+
+    it('retains the one-tap scope action when wind and sea are genuinely known', () => {
+        weatherFixture.current = { windSpeed: 8, windGust: 8, waveHeight: 0.3 };
+        render(<AnchorWatchPage {...defaultProps} />);
+        const advice = screen.getByRole('button', { name: /^8 kts now · 5:1 needs 25 m, set rode to 25 metres$/ });
+        expect(advice).toBeEnabled();
+        fireEvent.click(advice);
+        expect(screen.getByText('25 m')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^8 kts now · 5:1 set/ })).toBeInTheDocument();
+    });
+
+    it('keeps a known wind separate from unknown sea in the rode advice', () => {
+        weatherFixture.current = { windSpeed: 8, windGust: 12, waveHeight: null };
+        render(<AnchorWatchPage {...defaultProps} />);
+        const advice = screen.getByRole('button', { name: 'Wind or sea forecast unavailable; choose rode manually' });
+        expect(advice).toBeDisabled();
+        expect(advice).toHaveTextContent('8 kts now');
+        expect(advice).toHaveTextContent('Sea unknown');
     });
 
     it('names the rode-type row and speaks its choices in capitals (UX scorecard run 9)', () => {

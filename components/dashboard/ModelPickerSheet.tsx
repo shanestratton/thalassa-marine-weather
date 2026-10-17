@@ -23,7 +23,9 @@ import {
     getForecastModelInfo,
     getOffshoreModelInfo,
     providerLicence,
+    offshoreAtmosphericModel,
 } from '../../services/weather/forecastModels';
+import { MarineDataCredit } from '../weather/MarineDataCredit';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
 import { PartlyCloudyIcon, XIcon } from '../Icons';
@@ -37,7 +39,7 @@ interface ModelPickerSheetProps {
     /** Manual refresh escape hatch — refresh is automatic, but after an
      *  error the user needs a way to retry on their own schedule. */
     onRefresh: () => void;
-    /** Offshore uses the supported StormGlass source keys and a separate
+    /** Offshore uses a separate atmospheric preference
      * preference, not the atmospheric Open-Meteo/publisher catalogue. */
     offshore?: { currentModel: OffshoreModel; onPick: (id: OffshoreModel) => void };
     /** SPITFIRE is only computed for a fixed list of locations, so it is
@@ -75,14 +77,11 @@ const CREDIT_NAMES: Readonly<Record<string, string>> = {
  * 'Forecast: DWD ICON · CC BY 4.0' ('CC BY-SA 4.0' for the UK Met Office). The
  * sheet prints it for the model the Glass is showing, above the full
  * attribution line (UX scorecard run 7). Blends and Auto credit every source;
- * offshore sources credit StormGlass.
+ * offshore selection credits its actual named atmospheric domain.
  */
 export function forecastCreditLine(model: WeatherModel, offshoreModel?: OffshoreModel): string {
     if (offshoreModel) {
-        if (offshoreModel === 'sg') return 'Forecast: StormGlass blend';
-        const entry = getOffshoreModelInfo(offshoreModel);
-        const name = entry.provider === entry.label ? entry.label : `${entry.provider} ${entry.label}`;
-        return `Forecast: ${name} via StormGlass`;
+        return forecastCreditLine(offshoreAtmosphericModel(offshoreModel));
     }
     const info = getForecastModelInfo(model);
     if (!info) return MODEL_ATTRIBUTION_LINE;
@@ -131,8 +130,7 @@ export function offshoreModelHelper(id: OffshoreModel): string {
  * ECMWF 351, AIFS 366, UKMO 157, JMA 258), floored so a row never promises a
  * day the model does not reach. The run lengths behind them are fixed by each
  * centre's schedule (ICON 180 h, UKMO 168 h, JMA 264 h, IFS and AIFS 360 h).
- * Blends (Spitfire, Auto) and the StormGlass offshore sources have no single
- * horizon and show none.
+ * Blends (Spitfire, Auto) show no single horizon here.
  */
 const MODEL_RANGE_DAYS: Readonly<Record<string, number>> = {
     dwd_icon: 7,
@@ -299,7 +297,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         'within 20 nm of the coast' left inland unsaid. */}
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
                         {offshore ? (
-                            'The offshore source used beyond 20 nm: the same choice as Model used beyond 20 nm in Settings → Preferences. Your inshore model stays saved separately. Unavailable fields and fallback sources remain labelled.'
+                            'Atmosphere beyond 20 nm; also set in Preferences. Your inshore choice stays saved. Fallbacks stay labelled.'
                         ) : (
                             // 'Long-press' kept whole: it broke at its hyphen on a 393 pt phone.
                             <>
@@ -354,6 +352,16 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             {atmosphericRow(AUTO_MODEL, 'Auto', 'Blend of sources — no single model chosen')}
                         </>
                     )}
+                    <details className="rounded-xl border border-white/10 px-3 text-xs text-slate-300">
+                        <summary className="min-h-11 cursor-pointer py-3 font-semibold">Data sources</summary>
+                        <p className="pb-2">
+                            <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
+                        </p>
+                        <MarineDataCredit />
+                        <p className="pb-3">
+                            Ocean models do not resolve berths or enclosed water. Missing values stay unknown.
+                        </p>
+                    </details>
                     <Suspense fallback={<p className="p-3 text-xs text-slate-400">Loading station skill…</p>}>
                         <NearbyModelSkill coordinates={coordinates} />
                     </Suspense>
@@ -386,13 +394,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         <p className="font-semibold text-slate-300">
                             {forecastCreditLine(currentModel, offshore ? offshore.currentModel : undefined)}
                         </p>
-                        <p>
-                            {offshore ? (
-                                'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC BY 4.0).'
-                            ) : (
-                                <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
-                            )}
-                        </p>
+                        <p>Full credits in Data sources above.</p>
                     </div>
                 </div>
             </div>

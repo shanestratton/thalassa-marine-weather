@@ -71,6 +71,7 @@ vi.mock('../services/sentry', () => ({
 
 import {
     WeatherOrchestrator,
+    loadWeatherCacheSyncForScope,
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
@@ -203,6 +204,38 @@ afterEach(() => {
 });
 
 describe('WeatherOrchestrator identity fences', () => {
+    it('clears legacy marine placeholders before scoped first paint without changing the cached atmospheric record', () => {
+        const cached = makeReport('Fictional cached point');
+        weatherMocks.loadLargeDataSync.mockImplementation((key) =>
+            key === weatherCacheKeysForScope(getAuthIdentityScope()).data ? cached : null,
+        );
+        const displayed = loadWeatherCacheSyncForScope(getAuthIdentityScope());
+        expect(displayed?.current.windSpeed).toBe(8);
+        expect(displayed?.current.waveHeight).toBeNull();
+        expect(displayed?.boatingAdvice).toContain('Sea state unavailable');
+        expect(cached.current.waveHeight).toBe(0.5);
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+    it('retains original fresh marine clocks at scoped first paint and refuses an expired receipt', () => {
+        const cached = makeReport('Fictional cached point'),
+            now = Date.now();
+        cached.current.marine = {
+            parts: { total: { hM: 0.1524, periodS: 8, fromDeg: 90 }, windSea: null, swell: null, secondarySwell: null },
+            status: 'available',
+            reason: null,
+            waveModel: 'meteofrance_wave',
+            motionModel: 'best_match',
+            fetchedAtMs: now,
+            waveValidAtMs: now,
+            motionValidAtMs: now,
+            requested: { latitude: -27.4, longitude: 153.1 },
+        };
+        weatherMocks.loadLargeDataSync.mockReturnValue(cached);
+        expect(loadWeatherCacheSyncForScope(getAuthIdentityScope())?.current.waveHeight).toBe(0.5);
+        expect(loadWeatherCacheSyncForScope(getAuthIdentityScope())?.current.marine?.fetchedAtMs).toBe(now);
+        cached.current.marine.fetchedAtMs = now - 3600001;
+        expect(loadWeatherCacheSyncForScope(getAuthIdentityScope())?.current.waveHeight).toBeNull();
+    });
     it('re-geocodes a 1 km move instead of attaching the previous suburb to fresh coordinates', async () => {
         const { state, callbacks } = callbackHarness();
         state.weatherData = makeReport('Scarborough', -27.2, 153.1);

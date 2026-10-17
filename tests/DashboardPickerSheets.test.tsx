@@ -146,8 +146,8 @@ describe('dashboard picker sheets', () => {
         expect(forecastCreditLine('best_match')).toMatch(
             /\(CC BY 4\.0\); UKMO \(CC BY-SA 4\.0\); NOAA \(public domain\)$/,
         );
-        expect(forecastCreditLine('dwd_icon', 'sg')).toBe('Forecast: StormGlass blend');
-        expect(forecastCreditLine('dwd_icon', 'ecmwf')).toBe('Forecast: ECMWF via StormGlass');
+        expect(forecastCreditLine('dwd_icon', 'sg')).toBe('Forecast: ECMWF IFS · CC BY 4.0');
+        expect(forecastCreditLine('dwd_icon', 'ecmwf')).toBe('Forecast: ECMWF IFS · CC BY 4.0');
     });
 
     it('gives ModelPickerSheet an explicit close action and contains keyboard focus', () => {

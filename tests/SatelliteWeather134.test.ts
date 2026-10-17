@@ -46,6 +46,7 @@ vi.mock('../services/weather/api/weatherkit', () => ({
     fetchMinutelyRain: vi.fn(),
 }));
 vi.mock('../services/weather/api/marine', () => ({ fetchMarine: m.marine, isLocalReading: () => false }));
+vi.mock('../services/weather/api/marineModel', () => ({ fetchMarineModelV2: m.marine }));
 vi.mock('../services/weather/api/tides', () => ({ fetchRealTides: m.tides, interpolateTideHourly: vi.fn() }));
 vi.mock('../services/weather/api/geocoding', () => ({ parseLocation: m.geocode, reverseGeocode: m.geocode }));
 vi.mock('../services/weather/api/buoys', () => ({ fetchActiveBuoys: vi.fn() }));
