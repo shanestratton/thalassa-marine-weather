@@ -368,7 +368,7 @@ try {
     races.push('report→blocking-proven photo finish refusal');
     // Forty recorded reservations includes retired/orphan slots; deleting a review cannot reset it.
     await pool.query(
-        "with ids as materialized(select gen_random_uuid() id from generate_series(1,37)) insert into community_private.review_photos(id,owner_id,review_id,review_revision,object_path,status) select id,$1,$2,$3,$1::text||'/'||id::text||'.jpg','removed' from ids",
+        "with ids as materialized(select gen_random_uuid() id from generate_series(1,37)) insert into community_private.review_photos(id,owner_id,review_id,review_revision,object_path,status) select id,$1::uuid,$2::uuid,$3::uuid,$1::uuid::text||'/'||id::text||'.jpg','removed' from ids",
         [a, id, (await call(a, 'mine', { place_id: draft.place_id })).revision],
     );
     await rejects(
