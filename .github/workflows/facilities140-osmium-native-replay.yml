@@ -1,0 +1,68 @@
+name: Facilities140 exact compiled tool native diagnostic replay
+on:
+  push:
+    branches: [codex/build-140-osmium-native-replay]
+    paths: [.github/workflows/facilities140-osmium-native-replay.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: facilities140-low-memory-native-replay
+  cancel-in-progress: false
+jobs:
+  native:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: '12091874372'
+          run-id: '39009493517'
+          github-token: ${{ github.token }}
+          path: original-download
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Verify exact failed-run evidence and compiled original binary hashes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,zipfile
+          from pathlib import Path
+          files=list(Path('original-download').rglob('*'));files=[p for p in files if p.is_file()]
+          assert len(files)==1
+          raw=files[0].read_bytes();assert len(raw)==2820762
+          assert hashlib.sha256(raw).hexdigest()=='4b9309ae8d9d22d9f156608a300694a73fc599bbc2c286b2c883d4dceaa6fa72'
+          root=Path('evidence');root.mkdir(exist_ok=False)
+          with zipfile.ZipFile(files[0]) as z:
+           assert len(z.infolist())<128 and sum(i.file_size for i in z.infolist())<100*1024**2
+           for i in z.infolist():
+            assert not i.filename.startswith('/') and '..' not in Path(i.filename).parts and '\\' not in i.filename and (i.external_attr>>16)&0o170000!=0o120000
+           z.extractall(root/'original')
+          for n,h in [('osmium-baseline','91250ec19f1bf0543b6f9dd37475182e23f5cbb424b1791b2322049387352418'),('osmium-small-chunks','9760b0193a3a2bcdf113a460efce94505c80c49b3dbec20a841724f71884aa7e')]:
+           p=root/'original'/n;assert hashlib.sha256(p.read_bytes()).hexdigest()==h;p.chmod(0o755)
+          PY
+      - name: Run unchanged original dataset and allocation proof with visible native diagnostics
+        run: |
+          set -euo pipefail
+          sudo systemd-run --quiet --pipe --unit=facilities140-small-chunk-replay --wait -p Type=exec -p User="$(id -un)" -p MemoryMax=2147483648 -p MemorySwapMax=0 -p TasksMax=16 -p CPUQuota=50% -p RuntimeMaxSec=240 -p LimitCORE=0 -p LimitFSIZE=268435456 /usr/bin/python3 "$PWD/app/ci/facilities140/low-memory-fixture.py" "$PWD/evidence/native-replay" "$PWD/evidence/original/osmium-baseline" "$PWD/evidence/original/osmium-small-chunks"
+      - name: Preserve actual native cgroup and journal diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sudo systemctl show facilities140-small-chunk-replay.service -p Result -p ExecMainStatus -p MemoryPeak -p MemoryMax -p MemorySwapMax -p TasksMax -p CPUQuotaPerSecUSec > evidence/native-cgroup.txt
+          sudo journalctl -u facilities140-small-chunk-replay.service --no-pager -n80 > evidence/native-journal.txt
+          cp app/ci/facilities140/low-memory-fixture.py evidence/
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: facilities140-low-memory-native-replay-evidence
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error

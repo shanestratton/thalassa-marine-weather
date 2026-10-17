@@ -8,6 +8,8 @@ env['OSMIUM_POOL_THREADS']='2'
 for q in ['INPUT','OSMDATA','OUTPUT','WORK']:env['OSMIUM_MAX_'+q+'_QUEUE_SIZE']='2'
 def run(args):
  p=subprocess.run([str(x) for x in args],capture_output=True,timeout=90,env=env)
+ with (root/'commands.jsonl').open('a') as log:log.write(json.dumps({'argv':[str(x) for x in args],'exit':p.returncode,'stderr':p.stderr.decode(errors='replace')[-4000:]})+'\n')
+ if p.returncode:print(p.stderr.decode(errors='replace')[-4000:],flush=True)
  assert p.returncode==0,p.stderr.decode(errors='replace')[-4000:]
  return p.stdout
 # Sparse nodes span current real-world ID magnitudes and each side of 4 KiB
