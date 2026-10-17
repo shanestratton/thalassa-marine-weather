@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { build, type Plugin } from 'vite';
 import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
-import { packMapboxShaderSource, packMapboxShaders } from '../scripts/pack-mapbox-shaders.mjs';
+import { packMapboxShaderSource, packMapboxShaders, packShaderRows } from '../scripts/pack-mapbox-shaders.mjs';
 import { decodeClassNames } from '../utils/decodeClassNames';
 
 const root = process.cwd();
@@ -79,9 +79,29 @@ describe('pinned main-renderer shader representation', () => {
         expect(packed.code.slice(packed.prelude.length).split('__thalassaMapboxShaderValues[')).toHaveLength(90);
         expect(packed.workers).toHaveLength(2);
         expect(packed.pools).toHaveLength(2);
+        expect(packed.rows).toHaveLength(139);
+        expect(packed.pools.map((pool) => pool.count)).toEqual([65, 74]);
+        expect(packed.pools.map((pool) => pool.bytes)).toEqual([78197, 101867]);
+        expect(packed.pools.reduce((sum, pool) => sum + pool.encoded.length, 0)).toBe(45552);
         expect(() => packMapboxShaderSource(source + '\n// drift')).toThrow('Unreviewed Mapbox shader source');
         expect(packed.table).not.toMatch(/\bdocument\b|\beval\s*\(|new Function|readPackedUiData|readPreloadData/);
         expect(restored).toContain('workerBundleString');
+    });
+
+    it('preserves exact whitespace, empty space tokens and Unicode in one-token rows under the original bounds', () => {
+        const rows = [
+            '  uniform\tfloat speed;\n\n',
+            'void main() {\n  // ⚓ exact\n}\n',
+            '  uniform\tfloat speed;\n\n',
+        ];
+        const packed = packShaderRows(rows);
+        expect(decodeClassNames(packed.encoded, packed.bytes, packed.count, packed.checksum)).toEqual(rows);
+        expect(() => packShaderRows(['x'.repeat(2049)])).toThrow(/bounds/);
+        expect(() => packShaderRows(Array.from({ length: 4097 }, () => 'x'))).toThrow(/bounds/);
+        expect(() => packShaderRows(Array.from({ length: 126 }, () => 'x'.repeat(2048)))).toThrow(/bounds/);
+        expect(() => decodeClassNames(packed.encoded, packed.bytes, packed.count, packed.checksum + 1)).toThrow(
+            /checksum/,
+        );
     });
 
     it('preserves every runtime export/accessor with actual Vite CommonJS handling', async () => {
