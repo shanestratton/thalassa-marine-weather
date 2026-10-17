@@ -64,6 +64,52 @@ test('actual planner deep link and Logs entry mount without a backend or display
     await expect(page.locator('#thalassa-display-data-error')).toHaveCount(0);
 });
 
+test('an outgoing real lazy import cannot reload Plan over an independent Logs navigation', async ({ page }) => {
+    let releaseForecast = () => {};
+    let forecastPending = false;
+    const forecastGate = new Promise<void>((resolve) => {
+        releaseForecast = resolve;
+    });
+    const navigations: string[] = [];
+    page.on('framenavigated', (frame) => {
+        if (frame === page.mainFrame()) navigations.push(new URL(frame.url()).pathname);
+    });
+    await page.route('**/assets/ForecastSheet-*.js', async (route) => {
+        const response = await route.fetch();
+        forecastPending = true;
+        await forecastGate;
+        // A document navigation normally cancels this original browser request.
+        if (!route.request().failure()) await route.fulfill({ response });
+    });
+    await page.route('**/logs/no-real-vessel', async (route) => {
+        const response = await route.fetch();
+        // Keep navigation provisional long enough to observe WebKit rejecting
+        // the outgoing import. This is transport ordering, not a larger deadline.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (!route.request().failure()) await route.fulfill({ response });
+    });
+    try {
+        await page.goto('/plan/synthetic-proof');
+        await expect(page.locator('#root')).not.toBeEmpty();
+        await expect(page.locator('script[type="application/json"][id^="thalassa-ui-"]')).toHaveCount(0);
+        await expect(page.locator('#thalassa-display-data-error')).toHaveCount(0);
+        await expect.poll(() => forecastPending).toBe(true);
+        await page.goto('/logs/no-real-vessel');
+        await expect(page.getByRole('heading', { name: 'Voyage log unavailable', exact: true })).toBeVisible();
+        await expect(page.locator('script[type="application/json"][id^="thalassa-ui-"]')).toHaveCount(0);
+        await expect(page.locator('#thalassa-display-data-error')).toHaveCount(0);
+        expect(navigations).toEqual(['/plan/synthetic-proof', '/logs/no-real-vessel']);
+        expect(
+            await page.evaluate(() => [
+                sessionStorage.getItem('lazyRetry_default'),
+                sessionStorage.getItem('lazyRetry_lastReloadAt'),
+            ]),
+        ).toEqual([null, null]);
+    } finally {
+        releaseForecast();
+    }
+});
+
 for (const [entry, selector] of [
     ['beta', '#beta-heading'],
     ['feedback', '#feedback-heading'],
