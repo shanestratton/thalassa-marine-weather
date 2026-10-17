@@ -1,11 +1,8 @@
 name: Build141 isolated Pi9 staging proof
 on:
-    workflow_dispatch:
-        inputs:
-            source_sha:
-                description: Exact reviewed source commit
-                required: true
-                type: string
+    push:
+        branches: ['codex/build-141-pi9-staging-proof']
+        paths: ['.github/workflows/pi9-stage-141.yml']
 permissions:
     contents: read
 concurrency:
@@ -17,14 +14,14 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 6
         env:
-            SOURCE_SHA: ${{ inputs.source_sha }}
+            SOURCE_SHA: dd73c43a4e3c6c7c0d2a617c393127de422026a4
         steps:
             - name: Require exact source
               shell: bash
               run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ inputs.source_sha }}
+                  ref: dd73c43a4e3c6c7c0d2a617c393127de422026a4
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
