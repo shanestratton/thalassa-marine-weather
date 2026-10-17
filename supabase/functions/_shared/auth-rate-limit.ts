@@ -135,7 +135,9 @@ export async function consumePublicQuota(
             'Retry-After': '60',
         });
     }
-    if (!allowed) {
+    // Only the RPC's literal boolean approval admits a public request. A
+    // malformed successful response is not quota authority.
+    if (allowed !== true) {
         return jsonResponse({ error: 'Request quota exceeded' }, 429, {
             'Retry-After': String(windowSeconds),
         });

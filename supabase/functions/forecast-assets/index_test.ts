@@ -54,7 +54,8 @@ Deno.test('actual credential-free Edge entry: quota RPC, fixed transport and Den
     const originalEnv = new Map(['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'].map((key) => [key, Deno.env.get(key)]));
     let handle: ((request: Request) => Promise<Response>) | undefined;
     const events: string[] = [];
-    let allowed = true, quotaError = false;
+    let allowed: unknown = true;
+    let quotaError = false;
     let assetStatus = 200, redirect: string | null = null;
     const manifest = source();
     const file = 'g-20261017T000000Z-123456abcdef-h000.bin';
@@ -134,6 +135,15 @@ Deno.test('actual credential-free Edge entry: quota RPC, fixed transport and Den
             );
             assert(response.status === 429 && response.headers.get('retry-after') === '3600');
             assert(events.join(',') === 'quota');
+            allowed = true;
+        });
+        await t.step('malformed successful quota RPC values never become public approval', async () => {
+            for (const reply of [null, 0, 1, 'true', {}, [], [true]]) {
+                allowed = reply;
+                events.length = 0;
+                assert((await handle!(req(`ssh/${file}`))).status === 429);
+                assert(events.join(',') === 'quota');
+            }
             allowed = true;
         });
         await t.step('quota RPC failure holds without public GitHub access', async () => {
