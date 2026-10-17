@@ -23,6 +23,7 @@ export interface PaperChartSheetProps {
     satelliteMode: boolean;
     onCatalogue?: () => void;
     onFindChart?: () => void;
+    onLocalCharts?: () => void;
     onUserOverlays?: () => void;
     onDrawingTools?: () => void;
     drawingToolsDisabled?: boolean;
@@ -189,6 +190,18 @@ export default function PaperChartSheet(props: PaperChartSheetProps) {
                             }}
                         >
                             Your overlays · import / manage
+                        </button>
+                    )}
+                    {props.onLocalCharts && (
+                        <button
+                            type="button"
+                            className={`${button} w-full text-sky-200`}
+                            onClick={(event) => {
+                                event.currentTarget.focus({ preventScroll: true });
+                                if (isAuthIdentityScopeCurrent(scopeAtOpen.current)) props.onLocalCharts?.();
+                            }}
+                        >
+                            Import a chart file · your saved charts
                         </button>
                     )}
                     {props.onFindChart && (
