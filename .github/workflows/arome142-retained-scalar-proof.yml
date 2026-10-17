@@ -1,0 +1,70 @@
+name: AROME142 retained original scalar headers only
+on:
+    push:
+        branches: [codex/build-142-arome-retained-scalar-proof]
+        paths: [.github/workflows/arome142-retained-scalar-proof.yml]
+permissions:
+    contents: read
+    actions: read
+concurrency:
+    group: arome142-retained-original-scalar-v2
+    cancel-in-progress: false
+jobs:
+    scalar:
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/build-142-arome-retained-scalar-proof' && github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        env:
+            PROOF_SOURCE_SHA: 9f2364baa85ed1ef4b796379789b8140616fa721
+            SCALAR_CONTROLLER_SHA: 0c33f8ac3e1a87d0cd122061e09b89c99e8b8d00
+            PYTHONDONTWRITEBYTECODE: '1'
+            OPENBLAS_NUM_THREADS: '1'
+            OMP_NUM_THREADS: '1'
+        steps:
+            - name: Checkout exact reviewed control
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.sha }}
+                  path: controls
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Checkout unchanged9f admission source
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: 9f2364baa85ed1ef4b796379789b8140616fa721
+                  path: source
+                  persist-credentials: false
+            - name: Set up proven Python3.11.15
+              uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+              with:
+                  python-version: '3.11.15'
+            - name: Set up proven Node24
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '24'
+            - name: Retrieve only exact retained GitHub artifact
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  test "$GITHUB_RUN_ATTEMPT" = 1
+                  umask 077
+                  mkdir "$RUNNER_TEMP/arome142-scalar-evidence"
+                  test ! -e "$RUNNER_TEMP/arome142-retained-original.zip"
+                  (ulimit -f 4096; timeout --signal=TERM --kill-after=2s 30s env -i PATH=/usr/bin:/bin HOME=/tmp GH_CONFIG_DIR="$RUNNER_TEMP/arome142-empty-gh-config" GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_TOKEN="$GH_TOKEN" /usr/bin/gh api repos/shanestratton/thalassa-marine-weather/actions/artifacts/12101249246/zip) > "$RUNNER_TEMP/arome142-retained-original.zip" 2> "$RUNNER_TEMP/arome142-scalar-evidence/artifact-download.txt"
+            - name: Inspect scalar headers in isolated offline native unit
+              shell: bash
+              run: bash controls/ci/arome142-scalar/run.sh
+            - name: Preserve bounded text on every outcome
+              if: always()
+              shell: bash
+              run: python controls/ci/arome142-scalar/collect.py
+            - name: Preserve scalar proof without binary packages
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: arome142-retained-scalar-${{ github.run_id }}
+                  path: ${{ runner.temp }}/arome142-scalar-artifact
+                  if-no-files-found: error
+                  retention-days: 14
