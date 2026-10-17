@@ -1,0 +1,8 @@
+{
+  "source": "9f2364baa85ed1ef4b796379789b8140616fa721",
+  "files": {
+    "native.py": "8a17f8650a4bc95ce9ec3562dbf961e8a7bedd82e4c915f75a77c726ead76c69",
+    "catalogue.py": "bb1ef354dc669dc6a4ebc2e1800852b1e6e5d96dd95ff8487213881a631257dd",
+    "native-requirements.lock": "cfd6e6ae3863ee58bd40f780df1fbf86443790989f050e2063163f2f96df2f64"
+  }
+}

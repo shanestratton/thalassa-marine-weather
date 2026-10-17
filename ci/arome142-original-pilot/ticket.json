@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "attempt": "ncaled-20261017-00-h000-original-pilot-v1",
+  "day": "2026-10-17",
+  "source": "9f2364baa85ed1ef4b796379789b8140616fa721",
+  "catalogueSha256": "62b72c941a8598d712a550ef0bf1020a6a34a9f199c7d09d50d8affb358e3383",
+  "maximumRequests": 1,
+  "expectedDeclaredBytes": 1373100,
+  "reservedBytes": 16777216,
+  "priorReviewedApplicationBytes": 2656963,
+  "dailyMaximumBytes": 2500000000,
+  "otherAromeAcquisitionHeld": true,
+  "expiresAt": "2026-10-17T18:00:00Z",
+  "reviewRequired": true
+}
