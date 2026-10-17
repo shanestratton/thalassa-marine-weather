@@ -60,6 +60,14 @@ function mapFixture() {
             loaded = true;
             map.emit('sourcedata', { sourceId: 'scalar-test-source', sourceDataType: 'content' });
         },
+        earlyContent: () => {
+            loaded = false;
+            map.emit('sourcedata', { sourceId: 'scalar-test-source', sourceDataType: 'content' });
+        },
+        metadataReady: () => {
+            loaded = true;
+            map.emit('sourcedata', { sourceId: 'scalar-test-source', sourceDataType: 'metadata' });
+        },
         restyle: (next: Layer[]) => {
             sources.clear();
             layers = next;
@@ -117,6 +125,41 @@ afterEach(() => {
 });
 
 describe('one owned scalar image presentation', () => {
+    it('does not mint readiness or overwrite a foreign layer that occupies its namespace', () => {
+        const map = mapFixture(),
+            ref = { current: map as unknown as mapboxgl.Map };
+        map.setLayers([{ id: 'scalar-test-layer', type: 'raster', source: 'foreign-source' }]);
+        const hook = renderHook(() => useScalarGridOverlay(ref, true, active));
+        expect(hook.result.current).toBe('stuck-visible');
+        expect(map.addSource).not.toHaveBeenCalled();
+        expect(map.removeLayer).not.toHaveBeenCalled();
+        expect(map.getLayer('scalar-test-layer')?.source).toBe('foreign-source');
+    });
+    it('keeps the actual content proof through Mapbox content-before-metadata readiness ordering', () => {
+        const map = mapFixture(),
+            ref = { current: map as unknown as mapboxgl.Map };
+        const hook = renderHook(() => useScalarGridOverlay(ref, true, active));
+        act(() => map.earlyContent());
+        expect(hook.result.current).toBe('loading');
+        act(() => map.metadataReady());
+        expect(hook.result.current).toBe('ready');
+        act(() => vi.advanceTimersByTime(10_001));
+        expect(hook.result.current).toBe('ready');
+        hook.unmount();
+        expect(map.sources.size).toBe(0);
+    });
+
+    it('refuses delayed metadata if the original source retired after its early content event', () => {
+        const map = mapFixture(),
+            ref = { current: map as unknown as mapboxgl.Map };
+        let current = true;
+        const hook = renderHook(() => useScalarGridOverlay(ref, true, { ...active, sourceCurrent: () => current }));
+        act(() => map.earlyContent());
+        current = false;
+        act(() => map.metadataReady());
+        expect(hook.result.current).toBe('unavailable');
+        expect(map.sources.size).toBe(0);
+    });
     it('publishes one bounded image below the chart and reports ready only after actual source content', () => {
         const map = mapFixture();
         const { result, unmount } = renderHook(() =>

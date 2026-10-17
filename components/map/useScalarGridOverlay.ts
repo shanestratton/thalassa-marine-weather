@@ -85,6 +85,7 @@ export function useScalarGridOverlay(
         let retired = false;
         let mapGone = false;
         let ownedSource: ReturnType<mapboxgl.Map['getSource']>;
+        let contentSeen = false;
         let readyTimer: ReturnType<typeof setTimeout> | null = null;
 
         const current = (): boolean => {
@@ -108,6 +109,21 @@ export function useScalarGridOverlay(
         const clearTimer = () => {
             if (readyTimer !== null) clearTimeout(readyTimer);
             readyTimer = null;
+        };
+        const presentationOwned = (): boolean => {
+            try {
+                const layer = map.getLayer(layerId);
+                return (
+                    !!ownedSource &&
+                    map.getSource(sourceId) === ownedSource &&
+                    !!layer &&
+                    layer.type === 'raster' &&
+                    'source' in layer &&
+                    layer.source === sourceId
+                );
+            } catch {
+                return false;
+            }
         };
         const removeOwned = () => {
             clearTimer();
@@ -159,6 +175,10 @@ export function useScalarGridOverlay(
                     refuse();
                     return;
                 }
+                if (map.getLayer(layerId) && !presentationOwned()) {
+                    refuse();
+                    return;
+                }
                 setStatus('loading');
                 const image = renderScalarGridImage(grid, stops, { width: 512, height: 512, bounds, check });
                 check();
@@ -176,6 +196,7 @@ export function useScalarGridOverlay(
                     throw new Error('Scalar image encoding failed');
                 check();
                 clearTimer();
+                contentSeen = false;
                 readyTimer = setTimeout(() => {
                     if (live) refuse();
                 }, 10_000);
@@ -212,7 +233,8 @@ export function useScalarGridOverlay(
                     refuse();
                     return;
                 }
-                if (event.sourceDataType === 'content' && map.isSourceLoaded(sourceId)) {
+                if (event.sourceDataType === 'content') contentSeen = true;
+                if (contentSeen && presentationOwned() && map.isSourceLoaded(sourceId)) {
                     clearTimer();
                     setStatus('ready');
                 }
@@ -226,6 +248,20 @@ export function useScalarGridOverlay(
         };
         const verify = () => {
             if (!retired && !current()) refuse();
+            else if (!retired && contentSeen) {
+                try {
+                    if (!presentationOwned()) {
+                        refuse();
+                        return;
+                    }
+                    if (map.isSourceLoaded(sourceId)) {
+                        clearTimer();
+                        setStatus('ready');
+                    }
+                } catch {
+                    refuse();
+                }
+            }
         };
         verifyRef.current = verify;
         const healOrder = () => {
