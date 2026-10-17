@@ -12,6 +12,8 @@
  */
 import { createLogger } from '../utils/createLogger';
 import { pruneMap } from '../utils/boundedMap';
+import { fetchOwnedOverpass } from './osm/ownedOverpass';
+import { OWN_OSM_MAX_SOURCE_AGE_MS, type OwnedOsmDocument } from './osm/ownedOverpassContract';
 
 /** Session bound on cached Overpass tiles (z8 — 60 tiles is a whole coast). */
 const TILE_CACHE_MAX = 60;
@@ -41,35 +43,14 @@ export interface SeamarkFeature {
 export interface SeamarkCollection {
     type: 'FeatureCollection';
     features: SeamarkFeature[];
+    /** Oldest original database clock represented by these community marks. */
+    sourceAt?: string;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-// Multiple Overpass API endpoints for global reliability
-const OVERPASS_ENDPOINTS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    // maps.mail.ru REMOVED 2026-08-23. It is a Russian-operated Overpass
-    // mirror, and this query carries the boat's position: the bbox is built
-    // from live accepted GPS fixes at toFixed(4) — about 11 m. The app's CSP
-    // blocks it on web, but capacitor.config.ts enables CapacitorHttp, which
-    // replaces window.fetch on iOS and does NOT enforce CSP — so on the
-    // phone, the one platform actually used at sea, the request was live.
-    // Two healthy mirrors remain.
-];
-// ROUND-ROBIN, not failover — worth stating, because it was read as failover.
-// _endpointIdx persists for the life of the module, so every query goes to a
-// DIFFERENT mirror whether or not the previous one was healthy. While mail.ru
-// was in this list that meant roughly one seamark query in three went to it,
-// with a healthy overpass-api.de sitting right there.
-let _endpointIdx = 0;
-function nextEndpoint(): string {
-    const url = OVERPASS_ENDPOINTS[_endpointIdx % OVERPASS_ENDPOINTS.length];
-    _endpointIdx++;
-    return url;
-}
-
-const CACHE_KEY = 'seamark_cache_v2';
+const CACHE_KEY = 'seamark_cache_v3_owned';
+const PERSIST_MAX_CHARS = 2_000_000;
 const TILE_ZOOM = 7; // z7 tiles = wider coverage per query, fewer requests globally
 const MIN_QUERY_ZOOM = 10; // Don't query below this zoom
 const MAX_FEATURES = 3000;
@@ -136,6 +117,7 @@ type Listener = (data: SeamarkCollection) => void;
 
 class SeamarkServiceClass {
     private cache = new Map<string, SeamarkFeature[]>();
+    private sourceAt = new Map<string, number>();
     private pendingTiles = new Set<string>();
     private listeners = new Set<Listener>();
     private currentCollection: SeamarkCollection = { type: 'FeatureCollection', features: [] };
@@ -165,6 +147,12 @@ class SeamarkServiceClass {
             await this.restoreCache();
             this._initialized = true;
         }
+        for (const [key, at] of this.sourceAt) {
+            if (!Number.isFinite(at) || at > Date.now() + 300_000 || Date.now() - at > OWN_OSM_MAX_SOURCE_AGE_MS) {
+                this.cache.delete(key);
+                this.sourceAt.delete(key);
+            }
+        }
 
         // Calculate which z8 tiles cover this viewport
         const tiles = this.getTilesForBounds(bounds);
@@ -191,6 +179,7 @@ class SeamarkServiceClass {
     /** Clear all cached data */
     async clearCache(): Promise<void> {
         this.cache.clear();
+        this.sourceAt.clear();
         this.currentCollection = { type: 'FeatureCollection', features: [] };
         this.notify();
         await Preferences.remove({ key: CACHE_KEY });
@@ -252,20 +241,16 @@ out center ${MAX_FEATURES};
 `;
 
         try {
-            log.info(
-                `Fetching seamarks: ${tiles.length} tiles, bbox [${south.toFixed(2)},${west.toFixed(2)},${north.toFixed(2)},${east.toFixed(2)}]`,
-            );
+            const data = await this.fetchOwnedReference(query);
 
-            const resp = await this.fetchWithFailover(query);
-
-            if (!resp) {
-                log.warn('All Overpass endpoints failed');
+            if (!data) {
+                log.warn('Own OSM reference source unavailable');
                 for (const t of tiles) this.pendingTiles.delete(t.key);
                 return;
             }
 
-            const data = await resp.json();
-            const elements = data.elements || [];
+            const elements = data.elements;
+            const sourceAt = Date.parse(data.thalassaSource.sourceAt);
 
             log.info(`Received ${elements.length} seamark features`);
 
@@ -302,6 +287,7 @@ out center ${MAX_FEATURES};
             for (const feature of features) {
                 const [lon, lat] = feature.geometry.coordinates;
                 const tk = tileKey(lat, lon, TILE_ZOOM);
+                this.sourceAt.set(tk, sourceAt);
                 if (!this.cache.has(tk)) {
                     this.cache.set(tk, []);
                 }
@@ -314,6 +300,7 @@ out center ${MAX_FEATURES};
 
             // Mark empty tiles so we don't re-fetch them
             for (const t of tiles) {
+                this.sourceAt.set(t.key, sourceAt);
                 if (!this.cache.has(t.key)) {
                     this.cache.set(t.key, []);
                 }
@@ -323,6 +310,7 @@ out center ${MAX_FEATURES};
             // no eviction at all, and every fetch re-serialised the WHOLE map
             // to localStorage. Evicted tiles simply refetch on next visit.
             pruneMap(this.cache, TILE_CACHE_MAX);
+            for (const key of this.sourceAt.keys()) if (!this.cache.has(key)) this.sourceAt.delete(key);
         } catch (err) {
             log.warn('Overpass fetch failed:', err);
             for (const t of tiles) this.pendingTiles.delete(t.key);
@@ -339,7 +327,12 @@ out center ${MAX_FEATURES};
             if (cached) features.push(...cached);
         }
 
-        this.currentCollection = { type: 'FeatureCollection', features };
+        const clocks = tiles.map((t) => this.sourceAt.get(t.key)).filter((at): at is number => at !== undefined);
+        this.currentCollection = {
+            type: 'FeatureCollection',
+            features,
+            ...(clocks.length ? { sourceAt: new Date(Math.min(...clocks)).toISOString() } : {}),
+        };
         this.notify();
     }
 
@@ -348,27 +341,17 @@ out center ${MAX_FEATURES};
         this.listeners.forEach((fn) => fn(snapshot));
     }
 
-    // ── Failover ──────────────────────────────────────────────────────────
+    // ── Owned source ──────────────────────────────────────────────────────
 
-    /** Try each Overpass endpoint with round-robin failover */
-    private async fetchWithFailover(query: string): Promise<Response | null> {
-        for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
-            const url = nextEndpoint();
-            try {
-                log.info(`Trying endpoint: ${url.split('/')[2]}`);
-                const resp = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `data=${encodeURIComponent(query)}`,
-                    signal: AbortSignal.timeout(QUERY_TIMEOUT * 1000),
-                });
-                if (resp.ok) return resp;
-                log.warn(`Endpoint ${url.split('/')[2]} returned ${resp.status}, trying next...`);
-            } catch (err) {
-                log.warn(`Endpoint ${url.split('/')[2]} failed:`, err);
-            }
+    /** One owned operation; missing admission is unavailable, never an empty tile */
+    private async fetchOwnedReference(query: string): Promise<OwnedOsmDocument | null> {
+        try {
+            const document = await fetchOwnedOverpass(query, { timeoutMs: QUERY_TIMEOUT * 1000 });
+            if (!document.queryComplete) return null;
+            return document;
+        } catch {
+            return null;
         }
-        return null;
     }
 
     // ── Persistence ──────────────────────────────────────────────────────
@@ -376,13 +359,15 @@ out center ${MAX_FEATURES};
     private async persistCache(): Promise<void> {
         try {
             // Serialize as { tileKey: features[] } — only save non-empty tiles to reduce size
-            const serializable: Record<string, SeamarkFeature[]> = {};
+            const serializable: Record<string, { at: number; features: SeamarkFeature[] }> = {};
             for (const [key, features] of this.cache.entries()) {
-                if (features.length > 0) {
-                    serializable[key] = features;
+                const at = this.sourceAt.get(key);
+                if (features.length > 0 && at !== undefined) {
+                    serializable[key] = { at, features };
                 }
             }
             const json = JSON.stringify(serializable);
+            if (json.length > PERSIST_MAX_CHARS) return;
             await Preferences.set({ key: CACHE_KEY, value: json });
             log.info(
                 `Cache persisted: ${Object.keys(serializable).length} tiles, ${(json.length / 1024).toFixed(0)}KB`,
@@ -395,12 +380,34 @@ out center ${MAX_FEATURES};
     private async restoreCache(): Promise<void> {
         try {
             const { value } = await Preferences.get({ key: CACHE_KEY });
-            if (!value) return;
+            if (!value || value.length > PERSIST_MAX_CHARS) return;
 
-            const data = JSON.parse(value) as Record<string, SeamarkFeature[]>;
+            const data = JSON.parse(value) as Record<string, { at: number; features: SeamarkFeature[] }>;
+            if (!data || typeof data !== 'object' || Object.keys(data).length > TILE_CACHE_MAX) return;
             let featureCount = 0;
-            for (const [key, features] of Object.entries(data)) {
+            for (const [key, entry] of Object.entries(data)) {
+                if (
+                    !entry ||
+                    !Number.isFinite(entry.at) ||
+                    entry.at > Date.now() + 300_000 ||
+                    Date.now() - entry.at > OWN_OSM_MAX_SOURCE_AGE_MS ||
+                    !Array.isArray(entry.features) ||
+                    entry.features.length > MAX_FEATURES ||
+                    entry.features.some(
+                        (feature) =>
+                            feature?.type !== 'Feature' ||
+                            feature.geometry?.type !== 'Point' ||
+                            !Array.isArray(feature.geometry.coordinates) ||
+                            feature.geometry.coordinates.length !== 2 ||
+                            !feature.geometry.coordinates.every(Number.isFinite) ||
+                            !feature.properties ||
+                            typeof feature.properties.id !== 'string',
+                    )
+                )
+                    continue;
+                const { at, features } = entry;
                 this.cache.set(key, features);
+                this.sourceAt.set(key, at);
                 featureCount += features.length;
             }
             pruneMap(this.cache, TILE_CACHE_MAX);

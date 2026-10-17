@@ -26,6 +26,8 @@ import {
     validateWeatherRouteRequest,
 } from '../_shared/route-weather-safety.ts';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchOwnedOsmFromWx } from '../_shared/owned-osm-upstream.ts';
+import { ownedOperationForQuery } from '../../../services/osm/ownedOverpassContract.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -243,26 +245,13 @@ async function fetchSeamarks(
     `;
 
     try {
-        console.info(`[Pilotage] Fetching seamarks for bbox ${bbox}...`);
-        const res = await fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            body: query,
-        });
-
-        if (!res.ok) {
-            console.warn(`[Pilotage] Overpass API error: ${res.status}`);
-            return [];
-        }
-
-        const data = await res.json();
-        const elements: SeamarkElement[] = data.elements || [];
-        console.info(`[Pilotage] ✅ Fetched ${elements.length} seamark elements`);
-
+        const data = await fetchOwnedOsmFromWx(ownedOperationForQuery(query), (name) => Deno.env.get(name));
+        const elements: SeamarkElement[] = data.elements.map((element) => ({ ...element, tags: element.tags ?? {} }));
         // Cache it
-        seamarkCache.set(cacheKey, { data: elements, fetchedAt: Date.now() });
+        seamarkCache.set(cacheKey, { data: elements, fetchedAt: Date.parse(data.thalassaSource.sourceAt) });
         return elements;
     } catch (err) {
-        console.warn(`[Pilotage] Overpass fetch failed:`, err);
+        console.warn('[Pilotage] Owned seamark reference unavailable');
         return [];
     }
 }

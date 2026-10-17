@@ -5,13 +5,8 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
-import {
-    fetchWithTimeout,
-    parseBoundedNumber,
-    parseCoordinate,
-    readJsonObject,
-    readResponseTextLimited,
-} from '../_shared/http-security.ts';
+import { fetchOwnedOsmFromWx } from '../_shared/owned-osm-upstream.ts';
+import { parseBoundedNumber, parseCoordinate, readJsonObject } from '../_shared/http-security.ts';
 
 /**
  * proxy-overpass — OpenStreetMap Overpass API CORS Proxy
@@ -38,10 +33,7 @@ function corsResponse(body: BodyInit | null, status: number) {
     return new Response(body, { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
-
 // NM → metres
-const NM_TO_M = 1852;
 
 // ── IALA Classification ────────────────────────────────────────
 
@@ -131,41 +123,17 @@ Deno.serve(async (req: Request) => {
             return corsResponse(JSON.stringify({ error: 'Invalid lat/lon/radius bounds' }), 400);
         }
 
-        const radiusM = radiusNM * NM_TO_M;
-
-        // Build Overpass QL query — fetch all seamark nodes within radius
-        const query = `
-[out:json][timeout:20];
-node["seamark:type"](around:${radiusM},${lat},${lon});
-out body;
-`;
-
-        console.info(
-            `[proxy-overpass] Fetching seamarks within ${radiusNM}NM of [${lat.toFixed(3)}, ${lon.toFixed(3)}]`,
+        const dLat = radiusNM / 60;
+        const dLon = radiusNM / (60 * Math.max(0.05, Math.cos(lat * Math.PI / 180)));
+        const data = await fetchOwnedOsmFromWx(
+            { schema: 1, kind: 'nodes', bbox: [lat - dLat, lon - dLon, lat + dLat, lon + dLon] },
+            (name) => Deno.env.get(name),
+            req.signal,
         );
-
-        const res = await fetchWithTimeout(
-            OVERPASS_URL,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': 'thalassa-seamarks/1.0 (https://thalassawx.app)',
-                },
-                body: `data=${encodeURIComponent(query)}`,
-            },
-            25_000,
-        );
-
-        if (!res.ok) {
-            console.error(`[proxy-overpass] Overpass error ${res.status}`);
-            return corsResponse(JSON.stringify({ error: 'Overpass upstream failed' }), 502);
+        if (data.elements.length > 5000) {
+            return corsResponse(JSON.stringify({ error: 'Complete seamark inventory exceeds bounds' }), 503);
         }
-
-        const text = await readResponseTextLimited(res, 8_000_000);
-        if (text === null) return corsResponse(JSON.stringify({ error: 'Overpass response is too large' }), 502);
-        const data = JSON.parse(text);
-        const elements = Array.isArray(data?.elements) ? data.elements.slice(0, 5000) : [];
+        const elements = data.elements;
 
         // Convert Overpass JSON → GeoJSON FeatureCollection with IALA classification
         const features = elements
@@ -188,15 +156,17 @@ out body;
             metadata: {
                 center: [lon, lat],
                 radiusNM,
-                fetchedAt: new Date().toISOString(),
+                sourceAt: data.thalassaSource.sourceAt,
+                cohortSha256: data.thalassaSource.cohortSha256,
+                licence: data.thalassaSource.licence,
                 count: features.length,
             },
         };
 
         console.info(`[proxy-overpass] Found ${features.length} seamarks`);
         return corsResponse(JSON.stringify(geojson), 200);
-    } catch (e) {
-        console.error('[proxy-overpass] Error:', e);
-        return corsResponse(JSON.stringify({ error: 'Internal proxy error' }), 500);
+    } catch {
+        // Do not log upstream bodies, query positions, credentials or exception text.
+        return corsResponse(JSON.stringify({ error: 'Owned seamark reference unavailable' }), 503);
     }
 });

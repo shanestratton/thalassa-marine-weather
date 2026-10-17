@@ -340,8 +340,9 @@ describe('loadToday: everything about the place, as it arrives', () => {
         expect(deps.loadReferenceTile.mock.calls.length).toBeGreaterThanOrEqual(1);
         expect(deps.loadReferenceTile.mock.calls.length).toBeLessThanOrEqual(4);
         expect(deps.loadCoastline).toHaveBeenCalledTimes(1);
-        // 131-PYD-10: the atlas holds Queensland's bays; public Overpass is not asked for names here.
-        expect(deps.loadNamedPlaces).not.toHaveBeenCalled();
+        //142-07: own OSM complements the atlas, bounded to the same cells.
+        expect(deps.loadNamedPlaces.mock.calls.length).toBeGreaterThanOrEqual(1);
+        expect(deps.loadNamedPlaces.mock.calls.length).toBeLessThanOrEqual(4);
         expect(deps.loadTides).toHaveBeenCalledWith(MARINA.lat, MARINA.lon);
         expect(deps.loadCyclones).toHaveBeenCalledTimes(1);
         expect(deps.savedRoutes).toHaveBeenCalledWith(getAuthIdentityScope());

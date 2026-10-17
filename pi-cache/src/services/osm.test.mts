@@ -39,10 +39,11 @@ const WATER_WAY = {
     ],
 };
 
-function reply(body: unknown, status = 200): OverpassReply {
+function reply(body: unknown, status = 200, sourceAt = T0): OverpassReply {
     return {
         ok: status >= 200 && status < 300,
         status,
+        sourceAt,
         text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
     };
 }
@@ -66,7 +67,7 @@ function overpass(answers: Array<OverpassReply | Error>) {
     };
 }
 
-test('a good Overpass reply is served fresh and saved as v6; the next call is served from the cache', async () => {
+test('a good Overpass reply is served fresh and saved as v7_owned; the next call is served from the cache', async () => {
     const cacheDir = await tempDir();
     const o = overpass([reply({ elements: [WATER_WAY] })]);
     const first = await getOsmOverlay(
@@ -82,9 +83,9 @@ test('a good Overpass reply is served fresh and saved as v6; the next call is se
     assert.equal(first.fetchedAt, T0);
     assert.equal(first.overlay.water.features.length, 1);
     const files = await fs.readdir(cacheDir);
-    assert.deepEqual(files, ['v6_153.09_-27.22_153.11_-27.19.json']);
+    assert.deepEqual(files, ['v7_owned_153.09_-27.22_153.11_-27.19.json']);
     const saved = JSON.parse(await fs.readFile(path.join(cacheDir, files[0]), 'utf8'));
-    assert.equal(saved.schema, 'v6');
+    assert.equal(saved.schema, 'v7_owned');
     assert.equal(saved.ts, T0);
     assert.deepEqual(saved.bbox, [153.09, -27.22, 153.11, -27.19]);
 
@@ -170,13 +171,13 @@ test('an HTTP error, a network error or bad JSON with nothing saved throws OsmOv
 
 test('Overpass down with an expired v6 copy → that copy, stale, with its own date; the file is not rewritten', async () => {
     const cacheDir = await tempDir();
-    const ok = overpass([reply({ elements: [WATER_WAY] })]);
+    const ok = overpass([reply({ elements: [WATER_WAY] }, 200, T0)]);
     await getOsmOverlay(
         [153.09, -27.22, 153.11, -27.19],
         {},
         { fetchOverpass: ok.fetchOverpass, cacheDir, now: () => T0 },
     );
-    const file = path.join(cacheDir, 'v6_153.09_-27.22_153.11_-27.19.json');
+    const file = path.join(cacheDir, 'v7_owned_153.09_-27.22_153.11_-27.19.json');
     const before = await fs.readFile(file, 'utf8');
 
     const down = overpass([new Error('offline')]);
@@ -305,8 +306,8 @@ test('an all-empty reply is served fresh but never cached', async () => {
 // fetch carries on and refreshes the cache.
 
 /** Seed a v6 copy for [153.09, -27.22, 153.11, -27.19], saved at `ts`. */
-async function seedV6(cacheDir: string, ts: number): Promise<void> {
-    const ok = overpass([reply({ elements: [WATER_WAY] })]);
+async function seedOwned(cacheDir: string, ts: number): Promise<void> {
+    const ok = overpass([reply({ elements: [WATER_WAY] }, 200, ts)]);
     await getOsmOverlay(
         [153.09, -27.22, 153.11, -27.19],
         {},
@@ -316,7 +317,7 @@ async function seedV6(cacheDir: string, ts: number): Promise<void> {
 
 test('a client that does not accept stale (a pre-2b phone) never gets the stale copy: unavailable instead', async () => {
     const cacheDir = await tempDir();
-    await seedV6(cacheDir, T0);
+    await seedOwned(cacheDir, T0);
     const down = overpass([new Error('offline')]);
     await assert.rejects(
         getOsmOverlay(
@@ -374,7 +375,7 @@ function hangingOverpass() {
 
 test('a hanging Overpass with a saved copy → the copy, stale, within the short wait; the fetch carries on and refreshes the cache', async () => {
     const cacheDir = await tempDir();
-    await seedV6(cacheDir, T0);
+    await seedOwned(cacheDir, T0);
     const later = T0 + 30 * DAY;
     const hang = hangingOverpass();
     const started = Date.now();
@@ -409,7 +410,7 @@ test('a hanging Overpass with a saved copy → the copy, stale, within the short
     assert.equal(hang.calls, 1);
 
     // Overpass answers after all: the cache is refreshed for the next call.
-    hang.release(reply({ elements: [WATER_WAY, { ...WATER_WAY, id: 4343 }] }));
+    hang.release(reply({ elements: [WATER_WAY, { ...WATER_WAY, id: 4343 }] }, 200, later));
     let next: Awaited<ReturnType<typeof getOsmOverlay>> | null = null;
     for (let i = 0; i < 50; i++) {
         next = await getOsmOverlay(
@@ -456,8 +457,8 @@ test('a hanging Overpass with nothing saved waits for its full deadline, then is
 
 test('a hanging Overpass that never answers is aborted at its deadline after the stale copy went out', async () => {
     const cacheDir = await tempDir();
-    await seedV6(cacheDir, T0);
-    const file = path.join(cacheDir, 'v6_153.09_-27.22_153.11_-27.19.json');
+    await seedOwned(cacheDir, T0);
+    const file = path.join(cacheDir, 'v7_owned_153.09_-27.22_153.11_-27.19.json');
     const before = await fs.readFile(file, 'utf8');
     const hang = hangingOverpass();
     const res = await getOsmOverlay(
@@ -479,7 +480,7 @@ test('a hanging Overpass that never answers is aborted at its deadline after the
     await hang.aborted;
     // Aborted, not saved over; and a later call asks Overpass again.
     assert.equal(await fs.readFile(file, 'utf8'), before);
-    const ok = overpass([reply({ elements: [WATER_WAY] })]);
+    const ok = overpass([reply({ elements: [WATER_WAY] }, 200, T0 + 30 * DAY)]);
     let fresh = { state: 'stale' } as Awaited<ReturnType<typeof getOsmOverlay>>;
     for (let attempt = 0; attempt < 40 && fresh.state === 'stale'; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 25));
@@ -507,6 +508,63 @@ test('a hanging Overpass that never answers is aborted at its deadline after the
 
 test('a cache write leaves no temporary file behind', async () => {
     const cacheDir = await tempDir();
-    await seedV6(cacheDir, T0);
+    await seedOwned(cacheDir, T0);
+    assert.deepEqual(await fs.readdir(cacheDir), ['v7_owned_153.09_-27.22_153.11_-27.19.json']);
+});
+
+test('owned source date remains original through a fresh fetch and cache, never the Pi receipt time', async () => {
+    const cacheDir = await tempDir(),
+        original = T0 - DAY;
+    const o = overpass([reply({ elements: [WATER_WAY] }, 200, original)]);
+    const first = await getOsmOverlay(
+        [153.09, -27.22, 153.11, -27.19],
+        {},
+        { fetchOverpass: o.fetchOverpass, cacheDir, now: () => T0 },
+    );
+    assert.equal(first.fetchedAt, original);
+    const second = await getOsmOverlay(
+        [153.09, -27.22, 153.11, -27.19],
+        {},
+        { fetchOverpass: o.fetchOverpass, cacheDir, now: () => T0 + DAY },
+    );
+    assert.equal(second.state, 'cache');
+    assert.equal(second.fetchedAt, original);
+    assert.equal(o.queries.length, 1);
+});
+
+test('legacy v6 receipt-clock data can only be explicit stale fallback, never qualified fresh cache', async () => {
+    const cacheDir = await tempDir();
+    await seedOwned(cacheDir, T0);
+    await fs.rename(
+        path.join(cacheDir, 'v7_owned_153.09_-27.22_153.11_-27.19.json'),
+        path.join(cacheDir, 'v6_153.09_-27.22_153.11_-27.19.json'),
+    );
+    const d = {
+        cacheDir,
+        now: () => T0 + DAY,
+        fetchOverpass: async () => {
+            throw Error('offline');
+        },
+    };
+    await assert.rejects(getOsmOverlay([153.09, -27.22, 153.11, -27.19], {}, d), OsmOverlayUnavailableError);
+    const old = await getOsmOverlay([153.09, -27.22, 153.11, -27.19], { acceptStale: true }, d);
+    assert.equal(old.state, 'stale');
+    assert.equal(old.fetchedAt, T0);
     assert.deepEqual(await fs.readdir(cacheDir), ['v6_153.09_-27.22_153.11_-27.19.json']);
+});
+
+test('missing, future and overage owned source clocks refuse before any cache write', async () => {
+    for (const original of [NaN, T0 + 300_001, T0 - 46 * DAY]) {
+        const cacheDir = await tempDir(),
+            o = overpass([reply({ elements: [WATER_WAY] }, 200, original)]);
+        await assert.rejects(
+            getOsmOverlay(
+                [153.09, -27.22, 153.11, -27.19],
+                {},
+                { fetchOverpass: o.fetchOverpass, cacheDir, now: () => T0 },
+            ),
+            OsmOverlayUnavailableError,
+        );
+        assert.deepEqual(await fs.readdir(cacheDir), []);
+    }
 });

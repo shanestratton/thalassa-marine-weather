@@ -38,6 +38,8 @@ import { PiPolarLearner } from './polarLearner.js';
 import { createPolarRoutes } from './routes/polars.js';
 import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
 import { createOsmRoutes } from './routes/osm.js';
+import { getOsmOverlay } from './services/osm.js';
+import { fetchOwnedOverlayReply } from './ownedOsm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
 import { createTrackRoutes } from './routes/track.js';
 import { attachSeabed } from './seabed/attach.js';
@@ -1390,7 +1392,14 @@ if (APP_API_ENABLED) {
         }),
     );
     app.use('/api/enc', createEncRoutes(identity, { vault: chartVault, devices: chartDevices }));
-    app.use('/api/osm', createOsmRoutes());
+    app.use(
+        '/api/osm',
+        createOsmRoutes((bbox, options) =>
+            getOsmOverlay(bbox, options, {
+                fetchOverpass: (request) => fetchOwnedOverlayReply(proxyConfig, request),
+            }),
+        ),
+    );
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox, diaryVideoRelay));
     app.use('/api/track', createTrackRoutes(trackStore, trackRecorder));

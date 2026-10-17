@@ -1,35 +1,20 @@
 /**
- * coastlineSource — pull OSM `natural=coastline` around a point from the public
- * Overpass API, as the land/water geometry the enclosure raycast needs.
+ * coastlineSource — bounded owned OSM `natural=coastline` around a point,
+ * as the community land/water geometry the enclosure raycast needs.
  *
  * Strictly best-effort: any failure (offline, rate-limited, timeout) returns
  * null, and the caller then leaves the model wave heights untouched. Coastline
  * is static, so results are cached hard — in-memory for the session and in
  * Capacitor Preferences (30 days) so cold starts don't re-hit Overpass.
  *
- * Mirrors SeamarkService's endpoint-fallback approach; no Pi dependency.
+ * Web/native share the fixed own Edge. No public mirror or Pi dependency.
  */
 
-import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { pruneMap } from '../../../utils/boundedMap';
-import { withDeadline } from '../../../utils/deadline';
-import { createLogger } from '../../../utils/createLogger';
+import { fetchOwnedOverpass } from '../../osm/ownedOverpass';
+import type { OwnedOsmElement } from '../../osm/ownedOverpassContract';
 import type { Segment } from './shelterGeometry';
-
-const log = createLogger('CoastlineSource');
-
-const OVERPASS_ENDPOINTS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    // maps.mail.ru REMOVED 2026-08-23. It is a Russian-operated Overpass
-    // mirror, and this query carries the boat's position: the bbox is built
-    // from live accepted GPS fixes at toFixed(4) — about 11 m. The app's CSP
-    // blocks it on web, but capacitor.config.ts enables CapacitorHttp, which
-    // replaces window.fetch on iOS and does NOT enforce CSP — so on the
-    // phone, the one platform actually used at sea, the request was live.
-    // Two healthy mirrors remain.
-];
 
 const FETCH_TIMEOUT_MS = 9_000;
 const PERSIST_TTL_MS = 30 * 24 * 60 * 60 * 1000; // coastline is static — 30 days
@@ -41,13 +26,9 @@ const DEG_LAT_KM = 110.54;
  *  stay in memCache for the session and simply re-fetch next boot. */
 const PERSIST_MAX_CHARS = 1_500_000;
 
-/** Remember failures too. NQ boxes (Whitsundays) are heavy enough that
- *  Overpass mirrors 504 server-side after 39-64 s — and with
- *  CapacitorHttp's fetch patch ignoring AbortSignal on device, each
- *  mirror attempt is an uncancellable native request. Without a
- *  negative cache every pick in the same 11 km grid cell re-ran the
- *  whole 3-mirror gauntlet (minutes of orphaned downloads on marine
- *  LTE). Shorter TTL than success: mirrors do recover. */
+/** A failed source is remembered for 6h to avoid repeated cold queries in
+ * the same 11km cell. The owned transport separately bounds ignored native
+ * aborts across headers and body; it never rotates public mirrors. */
 const FAILURE_TTL_MS = 6 * 60 * 60 * 1000;
 const failedAt = new Map<string, number>();
 
@@ -65,16 +46,24 @@ const inflight = new Map<string, Promise<Segment[] | null>>();
 /** Round to a ~11 km grid so nearby requests share one cached coastline. */
 function cacheKey(lat: number, lon: number): string {
     const r = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
-    return `coast_${r(lat)}_${r(lon)}`;
+    return `coast_owned_v1_${r(lat)}_${r(lon)}`;
 }
 
-interface OverpassWay {
-    type: string;
-    geometry?: Array<{ lat: number; lon: number }>;
+function isPoint(value: unknown): value is { lat: number; lon: number } {
+    if (!value || typeof value !== 'object') return false;
+    const point = value as Record<string, unknown>;
+    return (
+        typeof point.lat === 'number' &&
+        typeof point.lon === 'number' &&
+        Number.isFinite(point.lat) &&
+        Number.isFinite(point.lon) &&
+        Math.abs(point.lat) <= 90 &&
+        Math.abs(point.lon) <= 180
+    );
 }
 
 /** Parse an Overpass `out geom` way list into [lon,lat] segments. */
-function waysToSegments(elements: OverpassWay[]): Segment[] {
+function waysToSegments(elements: OwnedOsmElement[]): Segment[] {
     const segs: Segment[] = [];
     for (const el of elements) {
         if (el.type !== 'way' || !Array.isArray(el.geometry)) continue;
@@ -82,7 +71,7 @@ function waysToSegments(elements: OverpassWay[]): Segment[] {
         for (let i = 0; i + 1 < pts.length; i++) {
             const a = pts[i];
             const b = pts[i + 1];
-            if (a && b && Number.isFinite(a.lat) && Number.isFinite(b.lat)) {
+            if (isPoint(a) && isPoint(b)) {
                 segs.push([
                     [a.lon, a.lat],
                     [b.lon, b.lat],
@@ -93,21 +82,28 @@ function waysToSegments(elements: OverpassWay[]): Segment[] {
     return segs;
 }
 
-async function loadPersisted(key: string): Promise<Segment[] | null> {
+async function loadPersisted(key: string): Promise<MemEntry | null> {
     try {
         const { value } = await Preferences.get({ key });
         if (!value) return null;
         const parsed = JSON.parse(value) as { ts: number; segs: Segment[] };
-        if (!parsed || Date.now() - parsed.ts > PERSIST_TTL_MS) return null;
-        return parsed.segs;
+        if (
+            !parsed ||
+            !Number.isFinite(parsed.ts) ||
+            parsed.ts > Date.now() + 300_000 ||
+            Date.now() - parsed.ts > PERSIST_TTL_MS ||
+            !Array.isArray(parsed.segs)
+        )
+            return null;
+        return parsed;
     } catch {
         return null;
     }
 }
 
-async function persist(key: string, segs: Segment[]): Promise<void> {
+async function persist(key: string, entry: MemEntry): Promise<void> {
     try {
-        const value = JSON.stringify({ ts: Date.now(), segs });
+        const value = JSON.stringify(entry);
         if (value.length > PERSIST_MAX_CHARS) return; // session memCache only
         await Preferences.set({ key, value });
     } catch {
@@ -115,54 +111,8 @@ async function persist(key: string, segs: Segment[]): Promise<void> {
     }
 }
 
-/**
- * Overpass refuses browsers, and a browser cannot argue back.
- *
- * MEASURED 2026-08-23, paced clear of the rate limiter, each shape repeated:
- *
- *   User-Agent                     status   CORS header
- *   curl/8.x                       200      yes
- *   Thalassa/1.2.0                 504      yes   (allowed; that query is heavy)
- *   Chrome 140                     406      NO
- *   iOS WKWebView                  406      NO
- *   (none)                         406      NO
- *
- * Everything else held identical — same method, same body, same Origin. That
- * is OSM policy working as intended: their services want a User-Agent that
- * identifies the app, and they reject browser-like and empty ones.
- *
- * `fetch()` cannot help: User-Agent is a forbidden header, so a browser cannot
- * present anything other than its own. The 406 also carries no CORS headers,
- * which is why Chrome reports it as "No 'Access-Control-Allow-Origin'" — the
- * CORS message is the symptom, the 406 is the cause, and neither is fixable
- * from this side of the wire.
- *
- * Adding these hosts to connect-src earlier the same day was necessary but not
- * sufficient: it removed the FIRST wall and revealed the second.
- *
- * So on web we do not ask. Two doomed cross-origin POSTs per weather fetch
- * bought nothing but latency and a console full of errors that looked like a
- * bug in this app. Native still tries — its User-Agent is not the browser's,
- * and that path is not disproven.
- *
- * The real fix is a server-side proxy that sets an identifying User-Agent,
- * which is also what OSM's usage policy asks for, and which keeps the boat's
- * position off a third party's logs entirely.
- */
-const CAN_REACH_OVERPASS = Capacitor.isNativePlatform();
-let warnedNoOverpass = false;
-
-async function queryOverpass(lat: number, lon: number, radiusKm: number): Promise<Segment[] | null> {
-    if (!CAN_REACH_OVERPASS) {
-        if (!warnedNoOverpass) {
-            warnedNoOverpass = true;
-            log.warn(
-                'coastline skipped on web — Overpass answers browser User-Agents with 406 and no CORS headers ' +
-                    '(measured 2026-08-23); waves stay un-damped until a server-side proxy exists',
-            );
-        }
-        return null;
-    }
+/** Missing owned source leaves model wave heights untouched on web/native. */
+async function queryOverpass(lat: number, lon: number, radiusKm: number): Promise<MemEntry | null> {
     const dLat = radiusKm / DEG_LAT_KM;
     const dLon = radiusKm / (DEG_LAT_KM * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
     const s = (lat - dLat).toFixed(4);
@@ -171,30 +121,14 @@ async function queryOverpass(lat: number, lon: number, radiusKm: number): Promis
     const e = (lon + dLon).toFixed(4);
     const q = `[out:json][timeout:25];way["natural"="coastline"](${s},${w},${n},${e});out geom;`;
 
-    for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
-        const endpoint = OVERPASS_ENDPOINTS[attempt % OVERPASS_ENDPOINTS.length];
-        try {
-            const res = await withDeadline(
-                fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `data=${encodeURIComponent(q)}`,
-                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-                }),
-                FETCH_TIMEOUT_MS + 1_000,
-                'overpass-coastline',
-            );
-            if (!res.ok) {
-                log.warn(`coastline HTTP ${res.status} from ${endpoint}`);
-                continue;
-            }
-            const data = (await res.json()) as { elements?: OverpassWay[] };
-            return waysToSegments(data.elements || []);
-        } catch (err) {
-            log.warn(`coastline fetch failed on ${endpoint}: ${(err as Error)?.message || err}`);
-        }
+    try {
+        const body = await fetchOwnedOverpass(q, { timeoutMs: FETCH_TIMEOUT_MS });
+        const ts = Date.parse(body.thalassaSource.sourceAt);
+        if (Date.now() - ts > PERSIST_TTL_MS) return null;
+        return { segs: waysToSegments(body.elements), ts };
+    } catch {
+        return null;
     }
-    return null;
 }
 
 /**
@@ -205,7 +139,7 @@ export async function fetchCoastlineSegments(lat: number, lon: number, radiusKm 
     const key = cacheKey(lat, lon);
 
     const mem = memCache.get(key);
-    if (mem) return mem.segs;
+    if (mem && mem.ts <= Date.now() + 300_000 && Date.now() - mem.ts <= PERSIST_TTL_MS) return mem.segs;
 
     const lastFail = failedAt.get(key);
     if (lastFail !== undefined && Date.now() - lastFail < FAILURE_TTL_MS) return null;
@@ -216,20 +150,20 @@ export async function fetchCoastlineSegments(lat: number, lon: number, radiusKm 
     const task = (async (): Promise<Segment[] | null> => {
         const persisted = await loadPersisted(key);
         if (persisted) {
-            memCache.set(key, { ts: Date.now(), segs: persisted });
+            memCache.set(key, persisted);
             pruneMap(memCache, MEM_CACHE_MAX);
-            return persisted;
+            return persisted.segs;
         }
-        const segs = await queryOverpass(lat, lon, radiusKm);
-        if (segs) {
+        const original = await queryOverpass(lat, lon, radiusKm);
+        if (original) {
             failedAt.delete(key);
-            memCache.set(key, { ts: Date.now(), segs });
+            memCache.set(key, original);
             pruneMap(memCache, MEM_CACHE_MAX);
-            void persist(key, segs);
+            void persist(key, original);
         } else {
             failedAt.set(key, Date.now());
         }
-        return segs;
+        return original?.segs ?? null;
     })().finally(() => inflight.delete(key));
 
     inflight.set(key, task);
