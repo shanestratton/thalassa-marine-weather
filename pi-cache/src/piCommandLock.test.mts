@@ -38,6 +38,7 @@ import { test, type TestContext } from 'node:test';
 import express, { type Router } from 'express';
 import { createWakeRuleRoutes } from './routes/wakeRules.js';
 import { createFleetFeedRoutes } from './routes/fleetFeed.js';
+import { createOwnBoatSkillRoutes } from './routes/ownBoatSkill.js';
 import { loadOrCreateIdentity } from './identity.js';
 import { EncDeviceStore, type BoatLanView } from './encDevices.js';
 import {
@@ -284,6 +285,7 @@ async function builtRouters(t: TestContext): Promise<Record<string, Router>> {
         createUnderwayWatchRoutes: createUnderwayWatchRoutes(stub, devices),
         createWakeRuleRoutes: createWakeRuleRoutes({ keeper: stub, devices }),
         createFleetFeedRoutes: createFleetFeedRoutes({ keeper: stub, devices }),
+        createOwnBoatSkillRoutes: createOwnBoatSkillRoutes({ keeper: stub, devices }),
         createRadarRoutes: createRadarRoutes(stub),
         createRadarWatchRoutes: createRadarWatchRoutes({ watch: stub, enrolled: () => null }),
         createWeatherPositionRoutes: createWeatherPositionRoutes({

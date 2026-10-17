@@ -10,6 +10,7 @@
 
 import 'dotenv/config';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 
 // Force IPv4 for all fetch() calls — most boat networks lack IPv6 connectivity
 // and Node.js 22's undici-based fetch() tries AAAA records first, causing timeouts
@@ -80,6 +81,12 @@ import { FleetFeedKeeper } from './fleetFeed/keeper.js';
 import { FleetAisInput, currentFleetContext, localFleetSource } from './fleetFeed/source.js';
 import { fleetWorkerEndpoint, fleetBatchSender } from './fleetFeed/transport.js';
 import { createFleetFeedRoutes } from './routes/fleetFeed.js';
+import { createOwnBoatSkillRoutes } from './routes/ownBoatSkill.js';
+import { OwnBoatSkillKeeper, type OwnSkillContext } from './ownBoatSkill/keeper.js';
+import { OwnBoatSkillStore } from './ownBoatSkill/store.js';
+import { SkillOwnerVerifier } from './ownBoatSkill/owner.js';
+import { OwnPublishedWindReader } from './ownBoatSkill/published.js';
+import { readOwnInstrumentSource } from './ownBoatSkill/source.js';
 import type { FleetForwardBinding } from './fleetFeedWire.js';
 import type { ChartDevicePublic } from './encDevices.js';
 import { AisNightWatch } from './aisWatch.js';
@@ -572,6 +579,54 @@ const fleetKeeper = new FleetFeedKeeper({
     forwarder: fleetForwarder,
 });
 fleetForwarder.start();
+//141-07: the registered relay is pairing context only, never owner proof.
+// Issue/renew access additionally verifies the JWT and actual owned fleet row.
+const ownSkillStore = new OwnBoatSkillStore(path.join(CACHE_DIR, 'own-boat-skill'));
+const ownSkillContext = async (controllerId: string): Promise<OwnSkillContext | null> => {
+    const before = diaryRelayOutbox.lendFleetCredentials();
+    if (!APP_API_ENABLED || !before) return null;
+    const enrolled = (await chartDevices.list()).find((d) => d.id === controllerId);
+    if (!enrolled) return null;
+    let document: unknown = null;
+    try {
+        document = await selfDocument();
+    } catch {
+        /* A quiet bus is unavailable, not a new source. */
+    }
+    const after = diaryRelayOutbox.lendFleetCredentials();
+    const device = (await chartDevices.list()).find((d) => d.id === controllerId);
+    if (
+        !after ||
+        JSON.stringify(before) !== JSON.stringify(after) ||
+        !device ||
+        wakeEnrollmentRevision(device) !== wakeEnrollmentRevision(enrolled)
+    )
+        return null;
+    const allowInternet = diaryRelayOutbox.getConfiguration().allowInternet && piInternet.read() === true;
+    return {
+        identity: {
+            ownerId: after.ownerId,
+            piDeviceId: identity.deviceId,
+            controllerId,
+            pairingRevision: createHash('sha256')
+                .update(JSON.stringify([1, after.ownerId, identity.deviceId, after.relayId, after.token]))
+                .digest('hex'),
+            enrollmentRevision: wakeEnrollmentRevision(device),
+        },
+        source: readOwnInstrumentSource(document, Date.now()),
+        allowInternet,
+        current: () =>
+            JSON.stringify(diaryRelayOutbox.lendFleetCredentials()) === JSON.stringify(after) &&
+            (diaryRelayOutbox.getConfiguration().allowInternet && piInternet.read() === true) === allowInternet,
+    };
+};
+const ownSkillKeeper = new OwnBoatSkillKeeper({
+    enabled: APP_API_ENABLED,
+    store: ownSkillStore,
+    context: ownSkillContext,
+    owner: new SkillOwnerVerifier({ trustedOrigin: SUPABASE_ORIGIN, anonKey: () => SUPABASE_ANON_KEY }),
+    forecasts: new OwnPublishedWindReader({ trustedOrigin: SUPABASE_ORIGIN, anonKey: () => SUPABASE_ANON_KEY }),
+});
 /** Started with the server (below); until then the vault reads as unreachable. */
 let vaultLink: VaultLink | null = null;
 
@@ -808,6 +863,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
     const priorFleetAuthority = diaryRelayOutbox.lendFleetCredentials();
     diaryRelayOutbox.configure(input);
     fleetKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
+    ownSkillKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
     return input.allowInternet;
 }
@@ -1284,6 +1340,11 @@ if (APP_API_ENABLED) {
     app.use('/api/wake-rules', requireAppApi, createWakeRuleRoutes({ keeper: wakeKeeper, devices: chartDevices }));
     app.use('/api/fleet-sharing', requireAppApi, createFleetFeedRoutes({ keeper: fleetKeeper, devices: chartDevices }));
     app.use(
+        '/api/own-boat-skill',
+        requireAppApi,
+        createOwnBoatSkillRoutes({ keeper: ownSkillKeeper, devices: chartDevices }),
+    );
+    app.use(
         '/api/weather-watch',
         requireAppApi,
         createWeatherPositionRoutes({ devices: chartDevices, selfDocument, identity: currentWeatherPositionIdentity }),
@@ -1348,6 +1409,7 @@ if (APP_API_ENABLED) {
         '/api/radar',
         '/api/polars',
         '/api/offline-weather',
+        '/api/own-boat-skill',
     ]) {
         app.use(prefix, requireAppApi);
     }
@@ -1396,6 +1458,7 @@ if (UNSAFE_ADMIN_API_ENABLED && fs.existsSync(path.join(APP_DIST, 'index.html'))
 
 const server = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.2' }, app);
 server.listen(PORT, BIND_HOST, () => {
+    ownSkillKeeper.start();
     console.log(`\n🌊 Thalassa Pi Cache running on https://${BIND_HOST}:${PORT}`);
     console.log(`   Cache dir: ${CACHE_DIR}`);
     console.log(
@@ -1517,6 +1580,7 @@ function shutdown() {
     radarSession.stop();
     signalkRead?.stop();
     fleetForwarder.close();
+    ownSkillKeeper.stop();
     wakeKeeper.stop();
     windHistory.stop();
     polarLearner.stop();
@@ -1529,6 +1593,7 @@ function shutdown() {
     server.close(() => {
         void reconvertStopped.finally(() => {
             diaryRelayOutbox.close();
+            ownSkillStore.close();
             cache.close();
             process.exit(0);
         });
