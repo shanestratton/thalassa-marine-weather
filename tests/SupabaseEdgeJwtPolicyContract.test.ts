@@ -43,6 +43,7 @@ const FUNCTION_GUARDED_OFF = {
 
 /** Already true on both sides; kept explicit with a caller rationale. */
 const EXISTING_PROTECTED_FUNCTIONS = {
+    'pi-internet-ais': 'gateway anon JWT plus current scoped Pi relay, owner quota and deletion/revocation rechecks',
     'morning-briefing': 'held weather work requires gateway JWT and exact service-role POST',
     'nowcast-watch': 'held weather work requires gateway JWT and exact service-role POST',
     'convective-watch': 'held weather work requires gateway JWT and exact service-role POST',
@@ -150,7 +151,7 @@ describe('Supabase Edge gateway JWT policy', () => {
     const config = readFileSync(resolve(process.cwd(), 'supabase/config.toml'), 'utf8');
     const policies = parseVerifyJwtPolicies(config);
 
-    it('keeps the gateway check only on the reviewed irreversible / credential-issuing paths', () => {
+    it('keeps the gateway check on exactly the reviewed protected paths', () => {
         for (const [name, rationale] of Object.entries(EXISTING_PROTECTED_FUNCTIONS)) {
             expect(rationale, `${name} must retain a reviewed caller rationale`).not.toHaveLength(0);
             expect(policies[name], `${name} must declare verify_jwt = true`).toBe(true);

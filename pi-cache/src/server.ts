@@ -26,6 +26,8 @@ import path from 'path';
 import { startCabinRuntime } from './cabin/runtime.js';
 import { refuseCabinViewerOnMainApi } from './cabin/server.js';
 import { cabinOwnerBinding } from './cabin/access.js';
+import { startInternetAisRuntime } from './internetAis/runtime.js';
+import { internetAisAuthority, internetAisFix } from './internetAis/publisher.js';
 import { Cache } from './cache.js';
 import { Barometer } from './barometer.js';
 import { WindHistory } from './windHistory.js';
@@ -868,6 +870,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | 
     radarSession.retire();
     const priorFleetAuthority = diaryRelayOutbox.lendFleetCredentials();
     diaryRelayOutbox.configure(input);
+    internetAisRuntime?.refresh();
     fleetKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     ownSkillKeeper.relayChanged(priorFleetAuthority, diaryRelayOutbox.lendFleetCredentials());
     // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
@@ -1490,6 +1493,27 @@ const cabinRuntime = startCabinRuntime({
         }),
 });
 
+const internetAisRuntime = startInternetAisRuntime({
+    enabled: process.env.THALASSA_INTERNET_AIS_ENABLED === '1',
+    reviewed: process.env.THALASSA_INTERNET_AIS_SOURCE_REVIEWED === '1',
+    port: Number(process.env.THALASSA_INTERNET_AIS_TCP_PORT || 10112),
+    blockedPorts: [PORT, PORT + 1, Number(process.env.THALASSA_CABIN_PORT || 3002)],
+    supabaseOrigin: SUPABASE_ORIGIN,
+    authority: () =>
+        internetAisAuthority({
+            enabled: process.env.THALASSA_INTERNET_AIS_ENABLED === '1',
+            reviewed: process.env.THALASSA_INTERNET_AIS_SOURCE_REVIEWED === '1',
+            allowInternet: diaryRelayOutbox.getConfiguration().allowInternet,
+            generation: diaryRelayOutbox.readAuthorityGeneration(),
+            credentials: diaryRelayOutbox.lendFleetCredentials(),
+            anonKey: SUPABASE_ANON_KEY,
+        }),
+    fix: async (signal) => {
+        const { selfDoc } = await signalkDocuments.read();
+        return signal.aborted ? null : internetAisFix(selfDoc, Date.now());
+    },
+});
+
 const server = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.2' }, app);
 server.listen(PORT, BIND_HOST, () => {
     ownSkillKeeper.start();
@@ -1625,6 +1649,7 @@ function shutdown() {
     void stopEncWatcher();
     plaintextSignpost.close();
     cabinRuntime?.close();
+    internetAisRuntime?.close();
     server.close(() => {
         void reconvertStopped.finally(() => {
             diaryRelayOutbox.close();

@@ -17,10 +17,12 @@ dist/
 # rewriting the same TypeScript back and forth.
 supabase/functions/
 
-# This rule is shared byte-for-byte with the Deno Edge mirror above. Format the
+# These rules are shared byte-for-byte with Deno Edge mirrors above. Format the
 # canonical source with the Edge Deno config, then regenerate and check mirrors.
 utils/anchorSafeZone.ts
 pi-cache/src/anchorSafeZone.ts
+utils/internetAis.ts
+pi-cache/src/internetAisWire.ts
 
 # Generated anchorage data + build cache — data, not code
 public/anchorages/qld/

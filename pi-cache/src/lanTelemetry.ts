@@ -19,6 +19,7 @@ import { readTelemetrySnapshot, valueAt, num, knots, degrees, timestampAt } from
 import { buildTelemetryBody } from './telemetryPublisher.js';
 import type { TelemetrySnapshot } from './trackSignalk.js';
 import type { AisWatchDescription } from './aisWatch.js';
+import { radioAisDocument } from './internetAis/radio.js';
 
 /** A target whose position is older than this is history, not traffic. */
 export const AIS_TARGET_MAX_AGE_MS = 10 * 60_000;
@@ -203,8 +204,9 @@ export function readAisTargets(
     if (typeof vesselsDocument !== 'object' || vesselsDocument === null) return [];
     const at = now();
     const out: AisTargetWire[] = [];
-    for (const [key, doc] of Object.entries(vesselsDocument as Record<string, unknown>)) {
+    for (const [key, original] of Object.entries(vesselsDocument as Record<string, unknown>)) {
         if (key === 'self' || (selfUrn !== null && key === selfUrn)) continue;
+        const doc = radioAisDocument(original, at);
         const mmsi = mmsiOf(key, doc);
         if (mmsi === null) continue;
         const safety = safetyTextOf(doc, at);

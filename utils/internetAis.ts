@@ -1,0 +1,175 @@
+/** Internet observations only. No raw AIS, radio class, alarm or bus authority. */
+export const INTERNET_AIS_SOURCE = 'thalassa-internet-ais';
+export const INTERNET_AIS = {
+    maxAgeMs: 120_000,
+    futureMs: 5_000,
+    fixAgeMs: 20_000,
+    radiusNm: 25,
+    targets: 100,
+    bytes: 131_072,
+} as const;
+export type InternetAisProvider = 'aishub' | 'aisstream' | 'receiver';
+export interface InternetAisTarget {
+    mmsi: number;
+    lat: number;
+    lon: number;
+    cog: number | null;
+    sog: number | null;
+    at: number;
+    provider: InternetAisProvider;
+}
+export interface InternetAisRequest {
+    schema: 1;
+    lat: number;
+    lon: number;
+    measuredAt: number;
+    ownMmsi: number;
+    radiusNm: 25;
+    limit: 100;
+}
+export interface InternetAisReply {
+    schema: 1;
+    targets: InternetAisTarget[];
+    coverage: 'limited' | 'held';
+    truncated: boolean;
+}
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const finite = (v: unknown, lo: number, hi: number): v is number =>
+    typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+const course = (v: unknown): v is number => finite(v, 0, 360) && v < 360;
+const speed = (v: unknown): v is number => finite(v, 0, 102.3) && v < 102.3;
+export const internetAisMmsi = (v: unknown): v is number => finite(v, 100_000_000, 999_999_999) && Number.isInteger(v);
+export const internetAisClock = (at: unknown, now: number, age: number = INTERNET_AIS.maxAgeMs): at is number =>
+    Number.isSafeInteger(at) &&
+    (at as number) > 0 &&
+    finite(now, 1, Number.MAX_SAFE_INTEGER) &&
+    now - (at as number) <= age &&
+    (at as number) <= now + INTERNET_AIS.futureMs;
+export function parseInternetAisRequest(value: unknown, now: number): InternetAisRequest | null {
+    if (
+        !record(value) ||
+        Object.keys(value).sort().join(',') !== 'lat,limit,lon,measuredAt,ownMmsi,radiusNm,schema' ||
+        value.schema !== 1 ||
+        value.radiusNm !== 25 ||
+        value.limit !== 100 ||
+        !finite(value.lat, -90, 90) ||
+        !finite(value.lon, -180, 180) ||
+        !internetAisMmsi(value.ownMmsi) ||
+        !internetAisClock(value.measuredAt, now, INTERNET_AIS.fixAgeMs)
+    ) {
+        return null;
+    }
+    return {
+        schema: 1,
+        lat: value.lat,
+        lon: value.lon,
+        measuredAt: value.measuredAt,
+        ownMmsi: value.ownMmsi,
+        radiusNm: 25,
+        limit: 100,
+    };
+}
+export function internetAisDistanceNm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+    const rad = Math.PI / 180;
+    const h = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 +
+        Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lon - a.lon) * rad) / 2) ** 2;
+    return 3440.065 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
+}
+/** Existing service-only RPC rows; absent, stale and unknown provider rows contribute no observation. */
+export function internetAisRpcTarget(
+    value: unknown,
+    request: InternetAisRequest,
+    now: number,
+): InternetAisTarget | null {
+    if (!record(value)) return null;
+    const mmsi = typeof value.mmsi === 'string' && /^[1-9]\d{8}$/.test(value.mmsi) ? Number(value.mmsi) : value.mmsi;
+    const at = typeof value.updated_at === 'string' ? Date.parse(value.updated_at) : NaN;
+    if (
+        !internetAisMmsi(mmsi) ||
+        mmsi === request.ownMmsi ||
+        !finite(value.lat, -90, 90) ||
+        !finite(value.lon, -180, 180) ||
+        !internetAisClock(at, now) ||
+        !['aishub', 'aisstream', 'receiver'].includes(String(value.data_source))
+    ) {
+        return null;
+    }
+    const target: InternetAisTarget = {
+        mmsi,
+        lat: value.lat,
+        lon: value.lon,
+        at,
+        provider: value.data_source as InternetAisProvider,
+        cog: course(value.cog) ? value.cog : null,
+        sog: speed(value.sog) ? value.sog : null,
+    };
+    return internetAisDistanceNm(request, target) <= INTERNET_AIS.radiusNm ? target : null;
+}
+/** Strict received envelope; a network arrival time never replaces a target's original report time. */
+export function parseInternetAisReply(
+    value: unknown,
+    request: InternetAisRequest,
+    now: number,
+): InternetAisReply | null {
+    if (
+        !record(value) ||
+        Object.keys(value).sort().join(',') !== 'coverage,schema,targets,truncated' ||
+        value.schema !== 1 ||
+        !['limited', 'held'].includes(String(value.coverage)) ||
+        typeof value.truncated !== 'boolean' ||
+        !Array.isArray(value.targets) ||
+        value.targets.length > INTERNET_AIS.targets ||
+        (value.coverage === 'held' && value.targets.length)
+    ) {
+        return null;
+    }
+    const targets: InternetAisTarget[] = [],
+        seen = new Set<number>();
+    for (const row of value.targets) {
+        if (
+            !record(row) ||
+            Object.keys(row).sort().join(',') !== 'at,cog,lat,lon,mmsi,provider,sog' ||
+            !internetAisMmsi(row.mmsi) ||
+            row.mmsi === request.ownMmsi ||
+            !finite(row.lat, -90, 90) ||
+            !finite(row.lon, -180, 180) ||
+            !Number.isSafeInteger(row.at) ||
+            !['aishub', 'aisstream', 'receiver'].includes(String(row.provider)) ||
+            (row.cog !== null && !course(row.cog)) ||
+            (row.sog !== null && !speed(row.sog)) ||
+            seen.has(row.mmsi)
+        ) {
+            return null;
+        }
+        seen.add(row.mmsi);
+        const target = row as unknown as InternetAisTarget;
+        if (internetAisClock(target.at, now) && internetAisDistanceNm(request, target) <= INTERNET_AIS.radiusNm) {
+            targets.push({ ...target });
+        }
+    }
+    return { schema: 1, targets, coverage: value.coverage as 'limited' | 'held', truncated: value.truncated };
+}
+export function internetAisSourceRef(value: unknown): boolean {
+    return typeof value === 'string' && value.length <= 160 && value.split('.').includes(INTERNET_AIS_SOURCE);
+}
+/** Standard Signal K delta: source reference OR inline source, never both. SI units and original clock. */
+export function internetAisDelta(target: InternetAisTarget, now: number) {
+    if (!internetAisClock(target.at, now)) return null;
+    const values: { path: string; value: number | { latitude: number; longitude: number } }[] = [
+        { path: 'navigation.position', value: { latitude: target.lat, longitude: target.lon } },
+    ];
+    if (target.cog !== null) {
+        values.push({ path: 'navigation.courseOverGroundTrue', value: (target.cog * Math.PI) / 180 });
+    }
+    if (target.sog !== null) values.push({ path: 'navigation.speedOverGround', value: (target.sog * 1852) / 3600 });
+    return {
+        context: `vessels.urn:mrn:imo:mmsi:${target.mmsi}`,
+        updates: [
+            {
+                $source: `${INTERNET_AIS_SOURCE}.${target.provider}`,
+                timestamp: new Date(target.at).toISOString(),
+                values,
+            },
+        ],
+    };
+}
