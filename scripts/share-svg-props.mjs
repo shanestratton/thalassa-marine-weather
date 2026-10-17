@@ -17,9 +17,32 @@ const VARIANTS = Array.from({ length: 8 }, (_, mask) => ({
     ...(mask & 2 ? SIZE : {}),
     ...(mask & 4 ? { strokeWidth: '2' } : {}),
 }));
-const SOURCE = VARIANTS.map(
-    (props, i) => `export const p${i}=/* @__PURE__ */Object.freeze(${JSON.stringify(props)});`,
-).join('\n');
+// Three reviewed contiguous runs, preserving original key/type/order. These
+// are ordinary immutable objects, not extra compressed-data pools.
+export const SVG_LITERAL_RUNS142 = Object.freeze([
+    Object.freeze([
+        ['strokeLinecap', 'round'],
+        ['strokeLinejoin', 'round'],
+    ]),
+    Object.freeze([
+        ['viewBox', '0 0 24 24'],
+        ['fill', 'currentColor'],
+    ]),
+    Object.freeze([
+        ['fill', 'none'],
+        ['viewBox', '0 0 24 24'],
+    ]),
+]);
+const SVG_TAGS = new Set(['svg', 'g', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse']);
+const SOURCE =
+    VARIANTS.map((props, i) => `export const p${i}=/* @__PURE__ */Object.freeze(${JSON.stringify(props)});`).join(
+        '\n',
+    ) +
+    '\n' +
+    SVG_LITERAL_RUNS142.map(
+        (entries, i) =>
+            `export const r${i}=/* @__PURE__ */Object.freeze(${JSON.stringify(Object.fromEntries(entries))});`,
+    ).join('\n');
 
 function walk(node, visit) {
     if (!node || typeof node.type !== 'string') return;
@@ -40,7 +63,7 @@ export function shareSvgAttributes(code, id, { parse, root }) {
         relative.startsWith('../') ||
         relative.includes('node_modules/') ||
         !/\.[cm]?[jt]sx?$/.test(file) ||
-        (!code.includes('"svg"') && !code.includes("'svg'"))
+        ![...SVG_TAGS].some((tag) => code.includes(JSON.stringify(tag)) || code.includes("'" + tag + "'"))
     )
         return null;
     const program = parse(code);
@@ -64,6 +87,7 @@ export function shareSvgAttributes(code, id, { parse, root }) {
     while (code.includes(prefix)) prefix += '_';
     const output = new MagicString(code);
     const used = new Set();
+    const runs = new Set();
     let elements = 0;
     walk(program, (node) => {
         if (
@@ -72,7 +96,7 @@ export function shareSvgAttributes(code, id, { parse, root }) {
             node.callee.type !== 'Identifier' ||
             !helpers.has(node.callee.name) ||
             node.arguments[0]?.type !== 'Literal' ||
-            node.arguments[0].value !== 'svg'
+            !SVG_TAGS.has(node.arguments[0].value)
         )
             return;
         const props = node.arguments[1];
@@ -89,7 +113,35 @@ export function shareSvgAttributes(code, id, { parse, root }) {
                 ([key, value]) =>
                     attributes.get(key)?.value.type === 'Literal' && attributes.get(key).value.value === value,
             );
-        if (!matches(CORE)) return;
+        if (node.arguments[0].value !== 'svg' || !matches(CORE)) {
+            let changed = false;
+            for (let start = 0; start < props.properties.length; start++) {
+                for (let i = 0; i < SVG_LITERAL_RUNS142.length; i++) {
+                    const run = SVG_LITERAL_RUNS142[i];
+                    if (
+                        run.every(([key, expected], offset) => {
+                            const property = props.properties[start + offset];
+                            return (
+                                property &&
+                                (property.key.name ?? property.key.value) === key &&
+                                property.value.type === 'Literal' &&
+                                property.value.value === expected
+                            );
+                        })
+                    ) {
+                        const first = props.properties[start],
+                            last = props.properties[start + run.length - 1];
+                        output.overwrite(first.start, last.end, `...${prefix}r${i}`);
+                        runs.add(i);
+                        start += run.length - 1;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+            if (changed) elements++;
+            return;
+        }
         const mask = (matches(ROUND) ? 1 : 0) | (matches(SIZE) ? 2 : 0) | (matches({ strokeWidth: '2' }) ? 4 : 0);
         const selected = new Set(Object.keys(VARIANTS[mask]));
         // Replacing the complete props expression keeps interleaved children
@@ -106,7 +158,12 @@ export function shareSvgAttributes(code, id, { parse, root }) {
         elements++;
     });
     if (!elements) return null;
-    output.prepend(`import {${[...used].map((mask) => `p${mask} as ${prefix}${mask}`).join(',')}} from '${MODULE}';\n`);
+    output.prepend(
+        `import {${[
+            ...[...used].map((mask) => `p${mask} as ${prefix}${mask}`),
+            ...[...runs].map((run) => `r${run} as ${prefix}r${run}`),
+        ].join(',')}} from '${MODULE}';\n`,
+    );
     return {
         code: output.toString(),
         map: output.generateMap({ source: file, includeContent: true, hires: true }),
