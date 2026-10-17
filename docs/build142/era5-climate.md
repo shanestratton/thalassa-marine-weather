@@ -34,7 +34,7 @@ remain charged until native settlement even when abort wins. A missing/invalid
 dataset, offline policy, incomplete geometry or absent cells stays unavailable
 or incomplete. No placeholder public dataset is installed.
 
-Source proof: 15 focused algorithm/reader/UI cases and four phone cases pass.
+Source proof: 16 focused algorithm/reader/UI cases and four phone cases pass.
 The phone cases use fictional hashes/distributions only, actual ClimateRoseCard
 inside the existing ModalSheet, Chrome and WebKit at 300/375 px with 130% type.
 Controls/footer Close retain actual 44 px targets and centre hit tests; document
