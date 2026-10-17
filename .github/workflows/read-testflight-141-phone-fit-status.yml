@@ -1,0 +1,33 @@
+name: Thalassa 141 phone-fit read-only beta status
+on:
+  push:
+    branches: ["codex/build-141-phone-fit-tester-status"]
+    paths: [".github/workflows/read-testflight-141-phone-fit-status.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: thalassa-141-phone-fit-beta-status
+  cancel-in-progress: false
+jobs:
+  read:
+    name: Read Apple beta metadata only
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fb12cb4c65ee99bef4ae914fad0547b3f10b43fb
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Test read-only destination, identity and pagination checks
+        run: node --test ci/build141-phone-fit/tester-status.test.mjs
+      - name: Read exact build 141 beta state and anonymous group counts
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: node ci/build141-phone-fit/tester-status.mjs --require-ready
