@@ -16,8 +16,14 @@ interface ZoneBase {
     readonly anchor: AnchorZonePoint;
 }
 export type AnchorSafeZone =
-    | (ZoneBase & { readonly kind: 'polygon'; readonly vertices: readonly AnchorZonePoint[] })
-    | (ZoneBase & { readonly kind: 'wedges'; readonly exclusions: readonly AnchorZoneWedge[] });
+    | (ZoneBase & {
+        readonly kind: 'polygon';
+        readonly vertices: readonly AnchorZonePoint[];
+    })
+    | (ZoneBase & {
+        readonly kind: 'wedges';
+        readonly exclusions: readonly AnchorZoneWedge[];
+    });
 export type AnchorZoneAdmission =
     | { readonly ok: true; readonly zone: AnchorSafeZone }
     | { readonly ok: false; readonly error: string };
@@ -33,7 +39,8 @@ export interface AnchorBoundaryEnvelope {
     readonly zone: AnchorSafeZone | null;
 }
 export const isAnchorAreaRevision = (value: unknown): value is string =>
-    typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 type XY = readonly [number, number];
 const R = 3440.065 * 1852;
 const RAD = Math.PI / 180;
@@ -55,14 +62,19 @@ const onlyKeys = (v: Record<string, unknown>, keys: readonly string[]) =>
 
 /** Azimuthal equidistant projection about the anchor; longitude is never averaged.
  * True east/north retain their meaning across180° and near the poles. */
-export function anchorZoneOffset(anchor: AnchorZonePoint, position: AnchorZonePoint): XY | null {
+export function anchorZoneOffset(
+    anchor: AnchorZonePoint,
+    position: AnchorZonePoint,
+): XY | null {
     if (!point(anchor) || !point(position)) return null;
     const a = anchor.latitude * RAD,
         b = position.latitude * RAD;
     const d = angle(position.longitude - anchor.longitude + 180) * RAD - Math.PI;
     const east = Math.cos(b) * Math.sin(d);
-    const north = Math.cos(a) * Math.sin(b) - Math.sin(a) * Math.cos(b) * Math.cos(d);
-    const dot = Math.sin(a) * Math.sin(b) + Math.cos(a) * Math.cos(b) * Math.cos(d);
+    const north = Math.cos(a) * Math.sin(b) -
+        Math.sin(a) * Math.cos(b) * Math.cos(d);
+    const dot = Math.sin(a) * Math.sin(b) +
+        Math.cos(a) * Math.cos(b) * Math.cos(d);
     const norm = Math.hypot(east, north),
         arc = Math.atan2(norm, Math.max(-1, Math.min(1, dot)));
     if (norm < 1e-14) return arc < 1e-10 ? [0, 0] : null;
@@ -70,8 +82,15 @@ export function anchorZoneOffset(anchor: AnchorZonePoint, position: AnchorZonePo
     return [east * scale, north * scale];
 }
 
-export function anchorZonePosition(anchor: AnchorZonePoint, eastM: number, northM: number): AnchorZonePoint | null {
-    if (!point(anchor) || !finite(eastM) || !finite(northM) || Math.hypot(eastM, northM) > 5000) return null;
+export function anchorZonePosition(
+    anchor: AnchorZonePoint,
+    eastM: number,
+    northM: number,
+): AnchorZonePoint | null {
+    if (
+        !point(anchor) || !finite(eastM) || !finite(northM) ||
+        Math.hypot(eastM, northM) > 5000
+    ) return null;
     const radius = Math.hypot(eastM, northM) / R,
         bearing = Math.atan2(eastM, northM),
         lat = anchor.latitude * RAD;
@@ -80,10 +99,15 @@ export function anchorZonePosition(anchor: AnchorZonePoint, eastM: number, north
         s = Math.sin(radius);
     const east = Math.sin(bearing),
         north = Math.cos(bearing);
-    const x = Math.cos(lat) * Math.cos(lon) * c + (-Math.sin(lon) * east - Math.sin(lat) * Math.cos(lon) * north) * s;
-    const y = Math.cos(lat) * Math.sin(lon) * c + (Math.cos(lon) * east - Math.sin(lat) * Math.sin(lon) * north) * s;
+    const x = Math.cos(lat) * Math.cos(lon) * c +
+        (-Math.sin(lon) * east - Math.sin(lat) * Math.cos(lon) * north) * s;
+    const y = Math.cos(lat) * Math.sin(lon) * c +
+        (Math.cos(lon) * east - Math.sin(lat) * Math.sin(lon) * north) * s;
     const z = Math.sin(lat) * c + Math.cos(lat) * north * s;
-    return { latitude: Math.atan2(z, Math.hypot(x, y)) / RAD, longitude: angle(Math.atan2(y, x) / RAD + 180) - 180 };
+    return {
+        latitude: Math.atan2(z, Math.hypot(x, y)) / RAD,
+        longitude: angle(Math.atan2(y, x) / RAD + 180) - 180,
+    };
 }
 
 const cross = (a: XY, b: XY, c: XY) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
@@ -114,8 +138,12 @@ function polygonInside(vertices: readonly XY[], p: XY): boolean {
         const a = vertices[j],
             b = vertices[i];
         if (onEdge(p, a, b)) return true;
-        if (a[1] > p[1] !== b[1] > p[1] && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0])
+        if (
+            a[1] > p[1] !== b[1] > p[1] &&
+            p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]
+        ) {
             inside = !inside;
+        }
     }
     return inside;
 }
@@ -138,68 +166,111 @@ function uncoveredDegrees(wedges: readonly AnchorZoneWedge[]): number {
 
 /** Revalidate every recovered or received value against the current anchor/circle.
  * A moved anchor retires its old area; a smaller circle cannot silently clip it. */
-export function parseAnchorSafeZone(value: unknown, frame: AnchorZoneFrame): AnchorZoneAdmission {
-    if (!point(frame) || !finite(frame.radiusM) || frame.radiusM < 5 || frame.radiusM > 5000)
+export function parseAnchorSafeZone(
+    value: unknown,
+    frame: AnchorZoneFrame,
+): AnchorZoneAdmission {
+    if (
+        !point(frame) || !finite(frame.radiusM) || frame.radiusM < 5 ||
+        frame.radiusM > 5000
+    ) {
         return reject('The enclosing circle is invalid.');
+    }
     if (
         !record(value) ||
         value.version !== 1 ||
         !point(value.anchor) ||
-        !onlyKeys(value.anchor as unknown as Record<string, unknown>, ['latitude', 'longitude'])
-    )
+        !onlyKeys(value.anchor as unknown as Record<string, unknown>, [
+            'latitude',
+            'longitude',
+        ])
+    ) {
         return reject('The safe area is missing or invalid.');
+    }
     const displacement = anchorZoneOffset(frame, value.anchor);
-    if (!displacement || Math.hypot(...displacement) > EDGE_M)
+    if (!displacement || Math.hypot(...displacement) > EDGE_M) {
         return reject('The anchor moved. Review a new safe area.');
-    const anchor = Object.freeze({ latitude: frame.latitude, longitude: frame.longitude });
+    }
+    const anchor = Object.freeze({
+        latitude: frame.latitude,
+        longitude: frame.longitude,
+    });
     if (value.kind === 'polygon') {
-        if (!onlyKeys(value, ['version', 'kind', 'anchor', 'vertices']))
+        if (!onlyKeys(value, ['version', 'kind', 'anchor', 'vertices'])) {
             return reject('This polygon contains unsupported fields.');
+        }
         if (
             !Array.isArray(value.vertices) ||
             value.vertices.length < 3 ||
             value.vertices.length > MAX_VERTICES ||
             !value.vertices.every(
-                (v) => point(v) && onlyKeys(v as unknown as Record<string, unknown>, ['latitude', 'longitude']),
+                (v) =>
+                    point(v) &&
+                    onlyKeys(v as unknown as Record<string, unknown>, [
+                        'latitude',
+                        'longitude',
+                    ]),
             )
-        )
+        ) {
             return reject('Draw 3 to 64 valid corners.');
+        }
         const vertices = value.vertices.map((v) => Object.freeze({ latitude: v.latitude, longitude: v.longitude }));
         const offsets = vertices.map((v) => anchorZoneOffset(frame, v));
-        if (offsets.some((v) => !v || Math.hypot(...v) > frame.radiusM + EDGE_M))
+        if (offsets.some((v) => !v || Math.hypot(...v) > frame.radiusM + EDGE_M)) {
             return reject('Every corner must stay within the enclosing circle.');
+        }
         const xy = offsets as XY[];
         let area = 0;
         for (let i = 0; i < xy.length; i++) {
             const a = xy[i],
                 b = xy[(i + 1) % xy.length];
-            if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.05) return reject('Two corners are too close.');
+            if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.05) {
+                return reject('Two corners are too close.');
+            }
             const c = xy[(i + 2) % xy.length];
             if (
-                Math.abs(cross(a, b, c)) < EDGE_M * Math.hypot(a[0] - b[0], a[1] - b[1]) &&
+                Math.abs(cross(a, b, c)) <
+                    EDGE_M * Math.hypot(a[0] - b[0], a[1] - b[1]) &&
                 (a[0] - b[0]) * (c[0] - b[0]) + (a[1] - b[1]) * (c[1] - b[1]) > 0
-            )
+            ) {
                 return reject('The outline doubles back on itself.');
+            }
             area += a[0] * b[1] - b[0] * a[1];
             for (let j = i + 1; j < xy.length; j++) {
                 if (j === i + 1 || (i === 0 && j === xy.length - 1)) continue;
-                if (intersects(a, b, xy[j], xy[(j + 1) % xy.length])) return reject('The outline crosses itself.');
+                if (intersects(a, b, xy[j], xy[(j + 1) % xy.length])) {
+                    return reject('The outline crosses itself.');
+                }
             }
         }
-        if (Math.abs(area) / 2 < 4 || !polygonInside(xy, [0, 0]))
+        if (Math.abs(area) / 2 < 4 || !polygonInside(xy, [0, 0])) {
             return reject('Draw an area of at least 4 m² enclosing the anchor.');
+        }
         return {
             ok: true,
-            zone: Object.freeze({ version: 1, kind: 'polygon', anchor, vertices: Object.freeze(vertices) }),
+            zone: Object.freeze({
+                version: 1,
+                kind: 'polygon',
+                anchor,
+                vertices: Object.freeze(vertices),
+            }),
         };
     }
     if (value.kind === 'wedges') {
-        if (Math.abs(frame.latitude) === 90)
-            return reject('True bearing is undefined at a pole. Draw a polygon instead.');
-        if (!onlyKeys(value, ['version', 'kind', 'anchor', 'exclusions']))
+        if (Math.abs(frame.latitude) === 90) {
+            return reject(
+                'True bearing is undefined at a pole. Draw a polygon instead.',
+            );
+        }
+        if (!onlyKeys(value, ['version', 'kind', 'anchor', 'exclusions'])) {
             return reject('These wedges contain unsupported fields.');
-        if (!Array.isArray(value.exclusions) || !value.exclusions.length || value.exclusions.length > MAX_WEDGES)
+        }
+        if (
+            !Array.isArray(value.exclusions) || !value.exclusions.length ||
+            value.exclusions.length > MAX_WEDGES
+        ) {
             return reject('Choose 1 to 8 exclusion wedges.');
+        }
         const exclusions: AnchorZoneWedge[] = [];
         for (const w of value.exclusions) {
             if (
@@ -211,14 +282,24 @@ export function parseAnchorSafeZone(value: unknown, frame: AnchorZoneFrame): Anc
                 !finite(w.sweepDeg) ||
                 w.sweepDeg < 0.5 ||
                 w.sweepDeg > 359
-            )
+            ) {
                 return reject('A wedge has an invalid true bearing or angle.');
-            exclusions.push(Object.freeze({ startDeg: w.startDeg, sweepDeg: w.sweepDeg }));
+            }
+            exclusions.push(
+                Object.freeze({ startDeg: w.startDeg, sweepDeg: w.sweepDeg }),
+            );
         }
-        if (uncoveredDegrees(exclusions) < 0.5) return reject('The wedges leave no usable safe sector.');
+        if (uncoveredDegrees(exclusions) < 0.5) {
+            return reject('The wedges leave no usable safe sector.');
+        }
         return {
             ok: true,
-            zone: Object.freeze({ version: 1, kind: 'wedges', anchor, exclusions: Object.freeze(exclusions) }),
+            zone: Object.freeze({
+                version: 1,
+                kind: 'wedges',
+                anchor,
+                exclusions: Object.freeze(exclusions),
+            }),
         };
     }
     return reject('This safe-area version is not supported.');
@@ -235,11 +316,12 @@ export function anchorSafeZoneContains(
     if (!parsed.ok || !p) return null;
     if (Math.hypot(...p) > frame.radiusM + EDGE_M) return false;
     const zone = parsed.zone;
-    if (zone.kind === 'polygon')
+    if (zone.kind === 'polygon') {
         return polygonInside(
             zone.vertices.map((v) => anchorZoneOffset(frame, v)!),
             p,
         );
+    }
     if (Math.hypot(...p) <= EDGE_M) return true;
     const bearing = angle(Math.atan2(p[0], p[1]) / RAD);
     return !zone.exclusions.some((w) => angle(bearing - w.startDeg) <= w.sweepDeg + 1e-8);
@@ -255,8 +337,9 @@ export function parseAnchorSafeArea(value: unknown): AnchorSafeArea | null {
         !onlyKeys(value.frame, ['latitude', 'longitude', 'radiusM']) ||
         !point(value.frame) ||
         !finite(value.frame.radiusM)
-    )
+    ) {
         return null;
+    }
     const frame = Object.freeze({
         latitude: value.frame.latitude,
         longitude: value.frame.longitude,
@@ -275,7 +358,9 @@ export function sameAnchorSafeArea(left: unknown, right: unknown): boolean {
 }
 
 /** Explicit circle transitions retain their frame; absent legacy envelopes remain distinct. */
-export function parseAnchorBoundary(value: unknown): AnchorBoundaryEnvelope | null {
+export function parseAnchorBoundary(
+    value: unknown,
+): AnchorBoundaryEnvelope | null {
     if (record(value) && value.zone === null) {
         if (
             value.version !== 1 ||
@@ -286,8 +371,9 @@ export function parseAnchorBoundary(value: unknown): AnchorBoundaryEnvelope | nu
             !finite(value.frame.radiusM) ||
             value.frame.radiusM < 5 ||
             value.frame.radiusM > 5000
-        )
+        ) {
             return null;
+        }
         return Object.freeze({
             version: 1,
             frame: Object.freeze({
