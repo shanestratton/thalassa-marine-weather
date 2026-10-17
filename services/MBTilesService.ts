@@ -15,7 +15,16 @@ import { createLogger } from '../utils/createLogger';
 import { looksGzipped, sniffImageMime } from '../utils/imageBytes';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
-import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js';
+import type { Database, SqlJsStatic } from 'sql.js';
+import {
+    assertLocalChartName,
+    assertLocalChartSize,
+    readLocalChartBytes,
+    localChartRasterDimensions,
+    LOCAL_CHART_OPEN_BYTES,
+    LOCAL_CHART_TILE_BYTES,
+    LOCAL_CHART_CACHE_BYTES,
+} from './charts/localChartLimits';
 
 const log = createLogger('MBTiles');
 
@@ -37,8 +46,9 @@ export interface OpenChart {
     name: string;
     fileName: string;
     metadata: MBTilesMetadata;
-    /** Estimated memory usage in MB */
+    /** Encoded file MiB; SQLite and decoder working memory are additional. */
     memoryMB: number;
+    fileBytes: number;
 }
 
 type Listener = () => void;
@@ -62,6 +72,9 @@ class MBTilesServiceImpl {
     private chartInfo = new Map<string, OpenChart>();
     /** Most recently used last. */
     private useOrder: string[] = [];
+    private openQueue: Promise<unknown> = Promise.resolve();
+    private readonly openEpoch = new Map<string, number>();
+    private allEpoch = 0;
 
     /** Total megabytes currently held across every open chart. */
     getMemoryMB(): number {
@@ -73,19 +86,14 @@ class MBTilesServiceImpl {
     /**
      * Close least-recently-used charts until `incomingMB` fits under the cap.
      *
-     * Never evicts `keep` (the chart being opened). If a single chart is
-     * bigger than the whole budget it is still opened — refusing to draw the
-     * chart a skipper explicitly asked for would be worse than the risk — but
-     * everything else is given back first.
+     * The file-size gate applies before any read. Accounting uses exact bytes,
+     * including charts smaller than one rounded megabyte.
      */
-    private evictUntilRoomFor(incomingMB: number, keep: string): void {
-        const CAP_MB = 96;
-        while (this.getMemoryMB() + incomingMB > CAP_MB) {
+    private evictUntilRoomFor(incomingBytes: number, keep: string): void {
+        const held = () => [...this.chartInfo.values()].reduce((total, chart) => total + chart.fileBytes, 0);
+        while (held() + incomingBytes > LOCAL_CHART_OPEN_BYTES) {
             const victim = this.useOrder.find((f) => f !== keep && this.chartInfo.has(f));
-            if (!victim) break;
-            log.warn(
-                `Chart memory ${this.getMemoryMB()}MB + ${incomingMB}MB over the ${CAP_MB}MB cap — closing ${victim}`,
-            );
+            if (!victim) throw new Error('Close another local chart before opening this one.');
             this.close(victim);
         }
     }
@@ -97,13 +105,14 @@ class MBTilesServiceImpl {
     private listeners = new Set<Listener>();
 
     // Blob URL pool — revoke old ones to prevent memory leaks
-    private blobUrls: string[] = [];
-    private readonly MAX_BLOB_URLS = 1000;
+    private blobUrls: Array<{ chart: string; url: string; bytes: number }> = [];
+    private readonly MAX_BLOB_URLS = 128;
 
     // Tile data cache — LRU cache of recently accessed tiles to avoid
     // repeated SQLite queries for the same tile during panning/zooming
     private tileCache = new Map<string, Uint8Array | null>();
     private readonly MAX_TILE_CACHE = 500;
+    private tileCacheBytes = 0;
 
     // ── Initialisation ──
 
@@ -112,15 +121,15 @@ class MBTilesServiceImpl {
         if (this.sql) return this.sql;
         if (this.sqlLoading) return this.sqlLoading;
 
-        this.sqlLoading = initSqlJs({
-            // Bundled in public/ — works offline (no CDN needed at sea)
-            locateFile: () => '/sql-wasm.wasm',
-        });
-
-        this.sql = await this.sqlLoading;
-        this.sqlLoading = null;
-        log.info('sql.js WASM loaded');
-        return this.sql;
+        this.sqlLoading = import('sql.js').then(({ default: initSqlJs }) =>
+            initSqlJs({ locateFile: () => '/sql-wasm.wasm' }),
+        );
+        try {
+            this.sql = await this.sqlLoading;
+            return this.sql;
+        } finally {
+            this.sqlLoading = null;
+        }
     }
 
     // ── Open / Close ──
@@ -129,7 +138,18 @@ class MBTilesServiceImpl {
      * Open an MBTiles file from chart_downloads/ and load it into memory.
      * Returns the chart metadata on success.
      */
-    async open(fileName: string): Promise<OpenChart> {
+    open(fileName: string): Promise<OpenChart> {
+        assertLocalChartName(fileName);
+        const epoch = this.openEpoch.get(fileName) ?? 0,
+            allEpoch = this.allEpoch;
+        const current = () => epoch === (this.openEpoch.get(fileName) ?? 0) && allEpoch === this.allEpoch;
+        const task = this.openQueue.then(() => this.openOne(fileName, current));
+        this.openQueue = task.catch(() => undefined);
+        return task;
+    }
+
+    private async openOne(fileName: string, current: () => boolean): Promise<OpenChart> {
+        if (!current()) throw new Error('Chart opening was cancelled.');
         // Already open?
         const existing = this.chartInfo.get(fileName);
         if (existing) {
@@ -137,9 +157,12 @@ class MBTilesServiceImpl {
             return existing;
         }
 
-        const SQL = await this.ensureSql();
-
         log.info(`Opening ${fileName}...`);
+
+        const stat = await Filesystem.stat({ path: `chart_downloads/${fileName}`, directory: Directory.Cache });
+        assertLocalChartSize(stat.size);
+        if (stat.type !== 'file' || !current()) throw new Error('Choose a local chart file.');
+        this.evictUntilRoomFor(stat.size, fileName);
 
         // Read file as binary via fetch (avoids base64 overhead of Filesystem.readFile)
         const uri = await Filesystem.getUri({
@@ -153,24 +176,12 @@ class MBTilesServiceImpl {
         // leaves non-HTTP URLs to the WebView's own fetch. convertFileSrc
         // serves the same file from the app's own origin, which connect-src
         // 'self' allows; on the web it returns the path unchanged.
-        const response = await fetch(Capacitor.convertFileSrc(uri.uri));
-        if (!response.ok) {
-            throw new Error(`Failed to read ${fileName}: HTTP ${response.status}`);
-        }
-
-        const buffer = await response.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        const memoryMB = Math.round(bytes.length / 1024 / 1024);
-
-        // A BUDGET, because the whole file lives in memory.
-        //
-        // There is no streaming path here: sql.js needs the entire database as
-        // bytes. So the only defence against a locker full of large charts is
-        // to cap the total and evict the least recently used. The cost lands
-        // on the WKWebView content process, and iOS answers memory pressure by
-        // killing it outright — which the user sees as the app "crashing back
-        // to the Glass page" with no error anywhere.
-        this.evictUntilRoomFor(memoryMB, fileName);
+        const response = await fetch(Capacitor.convertFileSrc(uri.uri), { signal: AbortSignal.timeout(30000) });
+        const bytes = await readLocalChartBytes(response, stat.size);
+        if (!current()) throw new Error('Chart opening was cancelled.');
+        const SQL = await this.ensureSql();
+        if (!current()) throw new Error('Chart opening was cancelled.');
+        const memoryMB = bytes.length / 1024 / 1024;
 
         log.info(`Loaded ${memoryMB} MB into memory, creating database...`);
 
@@ -184,6 +195,7 @@ class MBTilesServiceImpl {
             fileName,
             metadata,
             memoryMB,
+            fileBytes: bytes.byteLength,
         };
 
         this.chartInfo.set(fileName, chart);
@@ -198,6 +210,7 @@ class MBTilesServiceImpl {
 
     /** Close a chart and free memory. */
     close(fileName: string): void {
+        this.openEpoch.set(fileName, (this.openEpoch.get(fileName) ?? 0) + 1);
         const db = this.databases.get(fileName);
         if (db) {
             db.close();
@@ -206,8 +219,12 @@ class MBTilesServiceImpl {
             this.useOrder = this.useOrder.filter((f) => f !== fileName);
             // Evict tile cache entries for this chart
             for (const key of this.tileCache.keys()) {
-                if (key.startsWith(`${fileName}/`)) this.tileCache.delete(key);
+                if (key.startsWith(`${fileName}/`)) {
+                    this.tileCacheBytes -= this.tileCache.get(key)?.byteLength ?? 0;
+                    this.tileCache.delete(key);
+                }
             }
+            this.retireBlobUrls(fileName);
             log.info(`Closed: ${fileName}`);
             this.notify();
         }
@@ -215,6 +232,8 @@ class MBTilesServiceImpl {
 
     /** Close all open charts. */
     closeAll(): void {
+        this.allEpoch++;
+        this.openEpoch.clear();
         for (const [name, db] of this.databases) {
             db.close();
             log.info(`Closed: ${name}`);
@@ -223,6 +242,8 @@ class MBTilesServiceImpl {
         this.chartInfo.clear();
         this.useOrder = [];
         this.tileCache.clear();
+        this.tileCacheBytes = 0;
+        this.retireBlobUrls();
         this.notify();
     }
 
@@ -237,6 +258,8 @@ class MBTilesServiceImpl {
      * Mapbox GL's `transformRequest`.
      */
     getTile(fileName: string, z: number, x: number, y: number): Uint8Array | null {
+        if (![z, x, y].every(Number.isSafeInteger) || z < 0 || z > 22 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z)
+            return null;
         const db = this.databases.get(fileName);
         if (!db) return null;
 
@@ -252,23 +275,27 @@ class MBTilesServiceImpl {
 
         try {
             const stmt = db.prepare(
-                'SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?',
+                'SELECT substr(tile_data, 1, ?) FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ? LIMIT 1',
             );
-            stmt.bind([z, x, tmsY]);
+            stmt.bind([LOCAL_CHART_TILE_BYTES + 1, z, x, tmsY]);
 
             let result: Uint8Array | null = null;
             if (stmt.step()) {
                 const row = stmt.get();
-                result = row[0] as Uint8Array;
+                const value = row[0];
+                if (value instanceof Uint8Array && value.byteLength <= LOCAL_CHART_TILE_BYTES) result = value;
             }
             stmt.free();
 
             // Cache the result (including null for missing tiles — avoids repeated lookups)
             this.tileCache.set(cacheKey, result);
-            if (this.tileCache.size > this.MAX_TILE_CACHE) {
+            this.tileCacheBytes += result?.byteLength ?? 0;
+            while (this.tileCache.size > this.MAX_TILE_CACHE || this.tileCacheBytes > LOCAL_CHART_CACHE_BYTES) {
                 // Evict oldest entry (Map preserves insertion order)
                 const firstKey = this.tileCache.keys().next().value;
-                if (firstKey) this.tileCache.delete(firstKey);
+                if (!firstKey) break;
+                this.tileCacheBytes -= this.tileCache.get(firstKey)?.byteLength ?? 0;
+                this.tileCache.delete(firstKey);
             }
 
             return result;
@@ -294,20 +321,32 @@ class MBTilesServiceImpl {
         // fallback tile is used instead of a decode attempt.
         const declaredPbf = metadata?.format === 'pbf';
         const sniffed = sniffImageMime(tileData);
+        if (sniffed && !localChartRasterDimensions(tileData, sniffed)) return null;
         const mimeType = sniffed ?? (declaredPbf || looksGzipped(tileData) ? 'application/x-protobuf' : null);
         if (!mimeType) return null;
 
-        const blob = new Blob([tileData.buffer as ArrayBuffer], { type: mimeType });
+        const blob = new Blob([new Uint8Array(tileData)], { type: mimeType });
         const url = URL.createObjectURL(blob);
 
         // Pool management — revoke oldest URLs to prevent memory leaks
-        this.blobUrls.push(url);
-        while (this.blobUrls.length > this.MAX_BLOB_URLS) {
+        this.blobUrls.push({ chart: fileName, url, bytes: tileData.byteLength });
+        while (
+            this.blobUrls.length > this.MAX_BLOB_URLS ||
+            this.blobUrls.reduce((sum, entry) => sum + entry.bytes, 0) > LOCAL_CHART_CACHE_BYTES
+        ) {
             const old = this.blobUrls.shift();
-            if (old) URL.revokeObjectURL(old);
+            if (old) URL.revokeObjectURL(old.url);
         }
 
         return url;
+    }
+
+    private retireBlobUrls(chart?: string): void {
+        this.blobUrls = this.blobUrls.filter((entry) => {
+            if (chart !== undefined && entry.chart !== chart) return true;
+            URL.revokeObjectURL(entry.url);
+            return false;
+        });
     }
 
     // ── Queries ──
