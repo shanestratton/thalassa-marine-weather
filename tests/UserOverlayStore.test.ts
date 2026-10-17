@@ -59,7 +59,7 @@ vi.mock('@capacitor/filesystem', () => ({
         }),
     },
 }));
-vi.mock('../services/weather/api/mpaDataset', () => ({
+vi.mock('../services/weather/api/mpaRetained', () => ({
     retainedMpaRoutingContextKey: () => 'absent',
     borrowRetainedMpaDataset: () => ({ status: 'absent', data: undefined, isCurrent: () => true, release: () => {} }),
 }));

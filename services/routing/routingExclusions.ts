@@ -3,7 +3,7 @@ import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 import { loadUserOverlays, readUserOverlay, userOverlayGeneration } from '../userOverlays/store';
 import { overlayPolygonOverlaps, validOverlayRouteBounds, type OverlayRouteBounds } from '../userOverlays/model';
-import { borrowRetainedMpaDataset, retainedMpaRoutingContextKey } from '../weather/api/mpaDataset';
+import { borrowRetainedMpaDataset, retainedMpaRoutingContextKey } from '../weather/api/mpaRetained';
 import { ROUTING_AREA_CAVEATS } from './routeAreaWords';
 
 /** Source key only: callers separately bind the current route/vessel request. */

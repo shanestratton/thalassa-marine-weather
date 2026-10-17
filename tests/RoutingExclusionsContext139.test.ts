@@ -13,7 +13,7 @@ vi.mock('../services/userOverlays/store', () => ({
     loadUserOverlays: h.load,
     readUserOverlay: h.read,
 }));
-vi.mock('../services/weather/api/mpaDataset', () => ({
+vi.mock('../services/weather/api/mpaRetained', () => ({
     retainedMpaRoutingContextKey: () => JSON.stringify([h.mpaCurrent, h.mpaStatus]),
     borrowRetainedMpaDataset: () => ({
         data: h.mpaData,
