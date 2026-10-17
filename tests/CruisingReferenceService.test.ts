@@ -1,4 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// This suite isolates existing cache/allowance/overflow behavior from transport.
+// Actual fixed Edge, native ignored-abort, body bounds, original source cohort
+// and no-public-fallback behavior are exercised by OwnedOverpassTransport and
+// OsmOverlayUpstream. The explicit fixture reader below performs no network.
+vi.mock('../services/osm/ownedOverpass', () => ({
+    fetchOwnedOverpass: async (
+        query: string,
+        options: { signal: AbortSignal; timeoutMs: number; reached: () => void },
+    ) => {
+        const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]);
+        let res;
+        try {
+            res = await fetch(`https://owned-osm-fixture.test/operation?data=${encodeURIComponent(query)}`, { signal });
+        } catch (error) {
+            if (!options.signal.aborted && /^(?:Timeout|Abort)Error$/.test((error as Error)?.name)) options.reached();
+            throw error;
+        }
+        options.reached();
+        if (!res.ok) throw new Error('Owned source unavailable');
+        const body = await res.json();
+        if (body.remark) throw new Error('Incomplete owned source unavailable');
+        const water = (body.elements ?? []).filter(
+            (el: { tags?: Record<string, string> }) => el.tags?.natural === 'bay' || el.tags?.leisure === 'marina',
+        ).length;
+        const queryComplete = query.includes('out tags center')
+            ? water <= 2000 && (body.elements ?? []).length - water <= 1000
+            : (body.elements ?? []).length <= 3000;
+        return {
+            ...body,
+            queryComplete,
+            thalassaSource: { sourceAt: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString() },
+        };
+    },
+}));
+
 const storage = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }));
 vi.mock('@capacitor/preferences', () => ({ Preferences: storage }));
 // This suite pins the legacy fallback/cache/Overpass budget. The published
@@ -62,15 +97,15 @@ describe('Worldwide reference loading', () => {
         expect(storage.set).toHaveBeenCalledOnce();
         expect(decodeURIComponent(fetcher.mock.calls[0][0])).toContain('(-21,148,-20,149)');
     });
-    it('fails over and never treats an HTTP-success timeout payload as an empty success', async () => {
+    it('refuses an HTTP-success partial answer without caching it or trying a public mirror', async () => {
         const fetcher = vi
             .fn()
-            .mockResolvedValueOnce({ ok: true, json: async () => ({ elements: [], remark: 'runtime timeout' }) })
-            .mockResolvedValueOnce({ ok: true, json: async () => response });
+            .mockResolvedValue({ ok: true, json: async () => ({ elements: [], remark: 'runtime timeout' }) });
         vi.stubGlobal('fetch', fetcher);
         const { loadReferenceTile } = await import('../services/anchorages/CruisingReferenceService');
-        expect((await loadReferenceTile(tile, new AbortController().signal)).points).toHaveLength(1);
-        expect(fetcher.mock.calls[1][0]).toContain('overpass.kumi.systems');
+        await expect(loadReferenceTile(tile, new AbortController().signal)).rejects.toThrow('unavailable');
+        expect(fetcher).toHaveBeenCalledOnce();
+        expect(storage.set).not.toHaveBeenCalled();
     });
     it('reports no data on provider failures instead of persisting an empty tile', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
@@ -99,7 +134,7 @@ describe('Worldwide reference loading', () => {
         await loadReferenceTile(tile, new AbortController().signal, { requireRestrictionMetadata: true });
         await loadReferenceTile(tile, new AbortController().signal);
         expect(fetcher).toHaveBeenCalledOnce();
-        expect(storage.set.mock.calls[0][0].key).toBe('thalassa_cruising_reference_v1');
+        expect(storage.set.mock.calls[0][0].key).toBe('thalassa_cruising_reference_v2_owned');
     });
     it('discards malformed cache contents and respects cancellation', async () => {
         storage.get.mockResolvedValue({
@@ -123,7 +158,7 @@ describe('Named places for Plan Your Day', () => {
         elements: [{ type: 'node', id: 456, lat: 69.7, lon: 18.9, tags: { natural: 'bay', name: 'Fixture Vika' } }],
     };
     const cell = (n: number) => ({ key: `69:${n}`, south: 69, north: 70, west: n, east: n + 1 });
-    const NAMES_KEY = 'thalassa_named_places_v1';
+    const NAMES_KEY = 'thalassa_named_places_v2_owned';
     const ASKS_KEY = 'thalassa_named_places_allowance_v1';
     const spent = (asks: number[]) => JSON.stringify({ asks });
     const allowanceWrites = () => storage.set.mock.calls.filter(([arg]) => arg.key === ASKS_KEY);
@@ -230,15 +265,15 @@ describe('Named places for Plan Your Day', () => {
         expect(fetcher).toHaveBeenCalledOnce();
     });
 
-    it('a cut-short answer fails over, is never cached as the whole cell, and spends its ask: Overpass did the work', async () => {
+    it('a cut-short owned answer is never cached, never retried publicly, and spends its reached ask', async () => {
         const fetcher = vi
             .fn()
             .mockResolvedValue({ ok: true, json: async () => ({ elements: [], remark: 'timeout' }) });
         vi.stubGlobal('fetch', fetcher);
         const { loadNamedPlaces } = await import('../services/anchorages/CruisingReferenceService');
         await expect(loadNamedPlaces(cell(18), new AbortController().signal)).rejects.toThrow('unavailable');
-        expect(fetcher).toHaveBeenCalledTimes(2);
-        expect(fetcher.mock.calls[1][0]).toContain('overpass.kumi.systems');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(fetcher.mock.calls[0][0]).toContain('owned-osm-fixture.test');
         expect(storage.set.mock.calls.map(([arg]) => arg.key)).toEqual([ASKS_KEY]);
         expect(lastAllowance().asks).toHaveLength(1);
     });
@@ -269,7 +304,8 @@ describe('Named places for Plan Your Day', () => {
         for (let plan = 0; plan < 4; plan++)
             for (let n = 0; n < 4; n++)
                 await expect(loadNamedPlaces(cell(n), new AbortController().signal)).rejects.toThrow('unavailable');
-        expect(fetcher).toHaveBeenCalledTimes(32);
+        // One owned attempt per ask; no public mirror retry.
+        expect(fetcher).toHaveBeenCalledTimes(16);
         expect(allowanceWrites()).toEqual([]);
         fetcher.mockResolvedValue({ ok: true, json: async () => names });
         for (let n = 0; n < 12; n++)
@@ -308,7 +344,7 @@ describe('Named places for Plan Your Day', () => {
         vi.stubGlobal('fetch', fetcher);
         const { loadNamedPlaces } = await import('../services/anchorages/CruisingReferenceService');
         await expect(loadNamedPlaces(cell(18), new AbortController().signal)).rejects.toThrow('unavailable');
-        expect(fetcher).toHaveBeenCalledTimes(2);
+        expect(fetcher).toHaveBeenCalledTimes(1);
         expect(lastAllowance().asks).toHaveLength(1);
         fetcher.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
         await expect(loadNamedPlaces(cell(19), new AbortController().signal)).rejects.toThrow('unavailable');
@@ -395,6 +431,7 @@ describe('Named places for Plan Your Day', () => {
             'Fixture Vika',
         ]);
         expect((await loadNamedPlaces(cell(18), new AbortController().signal)).stale).toBe(false);
+        expect((await loadNamedPlaces(cell(18), new AbortController().signal)).partial).toBe(true);
         expect(fetcher).toHaveBeenCalledOnce();
     });
 

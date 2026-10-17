@@ -117,9 +117,9 @@ interface OverpassResponse {
 async function fetchFromOverpass(
     bbox: [number, number, number, number],
     signal: AbortSignal,
-): Promise<OsmRouteOverlay> {
+): Promise<{ overlay: OsmRouteOverlay; sourceAt: string }> {
     const json = await fetchOverpassDocument(buildQuery(bbox), signal);
-    return assembleOverlay(json as OverpassResponse);
+    return { overlay: assembleOverlay(json as OverpassResponse), sourceAt: json.sourceAt };
 }
 
 /** Coordinates of a way returned by `out geom` (Overpass inline geometry). */
@@ -431,6 +431,7 @@ Deno.serve(async (req) => {
                     ...CORS,
                     'Content-Type': 'application/json',
                     'X-Overlay-Cache': 'hit',
+                    'X-Overlay-Source-Date': hit.fetched_at as string,
                     'Cache-Control': 'public, max-age=3600',
                 },
             });
@@ -439,12 +440,13 @@ Deno.serve(async (req) => {
         const fresh = await fetchFromOverpass(bbox, req.signal);
         await admin
             .from('osm_overlay_cache')
-            .upsert({ tile_key: key, payload: fresh as unknown, fetched_at: new Date().toISOString() });
-        return new Response(JSON.stringify(fresh), {
+            .upsert({ tile_key: key, payload: fresh.overlay as unknown, fetched_at: fresh.sourceAt });
+        return new Response(JSON.stringify(fresh.overlay), {
             headers: {
                 ...CORS,
                 'Content-Type': 'application/json',
                 'X-Overlay-Cache': 'miss',
+                'X-Overlay-Source-Date': fresh.sourceAt,
                 'Cache-Control': 'public, max-age=3600',
             },
         });

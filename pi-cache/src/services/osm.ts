@@ -41,10 +41,8 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'geojson';
-import { outboundFetch } from '../outboundHttp.js';
 
 const OSM_CACHE_DIR = process.env.OSM_CACHE_DIR ?? '/opt/thalassa-pi-cache/osm-cache';
-const OVERPASS_URL = process.env.OVERPASS_URL ?? 'https://overpass-api.de/api/interpreter';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const OVERPASS_TIMEOUT_MS = 45_000;
 /** With a copy to fall back on, how long a slow Overpass is waited on before
@@ -69,7 +67,7 @@ const STALE_AFTER_MS = 12_000;
 //        covers the request; replies with an Overpass remark are never saved,
 //        nor all-empty ones (Phase 2b, 2026-10-01). A v5 file is still read,
 //        but only as a stale copy when Overpass cannot be reached.
-const CACHE_SCHEMA_VERSION = 'v6';
+const CACHE_SCHEMA_VERSION = 'v7_owned';
 const LEGACY_CACHE_SCHEMA_VERSION = 'v5';
 
 export interface OsmRouteOverlay {
@@ -179,7 +177,7 @@ export interface OsmOverlayResult {
     fetchedAt: number;
 }
 
-/** What the Overpass POST sends. The URL is always OVERPASS_URL. */
+/** What the Overpass POST sends. The server supplies only the fixed owned Edge transport. */
 export interface OverpassRequest {
     method: 'POST';
     body: string;
@@ -191,6 +189,8 @@ export interface OverpassRequest {
 export interface OverpassReply {
     ok: boolean;
     status: number;
+    /** Original admitted database clock, supplied by the owned transport. */
+    sourceAt: number;
     text(): Promise<string>;
 }
 
@@ -213,7 +213,9 @@ export interface OsmOverlayOptions {
 }
 
 const defaultDeps: OsmOverlayDeps = {
-    fetchOverpass: (init) => outboundFetch(OVERPASS_URL, init),
+    fetchOverpass: async () => {
+        throw new Error('Owned OSM transport requires the current server configuration');
+    },
     cacheDir: OSM_CACHE_DIR,
     now: () => Date.now(),
     overpassTimeoutMs: OVERPASS_TIMEOUT_MS,
@@ -371,7 +373,8 @@ async function fetchFromOverpass(
     bbox: Bbox,
     fetchOverpass: OsmOverlayDeps['fetchOverpass'],
     timeoutMs: number,
-): Promise<OsmRouteOverlay> {
+    now: () => number,
+): Promise<{ overlay: OsmRouteOverlay; fetchedAt: number }> {
     const query = buildQuery(bbox);
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -402,7 +405,13 @@ async function fetchFromOverpass(
         }
         // The body read is inside the deadline too: a reply that stalls
         // mid-body is a failure, not a hang.
-        return assembleOverlay(parseOverpassReply(await response.text()));
+        if (
+            !Number.isFinite(response.sourceAt) ||
+            response.sourceAt > now() + 300_000 ||
+            now() - response.sourceAt > 45 * 86400_000
+        )
+            throw new Error('Original OSM source clock refused');
+        return { overlay: assembleOverlay(parseOverpassReply(await response.text())), fetchedAt: response.sourceAt };
     })();
     // A late failure after the deadline won is nobody's to handle.
     work.catch(() => {});
@@ -636,8 +645,7 @@ function refresh(
     const running = inflight.get(file);
     if (running) return running;
     const job = (async () => {
-        const overlay = await fetchFromOverpass(grid, d.fetchOverpass, d.overpassTimeoutMs);
-        const fetchedAt = d.now();
+        const { overlay, fetchedAt } = await fetchFromOverpass(grid, d.fetchOverpass, d.overpassTimeoutMs, d.now);
         // An all-empty reply is served (a bbox of open sea is genuinely
         // empty) but not saved: an empty copy cannot be told from a lost one
         // later.
@@ -682,7 +690,7 @@ export async function getOsmOverlay(
     const grid = gridBbox(bbox);
     const file = path.join(d.cacheDir, `${CACHE_SCHEMA_VERSION}_${gridKey(grid)}.json`);
     const saved = await readSaved(file);
-    if (saved && d.now() - saved.ts < CACHE_TTL_MS) {
+    if (saved && saved.ts <= d.now() && d.now() - saved.ts < CACHE_TTL_MS) {
         return { overlay: saved.data, state: 'cache', fetchedAt: saved.ts };
     }
     // What a failure may fall back on — only for a client that reads the
@@ -692,7 +700,8 @@ export async function getOsmOverlay(
     if (opts.acceptStale) {
         const legacy = saved
             ? null
-            : await readSaved(path.join(d.cacheDir, `${LEGACY_CACHE_SCHEMA_VERSION}_${legacyCacheKey(bbox)}.json`));
+            : ((await readSaved(path.join(d.cacheDir, `v6_${gridKey(grid)}.json`))) ??
+              (await readSaved(path.join(d.cacheDir, `${LEGACY_CACHE_SCHEMA_VERSION}_${legacyCacheKey(bbox)}.json`))));
         copy = saved ?? (legacy && !overlayIsAllEmpty(legacy.data) ? legacy : null);
     }
     const fetching = refresh(grid, file, d);

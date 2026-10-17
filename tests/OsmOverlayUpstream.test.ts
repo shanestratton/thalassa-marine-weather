@@ -14,7 +14,13 @@ import {
     parseOverpassDocument,
 } from '../supabase/functions/_shared/overpass-fetch';
 
-const query = '[out:json][timeout:30];way[man_made=pier](0,0,0.001,0.001);out geom;';
+import { queryForOwnedOsm } from '../services/osm/ownedOverpassContract';
+const operation = {
+    schema: 1 as const,
+    kind: 'overlay' as const,
+    bbox: [0, 0, 0.001, 0.001] as [number, number, number, number],
+};
+const query = queryForOwnedOsm(operation);
 const result = {
     elements: [
         {
@@ -27,130 +33,126 @@ const result = {
         },
     ],
 };
-const json = (value: unknown = result) => new Response(JSON.stringify(value));
+const sourceAt = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+const document = (value: unknown = result) => ({
+    ...(value as object),
+    osm3s: { timestamp_osm_base: sourceAt },
+    thalassaSource: { schema: 1, complete: true, licence: 'ODbL-1.0', sourceAt, cohortSha256: 'a'.repeat(64) },
+});
+const json = (value: unknown = result) => new Response(JSON.stringify(document(value)));
+const settings: Record<string, string> = {
+    THALASSA_WX_OSM_ORIGIN: 'https://wx-data.thalassawx.app',
+    THALASSA_WX_OSM_TOKEN: 'server_fixture_'.repeat(3),
+};
+const env = (name: string) => settings[name];
+const ask = (fetcher: typeof fetch, signal?: AbortSignal) => fetchOverpassDocument(query, signal, fetcher, env);
 beforeEach(() => vi.spyOn(console, 'warn').mockImplementation(() => undefined));
 afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
 });
 
-describe('OSM obstacle upstream recovery', () => {
-    it('makes one identified, bounded request when the primary works', async () => {
+describe('Owned OSM obstacle upstream', () => {
+    it('makes one fixed authenticated bounded operation without forwarding a user bearer or QL', async () => {
         const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json());
-        await expect(fetchOverpassDocument(query, undefined, fetcher)).resolves.toEqual(result);
+        await expect(ask(fetcher)).resolves.toEqual({ ...result, sourceAt });
         expect(fetcher).toHaveBeenCalledTimes(1);
         const [url, init] = fetcher.mock.calls[0];
         expect(url).toBe(OVERPASS_ENDPOINTS[0]);
-        expect(init).toMatchObject({ method: 'POST', redirect: 'error', body: 'data=' + encodeURIComponent(query) });
+        expect(init).toMatchObject({ method: 'POST', redirect: 'error', body: JSON.stringify(operation) });
         expect(init?.headers).toEqual({
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/json',
             Accept: 'application/json',
-            'User-Agent': 'thalassa-osm-overlay/1.0 (https://thalassawx.app)',
+            Authorization: `Bearer ${settings.THALASSA_WX_OSM_TOKEN}`,
         });
         expect(init?.signal).toBeInstanceOf(AbortSignal);
     });
-
     it.each([406, 429, 500, 502, 503, 504])(
-        'recovers from HTTP %i using the same query on one independent instance',
+        'HTTP%i refuses once without a public mirror or fake empty success',
         async (status) => {
-            const fetcher = vi
-                .fn<typeof fetch>()
-                .mockResolvedValueOnce(new Response('rejected', { status }))
-                .mockResolvedValueOnce(json());
-            await expect(fetchOverpassDocument(query, undefined, fetcher)).resolves.toEqual(result);
+            const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('rejected', { status }));
+            await expect(ask(fetcher)).rejects.toThrow();
+            expect(fetcher).toHaveBeenCalledTimes(1);
             expect(fetcher.mock.calls.map(([url]) => url)).toEqual([...OVERPASS_ENDPOINTS]);
-            expect(fetcher.mock.calls[1][1]?.body).toBe(fetcher.mock.calls[0][1]?.body);
         },
     );
-
-    it('recovers from a transport failure without exposing its raw URL/message', async () => {
-        const fetcher = vi
-            .fn<typeof fetch>()
-            .mockRejectedValueOnce(new Error('private position / bearer'))
-            .mockResolvedValueOnce(json());
-        await expect(fetchOverpassDocument(query, undefined, fetcher)).resolves.toEqual(result);
+    it('transport failure does not retry or expose the raw private error', async () => {
+        const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new Error('private position / bearer'));
+        await expect(ask(fetcher)).rejects.toThrow();
+        expect(fetcher).toHaveBeenCalledTimes(1);
         expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private position');
     });
-
     it.each([
         ['partial runtime error', { ...result, remark: 'runtime error: Query timed out' }],
         ['HTML as success', '<html>busy</html>'],
         ['invalid schema', { elements: null }],
         ['null element', { elements: [null] }],
         ['unexpected class', { elements: [{ type: 'node', id: 2 }] }],
-        ['oversized element list', { elements: Array(OVERPASS_MAX_ELEMENTS + 1).fill({ type: 'way' }) }],
+        ['oversized element list', { elements: Array(OVERPASS_MAX_ELEMENTS + 1).fill({ type: 'way', id: 1 }) }],
     ])('does not accept %s as a complete obstacle inventory', async (_name, bad) => {
         const fetcher = vi
             .fn<typeof fetch>()
-            .mockResolvedValueOnce(typeof bad === 'string' ? new Response(bad) : json(bad))
-            .mockResolvedValueOnce(json());
-        await expect(fetchOverpassDocument(query, undefined, fetcher)).resolves.toEqual(result);
-        expect(fetcher).toHaveBeenCalledTimes(2);
-    });
-
-    it('bounds upstream bytes before parsing and falls back', async () => {
-        const fetcher = vi
-            .fn<typeof fetch>()
-            .mockResolvedValueOnce(
-                new Response('{}', {
-                    headers: { 'Content-Length': String(OVERPASS_MAX_BYTES + 1) },
-                }),
-            )
-            .mockResolvedValueOnce(json());
-        await expect(fetchOverpassDocument(query, undefined, fetcher)).resolves.toEqual(result);
-        expect(fetcher).toHaveBeenCalledTimes(2);
-    });
-
-    it('returns no fabricated empty data when both endpoints fail', async () => {
-        const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response('no', { status: 406 }));
-        await expect(fetchOverpassDocument(query, undefined, fetcher)).rejects.toThrow(
-            'Overpass unavailable (HTTP 406; HTTP 406)',
-        );
-        expect(fetcher).toHaveBeenCalledTimes(2);
-    });
-
-    it('does not retry a malformed query on another host', async () => {
-        const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('invalid query', { status: 400 }));
-        await expect(fetchOverpassDocument(query, undefined, fetcher)).rejects.toThrow('rejected the query');
+            .mockResolvedValue(typeof bad === 'string' ? new Response(bad) : json(bad));
+        await expect(ask(fetcher)).rejects.toThrow();
         expect(fetcher).toHaveBeenCalledTimes(1);
     });
-
+    it('bounds upstream bytes before parsing without trying another host', async () => {
+        const fetcher = vi
+            .fn<typeof fetch>()
+            .mockResolvedValue(new Response('{}', { headers: { 'Content-Length': String(OVERPASS_MAX_BYTES + 1) } }));
+        await expect(ask(fetcher)).rejects.toThrow();
+        expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+    it('unconfigured or foreign own origin refuses before network', async () => {
+        const fetcher = vi.fn<typeof fetch>();
+        for (const origin of [
+            undefined,
+            'https://overpass-api.de',
+            'http://wx',
+            'https://wx-data.thalassawx.app/other',
+        ])
+            await expect(
+                fetchOverpassDocument(query, undefined, fetcher, (name) =>
+                    name === 'THALASSA_WX_OSM_ORIGIN' ? origin : settings[name],
+                ),
+            ).rejects.toThrow();
+        expect(fetcher).not.toHaveBeenCalled();
+    });
+    it('unknown or malicious recipe refuses before network', async () => {
+        const fetcher = vi.fn<typeof fetch>();
+        await expect(fetchOverpassDocument('[out:json];nwr;out;', undefined, fetcher, env)).rejects.toThrow();
+        expect(fetcher).not.toHaveBeenCalled();
+    });
     it('bounds even a fetch implementation that ignores abort', async () => {
         vi.useFakeTimers();
         const fetcher = vi.fn<typeof fetch>().mockImplementation(() => new Promise(() => undefined));
-        const promise = fetchOverpassDocument(query, undefined, fetcher);
-        const assertion = expect(promise).rejects.toThrow('Overpass unavailable (timeout; timeout)');
-        await vi.advanceTimersByTimeAsync(OVERPASS_ATTEMPT_MS * 2);
-        await assertion;
-        expect(fetcher).toHaveBeenCalledTimes(2);
-        expect(fetcher.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(true);
-        expect(vi.getTimerCount()).toBe(0);
-    });
-
-    it('deadline includes a stalled body, not only the arrival of headers', async () => {
-        vi.useFakeTimers();
-        const fetcher = vi
-            .fn<typeof fetch>()
-            .mockResolvedValueOnce(new Response(new ReadableStream()))
-            .mockResolvedValueOnce(json());
-        const promise = fetchOverpassDocument(query, undefined, fetcher);
+        const promise = ask(fetcher);
+        const assertion = expect(promise).rejects.toThrow('deadline');
         await vi.advanceTimersByTimeAsync(OVERPASS_ATTEMPT_MS);
-        await expect(promise).resolves.toEqual(result);
-        expect(fetcher).toHaveBeenCalledTimes(2);
+        await assertion;
+        expect(fetcher).toHaveBeenCalledTimes(1);
         expect(fetcher.mock.calls[0][1]?.signal?.aborted).toBe(true);
         expect(vi.getTimerCount()).toBe(0);
     });
-
-    it('never sends a cancelled request or starts a fallback after cancellation', async () => {
+    it('deadline includes a stalled body, not only the arrival of headers', async () => {
+        vi.useFakeTimers();
+        const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(new ReadableStream()));
+        const promise = ask(fetcher);
+        const assertion = expect(promise).rejects.toThrow('deadline');
+        await vi.advanceTimersByTimeAsync(OVERPASS_ATTEMPT_MS);
+        await assertion;
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(fetcher.mock.calls[0][1]?.signal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+    it('cancelled intent never starts a fallback or another request', async () => {
         const controller = new AbortController();
         const fetcher = vi.fn<typeof fetch>().mockImplementation(() => new Promise(() => undefined));
-        const promise = fetchOverpassDocument(query, controller.signal, fetcher);
+        const promise = ask(fetcher, controller.signal);
         controller.abort();
         await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
         expect(fetcher).toHaveBeenCalledTimes(1);
-        await expect(fetchOverpassDocument(query, controller.signal, fetcher)).rejects.toMatchObject({
-            name: 'AbortError',
-        });
+        await expect(ask(fetcher, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
         expect(fetcher).toHaveBeenCalledTimes(1);
     });
 });
@@ -161,7 +163,7 @@ describe('OSM cache and error contract', () => {
         expect(() => parseOverpassDocument('{"elements":[],"remark":"timeout"}')).toThrow();
     });
     it('does not reuse an old schema or a nearby bbox missing an obstacle', () => {
-        expect(overlayCacheKey([153.08, -27.22, 153.09, -27.17])).toMatch(/^v6_/);
+        expect(overlayCacheKey([153.08, -27.22, 153.09, -27.17])).toMatch(/^v7_owned_/);
         expect(overlayCacheKey([153.08, -27.22, 153.09, -27.17])).not.toBe(
             overlayCacheKey([153.08, -27.22, 153.0901, -27.17]),
         );

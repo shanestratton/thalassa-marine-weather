@@ -1,3 +1,5 @@
+import { fetchOwnedOverpass } from '../osm/ownedOverpass';
+import type { OwnedOsmDocument } from '../osm/ownedOverpassContract';
 import { Preferences } from '@capacitor/preferences';
 import { satelliteModeActive } from '../networkPolicy';
 import { validFetchTable } from './placeConditions';
@@ -20,6 +22,7 @@ const FRESH_MS = 24 * 60 * 60_000;
 interface CachedTile<P> {
     at: number;
     points: P[];
+    partial?: boolean;
 }
 export interface ReferenceResult {
     points: CruisingPoint[];
@@ -28,6 +31,7 @@ export interface ReferenceResult {
 export interface NamedPlacesResult {
     points: NamedPlace[];
     stale: boolean;
+    partial?: boolean;
 }
 
 /** One coarse cell per row, the oldest dropped first, kept on the phone for offline reads. */
@@ -80,49 +84,33 @@ function tileStore<P>(key: string, maxTiles: number, maxPoints: number, valid: (
     };
 }
 
-const references = tileStore('thalassa_cruising_reference_v1', 24, 6000, validCachedReference);
+const references = tileStore('thalassa_cruising_reference_v2_owned', 24, 6000, validCachedReference);
 let official: Promise<CruisingPoint[]> | null = null;
 const offline = () => satelliteModeActive() || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
 /**
- * The public Overpass mirrors, in turn; a cut-short or malformed answer fails over like an error. `reached` is
- * told when a mirror answers, or is still working when the wait runs out (131-PYD-10): only then did the ask
- * reach Overpass. Offline, no signal, or the sheet closed first, it never left the phone.
+ * One owned operation. A cut-short/malformed answer is unavailable. `reached`
+ * counts an answer or a sent request still working at its deadline; offline,
+ * auth stall, no signal or the sheet closing first leave the ask unspent.
  */
 async function askOverpass<T>(
     query: string,
     signal: AbortSignal,
-    parse: (body: unknown) => T,
+    parse: (body: OwnedOsmDocument) => T,
     reached: () => void = () => {},
     waitMs = 12_000,
 ): Promise<T> {
     if (offline()) throw new Error('Offline');
-    for (const endpoint of [
-        'https://overpass-api.de/api/interpreter',
-        'https://overpass.kumi.systems/api/interpreter',
-    ]) {
-        if (offline()) throw new Error('Offline or Satellite Mode');
-        try {
-            signal.throwIfAborted();
-            const res = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, {
-                signal: AbortSignal.any([signal, AbortSignal.timeout(waitMs)]),
-            }).catch((error: unknown) => {
-                // Not the sheet's signal, so the wait ran out (WebKit may call it an AbortError).
-                if (!signal.aborted && /^(?:Timeout|Abort)Error$/.test((error as Error)?.name)) reached();
-                throw error;
-            });
-            reached();
-            if (!res.ok) throw new Error(`Reference request failed (${res.status})`);
-            const parsed = parse(await res.json());
-            signal.throwIfAborted();
-            return parsed;
-        } catch (error) {
-            signal.throwIfAborted();
-            // A whole answer with too much in it: the other mirror holds the same map.
-            if (error instanceof CrowdedCellError) throw error;
-        }
+    signal.throwIfAborted();
+    let body: OwnedOsmDocument;
+    try {
+        body = await fetchOwnedOverpass(query, { signal, timeoutMs: waitMs, reached });
+    } catch {
+        signal.throwIfAborted();
+        throw new Error('Worldwide reference source unavailable');
     }
-    throw new Error('Worldwide reference providers unavailable');
+    signal.throwIfAborted();
+    return parse(body);
 }
 
 export async function loadOfficialMoorings(): Promise<CruisingPoint[]> {
@@ -193,14 +181,15 @@ export async function loadReferenceTile(
         }
         let at = 0;
         const points = await askOverpass(referenceQuery(tile), signal, (body) => {
-            at = Date.now();
-            return parseOsmReferences(body, new Date(at).toISOString());
+            at = Date.parse(body.thalassaSource.sourceAt);
+            return parseOsmReferences(body, body.thalassaSource.sourceAt);
         });
         await references.remember(tile.key, { at, points });
-        return { points, stale: false };
+        return { points, stale: Date.now() - at > FRESH_MS };
     } catch (error) {
         signal.throwIfAborted();
-        if (previous) return { points: previous.points, stale: true };
+        if (previous)
+            return { points: previous.points, stale: true, ...(previous.partial === true ? { partial: true } : {}) };
         throw error;
     }
 }
@@ -225,7 +214,7 @@ const DAY_MS = 24 * 60 * 60_000;
 const NAMES_WAIT_MS = 25_000;
 const ALLOWANCE_KEY = 'thalassa_named_places_allowance_v1';
 // A plan's four cells, each at its caps, always fit: one dense plan never pushes out its own cells.
-const names = tileStore('thalassa_named_places_v1', 12, 4 * NAMED_PLACES_CELL_MAX, validNamedPlace);
+const names = tileStore('thalassa_named_places_v2_owned', 12, 4 * NAMED_PLACES_CELL_MAX, validNamedPlace);
 /** When each ask that reached Overpass went out, and the crowded cells with when they were found so. */
 let asks: number[] = [];
 const crowded = new Map<string, number>();
@@ -261,7 +250,8 @@ export async function loadNamedPlaces(tile: ReferenceTile, signal: AbortSignal):
     await names.restore();
     signal.throwIfAborted();
     const previous = names.cache.get(tile.key);
-    if (previous && Date.now() - previous.at < NAMED_PLACES_FRESH_MS) return { points: previous.points, stale: false };
+    if (previous && Date.now() - previous.at < NAMED_PLACES_FRESH_MS)
+        return { points: previous.points, stale: false, ...(previous.partial === true ? { partial: true } : {}) };
     try {
         // Offline, nothing is held, asked or spent (131-PYD-10): at sea that is most of the time.
         if (offline()) throw new Error('Offline');
@@ -277,12 +267,18 @@ export async function loadNamedPlaces(tile: ReferenceTile, signal: AbortSignal):
         out++;
         let reached = false;
         let points: NamedPlace[];
+        let sourceAt = 0;
+        let partial = false;
         try {
             // The phone waits as long as Overpass may work (a cold cell took 13 s), so its answer is not thrown away.
             points = await askOverpass(
                 namedPlacesQuery(tile),
                 signal,
-                parseNamedPlaces,
+                (body) => {
+                    sourceAt = Date.parse(body.thalassaSource.sourceAt);
+                    partial = !body.queryComplete;
+                    return parseNamedPlaces(body);
+                },
                 () => (reached = true),
                 NAMES_WAIT_MS,
             );
@@ -296,11 +292,12 @@ export async function loadNamedPlaces(tile: ReferenceTile, signal: AbortSignal):
                 await saveAllowance();
             }
         }
-        await names.remember(tile.key, { at: Date.now(), points });
-        return { points, stale: false };
+        await names.remember(tile.key, { at: sourceAt, points, ...(partial ? { partial: true } : {}) });
+        return { points, stale: Date.now() - sourceAt > NAMED_PLACES_FRESH_MS, ...(partial ? { partial: true } : {}) };
     } catch (error) {
         signal.throwIfAborted();
-        if (previous) return { points: previous.points, stale: true };
+        if (previous)
+            return { points: previous.points, stale: true, ...(previous.partial === true ? { partial: true } : {}) };
         throw error;
     }
 }

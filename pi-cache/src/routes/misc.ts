@@ -13,6 +13,13 @@
 
 import { Router, Request, Response } from 'express';
 import { Cache } from '../cache.js';
+import { fetchOwnedOsmEdge } from '../ownedOsm.js';
+import {
+    parseOwnedOsmRequest,
+    parseOwnedOsmDocument,
+    OWN_OSM_MAX_SOURCE_AGE_MS,
+    type OwnedOsmDocument,
+} from '../ownedOsmContract.js';
 import {
     ProxyConfig,
     cachedJsonFetch,
@@ -103,26 +110,45 @@ export function createMiscRoutes(
     router.get('/seamarks', async (req: Request, res: Response) => {
         try {
             const { bbox } = req.query;
-            if (!bbox) return res.status(400).json({ error: 'bbox required (minLon,minLat,maxLon,maxLat)' });
+            if (typeof bbox !== 'string')
+                return res.status(400).json({ error: 'bbox required (minLon,minLat,maxLon,maxLat)' });
 
-            const key = `seamarks:${bbox}`;
-
-            // Overpass API query for sea marks within bbox
-            const [minLon, minLat, maxLon, maxLat] = String(bbox).split(',');
-            const overpassQuery = `[out:json][timeout:25];(node["seamark:type"](${minLat},${minLon},${maxLat},${maxLon}););out body;`;
-            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
-
-            const result = await cachedJsonFetch(cache, {
-                cacheKey: key,
-                url,
-                ttlMs: TTL.SEAMARK,
-                source: 'overpass-seamark',
-            });
-
-            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
-            res.json(result.data);
-        } catch (err) {
-            res.status(502).json({ error: 'Sea marks failed', message: (err as Error).message });
+            const rawCoordinates = bbox.split(',');
+            if (rawCoordinates.length !== 4 || rawCoordinates.some((value) => !value.trim()))
+                return res.status(400).json({ error: 'Invalid bbox' });
+            const coordinates = rawCoordinates.map(Number);
+            const [w, s, e, n] = coordinates;
+            const operation = parseOwnedOsmRequest({ schema: 1, kind: 'nodes', bbox: [s, w, n, e] });
+            if (!operation) return res.status(400).json({ error: 'Invalid bounded seamark operation' });
+            const key = `owned_seamarks_v1:${operation.bbox.join(',')}`;
+            const stored = cache.get(key);
+            let saved: OwnedOsmDocument | null = null;
+            try {
+                if (stored) saved = parseOwnedOsmDocument(stored.data, operation);
+            } catch {
+                /* Source expired/unqualified. */
+            }
+            if (saved && stored && stored.expiresAt > Date.now()) {
+                res.set('X-Cache', 'HIT');
+                return res.json(saved);
+            }
+            try {
+                const document = await fetchOwnedOsmEdge(config, operation);
+                const remaining = Date.parse(document.thalassaSource.sourceAt) + OWN_OSM_MAX_SOURCE_AGE_MS - Date.now();
+                if (remaining > 0) cache.set(key, document, Math.min(TTL.SEAMARK, remaining), 'owned-osm');
+                res.set('X-Cache', 'MISS');
+                return res.json(document);
+            } catch {
+                if (saved) {
+                    res.set('X-Cache', 'STALE');
+                    return res.json(saved);
+                }
+                return res
+                    .status(503)
+                    .json({ code: 'OWN_OSM_UNAVAILABLE', error: 'Owned seamark reference unavailable' });
+            }
+        } catch {
+            res.status(503).json({ code: 'OWN_OSM_UNAVAILABLE', error: 'Owned seamark reference unavailable' });
         }
     });
 

@@ -410,16 +410,12 @@ export async function loadToday(
                     /* cancelled: the sheet closed or the account changed */
                 },
             );
-            // The map's names for the same cells (131-PYD-10), only where the atlas has no places: in
-            // Queensland its bays and marinas are the atlas's own, and public Overpass is spared the ask.
-            const namesPart = atlasPart.then((atlas) =>
-                atlas?.length
-                    ? []
-                    : Promise.all(
-                          tiles.map((tile) =>
-                              f.part(() => deps.loadNamedPlaces(tile, f.signal), null, PART_DEADLINE_MS, 'place names'),
-                          ),
-                      ),
+            // The bounded own OSM cells complement the atlas worldwide. Keep
+            // the atlas's early delivery and actual-ID deduplication unchanged.
+            const namesPart = Promise.all(
+                tiles.map((tile) =>
+                    f.part(() => deps.loadNamedPlaces(tile, f.signal), null, PART_DEADLINE_MS, 'place names'),
+                ),
             );
             const [atlas, cells, coastline, names] = await Promise.all([
                 atlasPart,
@@ -435,7 +431,10 @@ export async function loadToday(
             f.check();
             const answered = cells.filter((cell): cell is ReferenceResult => !!cell);
             const named = names.filter((cell): cell is NamedPlacesResult => !!cell);
-            const cellsFailed = answered.length < cells.length || named.length < names.length;
+            const cellsFailed =
+                answered.length < cells.length ||
+                named.length < names.length ||
+                named.some((cell) => cell.partial === true);
             // (Merged afresh: the coastline turns the atlas's ×1.3 guesses into
             // ×1.15 or ×1.4, and OpenStreetMap adds what the atlas lacks.)
             const gathered = gatherPlaces({
