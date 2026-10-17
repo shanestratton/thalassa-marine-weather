@@ -13,6 +13,7 @@ const encRouteSource = readFileSync(new URL('./routes/enc.ts', import.meta.url),
 const chartRouteSource = readFileSync(new URL('./routes/charts.ts', import.meta.url), 'utf8');
 const diaryRelaySource = readFileSync(new URL('./diaryRelayOutbox.ts', import.meta.url), 'utf8');
 const osmServiceSource = readFileSync(new URL('./services/osm.ts', import.meta.url), 'utf8');
+const ownedOsmSource = readFileSync(new URL('./ownedOsm.ts', import.meta.url), 'utf8');
 const governorSource = readFileSync(new URL('./workloadGovernor.ts', import.meta.url), 'utf8');
 const resourceBoundarySource = readFileSync(new URL('./resourceBoundary.ts', import.meta.url), 'utf8');
 const watcherSource = readFileSync(new URL('./encWatcher.ts', import.meta.url), 'utf8');
@@ -152,6 +153,23 @@ test('public status is built only from the redacted payload helper', () => {
     assert.doesNotMatch(statusBlock, /PREFETCH_|ownerId|diaryRelay|cacheDir/);
 });
 
+function assertOwnedOsmOutboundChain(server: string, service: string, transport: string) {
+    // The service's old public OVERPASS_URL sink is retired. Follow the actual
+    // production injection through the owned Edge adapter to its pinned default.
+    assert.match(server, /import \{ fetchOwnedOverlayReply \} from '\.\/ownedOsm\.js'/);
+    assert.match(
+        server,
+        /createOsmRoutes\(\(bbox, options\) =>\s*getOsmOverlay\(bbox, options, \{\s*fetchOverpass: \(request\) => fetchOwnedOverlayReply\(proxyConfig, request\),\s*\}\)/,
+    );
+    assert.match(service, /const response = await fetchOverpass\(\{\s*method: 'POST'/);
+    assert.match(transport, /import \{ outboundFetch \} from '\.\/outboundHttp\.js'/);
+    assert.match(transport, /fetcher: OwnedOsmFetch = outboundFetch,/);
+    assert.match(transport, /const document = await fetchOwnedOsmEdge\(config, operation, request\.signal\)/);
+    assert.match(transport, /const response = await fetcher\(supabaseEdgeUrl\(config, 'owned-overpass'\), \{/);
+    assert.doesNotMatch(service, /\bfetch\s*\(/, 'Overpass service retained a direct fetch sink');
+    assert.doesNotMatch(transport, /\bfetch\s*\(/, 'owned Overpass adapter retained a direct fetch sink');
+}
+
 test('all user-directed upstream requests cross the pinned outbound policy', () => {
     for (const [name, routeSource] of [
         ['ENC', encRouteSource],
@@ -162,8 +180,53 @@ test('all user-directed upstream requests cross the pinned outbound policy', () 
     }
     assert.match(proxySource, /import \{ outboundFetch \}/);
     assert.doesNotMatch(proxySource, /\bfetch\s*\(/, 'generic proxy retained a direct fetch sink');
-    assert.match(osmServiceSource, /outboundFetch\(OVERPASS_URL/);
-    assert.doesNotMatch(osmServiceSource, /\bfetch\s*\(/, 'Overpass retained a direct fetch sink');
+    assertOwnedOsmOutboundChain(source, osmServiceSource, ownedOsmSource);
+});
+
+test('the owned OSM boundary contract rejects bypassed injection, policy, destination and cancellation', () => {
+    for (const [server, service, transport] of [
+        [
+            source.replace('fetchOwnedOverlayReply(proxyConfig, request)', 'otherTransport(proxyConfig, request)'),
+            osmServiceSource,
+            ownedOsmSource,
+        ],
+        [
+            source,
+            osmServiceSource.replace(
+                'const response = await fetchOverpass({',
+                'const response = await otherTransport({',
+            ),
+            ownedOsmSource,
+        ],
+        [
+            source,
+            osmServiceSource,
+            ownedOsmSource.replace(
+                'fetcher: OwnedOsmFetch = outboundFetch,',
+                'fetcher: OwnedOsmFetch = otherTransport,',
+            ),
+        ],
+        [
+            source,
+            osmServiceSource,
+            ownedOsmSource.replace(
+                "supabaseEdgeUrl(config, 'owned-overpass')",
+                "supabaseEdgeUrl(config, 'other-endpoint')",
+            ),
+        ],
+        [
+            source,
+            osmServiceSource,
+            ownedOsmSource.replace(
+                'fetchOwnedOsmEdge(config, operation, request.signal)',
+                'fetchOwnedOsmEdge(config, operation, undefined)',
+            ),
+        ],
+        [source, osmServiceSource + '\nfetch("https://bypass.example");', ownedOsmSource],
+        [source, osmServiceSource, ownedOsmSource + '\nfetch("https://bypass.example");'],
+    ]) {
+        assert.throws(() => assertOwnedOsmOutboundChain(server, service, transport));
+    }
 });
 
 test('both ENC routing surfaces answer routing-on-phone and the watch process loads no router (127-C-d)', () => {
