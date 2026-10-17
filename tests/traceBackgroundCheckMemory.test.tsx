@@ -40,7 +40,7 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
     getRegistryFingerprint: () => hoisted.fingerprint,
 }));
 vi.mock('../stores/settingsStore', () => ({
-    useSettingsStore: { getState: () => ({ settings: { vessel: hoisted.vessel } }) },
+    useSettingsStore: { subscribe: () => () => undefined, getState: () => ({ settings: { vessel: hoisted.vessel } }) },
 }));
 vi.mock('../services/VoyageService', () => ({ refreshSavedRouteVoyageVerification: vi.fn(async () => ({})) }));
 // heapGauge mocked: jsdom has no gauge, and the boot pass's line is the point.

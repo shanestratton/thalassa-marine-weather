@@ -129,6 +129,7 @@ describe('mapHubHelpers', () => {
                 'onHazardClick=',
                 'onSelect={(lat, lon, mmsi, name)',
                 '<AisTargetsSheet',
+                '<ChartFindSheet',
                 'Guided start',
             ]
                 .map((marker) => [marker, before.lastIndexOf(marker)] as const)
@@ -142,6 +143,7 @@ describe('mapHubHelpers', () => {
                 'onRecenter={',
                 'onSelect={(lat, lon, mmsi, name)',
                 '<AisTargetsSheet',
+                '<ChartFindSheet',
             ].sort(),
         );
         // Targets is an Obs-only action. It must not inherit the tracer card's padding,

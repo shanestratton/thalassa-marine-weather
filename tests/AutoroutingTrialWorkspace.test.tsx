@@ -90,7 +90,9 @@ vi.mock('../components/map/PlannerVesselLocator', () => ({
 }));
 vi.mock('../components/map/encDepthStyleState', () => ({ setEncMapBase: mocks.encBase }));
 vi.mock('../components/map/EncVectorLayer', () => ({ setEncPlottingMode: vi.fn(), setEncPopupSuppression: vi.fn() }));
-vi.mock('../stores/settingsStore', () => ({ useSettingsStore: { getState: () => ({ settings: mocks.settings }) } }));
+vi.mock('../stores/settingsStore', () => ({
+    useSettingsStore: { subscribe: () => () => undefined, getState: () => ({ settings: mocks.settings }) },
+}));
 vi.mock('../stores/LocationStore', () => ({ LocationStore: { getState: () => ({ ...mocks.location }) } }));
 vi.mock('mapbox-gl', () => ({
     default: {

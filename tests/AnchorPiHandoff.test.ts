@@ -71,7 +71,12 @@ describe('the authorisation is short-lived on purpose', () => {
         // Six hours granted, renewed hourly: a missed refresh is survivable
         // and a sleeping phone does not end the watch.
         expect(src).toContain('export const RENEW_INTERVAL_MS = 60 * 60 * 1000;');
-        expect(relay).toContain('const AUTHORISATION_TTL_MS = 6 * 60 * 60 * 1000;');
+        // Build139 bounds the lease under the database lock, including the
+        // original watch expiry. The relay must use that exact authoriser.
+        const areaMigration = readFileSync('supabase/migrations/20261017005140_anchor_safe_area.sql', 'utf8');
+        expect(relay).toContain("admin.rpc('authorise_pi_anchor_area'");
+        expect(areaMigration).toContain("LEAST(stamp + interval '6 hours', session_expiry)");
+        expect(areaMigration).toContain("LEAST(stamp + interval '6 hours',session_expiry)");
     });
 
     it('leans on expiry rather than on remembering to revoke', () => {
