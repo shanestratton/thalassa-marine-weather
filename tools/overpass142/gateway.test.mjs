@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
+import { ReadableStream } from 'node:stream/web';
 import { createHandler, parseAdmission, LOCAL_INTERPRETER, compileLocalQuery } from './gateway.mjs';
 import {
     ownedOperationForQuery,

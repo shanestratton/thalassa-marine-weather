@@ -2,6 +2,7 @@
  * Node24 strips the same pure TS operation contract consumed by app and Edge.
  */
 import { createServer } from 'node:http';
+import { Buffer } from 'node:buffer';
 import { readFile, lstat } from 'node:fs/promises';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
