@@ -1,0 +1,10 @@
+{
+  "source": "bbd57495546fa93bba7316f414b7d8975cf4dbec",
+  "rawScientificSource": "cf21a611c6b22db62449bc1658e7ae8b931476be",
+  "files": {
+    "native.py": "bbb2668aa1e2c6d8d3694f37ae2dff1644fd980ed8d6cdd9c3b7f7c14aef2458",
+    "static_tiles.py": "076c62f9d8a1af01f4d07a9972255c8519d23cfbe2e5cb3ba501142c55be33ce",
+    "catalogue.py": "d6f0aad3ab1a5dce00a6be38e51071753c49c9f9564966ed527c74a62839743d",
+    "native-requirements.lock": "cfd6e6ae3863ee58bd40f780df1fbf86443790989f050e2063163f2f96df2f64"
+  }
+}

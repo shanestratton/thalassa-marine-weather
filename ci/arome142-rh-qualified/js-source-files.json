@@ -1,0 +1,7 @@
+{
+  "services/weather/aromeDomains.ts": "bf4242c0e4bf923bda49ad6f5f3fd28666aa52b84aef4abc030f149ed08ebba8",
+  "services/weather/aromePointContract.ts": "8b86ba41d7c71ad3adad1e8da335e2e7f4a9e4e8dfdeeed0562dd1860efe6f0b",
+  "services/weather/aromeStaticContract.ts": "b913c2674dc7250264a35d597cb6a64f8a97d7f052c18d8bb95ec88e58a8273b",
+  "supabase/functions/_shared/arome-upstream.ts": "147284e09f27615368ab81654168f0fab4eb7e39b3b2da60e066363e07f9dea0",
+  "tools/arome142/prove_rh_static_interop.mjs": "1bc27fb09201752061780bba03d1e26345ac65e3eb461b321a4f8e6e7733c764"
+}
