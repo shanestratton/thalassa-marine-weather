@@ -4,7 +4,7 @@ import path from 'node:path';
 import { build } from 'vite';
 import { inertUiData, inertUiDataWorkerFence } from '../../scripts/inert-ui-data.mjs';
 import { shareClassNames, collectClassNames } from '../../scripts/share-class-names.mjs';
-import { shareUiStrings, collectUiStringPools } from '../../scripts/share-ui-strings.mjs';
+import { shareUiStrings, collectUiStringPools, packUiStringPools } from '../../scripts/share-ui-strings.mjs';
 import { shareSvgPaths, collectSvgPaths } from '../../scripts/share-svg-paths.mjs';
 
 export async function buildInertUiFixture(root, outDir, options = {}) {
@@ -28,7 +28,7 @@ export async function buildInertUiFixture(root, outDir, options = {}) {
             .join('')}${svg.map((v) => `<path d=${JSON.stringify(v)} />`.repeat(4)).join('')}</div>`,
     );
     const html = (entry) =>
-        `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self';script-src 'self';style-src 'self' 'unsafe-inline';worker-src 'self';connect-src 'self'"></head><body><div id="root"></div><button id="dynamic">Dynamic class</button><button id="worker">Worker</button><script type="module" src="/${entry}.js"${options.async ? ' async' : ''}></script></body></html>`;
+        `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self';script-src 'self';style-src 'self' 'unsafe-inline';worker-src 'self';connect-src 'self'"></head><body><div id="root"></div><button id="dynamic">Dynamic class</button><button id="worker">Worker</button><script type="module" src="/${entry}.js"${options.async ? ' async' : ''}></script></body></html>`;
     for (const name of ['index', 'logs', 'beta', 'feedback', 'ocean'])
         await fs.writeFile(path.join(root, name + '.html'), html(name));
     await fs.writeFile(
@@ -55,16 +55,22 @@ document.getElementById('worker').onclick=()=>{const worker=new Worker(new URL('
             `import {readPackedUiData} from ${JSON.stringify(path.resolve(repo, 'utils/readPackedUiData.ts'))};postMessage(readPackedUiData('invalid',8,1,1,1));`,
         );
     const data = inertUiData(repo);
+    const ui = options.uiPools
+        ? {
+              name: 'fictional-four-ui-pools',
+              resolveId(id) {
+                  return id === 'virtual:thalassa-ui-strings' ? '\0' + id : null;
+              },
+              load(id) {
+                  return id === '\0virtual:thalassa-ui-strings' ? packUiStringPools(options.uiPools, { data }) : null;
+              },
+          }
+        : shareUiStrings(root, { data });
     const output = await build({
         root,
         configFile: false,
         logLevel: 'silent',
-        plugins: [
-            data.plugin,
-            shareClassNames(root, { data }),
-            shareUiStrings(root, { data }),
-            shareSvgPaths(root, { data }),
-        ],
+        plugins: [data.plugin, shareClassNames(root, { data }), ui, shareSvgPaths(root, { data })],
         worker: { format: 'es', plugins: () => [inertUiDataWorkerFence(repo)] },
         build: {
             write: options.write ?? true,
@@ -89,7 +95,7 @@ document.getElementById('worker').onclick=()=>{const worker=new Worker(new URL('
         output,
         expected: {
             classes: collectClassNames(root),
-            ui: collectUiStringPools(root).flat(),
+            ui: options.uiPools ? options.uiPools.flat() : collectUiStringPools(root).flat(),
             svg: collectSvgPaths(root),
         },
     };
