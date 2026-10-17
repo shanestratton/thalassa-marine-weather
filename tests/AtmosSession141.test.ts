@@ -133,9 +133,11 @@ describe('caller-owned atmospheric display sessions', () => {
         expect(view.fields.pressure?.values[POINT]).toBe(101250);
         expect(view.isCurrent()).toBe(true);
         expect(f.fetch).toHaveBeenCalledTimes(3);
-        expect(f.fetch.mock.calls[0][0]).toContain('?model=ecmwf');
+        expect(f.fetch.mock.calls[0][0]).toBe(
+            'https://pcisdplnodrphauixcau.supabase.co/functions/v1/forecast-assets/ifs-pressure/manifest-v2.json',
+        );
         for (const [url, options] of f.fetch.mock.calls.slice(1)) {
-            expect(url).toMatch(/h00[01]\.bin\?model=ecmwf$/);
+            expect(url).toMatch(/\/ifs-pressure\/g-[^/]+-h00[01]\.bin$/);
             expect(options?.cache).toBe('force-cache');
             expect(options?.signal?.aborted).toBe(false);
         }
@@ -222,7 +224,7 @@ describe('caller-owned atmospheric display sessions', () => {
         const old = session.readAt(runMs);
         const rejected = expect(old).rejects.toThrow();
         const newest = await session.readAt(runMs + 6 * HOUR);
-        finish(f.respond(`${f.manifest.files[0].filename}?model=ecmwf`));
+        finish(f.respond(f.manifest.files[0].filename));
         await rejected;
         expect(newest.isCurrent()).toBe(true);
         expect(newest.fields.pressure?.values[POINT]).toBe(101300);

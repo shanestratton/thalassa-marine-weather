@@ -1,5 +1,5 @@
 /** Daily mapped altimetry has a separate trust contract from THCU forecasts. */
-import { sha256Hex } from './marineManifestContract';
+import { sha256Hex } from './marineManifestContract.ts';
 
 export const SSH_WIDTH = 720;
 export const SSH_HEIGHT = 360;

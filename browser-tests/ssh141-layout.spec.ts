@@ -13,10 +13,26 @@ for (const width of [300, 375])
         page.on('pageerror', (error) => errors.push(error.message));
         await page.route('**/*', (route) => {
             const url = new URL(route.request().url());
-            if (url.pathname === '/api/ssh/manifest-v2.json')
-                return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(manifest) });
-            if (url.pathname === `/api/ssh/${manifest.files[0].filename}`)
-                return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: asset });
+            if (
+                url.origin === 'https://pcisdplnodrphauixcau.supabase.co' &&
+                url.pathname === '/functions/v1/forecast-assets/ssh/manifest-v2.json'
+            )
+                return route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    headers: { 'access-control-allow-origin': '*' },
+                    body: JSON.stringify(manifest),
+                });
+            if (
+                url.origin === 'https://pcisdplnodrphauixcau.supabase.co' &&
+                url.pathname === `/functions/v1/forecast-assets/ssh/${manifest.files[0].filename}`
+            )
+                return route.fulfill({
+                    status: 200,
+                    contentType: 'application/octet-stream',
+                    headers: { 'access-control-allow-origin': '*' },
+                    body: asset,
+                });
             if (
                 url.protocol === 'blob:' ||
                 url.protocol === 'data:' ||

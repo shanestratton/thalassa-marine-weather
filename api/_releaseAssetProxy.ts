@@ -4,10 +4,10 @@ import {
     releaseAssetShardTag,
     validateMarineManifest,
     type MarineDatasetKey,
-} from '../services/weather/api/marineManifestContract';
-import { ATMOS_RELEASE_CONTRACTS } from './_atmosReleaseContract';
-import { SSH_RELEASE_CONTRACTS } from './_sshReleaseContract';
-import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract';
+} from '../services/weather/api/marineManifestContract.ts';
+import { ATMOS_RELEASE_CONTRACTS } from './_atmosReleaseContract.ts';
+import { SSH_RELEASE_CONTRACTS } from './_sshReleaseContract.ts';
+import type { SpecializedReleaseContract } from '../services/weather/api/specializedReleaseContract.ts';
 
 const SPECIALIZED_RELEASE_CONTRACTS = { ...ATMOS_RELEASE_CONTRACTS, ...SSH_RELEASE_CONTRACTS } as const;
 type SpecializedDatasetKey = keyof typeof SPECIALIZED_RELEASE_CONTRACTS;
@@ -129,7 +129,8 @@ function isLegacyAssetName(dataset: DatasetKey, filename: string): boolean {
 }
 
 function legacyCmemsBridgeEnabled(): boolean {
-    return process.env.THALASSA_CMEMS_V1_BRIDGE_ENABLED === 'true' && Date.now() < CMEMS_V1_BRIDGE_SUNSET_MS;
+    const node = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+    return node?.env?.THALASSA_CMEMS_V1_BRIDGE_ENABLED === 'true' && Date.now() < CMEMS_V1_BRIDGE_SUNSET_MS;
 }
 
 function generationForAsset(dataset: DatasetKey, filename: string): string | null {

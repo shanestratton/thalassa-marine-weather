@@ -323,3 +323,8 @@ verify_jwt = false
 [functions.overdue-watch]
 # Overdue work is service-only and retains both gateway JWT and exact service auth.
 verify_jwt = true
+
+[functions.forecast-assets]
+# Bare read-only app fetches: fixed public GitHub datasets only, with an HMAC
+# per-client public quota before upstream access; no user credential is required.
+verify_jwt = false

@@ -100,11 +100,12 @@ async function hmacClientAddress(address: string, serviceRoleKey: string): Promi
     return [...signature].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function consumePublicQuota(
+export async function consumePublicQuota(
     req: Request,
     bucket: string,
     limit: number,
     windowSeconds: number,
+    signal?: AbortSignal,
 ): Promise<Response | null> {
     const url = Deno.env.get('SUPABASE_URL');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -118,6 +119,9 @@ async function consumePublicQuota(
     const clientHash = await hmacClientAddress(address, serviceRoleKey);
     const admin = createClient(url, serviceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
+        ...(signal
+            ? { global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal }) } }
+            : {}),
     });
     const { data: allowed, error } = await admin.rpc('consume_public_edge_quota', {
         p_bucket: bucket,

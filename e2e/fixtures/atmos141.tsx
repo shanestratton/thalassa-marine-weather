@@ -111,9 +111,12 @@ const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, options) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, location.href);
-    if (url.pathname.startsWith('/api/atmos/')) {
+    if (
+        url.origin === 'https://pcisdplnodrphauixcau.supabase.co' &&
+        /^\/functions\/v1\/forecast-assets\/(gfs-atmos|ifs-pressure)\//.test(url.pathname)
+    ) {
         requests.push(url.pathname + url.search);
-        const dataset = url.searchParams.get('model') === 'gfs' ? 'gfs-atmos' : 'ifs-pressure';
+        const dataset = url.pathname.includes('/gfs-atmos/') ? 'gfs-atmos' : 'ifs-pressure';
         const cohort = cohorts.get(dataset)!,
             name = url.pathname.split('/').at(-1)!;
         if (name === 'manifest-v2.json')

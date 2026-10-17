@@ -1,6 +1,6 @@
 /** Separate atmospheric scalar contract. Does not admit THCU, paid-model aliases or observations. */
-import { sha256Hex } from './marineManifestContract';
-import type { ScalarGrid } from '../scalarGridImage';
+import { sha256Hex } from './marineManifestContract.ts';
+import type { ScalarGrid } from '../scalarGridImage.ts';
 
 export type AtmosDataset = 'gfs-atmos' | 'ifs-pressure';
 export type AtmosField = 'gust' | 'visibility' | 'pressure' | 'temperature' | 'dewpoint';

@@ -60,6 +60,8 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 
 /** Callers that cannot present a Supabase JWT at all. Each function guards itself. */
 const CREDENTIALLESS_ALLOWLIST = {
+    'forecast-assets':
+        'bare public fixed-dataset reads, HMAC per-client quota before bounded public GitHub release access',
     'anchor-alert-messaging':
         'explicit one-use recipient nonce POST, current-owner invitations and exact service-key work/proof actions',
     'telegram-webhook':
@@ -209,7 +211,8 @@ describe('Supabase Edge gateway JWT policy', () => {
         // so is official-alerts-watch (129-06), 19 → 20.
         // wx-publisher (134) is a separate producer identity: its exact 256-bit
         // token is verified inside the handler, never a credentialless DB path.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(23);
+        // forecast-assets (141) serves only three fixed public release datasets after an HMAC client quota.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(24);
     });
 
     it('permits wx-publisher gateway-off only with its mandatory producer authentication before DB access', async () => {
