@@ -259,14 +259,24 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const wxRecommendation = useMemo(() => {
         const wind = weatherData?.current?.windSpeed ?? 0;
         const gust = weatherData?.current?.windGust ?? 0;
-        const waveFt = weatherData?.current?.waveHeight ?? 0; // already in feet from transformer
-        const waveM = waveFt / 3.28084; // convert back to meters for scope thresholds
+        const waveFt = weatherData?.current?.waveHeight; // report boundary is feet
+        const waveKnown = typeof waveFt === 'number' && Number.isFinite(waveFt) && waveFt >= 0;
+        const waveM = waveKnown ? waveFt / 3.28084 : 0;
         const rec = getWeatherRecommendation(wind, gust, waveM);
         const recRode = Math.min(100, Math.round(rec.scope * waterDepth));
-        // The recommendation still falls back to the light-air scope, but the
-        // strip must not print that fallback as a measured 0 kts.
-        const windKnown = typeof weatherData?.current?.windSpeed === 'number';
-        return { ...rec, rode: recRode, wind, gust, wave: waveFt, windKnown };
+        // The fallback numbers stay internal. Missing sea/wind cannot supply
+        // a one-tap recommendation; manual rode setup remains available.
+        const windKnown = typeof weatherData?.current?.windSpeed === 'number' && Number.isFinite(wind);
+        return {
+            ...rec,
+            rode: recRode,
+            wind,
+            gust,
+            wave: waveFt,
+            windKnown,
+            waveKnown,
+            canRecommend: windKnown && waveKnown,
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData?.current?.windSpeed, weatherData?.current?.windGust, weatherData?.current?.waveHeight, waterDepth]);
 
@@ -1105,26 +1115,41 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         // so ADEQUATE was on screen and the app's own advice was not. The
         // dial already prints the ratio and its word, so the strip's second
         // copy of them went with it.
-        const adviceSet = rodeLength === wxRecommendation.rode;
+        const adviceSet = wxRecommendation.canRecommend && rodeLength === wxRecommendation.rode;
         // '5 kts now · 5:1 needs 25 m': the wind, then the recommendation in
         // one reading order (UX scorecard run 10: 'Wind now 5 kts: 25 m for
         // 5:1' took a second read). 'now' stays: the advice reads this
         // minute's wind, not the night ahead (UX scorecard run 9).
         const windWords = wxRecommendation.windKnown ? `${wxRecommendation.wind.toFixed(0)} kts now` : '-- kts now';
-        const adviceAction = adviceSet
-            ? `${wxRecommendation.scope}:1 set`
-            : `${wxRecommendation.scope}:1 needs ${wxRecommendation.rode} m`;
+        const adviceAction = !wxRecommendation.canRecommend
+            ? wxRecommendation.waveKnown
+                ? 'Choose rode'
+                : 'Sea unknown'
+            : adviceSet
+              ? `${wxRecommendation.scope}:1 set`
+              : `${wxRecommendation.scope}:1 needs ${wxRecommendation.rode} m`;
         const adviceText = `${windWords} · ${adviceAction}`;
         const rodeAdvice = (
             <button
                 type="button"
+                disabled={!wxRecommendation.canRecommend}
                 aria-label={
-                    adviceSet
-                        ? `${adviceText}, rode ${wxRecommendation.rode} metres`
-                        : `${adviceText}, set rode to ${wxRecommendation.rode} metres`
+                    !wxRecommendation.canRecommend
+                        ? 'Wind or sea forecast unavailable; choose rode manually'
+                        : adviceSet
+                          ? `${adviceText}, rode ${wxRecommendation.rode} metres`
+                          : `${adviceText}, set rode to ${wxRecommendation.rode} metres`
                 }
-                onClick={() => setRodeLength(wxRecommendation.rode)}
-                title={adviceSet ? undefined : `Set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`}
+                onClick={() => {
+                    if (wxRecommendation.canRecommend) setRodeLength(wxRecommendation.rode);
+                }}
+                title={
+                    !wxRecommendation.canRecommend
+                        ? 'Choose rode manually while forecast data is unavailable'
+                        : adviceSet
+                          ? undefined
+                          : `Set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`
+                }
                 // Drawn 44 px tall, the same as the rode-type buttons below it,
                 // not 28 px with an invisible reach: it is an action (it sets
                 // the rode) on a page used one-handed in a blow (UX scorecard
@@ -1149,7 +1174,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     <span className="whitespace-nowrap">{windWords} ·</span>{' '}
                     <span className="whitespace-nowrap">
                         {adviceAction}
-                        {!adviceSet && <span aria-hidden="true"> ›</span>}
+                        {!adviceSet && wxRecommendation.canRecommend && <span aria-hidden="true"> ›</span>}
                     </span>
                 </span>
             </button>

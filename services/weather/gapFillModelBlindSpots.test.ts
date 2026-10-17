@@ -22,6 +22,12 @@ function makeReport(over: Record<string, unknown> = {}): MarineWeatherReport {
 }
 
 describe('gapFillModelBlindSpots', () => {
+    it('does not claim a borrowed source when both matching hours lack the metrics', () => {
+        const hours = [{ time: '2026-10-17T00:00:00Z' }];
+        const report = makeReport({ hourly: structuredClone(hours) });
+        expect(gapFillModelBlindSpots(report, makeReport({ hourly: structuredClone(hours) }))).toBe(false);
+        expect(report.hourly).toEqual(hours);
+    });
     it('borrows UV and visibility when the pinned model has neither', () => {
         const report = makeReport();
         const supplement = makeReport({ current: { uvIndex: 4.4, visibility: 12.5 } });
