@@ -123,7 +123,10 @@ class WorldResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "quarantine"): self.controller().execute()
         self.assertEqual(self.ports.calls, [])
     def test_unreceipted_original_holds(self):
-        controller = self.controller(); (controller.root / "raw-0.osm.pbf").write_bytes(b"unreceipted")
+        controller = self.controller()
+        with patch.object(controller, "cohort", side_effect=RuntimeError("Pause after initial job identity")):
+            with self.assertRaises(RuntimeError): controller.execute()
+        (controller.root / "raw-0.osm.pbf").write_bytes(b"unreceipted")
         with self.assertRaisesRegex(ValueError, "explicit recovery"): controller.execute()
         self.assertEqual(self.ports.calls, [])
     def test_reviewed_local_original_is_copied_hashed_and_has_no_http_clock(self):
@@ -238,6 +241,122 @@ class WorldResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "header cap"): self.controller().execute()
         (controller.root / "raw-2.json").write_bytes(b"x" * (resume.STATE_CAP + 1))
         with self.assertRaisesRegex(ValueError, "byte cap"): self.controller().execute()
+    def malformed_checkpoint(self, name):
+        for malformed in ({}, None, [], False, 0, ""):
+            with self.subTest(name=name, malformed=malformed), tempfile.TemporaryDirectory() as tmp:
+                native, ports = Native(), Ports()
+                controller = resume.WorldResume(self.plan, Path(tmp) / "inputs" / "facilities-world", native)
+                with patch.object(resume, "download_world", ports.download):
+                    if name == "transfers.json": ports.fail = "partial"
+                    if name == "raw-0.json": native.fail = ("tags-filter", 0)
+                    if name == "cohort-0.json": native.fail = ("tags-filter", 1)
+                    if name != "job.json":
+                        if name == "promoted.json": controller.execute()
+                        else:
+                            with self.assertRaises(RuntimeError): controller.execute()
+                    ports.fail = None; native.fail = None
+                    provider_count, child_count = len(ports.calls), len(native.calls)
+                    controller.checkpoint(name, malformed)
+                    before = (controller.root / name).read_bytes()
+                    with self.assertRaisesRegex(ValueError, "checkpoint must be a nonempty object"): controller.execute()
+                    self.assertEqual(len(ports.calls), provider_count); self.assertEqual(len(native.calls), child_count)
+                    self.assertEqual((controller.root / name).read_bytes(), before)
+    def test_existing_malformed_transfer_checkpoint_cannot_reset_reservation(self):
+        self.malformed_checkpoint("transfers.json")
+    def test_existing_malformed_raw_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("raw-0.json")
+    def test_existing_malformed_cohort_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("cohort-0.json")
+    def test_existing_malformed_promoted_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("promoted.json")
+    def test_existing_malformed_job_checkpoint_cannot_become_absence(self):
+        self.malformed_checkpoint("job.json")
+    def test_deleted_job_with_historical_artifacts_never_recaptures_identity(self):
+        controller = self.interrupt(); (controller.root / "job.json").unlink()
+        provider_count, child_count = len(self.ports.calls), len(self.native.calls)
+        with self.assertRaisesRegex(ValueError, "Missing job identity"): self.controller().execute()
+        self.assertEqual(len(self.ports.calls), provider_count); self.assertEqual(len(self.native.calls), child_count)
+        self.assertFalse((controller.root / "job.json").exists())
+    def test_lone_initial_job_pending_is_replaceable_without_historical_adoption(self):
+        controller = self.controller(); (controller.root / "job.json.pending").write_text('{"interrupted":"initial-write"}')
+        source = controller.execute()
+        self.assertEqual(len(json.loads(source.read_text())["inputs"]), 8)
+        self.assertEqual(len(self.ports.calls), 8)
+    def test_deleted_transfer_ledger_before_body_cannot_reset_reserved_request(self):
+        controller = self.controller()
+        def unavailable(source, target, callback):
+            self.ports.calls.append(source["url"]); raise RuntimeError("Connection failed before body")
+        with patch.object(resume, "download_world", unavailable):
+            with self.assertRaises(RuntimeError): controller.execute()
+        self.assertEqual(controller.read("job.json")["transportReservations"], [0])
+        self.assertFalse(any(controller.root.glob("*.pbf")))
+        (controller.root / "transfers.json").unlink()
+        with self.assertRaisesRegex(ValueError, "reservation lost"): self.controller().execute()
+        self.assertEqual(len(self.ports.calls), 1); self.assertFalse((controller.root / "transfers.json").exists())
+    def test_crash_between_job_reservation_and_ledger_holds_without_http(self):
+        controller = self.controller(); original = controller.checkpoint
+        def fail(name, value):
+            if name == "transfers.json": raise OSError("Crash before ledger fsync")
+            return original(name, value)
+        with patch.object(controller, "checkpoint", side_effect=fail):
+            with self.assertRaises(OSError): controller.execute()
+        self.assertEqual(controller.read("job.json")["transportReservations"], [0])
+        with self.assertRaisesRegex(ValueError, "reservation lost"): self.controller().execute()
+        self.assertEqual(self.ports.calls, [])
+    def test_deleted_active_raw_primary_never_refetches(self):
+        controller = self.interrupt(); (controller.root / "raw-2.json").unlink()
+        count = len(self.ports.calls)
+        with self.assertRaises(ValueError): self.controller().execute()
+        self.assertEqual(len(self.ports.calls), count); self.assertTrue((controller.root / "raw-2.osm.pbf").is_file())
+    def test_deleted_cohort_primary_without_its_retired_raw_holds(self):
+        controller = self.interrupt(); output = (controller.root / "public-0.jsonl").read_bytes()
+        (controller.root / "cohort-0.json").unlink(); count = len(self.ports.calls)
+        with self.assertRaises(ValueError): self.controller().execute()
+        self.assertEqual(len(self.ports.calls), count); self.assertEqual((controller.root / "public-0.jsonl").read_bytes(), output)
+    def test_deleted_final_primary_combinations_hold_after_work_links_retire(self):
+        for names in (("promoted",), ("input",), ("promoted", "input")):
+            with self.subTest(names=names), tempfile.TemporaryDirectory() as tmp:
+                native, ports = Native(), Ports(); controller = resume.WorldResume(self.plan, Path(tmp) / "inputs" / "facilities-world", native)
+                with patch.object(resume, "download_world", ports.download):
+                    source = controller.execute(); provider_count, child_count = len(ports.calls), len(native.calls)
+                    for name in names: ((source.parent / "input.json") if name == "input" else (controller.root / "promoted.json")).unlink()
+                    with self.assertRaises((ValueError, FileNotFoundError)): controller.execute()
+                    self.assertEqual(len(ports.calls), provider_count); self.assertEqual(len(native.calls), child_count)
+    def test_empty_final_input_primary_refuses_without_publication_or_new_fetch(self):
+        for value in ({}, None, [], False, 0, ""):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
+                native, ports = Native(), Ports(); controller = resume.WorldResume(self.plan, Path(tmp) / "inputs" / "facilities-world", native)
+                with patch.object(resume, "download_world", ports.download):
+                    source = controller.execute(); source.write_bytes(resume.encoded(value))
+                    count = len(ports.calls)
+                    with self.assertRaisesRegex(ValueError, "receipt changed"): controller.execute()
+                    self.assertEqual(len(ports.calls), count)
+    def test_missing_redundant_raw_receipt_can_use_complete_embedded_cohort_proof(self):
+        controller = self.controller(); source = controller.execute(); clock = json.loads(source.read_text())["sourceAt"]
+        for path in controller.root.glob("raw-*.json"): path.unlink()
+        calls = len(self.ports.calls)
+        self.assertEqual(controller.execute(), source); self.assertEqual(len(self.ports.calls), calls)
+        self.assertEqual(json.loads(source.read_text())["sourceAt"], clock)
+    def test_orphan_extraction_bytes_without_original_receipt_are_never_replaced(self):
+        controller = self.controller()
+        with patch.object(controller, "cohort", side_effect=RuntimeError("Pause after initial job identity")):
+            with self.assertRaises(RuntimeError): controller.execute()
+        output = controller.root / "public-0.jsonl"; output.write_bytes(b"unowned orphan")
+        with self.assertRaisesRegex(ValueError, "Orphaned extraction bytes"): controller.execute()
+        self.assertEqual(self.ports.calls, []); self.assertEqual(output.read_bytes(), b"unowned orphan")
+    def test_coupled_deleted_source_metadata_cannot_recapture_or_refetch(self):
+        for names in (("job.json", "transfers.json"), ("transfers.json", "raw-2.json"), ("transfers.json", "cohort-0.json"), ("raw-0.json", "cohort-0.json"), ("raw-2.json", "cohort-0.json"), ("job.json", "raw-2.json", "cohort-0.json")):
+            with self.subTest(names=names), tempfile.TemporaryDirectory() as tmp:
+                native, ports = Native(), Ports(); native.fail = ("tags-filter", 2)
+                controller = resume.WorldResume(self.plan, Path(tmp) / "inputs" / "facilities-world", native)
+                with patch.object(resume, "download_world", ports.download):
+                    with self.assertRaises(RuntimeError): controller.execute()
+                    for name in names: (controller.root / name).unlink()
+                    native.fail = None; provider_count, child_count = len(ports.calls), len(native.calls)
+                    output = (controller.root / "public-0.jsonl").read_bytes()
+                    with self.assertRaises((ValueError, FileNotFoundError)): controller.execute()
+                    self.assertEqual(len(ports.calls), provider_count); self.assertEqual(len(native.calls), child_count)
+                    self.assertEqual((controller.root / "public-0.jsonl").read_bytes(), output)
 
 
 class TransportTests(unittest.TestCase):

@@ -130,7 +130,7 @@ unproven until root's actual controlled Linux run.
 ## Source proof
 
 `python -m unittest discover -s scripts/marine-catalogue -p 'test_*.py' -v`
-passes 83 cases locally: 81 pass, two explicit Windows skips (real symlink
+passes 99 cases locally: 97 pass, two explicit Windows skips (real symlink
 privilege; root-owned POSIX /opt policy admission). Actual Linux must execute
 those fences before deployment. The focused suite uses synthetic HTTP/native
 ports, eight small continental fixtures and real build/output validation; it
@@ -145,3 +145,39 @@ descriptor; output fsync now opens the existing file r+b. The first whole-suite
 pass also exposed the Windows absence of SIGKILL in the mocked Linux timeout
 test; that test now supplies the Linux signal explicitly. Assertions were
 retained; production cleanup remains the Linux process-group path.
+
+Before installation review, an additional read audit caught empty JSON being
+treated like absence by truthy fallback. `self.read` now distinguishes a missing
+path from every existing malformed/empty checkpoint. Existing null, empty
+object/array, false, zero and empty-string transfer/raw/cohort/promoted/job state
+all refuse immediately, preserving the original reservation and bytes without
+another provider/native call. Five additional tests retain all original 83 and
+cover those 30 corruption combinations. The original v4 preparation is retained
+unexecuted; the corrected child requires a separately pinned v4b packet and an
+actual Linux88 proof with zero skips before production.
+
+The final source candidate also closes missing-primary-file ownership edges.
+An absent job.json is fresh only in an otherwise empty directory or one with a
+lone bounded job.json.pending from its initial atomic write. Historical artifacts
+without their job identity hold; they cannot acquire the current converter's
+identity. Before a new transfer ledger entry, a separately durable job reservation
+index is written; startup and every ledger read require exact list agreement.
+Losing either file or crashing between these writes holds before HTTP, including
+the pre-body state that has no large file yet. Orphan filter/sequence/public
+bytes without their original receipt also hold, rather than being replaced.
+
+| Primary metadata | Deleted-file result with recorded artifacts |
+| --- | --- |
+| job | Hold; no identity recapture. |
+| transfers | Hold against the durable job reservation, including before body creation. |
+| raw | Active original holds; a complete cohort's embedded original proof remains sufficient after its source was retired. |
+| cohort | Hold when the source was already retired; never download it again implicitly. |
+| promoted | Hold after work links retired; complete still-linked proof can repeat normal promotion. |
+| final input | Hold against the promoted digest; original source clocks are not renewed. |
+
+All 88 earlier tests are retained. Eleven additional tests exercise missing
+metadata, the two-write crash gap, all six final-input empty values, paired/triple
+deletions and the legitimate embedded-source-proof case. The final prepared
+packet/commands use a unique v4c namespace and require actual Linux99/zero-skips;
+all v4/v4b preparations remain immutable and unexecuted. Entire intentional
+erasure of every local record and original is outside this recorded-state audit.
