@@ -349,7 +349,41 @@ async function rejectBeforeBodyRead(response: Response, message: string): Promis
  * so a valid 6–9 MiB frame never needs both a retained chunk list and a second
  * joined copy. Manifest callers reserve only the 256 KiB manifest ceiling.
  */
-export async function readBoundedResponse(response: Response, maxBytes: number): Promise<Uint8Array> {
+function waitForPublisherRead<T>(pending: Promise<T>, signal?: AbortSignal, onAbort?: () => void): Promise<T> {
+    if (!signal) return pending;
+    return new Promise<T>((resolve, reject) => {
+        let settled = false;
+        const abort = () => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener('abort', abort);
+            reject(signal.reason ?? new DOMException('Publisher read aborted', 'AbortError'));
+            onAbort?.();
+        };
+        signal.addEventListener('abort', abort, { once: true });
+        pending.then(
+            (value) => {
+                if (settled) return;
+                settled = true;
+                signal.removeEventListener('abort', abort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                if (settled) return;
+                settled = true;
+                signal.removeEventListener('abort', abort);
+                reject(error);
+            },
+        );
+        if (signal.aborted) abort();
+    });
+}
+
+export async function readBoundedResponse(
+    response: Response,
+    maxBytes: number,
+    signal?: AbortSignal,
+): Promise<Uint8Array> {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
         await rejectBeforeBodyRead(response, 'response byte ceiling is invalid');
     }
@@ -364,11 +398,25 @@ export async function readBoundedResponse(response: Response, maxBytes: number):
     }
     requireTrust(response.body !== null, 'response has no body');
     const reader = response.body.getReader();
+    let cancellation: Promise<void> | null = null;
+    const cancelOnce = (): Promise<void> => {
+        if (!cancellation) {
+            try {
+                cancellation = reader.cancel().catch(() => undefined);
+            } catch {
+                cancellation = Promise.resolve();
+            }
+        }
+        return cancellation;
+    };
     const output = new Uint8Array(maxBytes);
     let total = 0;
     try {
         for (;;) {
-            const { done, value } = await reader.read();
+            signal?.throwIfAborted();
+            const { done, value } = await waitForPublisherRead(reader.read(), signal, () => {
+                void cancelOnce();
+            });
             if (done) break;
             if (!value) continue;
             requireTrust(total + value.byteLength <= maxBytes, 'response exceeded its byte ceiling while streaming');
@@ -376,8 +424,13 @@ export async function readBoundedResponse(response: Response, maxBytes: number):
             total += value.byteLength;
         }
     } catch (error) {
-        await reader.cancel().catch(() => undefined);
+        // Ordinary validation failure still awaits cleanup. An aborted caller
+        // must not be held by an upstream cancel hook that never resolves.
+        if (signal?.aborted) void cancelOnce();
+        else await waitForPublisherRead(cancelOnce(), signal);
         throw error;
+    } finally {
+        reader.releaseLock();
     }
     return total === output.byteLength ? output : output.slice(0, total);
 }
@@ -405,7 +458,9 @@ export async function fetchBoundedPublisherBytes(
         if (responseContentType(response) !== expectedContentType) {
             await rejectBeforeBodyRead(response, 'dataset response has the wrong content type');
         }
-        return await readBoundedResponse(response, maxBytes);
+        const bytes = await readBoundedResponse(response, maxBytes, controller.signal);
+        controller.signal.throwIfAborted();
+        return bytes;
     } finally {
         clearTimeout(timeout);
         signal?.removeEventListener('abort', onAbort);
