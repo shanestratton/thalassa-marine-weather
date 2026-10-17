@@ -6,6 +6,7 @@ for (const width of [300, 375])
         const errors: string[] = [],
             external: string[] = [],
             catalogue: string[] = [],
+            reviewRequests: unknown[] = [],
             origin = new URL(baseURL!).origin;
         page.on('pageerror', (error) => errors.push(error.message));
         const points = [
@@ -62,6 +63,14 @@ for (const width of [300, 375])
         await page.route('**/*', (route) => {
             const url = new URL(route.request().url());
             if (url.origin === origin) return route.continue();
+            if (url.origin === 'https://fixture.example.test' && url.pathname === '/rest/v1/rpc/community_reviews') {
+                reviewRequests.push(route.request().postDataJSON());
+                return route.fulfill({
+                    contentType: 'application/json',
+                    body: JSON.stringify({ reviews: [] }),
+                    headers: { 'access-control-allow-origin': '*' },
+                });
+            }
             if (
                 url.origin === 'https://tiles.thalassatiles.com' &&
                 url.pathname.startsWith('/marine-catalogue/v1/facilities-world/')
@@ -149,12 +158,39 @@ for (const width of [300, 375])
         for (const control of await popup.locator('a,button').all())
             expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         const popupBounds = (await popup.boundingBox())!;
+        const outerPopupBounds = (await page.locator('.mapboxgl-popup').boundingBox())!;
+        expect(outerPopupBounds.x).toBeGreaterThanOrEqual(0);
+        expect(outerPopupBounds.x + outerPopupBounds.width).toBeLessThanOrEqual(width);
+        expect(outerPopupBounds.y).toBeGreaterThanOrEqual(0);
+        expect(outerPopupBounds.y + outerPopupBounds.height).toBeLessThanOrEqual(667);
         expect(popupBounds.x).toBeGreaterThanOrEqual(0);
         expect(popupBounds.x + popupBounds.width).toBeLessThanOrEqual(width);
         expect(popupBounds.y).toBeGreaterThanOrEqual(0);
         expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(667);
         expect(await dims()).toEqual(before);
         await page.screenshot({ path: info.outputPath('facilities-popup.png') });
+        await popup.getByRole('button', { name: 'Close facility details' }).click();
+        await expect(popup).toHaveCount(0);
+        const marinaPos = await page.evaluate(() => window.__facilitiesFixture.project(0.082, 0.1));
+        await page.mouse.click(marinaPos.x, marinaPos.y);
+        const marinaReview = popup.getByRole('button', { name: 'Skipper notes', exact: true });
+        expect((await marinaReview.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await marinaReview.click();
+        const reviews = page.getByRole('dialog', { name: 'Skipper notes · Fictional marina', exact: true });
+        await expect(reviews).toBeVisible();
+        await expect(popup).toHaveCount(0);
+        await expect.poll(() => reviewRequests).toEqual([{ p_action: 'list', p_input: { place_id: 'osm-node1' } }]);
+        expect(await page.evaluate(() => window.__facilitiesFixture.reviews())).toEqual([
+            { id: 'osm-node1', name: 'Fictional marina', kind: 'marina' },
+        ]);
+        const reviewsBounds = (await reviews.boundingBox())!;
+        expect(reviewsBounds.x).toBeGreaterThanOrEqual(0);
+        expect(reviewsBounds.x + reviewsBounds.width).toBeLessThanOrEqual(width);
+        expect(reviewsBounds.y + reviewsBounds.height).toBeLessThanOrEqual(667);
+        expect(await dims()).toEqual(before);
+        await page.screenshot({ path: info.outputPath('facilities-marina-reviews.png') });
+        await reviews.getByRole('button', { name: 'Close', exact: true }).click();
+        await expect(reviews).toHaveCount(0);
         await page.evaluate(() => window.__facilitiesFixture.foreground(false));
         await expect(popup).toHaveCount(0);
         await expect.poll(() => page.evaluate(() => window.__facilitiesFixture.count())).toBe(0);
@@ -185,7 +221,11 @@ for (const width of [300, 375])
         expect(errors).toEqual([]);
         expect(external).toEqual([]);
         await info.attach('bounded-catalogue-requests', {
-            body: JSON.stringify({ requests: catalogue, errors, external, dimensions: before }, null, 2),
+            body: JSON.stringify(
+                { requests: catalogue, reviewRequests, errors, external, dimensions: before },
+                null,
+                2,
+            ),
             contentType: 'application/json',
         });
     });

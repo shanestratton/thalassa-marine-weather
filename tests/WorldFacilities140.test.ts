@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     parseManifest,
@@ -12,6 +12,7 @@ import {
 } from '../services/marineCatalogue/schema';
 import {
     facilityDistanceNM,
+    facilityDisplayLongitude,
     facilityPopupContent,
     facilityPopupLayout,
     selectWorldFacilities,
@@ -49,6 +50,12 @@ function point(kind: FacilityKind = 'marina', id = 'osm-node1'): MarinePlace {
     };
 }
 describe('14001 world facilities public contracts', () => {
+    it('anchors the exact OSM point in its visible dateline world copy without changing its identity', () => {
+        expect(facilityDisplayLongitude(-179.9, 179.9)).toBeCloseTo(180.1);
+        expect(facilityDisplayLongitude(179.9, -179.9)).toBeCloseTo(-180.1);
+        expect(facilityDisplayLongitude(0.1, 360.2)).toBeCloseTo(360.1);
+        expect(facilityDisplayLongitude(0.1, 0.2)).toBe(0.1);
+    });
     it('keeps the popup on the roomy side of markers at every edge without moving the marker arrow', () => {
         for (const width of [300, 375, 1024])
             for (const x of [8, width / 2, width - 8])
@@ -57,7 +64,7 @@ describe('14001 world facilities public contracts', () => {
                     const left = layout.anchor.endsWith('right') ? x - layout.maxWidth : x;
                     expect(left).toBeGreaterThanOrEqual(0);
                     expect(left + layout.maxWidth).toBeLessThanOrEqual(width);
-                    expect(layout.contentMaxHeight + 30).toBeLessThanOrEqual(667 / 2);
+                    expect(layout.contentMaxHeight + 50).toBeLessThanOrEqual(667 / 2);
                 }
     });
     it('matches the reviewed eight continent plan without broadening regional138 or other records', () => {
@@ -176,5 +183,17 @@ describe('14001 world facilities public contracts', () => {
         expect(dom.textContent).toContain('approach depth are unverified');
         expect(dom.querySelector('a')?.href).toBe('https://www.openstreetmap.org/way/99');
         expect(dom.querySelector('a')?.style.minHeight).toBe('44px');
+    });
+    it('offers the supplied review action only for an explicitly mapped marina, including a combined facility', () => {
+        const review = vi.fn(),
+            status = { state: 'ready' as const, count: 1, partial: false, cachedOnly: false };
+        expect(facilityPopupContent(point('fuel'), status, review).querySelector('button')).toBeNull();
+        const combined = { ...point('fuel'), facilityKinds: ['fuel', 'marina'] as FacilityKind[] };
+        const dom = facilityPopupContent(combined, status, review),
+            button = dom.querySelector('button')!;
+        expect(button.textContent).toBe('Skipper notes');
+        expect(button.style.minHeight).toBe('44px');
+        button.click();
+        expect(review).toHaveBeenCalledOnce();
     });
 });

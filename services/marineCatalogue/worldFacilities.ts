@@ -18,6 +18,10 @@ export interface WorldFacilitiesStatus {
     coverage?: string;
 }
 export const WORLD_FACILITIES_NOTICE = 'Community data, may be incomplete.';
+/** Same source position, in the rendered world copy nearest the actual click. */
+export function facilityDisplayLongitude(longitude: number, nearLongitude: number): number {
+    return longitude + 360 * Math.round((nearLongitude - longitude) / 360);
+}
 /** Put the popup on the roomier side of the actual marker, retaining its exact arrow position. */
 export function facilityPopupLayout(point: { x: number; y: number }, bounds: { width: number; height: number }) {
     const right = point.x >= bounds.width / 2,
@@ -31,7 +35,7 @@ export function facilityPopupLayout(point: { x: number; y: number }, bounds: { w
               ? ('top-right' as const)
               : ('top-left' as const),
         maxWidth: Math.max(1, Math.min(280, (right ? point.x : bounds.width - point.x) - 16)),
-        contentMaxHeight: Math.max(1, Math.min(300, bounds.height / 2 - 30)),
+        contentMaxHeight: Math.max(1, Math.min(280, bounds.height / 2 - 50)),
     };
 }
 export function facilityDistanceNM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -102,7 +106,11 @@ export function worldFacilitiesSummary(status: WorldFacilitiesStatus, now = Date
     return `${status.count} facility references within 50 NM. Oldest source ${date}${Number.isFinite(at) && now - at > 45 * 86400000 ? ' (older than the monthly update interval)' : ''}. ${status.cachedOnly ? 'Saved data; downloads paused offline or in Satellite Mode. ' : ''}${status.partial ? 'Partial area: a load or display limit was reached. ' : ''}${status.count === 0 ? 'No mapped facilities in the loaded area; absence does not establish that none exist. ' : ''}${WORLD_FACILITIES_NOTICE}`;
 }
 /** DOM construction avoids HTML interpolation from community names, aliases or access tags. */
-export function facilityPopupContent(place: MarinePlace, status: WorldFacilitiesStatus): HTMLElement {
+export function facilityPopupContent(
+    place: MarinePlace,
+    status: WorldFacilitiesStatus,
+    onMarinaReview?: () => void,
+): HTMLElement {
     const root = document.createElement('div');
     root.className = 'world-facility-popup';
     Object.assign(root.style, {
@@ -116,6 +124,20 @@ export function facilityPopupContent(place: MarinePlace, status: WorldFacilities
     const title = document.createElement('strong');
     title.textContent = place.name;
     root.append(title);
+    if (onMarinaReview && place.facilityKinds?.includes('marina')) {
+        const reviews = document.createElement('button');
+        reviews.type = 'button';
+        reviews.textContent = 'Skipper notes';
+        Object.assign(reviews.style, {
+            display: 'block',
+            minHeight: '44px',
+            minWidth: '44px',
+            color: '#075985',
+            textDecoration: 'underline',
+        });
+        reviews.onclick = onMarinaReview;
+        root.append(reviews);
+    }
     const line = (text: string) => {
         const p = document.createElement('p');
         p.textContent = text;

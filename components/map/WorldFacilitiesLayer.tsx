@@ -11,6 +11,7 @@ import { satelliteModeActive } from '../../services/networkPolicy';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
     facilityDistanceNM,
+    facilityDisplayLongitude,
     facilityPopupContent,
     facilityPopupLayout,
     selectWorldFacilities,
@@ -18,6 +19,7 @@ import {
 } from '../../services/marineCatalogue/worldFacilities';
 import type { MarinePlace } from '../../services/marineCatalogue/schema';
 import { openExternalUrl } from '../../services/externalLinks';
+import { openPlaceReviews } from '../../services/community/PlaceReviewsService';
 
 const SOURCE = 'thalassa-world-facilities',
     LAYER = 'thalassa-world-facilities-points';
@@ -163,11 +165,12 @@ export default function WorldFacilitiesLayer({ map, mapReady, onStatus }: WorldF
                 place = typeof id === 'string' ? records.get(id) : undefined;
             if (!place) return;
             popup?.remove();
-            const content = facilityPopupContent(place, status);
-            const layout = facilityPopupLayout(
-                map.project([place.lon, place.lat]),
-                map.getContainer().getBoundingClientRect(),
-            );
+            const content = facilityPopupContent(place, status, () => {
+                closePopup();
+                openPlaceReviews({ id: place.id, name: place.name, kind: 'marina' });
+            });
+            const position: [number, number] = [facilityDisplayLongitude(place.lon, e.lngLat.lng), place.lat];
+            const layout = facilityPopupLayout(map.project(position), map.getContainer().getBoundingClientRect());
             content.style.width = `${Math.max(1, layout.maxWidth - 20)}px`;
             content.style.maxHeight = `${layout.contentMaxHeight}px`;
             content.addEventListener('click', (event) => {
@@ -187,7 +190,7 @@ export default function WorldFacilitiesLayer({ map, mapReady, onStatus }: WorldF
             // so opening the popup does not scroll its title out of the bounded body.
             content.prepend(close);
             popup = new mapboxgl.Popup({ closeButton: false, maxWidth: `${layout.maxWidth}px`, anchor: layout.anchor })
-                .setLngLat([place.lon, place.lat])
+                .setLngLat(position)
                 .setDOMContent(content)
                 .addTo(map);
             // This explicitly opened detail must sit above the closed credits strip.

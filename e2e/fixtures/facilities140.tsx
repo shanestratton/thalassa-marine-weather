@@ -11,8 +11,10 @@ import type { WorldFacilitiesStatus } from '../../services/marineCatalogue/world
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { clearCatalogueCache } from '../../services/marineCatalogue/cache';
+import { REVIEWS_EVENT } from '../../services/community/PlaceReviewsService';
 if (!import.meta.env.DEV) throw Error('Development-only fictional fixture.');
 const Layer = React.lazy(() => import('../../components/map/WorldFacilitiesLayer'));
+const ReviewsHost = React.lazy(() => import('../../components/community/PlaceReviewsHost'));
 mapboxgl.accessToken = 'pk.synthetic-facilities-test';
 declare global {
     interface Window {
@@ -26,6 +28,7 @@ declare global {
             clear: () => Promise<void>;
             zoom: (v: number) => void;
             style: () => void;
+            reviews: () => unknown[];
         };
     }
 }
@@ -52,6 +55,9 @@ function Fixture() {
         });
         map.current = m;
         m.on('load', () => setReady(true));
+        const reviewTargets: unknown[] = [];
+        const reviewOpened = (event: Event) => reviewTargets.push((event as CustomEvent).detail);
+        window.addEventListener(REVIEWS_EVENT, reviewOpened);
         window.__facilitiesFixture = {
             ready: () => m.loaded(),
             count: () =>
@@ -73,8 +79,12 @@ function Fixture() {
             clear: clearCatalogueCache,
             zoom: (zoom) => m.jumpTo({ zoom }),
             style: () => m.setStyle(style),
+            reviews: () => reviewTargets,
         };
-        return () => m.remove();
+        return () => {
+            window.removeEventListener(REVIEWS_EVENT, reviewOpened);
+            m.remove();
+        };
     }, []);
     return (
         <main className="fixed inset-0 overflow-hidden bg-slate-950 text-white">
@@ -107,6 +117,9 @@ function Fixture() {
                 onToggleSatellite={() => {}}
                 facilities={visible && active ? status : null}
             />
+            <React.Suspense fallback={null}>
+                <ReviewsHost />
+            </React.Suspense>
         </main>
     );
 }
