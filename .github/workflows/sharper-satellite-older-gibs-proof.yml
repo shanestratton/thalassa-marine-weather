@@ -1,62 +1,56 @@
 name: Build141 bounded older-advertised GIBS diagnostic
 on:
-    workflow_dispatch:
-        inputs:
-            source_sha:
-                description: Exact reviewed source commit (40 hex characters)
-                required: true
-                type: string
-            allow_source_reads:
-                description: After review only; only three GIBS products and two older advertised256px PNGs each, no activation/publication
-                required: true
-                default: false
-                type: boolean
+  push:
+    branches:
+      - codex/build-141-satellite-older-gibs-proof
+    paths:
+      - .github/workflows/sharper-satellite-older-gibs-proof.yml
 permissions:
-    contents: read
+  contents: read
 jobs:
-    older-gibs:
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && inputs.allow_source_reads == true
-        runs-on: ubuntu-24.04
-        timeout-minutes: 20
-        env:
-            SOURCE_SHA: ${{ inputs.source_sha }}
-            NODE_OPTIONS: --max-old-space-size=512
-        steps:
-            - name: Require exact source
-              shell: bash
-              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ inputs.source_sha }}
-                  persist-credentials: false
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-              with:
-                  node-version: 24
-            - name: Install existing locked source-proof tools without lifecycle scripts
-              shell: bash
-              run: npm ci --ignore-scripts --no-audit --no-fund
-            - name: Record exact source and tools
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-                  mkdir "$RUNNER_TEMP/satellite141-older-control"
-                  git rev-parse HEAD > "$RUNNER_TEMP/satellite141-older-control/SOURCE_SHA.txt"
-                  node --version > "$RUNNER_TEMP/satellite141-older-control/NODE_VERSION.txt"
-                  npm ls --depth=0 tsx fast-png > "$RUNNER_TEMP/satellite141-older-control/TOOLS.txt"
-                  sha256sum scripts/prove-sharper-satellite-source.mjs .github/workflows/sharper-satellite-source-proof.yml services/weather/satelliteViewContract.ts services/weather/satelliteViewBytes.ts services/weather/api/cmemsGridTrust.ts services/weather/api/marineManifestContract.ts services/native/apiBase.ts utils/createLogger.ts api/satellite-view.ts tests/SatelliteSourceProof141.test.ts docs/build141/sharper-satellite-source-proof.md .github/workflows/sharper-satellite-older-gibs-proof.yml docs/build141/sharper-satellite-older-gibs-proof.md tests/fixtures/satellite141/first-observation-transparent.png tests/fixtures/satellite141/first-observation-opaque-uniform.png package.json package-lock.json > "$RUNNER_TEMP/satellite141-older-control/SHA256SUMS"
-            - name: One reviewed sequential bounded real-provider observation
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  node --import tsx scripts/prove-sharper-satellite-source.mjs --read-reviewed-older-gibs "$RUNNER_TEMP/satellite141-older-source" 2>&1 | tee "$RUNNER_TEMP/satellite141-older-control/PROOF.txt"
-            - name: Preserve actual success or failure
-              if: always()
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-              with:
-                  name: build141-older-advertised-gibs-proof
-                  path: |
-                      ${{ runner.temp }}/satellite141-older-source/
-                      ${{ runner.temp }}/satellite141-older-control/
-                  retention-days: 7
-                  if-no-files-found: error
+  older-gibs:
+    if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: 50f0b014af9d039ab63fe632deceee7c79fa9ebb
+      NODE_OPTIONS: --max-old-space-size=512
+    steps:
+      - name: Require exact source
+        shell: bash
+        run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 50f0b014af9d039ab63fe632deceee7c79fa9ebb
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Install existing locked source-proof tools without lifecycle scripts
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Record exact source and tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir "$RUNNER_TEMP/satellite141-older-control"
+          git rev-parse HEAD > "$RUNNER_TEMP/satellite141-older-control/SOURCE_SHA.txt"
+          node --version > "$RUNNER_TEMP/satellite141-older-control/NODE_VERSION.txt"
+          npm ls --depth=0 tsx fast-png > "$RUNNER_TEMP/satellite141-older-control/TOOLS.txt"
+          sha256sum scripts/prove-sharper-satellite-source.mjs .github/workflows/sharper-satellite-source-proof.yml services/weather/satelliteViewContract.ts services/weather/satelliteViewBytes.ts services/weather/api/cmemsGridTrust.ts services/weather/api/marineManifestContract.ts services/native/apiBase.ts utils/createLogger.ts api/satellite-view.ts tests/SatelliteSourceProof141.test.ts docs/build141/sharper-satellite-source-proof.md .github/workflows/sharper-satellite-older-gibs-proof.yml docs/build141/sharper-satellite-older-gibs-proof.md tests/fixtures/satellite141/first-observation-transparent.png tests/fixtures/satellite141/first-observation-opaque-uniform.png package.json package-lock.json > "$RUNNER_TEMP/satellite141-older-control/SHA256SUMS"
+      - name: One reviewed sequential bounded real-provider observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/prove-sharper-satellite-source.mjs --read-reviewed-older-gibs "$RUNNER_TEMP/satellite141-older-source" 2>&1 | tee "$RUNNER_TEMP/satellite141-older-control/PROOF.txt"
+      - name: Preserve actual success or failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build141-older-advertised-gibs-proof
+          path: |
+            ${{ runner.temp }}/satellite141-older-source/
+            ${{ runner.temp }}/satellite141-older-control/
+          retention-days: 7
+          if-no-files-found: error
