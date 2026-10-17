@@ -10,11 +10,35 @@ import {
     inside,
     sha256,
     update8NativeBuild,
+    update8RollbackBackup,
+    UPDATE8_NUMBER,
     verifyArchiveInventory,
     verifyBundle,
 } from './update8.mjs';
 
 const helpers = ['stage-update8.mjs', 'install-update8.mjs', 'rollback-update8.mjs', 'update8.mjs'];
+test('update8 admits its own actual backup record and refuses another update, missing code and escaped paths', (t) => {
+    assert.equal(UPDATE8_NUMBER, 8);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'update8-record-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const backup = path.join(root, 'backups', 'prior');
+    fs.mkdirSync(path.join(backup, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(backup, 'dist/server.js'), '// Synthetic prior server\n');
+    const record = { schema: 1, update: 8, sourceCommit: 'a'.repeat(40), backup, vault: false };
+    assert.equal(update8RollbackBackup(record, path.join(root, 'backups')), backup);
+    for (const patch of [
+        { update: 7 },
+        { update: 9 },
+        { schema: 2 },
+        { backup: root },
+        { backup: path.join(root, 'outside') },
+    ])
+        assert.throws(() => update8RollbackBackup({ ...record, ...patch }, path.join(root, 'backups')));
+    for (const value of [null, {}, { ...record, backup: null }])
+        assert.throws(() => update8RollbackBackup(value, path.join(root, 'backups')));
+    fs.rmSync(path.join(backup, 'dist/server.js'));
+    assert.throws(() => update8RollbackBackup(record, path.join(root, 'backups')));
+});
 const required = [
     'server',
     'polarLearner',
