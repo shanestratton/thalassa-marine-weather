@@ -1,0 +1,10 @@
+{
+    "synthetic": true,
+    "builderSourceSha256": "11a2fcb6c9fd99f17d7783589436e887dd800b024c439f615b8464f4b2ad0601",
+    "now": 1792224000,
+    "resources": {
+        "generations/a6c4c07e4a7e0bfae9fa21aef0aba0d45d8b8ba50a2c9562aa97ce93bb5f1cd4/index.json": "{\"attribution\":\"Contains modified EUMETSAT OSI SAF ASCAT Coastal information; KNMI\",\"copyright\":\"EUMETSAT 2026\",\"coverage\":\"actual-swaths-with-gaps\",\"direction\":\"meteorological-from-degrees-true\",\"displayCellDegrees\":0.25,\"effectiveResolutionKm\":25,\"expiresAt\":1792227600,\"forecastSkillBasis\":\"separate-satellite-agreement; no buoy-truth adoption\",\"generatedAt\":1792224000,\"kind\":\"ascat-coastal\",\"licence\":\"CC-BY-4.0\",\"licenceUrl\":\"https://creativecommons.org/licenses/by/4.0/\",\"observedHistorySeconds\":86400,\"qc\":\"manual1.17-reject-all-except-redundancy-and-speed-notices\",\"samplingKm\":12.5,\"schema\":1,\"sources\":[{\"dataset\":\"osisaf_ascat_c_coa\",\"doi\":\"10.15770/EUM_SAF_OSI_NRT_2019\",\"filename\":\"ascat_20261017_070000_metopc_40001_eps_o_coa_3301_ovw.l2.nc\",\"observedEnd\":1792221600,\"observedStart\":1792221000,\"orbitEnd\":1792222200,\"orbitStart\":1792220400,\"processedAt\":1792222800,\"rawBytes\":128,\"rawSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":\"nrt\"}],\"tiles\":{\"66-12\":{\"bytes\":134,\"observedEnd\":1792221600,\"observedStart\":1792221000,\"rows\":2,\"sha256\":\"7bcaffb13f2c96db8b753d817df35e921ad2b5e1d1e7779e58a493329c15e154\"}},\"unit\":\"m s-1\",\"windBasis\":\"10m-stress-equivalent\"}",
+        "latest.json": "{\"expiresAt\":1792227600,\"generatedAt\":1792224000,\"generation\":\"a6c4c07e4a7e0bfae9fa21aef0aba0d45d8b8ba50a2c9562aa97ce93bb5f1cd4\",\"indexBytes\":1212,\"indexSha256\":\"a6c4c07e4a7e0bfae9fa21aef0aba0d45d8b8ba50a2c9562aa97ce93bb5f1cd4\",\"kind\":\"ascat-coastal\",\"schema\":1}",
+        "generations/a6c4c07e4a7e0bfae9fa21aef0aba0d45d8b8ba50a2c9562aa97ce93bb5f1cd4/tile-66-12.json": "{\"kind\":\"ascat-coastal\",\"rows\":[[154.0,-27.0,1792221000,12.0,135.0,0],[154.3,-27.0,1792221600,0.0,180.0,0]],\"schema\":1,\"tile\":\"66-12\"}"
+    }
+}

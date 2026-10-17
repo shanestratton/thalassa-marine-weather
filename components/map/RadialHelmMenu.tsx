@@ -90,6 +90,8 @@ export interface RadialHelmMenuProps {
         onToggleReceiverCoverage?: () => void;
         measuredBuoysVisible?: boolean;
         onToggleMeasuredBuoys?: () => void;
+        ascatVisible?: boolean;
+        onToggleAscat?: () => void;
         cycloneVisible?: boolean;
         onToggleCyclones?: () => void;
         squallVisible?: boolean;
@@ -628,6 +630,16 @@ function buildCategories(
                     icon: <WindIcon />,
                     layerKey: 'wind',
                 },
+                ...(tacticalState?.onToggleAscat
+                    ? [
+                          {
+                              id: 'ascat',
+                              label: 'Satellite wind',
+                              icon: <WindIcon />,
+                              action: tacticalState.onToggleAscat,
+                          },
+                      ]
+                    : []),
                 // The old "Flow" entry (layerKey: 'velocity') was a duplicate —
                 // both it and 'wind' pointed at the same particle engine +
                 // GRIB fetch. Removed from the menu for clarity; the
@@ -979,6 +991,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
             if (tacticalState?.receiverCoverageVisible) tacticalState.onToggleReceiverCoverage?.();
             if (tacticalState?.measuredBuoysVisible) tacticalState.onToggleMeasuredBuoys?.();
+            if (tacticalState?.ascatVisible) tacticalState.onToggleAscat?.();
             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
             if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
@@ -1125,6 +1138,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
             if (item.id === 'receiver-coverage') return tacticalState?.receiverCoverageVisible ?? false;
             if (item.id === 'measured-buoys') return tacticalState?.measuredBuoysVisible ?? false;
+            if (item.id === 'ascat') return tacticalState?.ascatVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
             if (item.id === 'lightning') return tacticalState?.lightningVisible ?? false;
@@ -1156,6 +1170,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.aisVisible) count++;
         if (tacticalState?.receiverCoverageVisible) count++;
         if (tacticalState?.measuredBuoysVisible) count++;
+        if (tacticalState?.ascatVisible) count++;
         if (tacticalState?.cycloneVisible) count++;
         if (tacticalState?.squallVisible) count++;
         if (tacticalState?.lightningVisible) count++;
