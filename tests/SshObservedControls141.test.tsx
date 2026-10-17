@@ -6,12 +6,15 @@ import type { ScalarOverlayOptions } from '../components/map/useScalarGridOverla
 import { RadialHelmMenu } from '../components/map/RadialHelmMenu';
 import SshObservedLayer from '../components/map/SshObservedLayer';
 
-const owned = vi.hoisted(() => ({ load: vi.fn(), paint: vi.fn() }));
+const owned = vi.hoisted(() => ({ load: vi.fn(), paint: vi.fn(), arrows: vi.fn() }));
 vi.mock('../components/map/useSshObservation', () => ({
     useSshObservation: (...args: unknown[]) => owned.load(...args),
 }));
 vi.mock('../components/map/useScalarGridOverlay', () => ({
     useScalarGridOverlay: (...args: unknown[]) => owned.paint(...args),
+}));
+vi.mock('../components/map/useOwnedGeoJsonOverlay', () => ({
+    useOwnedGeoJsonOverlay: (...args: unknown[]) => owned.arrows(...args),
 }));
 const current = () => true;
 function observation(): SshObservation {
@@ -41,6 +44,9 @@ beforeEach(() => {
     owned.load.mockReturnValue({ phase: 'ready', data: observation(), sourceCurrent: current });
     owned.paint.mockImplementation((_map: unknown, _ready: boolean, options: ScalarOverlayOptions) =>
         !options.enabled ? 'off' : options.grid && options.sourceCurrent() ? 'ready' : 'unavailable',
+    );
+    owned.arrows.mockImplementation((_map: unknown, _ready: boolean, options: { enabled: boolean; owner: unknown }) =>
+        !options.enabled ? 'off' : options.owner ? 'ready' : 'unavailable',
     );
 });
 afterEach(cleanup);
@@ -102,6 +108,15 @@ it('selects native metre planes from the same observed cohort and adds no DOM ro
     const view = render(<SshObservedLayer mapRef={{ current: null }} mapReady active mode="sla" onCredit={onCredit} />);
     expect(view.container).toBeEmptyDOMElement();
     expect(owned.paint.mock.calls.at(-1)![2]).toMatchObject({ grid: data.sla, revision: 'original-day:sla' });
+    expect(owned.arrows.mock.calls.at(-1)![2]).toMatchObject({
+        namespace: 'observed-ssh-arrows',
+        owner: data,
+        revision: data.generation,
+        maxFeatures: 96,
+        maxVertices: 576,
+        refreshOnMoveEnd: true,
+        sourceCurrent: current,
+    });
     expect(onCredit.mock.calls.at(-1)![0]).toMatchObject({
         warning: false,
         text: expect.stringContaining('2026-10-16 UTC'),
@@ -131,4 +146,24 @@ it('reports an unavailable dated observation without passing an old grid to the 
         warning: true,
         text: expect.stringContaining('Original map date unavailable'),
     });
+});
+it('keeps the original source credit when only old geostrophic arrows cannot be retired', () => {
+    owned.arrows.mockReturnValue('stuck-visible');
+    const onCredit = vi.fn();
+    render(<SshObservedLayer mapRef={{ current: null }} mapReady active={false} mode="off" onCredit={onCredit} />);
+    expect(onCredit.mock.calls.at(-1)![0]).toMatchObject({
+        warning: true,
+        text: expect.stringContaining('prior ocean observation layer may still be visible'),
+    });
+});
+it('requires actual current viewport bounds before creating geostrophic geometry', () => {
+    const onCredit = vi.fn();
+    render(<SshObservedLayer mapRef={{ current: null }} mapReady active mode="sla" onCredit={onCredit} />);
+    const create = owned.arrows.mock.calls.at(-1)![2].createData;
+    expect(() => create({ getBounds: () => undefined })).toThrow('bounds unavailable');
+    const geometry = create({
+        getBounds: () => ({ getWest: () => 150, getSouth: () => -30, getEast: () => 160, getNorth: () => -20 }),
+    });
+    expect(geometry.type).toBe('FeatureCollection');
+    expect(geometry.features).toHaveLength(0); // The actual zero-current field has no fabricated arrows.
 });
