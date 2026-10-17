@@ -1,0 +1,65 @@
+name: Build141 isolated Pi9 staging proof
+on:
+    workflow_dispatch:
+        inputs:
+            source_sha:
+                description: Exact reviewed source commit
+                required: true
+                type: string
+permissions:
+    contents: read
+concurrency:
+    group: pi9-isolated-${{ github.run_id }}
+    cancel-in-progress: false
+jobs:
+    stage:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 6
+        env:
+            SOURCE_SHA: ${{ inputs.source_sha }}
+        steps:
+            - name: Require exact source
+              shell: bash
+              run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.source_sha }}
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 22
+            - name: Preserve exact inputs without installing any dependency
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+                  mkdir -p "$RUNNER_TEMP/pi9-proof"
+                  git rev-parse HEAD > "$RUNNER_TEMP/pi9-proof/SOURCE_SHA.txt"
+                  node --version > "$RUNNER_TEMP/pi9-proof/NODE_VERSION.txt"
+                  git ls-files pi-cache .github/workflows/pi9-stage-141.yml ios/App/App.xcodeproj/project.pbxproj | LC_ALL=C sort | xargs sha256sum > "$RUNNER_TEMP/pi9-proof/SHA256SUMS"
+            - name: Real Linux archives and guarded plans under observed limits and private networking
+              timeout-minutes: 3
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  node_path=$(command -v node)
+                  sudo systemd-run --unit=pi9-staging-proof --wait --pipe --collect \
+                    -p MemoryMax=512M -p MemorySwapMax=0 -p TasksMax=96 -p CPUQuota=100% \
+                    -p RuntimeMaxSec=120 -p TimeoutStopSec=5 -p KillMode=control-group -p SendSIGKILL=yes \
+                    -p PrivateNetwork=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= \
+                    -p ProtectHome=read-only -p ProtectSystem=strict -p PrivateTmp=yes \
+                    -p User="$(id -un)" -p WorkingDirectory="$GITHUB_WORKSPACE/pi-cache" \
+                    /usr/bin/env -i PATH="$(dirname "$node_path"):/usr/bin:/bin" \
+                    THALASSA_DISPOSABLE_PI9_TEST=1 "$node_path" scripts/pi9-linux-proof.mjs \
+                    2>&1 | tee "$RUNNER_TEMP/pi9-proof/BOUNDED_STAGING.txt"
+                  if systemctl is-active --quiet pi9-staging-proof.service; then exit 1; fi
+                  printf '0\n' > "$RUNNER_TEMP/pi9-proof/PROCESS_EXIT.txt"
+            - name: Preserve source and bounded test evidence only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build141-pi9-staging-proof
+                  path: ${{ runner.temp }}/pi9-proof/
+                  retention-days: 7
+                  if-no-files-found: error
