@@ -19,13 +19,15 @@ export function validatePrivateCatch(
     if (data.species != null && typeof data.species !== 'string') return { ok: false, error: 'Enter a species name.' };
     const species = typeof data.species === 'string' ? data.species.trim() || null : null;
     if (species && species.length > 120) return { ok: false, error: 'Use at most 120 characters for the species.' };
-    let length = data.length_cm == null ? null : data.length_cm;
-    if (length !== null) {
-        if (typeof length !== 'number' || !Number.isFinite(length))
+    const rawLength = data.length_cm;
+    let length: number | null = null;
+    if (rawLength != null) {
+        if (typeof rawLength !== 'number' || !Number.isFinite(rawLength))
             return { ok: false, error: 'Enter a length in centimetres.' };
-        length = Math.round(length * 10) / 10;
-        if (!(length > 0 && length <= 2000))
+        const rounded = Math.round(rawLength * 10) / 10;
+        if (!(rounded > 0 && rounded <= 2000))
             return { ok: false, error: 'Length must be greater than zero and at most 2000 cm.' };
+        length = rounded;
     }
     const disposition = data.disposition ?? null;
     if (disposition !== null && disposition !== 'kept' && disposition !== 'released')
@@ -35,7 +37,7 @@ export function validatePrivateCatch(
         value:
             species === null && length === null && disposition === null
                 ? null
-                : { species, length_cm: length as number | null, disposition },
+                : { species, length_cm: length, disposition },
     };
 }
 
