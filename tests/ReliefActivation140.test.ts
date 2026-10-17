@@ -99,6 +99,19 @@ function mapFixture() {
     };
 }
 describe('published AU/NZ illustrative relief', () => {
+    it('independently qualifies fixed Log/Sightings scenes, including explicit regional absence', () => {
+        const solent: [number, number, number, number] = [-1.6, 50.65, -1.2, 50.85];
+        const fiji: [number, number, number, number] = [179.7, -17.3, 180.4, -17];
+        const whitsundays: [number, number, number, number] = [148.7, -20.26, 149, -20.2];
+        for (let z = 0; z <= 16; z++) {
+            for (const scene of [solent, fiji]) {
+                expect(reliefViewportCovered(region('au250'), scene, z)).toBe(false);
+                expect(reliefViewportCovered(region('nz'), scene, z)).toBe(false);
+            }
+            expect(reliefViewportCovered(region('nz'), whitsundays, z)).toBe(false);
+        }
+        for (const z of [8, 9, 10]) expect(reliefViewportCovered(region('au250'), whitsundays, z)).toBe(true);
+    });
     it('omits corrupt bundled sparse metadata rather than accidentally admitting a dense region', async () => {
         vi.resetModules();
         vi.doMock('../data/relief/au250-v2.json', () => ({
