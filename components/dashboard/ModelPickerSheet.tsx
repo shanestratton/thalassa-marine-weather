@@ -10,7 +10,7 @@
  * Follows the MetricPinSheet portal idiom (bottom-anchored, Esc + body
  * scroll lock, backdrop dismiss).
  */
-import React, { useEffect, useId, useRef } from 'react';
+import React, { lazy, Suspense, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
@@ -27,6 +27,7 @@ import {
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
 import { PartlyCloudyIcon, XIcon } from '../Icons';
+const NearbyModelSkill = lazy(() => import('./NearbyModelSkill'));
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -55,6 +56,8 @@ interface ModelPickerSheetProps {
      */
     publishedModels?: string[];
     samplingDescription?: string;
+    /** Used only locally to find nearby public measurement stations. */
+    coordinates?: { lat: number; lon: number };
 }
 
 /** Names the credit line uses where 'provider label' would read oddly. */
@@ -165,6 +168,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     spitfireAvailable = false,
     spitfireLocationName,
     samplingDescription,
+    coordinates,
 }) => {
     const portalTarget = usePanePortalTarget();
     const titleId = useId();
@@ -350,6 +354,9 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             {atmosphericRow(AUTO_MODEL, 'Auto', 'Blend of sources — no single model chosen')}
                         </>
                     )}
+                    <Suspense fallback={<p className="p-3 text-xs text-slate-400">Loading station skill…</p>}>
+                        <NearbyModelSkill coordinates={coordinates} />
+                    </Suspense>
                 </div>
 
                 {/* Footer */}

@@ -1,0 +1,1 @@
+{"expiresAt":1792233003,"generatedAt":1792211403,"generation":"8ca0d0c6ec4667bf4ae04c3a73c08c29ee4d728c9ed9bfb565c4d67a5b45b25e","indexBytes":10424,"indexPath":"generations/8ca0d0c6ec4667bf4ae04c3a73c08c29ee4d728c9ed9bfb565c4d67a5b45b25e/index.json","indexSha256":"8ca0d0c6ec4667bf4ae04c3a73c08c29ee4d728c9ed9bfb565c4d67a5b45b25e","kind":"skill","schema":1}
